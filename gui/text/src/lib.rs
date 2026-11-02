@@ -24,6 +24,8 @@ pub trait TextLayoutEngine: 'static {
 #[derive(Clone, Copy, Debug)]
 pub struct Text<'a> {
     pub text: &'a str,
+    /// base style for the text block
+    pub style: TextStyle<'a>,
     pub spans: &'a [TextSpan<'a>],
 }
 

@@ -609,6 +609,7 @@ mod tests {
         };
         let (mut shape, _) = backend.shape(blit_text::Text {
             text,
+            style: regular_style,
             spans: &[
                 blit_text::TextSpan {
                     range: 0..7,
@@ -674,6 +675,7 @@ mod tests {
         };
         let (mut shape, _) = backend.shape(blit_text::Text {
             text: "one two three",
+            style,
             spans: &[blit_text::TextSpan {
                 range: 0.."one two three".len(),
                 style,

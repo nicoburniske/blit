@@ -106,17 +106,15 @@ struct ConfiguredFont {
 
 struct SourceKey {
     text: Box<str>,
-    spans: CachedSpans,
+    style: CachedStyle,
+    // styled sections of rich text with base style defaults already applied
+    // empty means plain text using only the base style
+    spans: Box<[CachedSpan]>,
 }
 
 struct CachedSource {
     id: u64,
     shape: Option<usize>,
-}
-
-enum CachedSpans {
-    One(CachedStyle),
-    Many(Box<[CachedSpan]>),
 }
 
 struct CachedSpan {
@@ -198,37 +196,40 @@ impl<'a> SourceQuery<'a> {
 
 impl Hash for SourceQuery<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        hash_style(self.style, state);
         for span in self.spans {
-            hash_span(&self.text[span.range.clone()], self.resolve(span), state);
+            self.text[span.range.clone()].hash(state);
+            hash_style(self.resolve(span), state);
         }
     }
 }
 
 impl Equivalent<SourceKey> for SourceQuery<'_> {
     fn equivalent(&self, key: &SourceKey) -> bool {
-        if key.text.as_ref() != self.text {
+        if key.text.as_ref() != self.text || key.style.as_style() != self.style {
             return false;
         }
-        match &key.spans {
-            CachedSpans::One(style) => self.spans.len() == 1 && style.as_style() == self.resolve(&self.spans[0]),
-            CachedSpans::Many(spans) => {
-                spans.len() == self.spans.len()
-                    && spans.iter().zip(self.spans).all(|(cached_span, span)| {
-                        cached_span.range == span.range && cached_span.style.as_style() == self.resolve(span)
-                    })
-            }
+        if key.spans.is_empty() {
+            self.spans.len() == 1 && self.resolve(&self.spans[0]) == self.style
+        } else {
+            key.spans.len() == self.spans.len()
+                && key.spans.iter().zip(self.spans).all(|(cached_span, span)| {
+                    cached_span.range == span.range && cached_span.style.as_style() == self.resolve(span)
+                })
         }
     }
 }
 
 impl Hash for SourceKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        match &self.spans {
-            CachedSpans::One(style) => hash_span(&self.text, style.as_style(), state),
-            CachedSpans::Many(spans) => {
-                for span in spans {
-                    hash_span(&self.text[span.range.clone()], span.style.as_style(), state);
-                }
+        hash_style(self.style.as_style(), state);
+        if self.spans.is_empty() {
+            self.text.hash(state);
+            hash_style(self.style.as_style(), state);
+        } else {
+            for span in &self.spans {
+                self.text[span.range.clone()].hash(state);
+                hash_style(span.style.as_style(), state);
             }
         }
     }
@@ -359,13 +360,14 @@ struct SourceScale;
 
 impl Scale<SourceKey, CachedSource> for SourceScale {
     fn weight(&self, key: &SourceKey, source: &CachedSource) -> usize {
-        let spans = match &key.spans {
-            CachedSpans::One(style) => style.heap_weight(),
-            CachedSpans::Many(spans) => {
-                spans.len() * size_of::<CachedSpan>() + spans.iter().map(|span| span.style.heap_weight()).sum::<usize>()
-            }
-        };
-        size_of::<SourceKey>() + size_of::<CachedSource>() + key.text.len() + spans + source.shape.unwrap_or(0)
+        let spans = key.spans.len() * size_of::<CachedSpan>()
+            + key.spans.iter().map(|span| span.style.heap_weight()).sum::<usize>();
+        size_of::<SourceKey>()
+            + size_of::<CachedSource>()
+            + key.text.len()
+            + key.style.heap_weight()
+            + spans
+            + source.shape.unwrap_or(0)
     }
 }
 
@@ -471,8 +473,8 @@ impl TextSystem {
         let mut inserted = false;
         let (_, source_index) = self.sources.get_or_insert(query, |query| {
             inserted = true;
-            let spans = if query.spans.len() == 1 {
-                CachedSpans::One(CachedStyle::new(query.resolve(&query.spans[0])))
+            let spans = if query.spans.len() == 1 && query.resolve(&query.spans[0]) == query.style {
+                Box::default()
             } else {
                 let mut resolved = Vec::with_capacity(query.spans.len());
                 for span in query.spans {
@@ -481,11 +483,12 @@ impl TextSystem {
                         style: CachedStyle::new(query.resolve(span)),
                     });
                 }
-                CachedSpans::Many(resolved.into_boxed_slice())
+                resolved.into_boxed_slice()
             };
             (
                 SourceKey {
                     text: query.text.into(),
+                    style: CachedStyle::new(query.style),
                     spans,
                 },
                 CachedSource {
@@ -660,29 +663,28 @@ impl TextSystem {
             let cached = self.sources.get_key_index(index);
             let one;
             let many;
-            let spans = match &cached.spans {
-                CachedSpans::One(style) => {
-                    one = blit_text::TextSpan {
-                        range: 0..cached.text.len(),
-                        style: style.as_style(),
-                    };
-                    std::slice::from_ref(&one)
-                }
-                CachedSpans::Many(spans) => {
-                    many = spans
-                        .iter()
-                        .map(|span| blit_text::TextSpan {
-                            range: span.range.clone(),
-                            style: span.style.as_style(),
-                        })
-                        .collect::<Vec<_>>();
-                    &many
-                }
+            let spans = if cached.spans.is_empty() {
+                one = blit_text::TextSpan {
+                    range: 0..cached.text.len(),
+                    style: cached.style.as_style(),
+                };
+                std::slice::from_ref(&one)
+            } else {
+                many = cached
+                    .spans
+                    .iter()
+                    .map(|span| blit_text::TextSpan {
+                        range: span.range.clone(),
+                        style: span.style.as_style(),
+                    })
+                    .collect::<Vec<_>>();
+                many.as_slice()
             };
             let shape = self.engine.shape(
                 index,
                 blit_text::Text {
                     text: &cached.text,
+                    style: cached.style.as_style(),
                     spans,
                 },
             );
@@ -784,8 +786,7 @@ fn placement_offset(placement: Placement, layout: &TextLayout, line: usize) -> L
     }
 }
 
-fn hash_span(text: &str, style: blit_text::TextStyle, state: &mut impl Hasher) {
-    text.hash(state);
+fn hash_style(style: blit_text::TextStyle, state: &mut impl Hasher) {
     style.font.hash(state);
     (if style.size == 0.0 { 0 } else { style.size.to_bits() }).hash(state);
     style.weight.hash(state);

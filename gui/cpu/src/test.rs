@@ -753,13 +753,20 @@ fn text_measurement_and_carets_follow_layout() {
         max_lines: None,
     };
     let unwrapped = gui.measure_text(&request);
-    let mixed = gui.rich_text(
-        "hello world",
-        &[Span::new(0..6), Span::new(6..11).style(SpanStyle::new().size(32.0))],
-        TextStyle::default(),
-    );
+    let spans = [
+        Span::new(0..6).style(SpanStyle::new().size(16.0)),
+        Span::new(6..11).style(SpanStyle::new().size(32.0)),
+    ];
+    let mixed = gui.rich_text("hello world", &spans, TextStyle::default());
     let mixed_size = gui.measure_text(&TextLayoutRequest { text: mixed, ..request });
     assert!(mixed_size.height > unwrapped.height);
+    let larger_base = gui.rich_text("hello world", &spans, TextStyle::new().size(48.0));
+    assert_ne!(mixed, larger_base);
+    let larger_size = gui.measure_text(&TextLayoutRequest {
+        text: larger_base,
+        ..request
+    });
+    assert!((larger_size.height - 48.0 * 1.2).abs() < 0.001);
 
     let wrapped_request = TextLayoutRequest {
         wrap: TextWrap::Word,
@@ -1701,7 +1708,7 @@ fn text_runs_are_keyed_by_content_and_style() {
             gui.rich_text(
                 "same",
                 &[Span::new(0..4).style(SpanStyle::new().settings(settings))],
-                style
+                style.settings(settings)
             ),
             configured
         );

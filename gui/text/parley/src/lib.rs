@@ -36,6 +36,7 @@ pub struct Backend {
 }
 
 pub struct Shape {
+    base: Span,
     spans: Box<[Span]>,
     word: Layout<usize>,
     /// built on first character wrapped layout since break opportunities are fixed at build
@@ -234,50 +235,15 @@ impl blit_text::TextLayoutEngine for Backend {
     }
 
     fn shape(&mut self, text: blit_text::Text<'_>) -> (Shape, usize) {
+        let base = Span::new(0..text.text.len(), text.style);
         let spans = text
             .segments()
-            .map(|(_, range, style)| {
-                let settings = style.settings;
-                // optical size follows css font-optical-sizing unless variations set opsz
-                let optical_size = match settings.optical_size {
-                    OpticalSize::Auto => Some(style.size),
-                    OpticalSize::FontDefault => None,
-                    OpticalSize::Fixed(size) => Some(size),
-                }
-                .filter(|_| !settings.variations.iter().any(|(tag, _)| tag == b"opsz"));
-                Span {
-                    range,
-                    stack: style.font.0 as usize - 1,
-                    size: style.size,
-                    weight: style.weight,
-                    stretch: style.stretch,
-                    style: style.style,
-                    features: settings
-                        .features
-                        .iter()
-                        .map(|(tag, value)| FontFeature {
-                            tag: Tag::new(tag),
-                            value: (*value).try_into().unwrap_or(u16::MAX),
-                        })
-                        .collect(),
-                    variations: settings
-                        .variations
-                        .iter()
-                        .map(|(tag, value)| (tag, *value))
-                        .chain(optical_size.map(|size| (b"opsz", size)))
-                        .map(|(tag, value)| FontVariation {
-                            tag: Tag::new(tag),
-                            value,
-                        })
-                        .collect(),
-                    language: settings.language.and_then(|language| Language::parse(language).ok()),
-                }
-            })
+            .map(|(_, range, style)| Span::new(range, style))
             .collect::<Box<[_]>>();
-        let word = build(self, text.text, &spans, false);
-        let weight = spans.len() * size_of::<Span>()
-            + spans
-                .iter()
+        let word = build(self, text.text, &base, &spans, false);
+        let weight = (spans.len() + 1) * size_of::<Span>()
+            + std::iter::once(&base)
+                .chain(spans.iter())
                 .map(|span| {
                     span.features.len() * size_of::<FontFeature>()
                         + span.variations.len() * size_of::<FontVariation>()
@@ -287,6 +253,7 @@ impl blit_text::TextLayoutEngine for Backend {
             + text.text.len() * 64;
         (
             Shape {
+                base,
                 spans,
                 word,
                 character: None,
@@ -404,54 +371,77 @@ impl blit_text::TextLayoutEngine for Backend {
     }
 }
 
-fn build(backend: &mut Backend, text: &str, spans: &[Span], break_all: bool) -> Layout<usize> {
+impl Span {
+    fn new(range: Range<usize>, style: blit_text::TextStyle<'_>) -> Self {
+        let settings = style.settings;
+        // optical size follows css font-optical-sizing unless variations set opsz
+        let optical_size = match settings.optical_size {
+            OpticalSize::Auto => Some(style.size),
+            OpticalSize::FontDefault => None,
+            OpticalSize::Fixed(size) => Some(size),
+        }
+        .filter(|_| !settings.variations.iter().any(|(tag, _)| tag == b"opsz"));
+        Self {
+            range,
+            stack: style.font.0 as usize - 1,
+            size: style.size,
+            weight: style.weight,
+            stretch: style.stretch,
+            style: style.style,
+            features: settings
+                .features
+                .iter()
+                .map(|(tag, value)| FontFeature {
+                    tag: Tag::new(tag),
+                    value: (*value).try_into().unwrap_or(u16::MAX),
+                })
+                .collect(),
+            variations: settings
+                .variations
+                .iter()
+                .map(|(tag, value)| (tag, *value))
+                .chain(optical_size.map(|size| (b"opsz", size)))
+                .map(|(tag, value)| FontVariation {
+                    tag: Tag::new(tag),
+                    value,
+                })
+                .collect(),
+            language: settings.language.and_then(|language| Language::parse(language).ok()),
+        }
+    }
+}
+
+fn build(backend: &mut Backend, text: &str, base: &Span, spans: &[Span], break_all: bool) -> Layout<usize> {
     let mut builder = backend.layouts.ranged_builder(&mut backend.fonts, text, 1.0, false);
     if break_all {
         builder.push_default(StyleProperty::WordBreak(WordBreak::BreakAll));
     }
-    for (index, span) in spans.iter().enumerate() {
+    for (index, span) in std::iter::once(base).chain(spans).enumerate() {
         let range = span.range.clone();
-        builder.push(
+        for property in [
             StyleProperty::FontFamily(FontFamily::List(Cow::Borrowed(&backend.stacks[span.stack]))),
-            range.clone(),
-        );
-        builder.push(StyleProperty::FontSize(span.size), range.clone());
-        builder.push(
+            StyleProperty::FontSize(span.size),
             StyleProperty::LineHeight(LineHeight::FontSizeRelative(1.2)),
-            range.clone(),
-        );
-        builder.push(
             StyleProperty::FontWeight(FontWeight::new(f32::from(span.weight))),
-            range.clone(),
-        );
-        builder.push(
             StyleProperty::FontWidth(FontWidth::from_percentage(f32::from(span.stretch))),
-            range.clone(),
-        );
-        builder.push(
             StyleProperty::FontStyle(match span.style {
                 FontStyle::Normal => parley::FontStyle::Normal,
                 FontStyle::Italic => parley::FontStyle::Italic,
                 FontStyle::Oblique => parley::FontStyle::Oblique(None),
             }),
-            range.clone(),
-        );
-        if !span.features.is_empty() {
-            builder.push(
-                StyleProperty::FontFeatures(FontFeatures::List(Cow::Borrowed(&span.features))),
-                range.clone(),
-            );
+            StyleProperty::FontFeatures(FontFeatures::List(Cow::Borrowed(&span.features))),
+            StyleProperty::FontVariations(FontVariations::List(Cow::Borrowed(&span.variations))),
+            StyleProperty::Locale(span.language),
+        ] {
+            if index == 0 {
+                builder.push_default(property);
+            } else {
+                builder.push(property, range.clone());
+            }
         }
-        if !span.variations.is_empty() {
-            builder.push(
-                StyleProperty::FontVariations(FontVariations::List(Cow::Borrowed(&span.variations))),
-                range.clone(),
-            );
+        if index != 0 {
+            builder.push(StyleProperty::Brush(index - 1), range);
         }
-        if span.language.is_some() {
-            builder.push(StyleProperty::Locale(span.language), range.clone());
-        }
-        builder.push(StyleProperty::Brush(index), range);
     }
     builder.build(text)
 }
@@ -464,13 +454,14 @@ fn prepare<'a>(
     request: LayoutRequest,
 ) -> (&'a Layout<usize>, &'a mut Vec<Font>) {
     let Shape {
+        base,
         spans,
         word,
         character,
         fonts,
     } = shape;
     let layout = match request.wrap {
-        TextWrap::Character => character.get_or_insert_with(|| build(backend, text, spans, true)),
+        TextWrap::Character => character.get_or_insert_with(|| build(backend, text, base, spans, true)),
         TextWrap::None | TextWrap::Word => word,
     };
     layout.break_all_lines(match request.wrap {
@@ -620,6 +611,28 @@ mod tests {
     }
 
     #[test]
+    fn line_height_and_baseline_follow_the_text_style() {
+        let (mut backend, style, request) = setup();
+        for size in [8.0, 14.0, 24.0] {
+            let text = "text";
+            let (mut shape, _) = backend.shape(Text {
+                text,
+                style: TextStyle { size, ..style },
+                spans: &[TextSpan {
+                    range: 0..text.len(),
+                    style: TextStyle { size, ..style },
+                }],
+            });
+            let layout = backend.layout(&mut shape, text, request);
+            let metrics = FontRef::from_index(FONT, 0).unwrap().metrics(&[]).scale(size);
+            let height = size * 1.2;
+            let baseline = (height - metrics.ascent - metrics.descent) / 2.0 + metrics.ascent;
+            assert!((layout.size.height - height).abs() < 0.001, "{size}");
+            assert!((layout.glyphs[0].position.y - baseline).abs() < 0.001, "{size}");
+        }
+    }
+
+    #[test]
     fn empty_and_paragraph_text_keep_valid_line_offsets() {
         let (mut backend, style, request) = setup();
         for (text, starts) in [
@@ -630,6 +643,7 @@ mod tests {
         ] {
             let (mut shape, _) = backend.shape(Text {
                 text,
+                style,
                 spans: &[TextSpan {
                     range: 0..text.len(),
                     style,
@@ -651,6 +665,7 @@ mod tests {
         let text = "regular bold";
         let (mut shape, _) = backend.shape(Text {
             text,
+            style,
             spans: &[
                 TextSpan { range: 0..8, style },
                 TextSpan {
