@@ -2,10 +2,10 @@
 
 blit is an experimental immediate-mode ui toolkit for rust.
 
-in under 4k lines, blit's kernel provides a fast, composable api for layout,
+in ~4k LOC, blit's kernel provides a fast, composable api for layout,
 interaction, animation and transitions.
 
-the same kernel can drive terminal cells or a pixel framebuffer
+the same kernel can drive terminal cells or a pixel framebuffer.
 
 https://github.com/user-attachments/assets/0350260c-592f-4337-b541-9762faf7a96d
 
@@ -31,8 +31,14 @@ nix develop --command cargo run -p blit-demo --no-default-features --features gp
 
 ## example
 
-each frame builds a tree of nodes. widgets can be types or closures, and every
-node can draw content and choose how to lay out its children:
+each frame, blit:
+
+- builds widgets into a tree of nodes
+- solves layouts and assigns final rectangles
+- paints each node's atoms
+
+an atom describes visual content, like text or a rectangle. painting it typically
+means recording draw commands for the backend using its resolved position and size.
 
 ```rust
 use blit::{Input, Sides};
@@ -66,18 +72,20 @@ fn main() -> std::io::Result<()> {
                 // insert draws content directly on the node
                 header.insert(Block::new().border(Border::new(Color::BLUE)));
 
-                // LHS title
+                // title
                 header
                     .child()
                     .insert(Text::new("hello from blit!").attributes(TextAttributes::BOLD));
 
-                // RHS button
                 header
                     .child()
+                     // 8 columns wide and 1 row tall
                     .item(flex::item().fixed(8, 1))
                     .build(|mut ui: Ui<'_>| {
+                        // interaction uses this node's bounds
                         let press = ui.interact(interact::press());
 
+                        // the background and text share the same node
                         ui.insert(Block::new().background(Color::BLUE));
                         ui.insert(
                             Text::new("quit")
