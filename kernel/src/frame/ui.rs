@@ -270,7 +270,9 @@ impl<C: Context, S> Ui<'_, C, S> {
         self.inner.frame.interaction.position
     }
 
-    /// this frame's input, the same for every widget
+    /// this frame's input regardless of focus or claims
+    ///
+    /// handle keyboard shortcuts through an interaction to respect input routing.
     pub fn input(&self) -> Input<C::Scalar> {
         self.inner.frame.input
     }

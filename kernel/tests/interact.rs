@@ -1,4 +1,42 @@
+use blit::KeyboardEvent;
+
 use super::*;
+
+#[test]
+fn keyboard_input_bubbles_until_claimed() {
+    #[derive(Clone, Copy)]
+    struct Keyboard(bool);
+
+    impl Interact<TestContext> for Keyboard {
+        type State = ();
+        type Response = Option<KeyboardEvent>;
+
+        fn update(&self, _: &mut (), cx: &mut InteractCx<'_, f32>) -> Self::Response {
+            let input = cx.keyboard()?;
+            if self.0 && !matches!(input, KeyboardEvent::Text('q')) {
+                return None;
+            }
+            cx.claim_keyboard();
+            Some(input)
+        }
+    }
+
+    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let build = |mut ui: Ui<'_>| {
+        let child_id = Id::new("child");
+        ui.focus(child_id);
+        let parent = ui.interact(Keyboard(false));
+        let mut root = ui.layout(Overlay);
+        let child = root.child().id(child_id).interact(Keyboard(true));
+        let sibling = root.child().interact(Keyboard(false));
+        (parent, child, sibling)
+    };
+    assert_eq!(render(&mut frame, &mut context, build), (None, None, None));
+    let mut next = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], build);
+    assert_eq!(next(Input::Text('q')), (None, Some(KeyboardEvent::Text('q')), None));
+    assert_eq!(next(Input::Text('x')), (Some(KeyboardEvent::Text('x')), None, None));
+    assert_eq!(next(Input::PointerLeave), (None, None, None));
+}
 
 /// whether the pointer is over this widget
 #[derive(Clone, Copy)]

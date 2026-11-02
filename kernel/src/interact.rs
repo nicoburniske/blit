@@ -1,5 +1,15 @@
 //! handle input for your widget with [`Interact`]:
 //!
+//! # keyboard and text
+//!
+//! [`InteractCx::keyboard`] delivers keyboard and text input to the focused widget,
+//! then its ancestors. without focus, only the root receives it. call
+//! [`InteractCx::claim_keyboard`] when handled to stop it from reaching another
+//! interaction. ignored events keep bubbling. the route uses focus at the start
+//! of the update, so changing focus does not redirect the current event.
+//!
+//! [`InteractCx::input`] bypasses routing and claims.
+//!
 //! # sharing contacts
 //!
 //! interactions run before each build using the last build's settings and layout.
@@ -43,7 +53,7 @@
 use std::num::NonZeroU32;
 
 pub use crate::frame::interact::Contact;
-use crate::{Context, InteractCx, PointerButton, geometry::Point};
+use crate::{Context, InteractCx, KeyInput, PointerButton, geometry::Point};
 
 /// handle input for your widget
 ///
@@ -71,6 +81,13 @@ pub struct ContactId(pub(crate) NonZeroU32);
 pub enum ContactSource {
     Mouse(PointerButton),
     Touch(u64),
+}
+
+/// keyboard and text input routed through focus
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyboardEvent {
+    Key(KeyInput),
+    Text(char),
 }
 
 /// wheel or trackpad input for this widget

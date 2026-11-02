@@ -1,5 +1,5 @@
 use super::*;
-use crate::internal::bump::Offset;
+use crate::{KeyboardEvent, internal::bump::Offset};
 
 // slot node for a named widget missing from the layout
 const UNRESOLVED: u32 = u32::MAX;
@@ -8,6 +8,7 @@ const UNRESOLVED: u32 = u32::MAX;
 ///
 /// - [`Self::contacts`] for mouse presses and touches
 /// - [`Self::scroll`] for wheel and trackpad input
+/// - [`Self::keyboard`] for keyboard and text input
 /// - [`Self::wake_at`] for timed gestures
 pub struct InteractCx<'a, T> {
     id: Id,
@@ -20,6 +21,7 @@ pub struct InteractCx<'a, T> {
     hover: Option<u32>,
     deadline: &'a mut Option<Duration>,
     input: &'a Input<T>,
+    keyboard: &'a mut Option<(u32, KeyboardEvent)>,
     time: Duration,
 }
 
@@ -65,7 +67,23 @@ impl<T: Scalar> InteractCx<'_, T> {
         }
     }
 
-    /// this frame's input or none during the first update
+    /// unclaimed keyboard or text input for this widget
+    ///
+    /// input starts at the focused widget and bubbles through its ancestors.
+    /// without focus, only the root receives it.
+    pub fn keyboard(&self) -> Option<KeyboardEvent> {
+        let (target, input) = (*self.keyboard)?;
+        self.contains(target).then_some(input)
+    }
+
+    /// stops this keyboard or text event from reaching another interaction
+    pub fn claim_keyboard(&mut self) {
+        if self.keyboard().is_some() {
+            *self.keyboard = None;
+        }
+    }
+
+    /// this frame's input regardless of focus or claims
     pub fn input(&self) -> Input<T> {
         *self.input
     }
@@ -244,6 +262,7 @@ impl<T: Scalar> InteractionState<T> {
                         hover: None,
                         deadline: &mut self.deadline,
                         input: &Input::None,
+                        keyboard: &mut None,
                         time,
                     },
                 );
@@ -431,6 +450,18 @@ impl<T: Scalar> InteractionState<T> {
         // deepest nodes update first
         self.deadline = None;
         let mut focus_taken = false;
+        let mut keyboard = match *input {
+            Input::Key(key) => Some(KeyboardEvent::Key(key)),
+            Input::Text(text) => Some(KeyboardEvent::Text(text)),
+            _ => None,
+        }
+        .and_then(|input| {
+            let target = match self.focused {
+                Some(id) => self.kinds.find(id, None).ok().map(|index| self.kinds.slots[index].node),
+                None => (!nodes.is_empty()).then_some(0),
+            }?;
+            Some((target, input))
+        });
         let kinds = &mut self.kinds;
         for index in (0..kinds.slots.len()).rev() {
             let slot = kinds.slots[index];
@@ -448,6 +479,7 @@ impl<T: Scalar> InteractionState<T> {
                     hover,
                     deadline: &mut self.deadline,
                     input,
+                    keyboard: &mut keyboard,
                     time,
                 },
             );
