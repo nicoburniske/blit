@@ -310,7 +310,7 @@ fn targets_reject_invalid_references() {
             root.child().id(id.child(0_u32)).insert(());
         },
     ];
-    for (case, build) in cases.into_iter().enumerate() {
+    for (case, build) in cases.iter().enumerate() {
         let (mut frame, mut context) = frame(Size::uniform(1.0));
         // a previous build must not satisfy a current reference
         render(&mut frame, &mut context, |ui: Ui<'_>| {

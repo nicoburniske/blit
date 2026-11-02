@@ -6,3 +6,6 @@ license.workspace = true
 
 [dependencies]
 hashbrown.workspace = true
+
+[lints]
+workspace = true

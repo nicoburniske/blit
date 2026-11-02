@@ -200,16 +200,15 @@ impl<C: Context> Atom<C> for InputAtom {
                     .clear(Cell::default().style(CellStyle::new().background(self.selection_background)));
             }
         }
-        if self.focused {
-            if let Some(cursor) = context
+        if self.focused
+            && let Some(cursor) = context
                 .renderer_mut()
                 .text_cursor_rect(&request, self.state.cursor)
                 .intersection(area)
-            {
-                context
-                    .cells(cursor)
-                    .clear(Cell::default().style(CellStyle::new().background(self.cursor_background)));
-            }
+        {
+            context
+                .cells(cursor)
+                .clear(Cell::default().style(CellStyle::new().background(self.cursor_background)));
         }
         context.paint_text(
             TextRequest::new(self.display, area)

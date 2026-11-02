@@ -24,6 +24,11 @@ members = [
 [workspace.package]
 license = "MIT"
 
+[workspace.lints.clippy]
+type_complexity = "allow"
+too_many_arguments = "allow"
+chunks_exact_to_as_chunks = "allow"
+
 [workspace.dependencies]
 blit = { path = "kernel" }
 blit-executor = { path = "executor" }

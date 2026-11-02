@@ -1082,10 +1082,7 @@ impl Atom<DesktopContext> for Terrain {
                 }
             }
         }
-        cx.context_mut().gui.paint_mesh(Mesh {
-            vertices: &vertices,
-            indices: &indices,
-        });
+        cx.context_mut().gui.paint_mesh(Mesh { vertices, indices });
     }
 }
 

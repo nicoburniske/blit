@@ -9,3 +9,6 @@ publish = false
 blit.workspace = true
 blit-layout.workspace = true
 unicode-segmentation = "1"
+
+[lints]
+workspace = true

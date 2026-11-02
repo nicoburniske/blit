@@ -8,3 +8,6 @@ publish = false
 [dependencies]
 blit-text.workspace = true
 ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

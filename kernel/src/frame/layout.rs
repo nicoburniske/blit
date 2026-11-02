@@ -22,6 +22,7 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         self.frame.nodes[self.node.index()].relative
     }
 
+    #[expect(clippy::misnamed_getters, reason = "layout uses the visual parent")]
     pub fn parent(&self) -> NodeId {
         self.frame.nodes[self.node.index()].visual_parent
     }

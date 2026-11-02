@@ -39,3 +39,6 @@ path = "tui.rs"
 [[example]]
 name = "readme"
 path = "readme.rs"
+
+[lints]
+workspace = true

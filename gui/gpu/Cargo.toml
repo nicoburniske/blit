@@ -23,3 +23,6 @@ wgpu = { workspace = true, features = ["vulkan"] }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 wgpu = { workspace = true, features = ["metal"] }
+
+[lints]
+workspace = true

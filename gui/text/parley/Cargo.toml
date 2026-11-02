@@ -12,3 +12,6 @@ parley = { version = "0.12", default-features = false, features = ["std", "syste
 swash = { version = "0.2", default-features = false, features = ["render", "scale", "std"] }
 # loads fontconfig at runtime instead of linking it
 fontique = { version = "0.12", default-features = false, features = ["fontconfig-dlopen"] }
+
+[lints]
+workspace = true

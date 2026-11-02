@@ -48,7 +48,7 @@ where
             let y = row as f32 * HEIGHT as f32 / SIDE as f32;
             let w = WIDTH as f32 / SIDE as f32;
             let h = HEIGHT as f32 / SIDE as f32;
-            let alpha = if kind % 2 == 0 { 255 } else { 128 };
+            let alpha = if kind.is_multiple_of(2) { 255 } else { 128 };
             let color = Color::rgba((column * 31) as u8, (row * 47) as u8, 176, alpha);
             let first = vertices.len() as u32;
             for (corner, (px, py)) in [(x, y), (x + w, y), (x, y + h), (x + w, y + h)].into_iter().enumerate() {

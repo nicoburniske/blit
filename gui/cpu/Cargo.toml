@@ -29,3 +29,6 @@ harness = false
 [[bench]]
 name = "text"
 harness = false
+
+[lints]
+workspace = true

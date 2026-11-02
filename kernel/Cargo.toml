@@ -16,3 +16,6 @@ path = "tests/main.rs"
 [[bench]]
 name = "frame"
 harness = false
+
+[lints]
+workspace = true

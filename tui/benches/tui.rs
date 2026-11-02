@@ -116,8 +116,8 @@ fn scene(renderer: &mut TuiRenderer, changed: bool) {
     for row in 0..8 {
         for column in 0..12 {
             let area = PhysicalRect {
-                x: column as i32 * 8,
-                y: row as i32 * 4,
+                x: column * 8,
+                y: row * 4,
                 width: 8,
                 height: 4,
             };

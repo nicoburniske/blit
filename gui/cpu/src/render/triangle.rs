@@ -196,8 +196,8 @@ impl Prepared {
                     } else {
                         sample.coverage(coverage as u32)
                     });
-                    for channel in 0..3 {
-                        color[channel] += self.color_step_x[channel];
+                    for (channel, step) in color[..3].iter_mut().zip(&self.color_step_x) {
+                        *channel += *step;
                     }
                 }
                 return;
@@ -215,8 +215,8 @@ impl Prepared {
             } else {
                 sample.coverage(coverage as u32)
             });
-            for channel in 0..4 {
-                color[channel] += self.color_step_x[channel];
+            for (channel, step) in color.iter_mut().zip(&self.color_step_x) {
+                *channel += *step;
             }
         }
     }

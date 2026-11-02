@@ -122,6 +122,10 @@ impl DisplayList {
         self.commands.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.commands.is_empty()
+    }
+
     pub fn push_clip(&mut self, parent: ClipId, area: LogicalRect, radius: BorderRadius) -> ClipId {
         self.assert_clip(parent);
         let id = u32::try_from(self.clips.len() + 1).expect("too many display list clips");

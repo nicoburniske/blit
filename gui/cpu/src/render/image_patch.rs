@@ -84,7 +84,7 @@ impl Prepared {
             colorize: request.colorize,
             opacity: (request.opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
             sampling: request.sampling,
-            flags: u8::from(wrap_x) * flag::WRAP_X | u8::from(wrap_y) * flag::WRAP_Y,
+            flags: (u8::from(wrap_x) * flag::WRAP_X) | (u8::from(wrap_y) * flag::WRAP_Y),
             step_x,
             step_y,
             scale_x,

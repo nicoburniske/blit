@@ -14,3 +14,6 @@ divan = "0.1"
 [[bench]]
 name = "layout"
 harness = false
+
+[lints]
+workspace = true

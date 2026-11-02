@@ -26,3 +26,6 @@ winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "
 softbuffer = { version = "0.4.8", default-features = false, optional = true }
 wgpu = { workspace = true, features = ["std", "metal"], optional = true }
 winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
+
+[lints]
+workspace = true

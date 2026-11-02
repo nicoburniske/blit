@@ -107,8 +107,7 @@ fn placement_changed(bencher: divan::Bencher) {
                 ..TextOptions::default()
             },
         };
-        let size = text.paint_layout(&request).layout.size;
-        size
+        text.paint_layout(&request).layout.size
     });
 }
 

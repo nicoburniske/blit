@@ -11,3 +11,6 @@ blit-arena.workspace = true
 blit-cache.workspace = true
 blit-text.workspace = true
 hashbrown.workspace = true
+
+[lints]
+workspace = true

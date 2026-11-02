@@ -58,7 +58,7 @@ impl<A: Application> Session<A> {
         let context = DesktopContext::new(GuiContext::new(TextSystem::new(text_config, text)?), graphics);
         let event_loop = EventLoop::<Event<A::Input>>::with_user_event().build()?;
         let runner = Runner {
-            state: Some(State::Pending(Pending {
+            state: Some(State::Pending(Box::new(Pending {
                 title,
                 width,
                 height,
@@ -66,7 +66,7 @@ impl<A: Application> Session<A> {
                 input: EventLoopProxy {
                     inner: event_loop.create_proxy(),
                 },
-            })),
+            }))),
             inputs: Vec::new(),
             cursor: None,
             modifiers: Modifiers::NONE,
@@ -106,7 +106,7 @@ struct Runner<A: Application> {
 }
 
 enum State<A: Application> {
-    Pending(Pending<A>),
+    Pending(Box<Pending<A>>),
     Active(Box<Active<A>>),
 }
 
@@ -246,7 +246,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             mut context,
             input,
         } = match self.state.take() {
-            Some(State::Pending(pending)) => pending,
+            Some(State::Pending(pending)) => *pending,
             Some(State::Active(mut active)) => {
                 if let Err(error) = active.context.graphics.resume(active.window.clone()) {
                     return self.fail(event_loop, error);

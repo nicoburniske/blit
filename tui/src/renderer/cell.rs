@@ -235,7 +235,7 @@ impl TuiRenderer {
         let layout_request = TextLayoutRequest {
             text: request.text,
             wrap: request.options.wrap,
-            max_width: Some(area.width as i32),
+            max_width: Some(area.width),
             max_lines: request.options.max_lines,
         };
         let run = self.text_run_index(request.text);

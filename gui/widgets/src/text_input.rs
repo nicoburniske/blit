@@ -198,10 +198,10 @@ impl<C: Context> Atom<C> for InputAtom {
                 context.paint_rectangle(Rectangle::new(selection).background(self.selection_background));
             }
         }
-        if self.focused {
-            if let Some(cursor) = context.text_cursor_rect(&request, self.state.cursor).intersection(area) {
-                context.paint_rectangle(Rectangle::new(cursor).background(self.cursor_background));
-            }
+        if self.focused
+            && let Some(cursor) = context.text_cursor_rect(&request, self.state.cursor).intersection(area)
+        {
+            context.paint_rectangle(Rectangle::new(cursor).background(self.cursor_background));
         }
         let request = TextRequest {
             text: self.display,
