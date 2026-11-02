@@ -9,7 +9,7 @@ use super::{
     command::{CommandId, CommandList, Payload},
     raster,
 };
-use crate::{Damage, Pixel, PixelBuffer, RenderContext, StoredImage, TextRenderer};
+use crate::{DamageTracker, Pixel, PixelBuffer, RenderContext, StoredImage, TextRenderer};
 
 #[derive(Default)]
 pub struct Scanline {
@@ -121,7 +121,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
 }
 
 impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
-    fn render(&mut self, context: &mut RenderContext<B>, damage: &Damage) {
+    fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker) {
         let width = context.buffer.width();
         let height = context.buffer.height();
         let screen = PhysicalRect::new(0, 0, width as i32, height as i32);

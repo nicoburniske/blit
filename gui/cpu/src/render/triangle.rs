@@ -1,7 +1,7 @@
 use blit::{PhysicalRect, Scale2};
 use blit_gui::display_list::MeshVertex;
 
-use crate::{Damage, Pixel, PixelSpan, PremultipliedRgbaColor};
+use crate::{DamageTracker, Pixel, PixelSpan, PremultipliedRgbaColor};
 
 #[derive(Clone, Copy)]
 pub struct Prepared {
@@ -27,7 +27,7 @@ impl Prepared {
         scale: Scale2,
         clip: PhysicalRect,
         clip_id: u32,
-        damage: &Damage,
+        damage: &impl DamageTracker,
     ) -> Option<(Self, PhysicalRect)> {
         let mut points = vertices.map(|vertex| [vertex.position.x * scale.x, vertex.position.y * scale.y]);
         let [first, second, third] = points;

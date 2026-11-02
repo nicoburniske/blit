@@ -1,4 +1,4 @@
-mod damage;
+pub mod damage;
 mod glyph;
 mod pixel;
 mod render;
@@ -15,7 +15,7 @@ use blit_gui::{
 };
 
 pub use self::{
-    damage::Damage,
+    damage::{DamageTracker, tile::TileDamage},
     pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888},
     strategy::{Direct, RenderStrategy, Scanline},
 };
@@ -46,10 +46,10 @@ impl Default for RendererConfig {
     }
 }
 
-pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
+pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTracker = TileDamage> {
     context: RenderContext<B>,
     strategy: S,
-    damage: Damage,
+    damage: D,
 }
 
 impl<B: PixelBuffer> Renderer<B, Direct> {
@@ -65,11 +65,13 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
                 clips: ClipStack::default(),
             },
             strategy: Direct::default(),
-            damage: Damage::new(config.damage_tile_size),
+            damage: TileDamage::new(config.damage_tile_size),
         }
     }
+}
 
-    pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T> {
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
+    pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T, D> {
         let Self { context, damage, .. } = self;
         Renderer {
             context,
@@ -77,9 +79,16 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
             damage,
         }
     }
-}
 
-impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
+    pub fn damage_tracker<T: DamageTracker>(self, mut damage: T) -> Renderer<B, S, T> {
+        damage.invalidate();
+        Renderer {
+            context: self.context,
+            strategy: self.strategy,
+            damage,
+        }
+    }
+
     /// creates an image for use with this renderer
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
         data.validate();
@@ -144,6 +153,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>> Renderer<B, S> {
         context.shadows.finish_frame();
         context.text.finish_frame(input.text);
         context.images.retain(|image| !image.handle.is_uniquely_owned());
+        self.damage.finish_frame(input.display_list);
     }
 
     pub fn screen(&self) -> PhysicalRect {

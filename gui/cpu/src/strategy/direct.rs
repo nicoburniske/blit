@@ -3,7 +3,7 @@ use std::ops::Range;
 use blit::geometry::PhysicalRect;
 
 use super::{RenderStrategy, raster};
-use crate::{Damage, PixelBuffer, RenderContext};
+use crate::{DamageTracker, PixelBuffer, RenderContext};
 
 #[derive(Default)]
 pub struct Direct {
@@ -11,7 +11,7 @@ pub struct Direct {
 }
 
 impl<B: PixelBuffer> RenderStrategy<B> for Direct {
-    fn render(&mut self, context: &mut RenderContext<B>, damage: &Damage) {
+    fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker) {
         let screen = PhysicalRect {
             x: context.buffer.x_offset() as i32,
             y: 0,

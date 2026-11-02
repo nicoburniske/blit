@@ -21,7 +21,9 @@ use blit_gui::{
     style::Fill,
 };
 
-pub struct Damage {
+use super::DamageTracker;
+
+pub struct TileDamage {
     shift: u32,
     screen: PhysicalRect,
     columns: usize,
@@ -39,7 +41,7 @@ struct Clip {
     inner: PhysicalRect,
 }
 
-impl Damage {
+impl TileDamage {
     pub fn new(tile_size: u16) -> Self {
         assert!(
             tile_size.is_power_of_two(),
@@ -57,8 +59,10 @@ impl Damage {
             invalidated: true,
         }
     }
+}
 
-    pub fn update(&mut self, display_list: &DisplayList, screen: PhysicalRect, scale: f32, buffer_age: u8) {
+impl DamageTracker for TileDamage {
+    fn update(&mut self, display_list: &DisplayList, screen: PhysicalRect, scale: f32, buffer_age: u8) {
         let tile_size = 1usize << self.shift;
         if self.screen != screen {
             self.screen = screen;
@@ -267,16 +271,16 @@ impl Damage {
         self.invalidated = false;
     }
 
-    pub fn invalidate(&mut self) {
+    fn invalidate(&mut self) {
         self.invalidated = true;
     }
 
-    pub fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.sums.last() == Some(&0)
     }
 
     /// conservatively tests bounds against damage and their display list clip
-    pub fn intersects(&self, bounds: PhysicalRect, clip: u32) -> bool {
+    fn intersects(&self, bounds: PhysicalRect, clip: u32) -> bool {
         let Some(bounds) = bounds.intersection(self.clips[clip as usize].bounds) else {
             return false;
         };
@@ -290,7 +294,7 @@ impl Damage {
     }
 
     /// writes sorted disjoint horizontal ranges and returns their next vertical boundary
-    pub fn line_ranges(&self, line: i32, bounds: PhysicalRect, ranges: &mut Vec<Range<usize>>) -> i32 {
+    fn line_ranges(&self, line: i32, bounds: PhysicalRect, ranges: &mut Vec<Range<usize>>) -> i32 {
         ranges.clear();
         let mut next = bounds.y.saturating_add(bounds.height);
         let Some(bounds) = bounds.intersection(self.screen) else {

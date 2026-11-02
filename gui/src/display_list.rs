@@ -261,6 +261,30 @@ impl DisplayList {
         self.data.clear();
         self.clips.clear();
     }
+
+    pub fn equivalent(&self, index: usize, other: &Self, other_index: usize) -> bool {
+        let left = self.get(index);
+        let right = other.get(other_index);
+        if left.bounds != right.bounds || left.command != right.command {
+            return false;
+        }
+        let mut clip = left.clip;
+        let mut other_clip = right.clip;
+        loop {
+            match (clip.0, other_clip.0) {
+                (0, 0) => return true,
+                (0, _) | (_, 0) => return false,
+                _ => {}
+            }
+            let left = &self.clips[clip.0 as usize - 1];
+            let right = &other.clips[other_clip.0 as usize - 1];
+            if left.area != right.area || left.radius != right.radius {
+                return false;
+            }
+            clip = left.parent;
+            other_clip = right.parent;
+        }
+    }
 }
 
 impl DisplayList {

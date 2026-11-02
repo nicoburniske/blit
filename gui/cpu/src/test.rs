@@ -149,88 +149,92 @@ fn dirty_tiles_preserve_gaps_and_blend_once() {
 }
 
 #[test]
-fn paint_changes_invalidate_tiles_without_changing_bounds() {
-    let screen = PhysicalRect::new(0, 0, 16, 16);
-    let area = screen.to_logical(SCALE);
-    let mut damage = Damage::new(8);
-    let mut list = DisplayList::default();
-    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config()).gui;
-    for case in ["fill", "border", "text color", "image", "shadow", "mesh", "clip"] {
-        for (frame, color) in [Color::BLACK, Color::WHITE, Color::WHITE].into_iter().enumerate() {
-            list.clear();
-            match case {
-                "fill" | "border" => {
-                    let stops = [GradientStop::new(0.0, Color::BLACK), GradientStop::new(1.0, color)];
-                    let gradient = LinearGradient::new(&stops);
-                    let rectangle = if case == "fill" {
-                        Rectangle::new(area).background(gradient)
-                    } else {
-                        Rectangle::new(area).border(Border::gradient(2.0, gradient))
-                    };
-                    list.push_rectangle(rectangle, screen, ClipId::default());
-                }
-                "text color" => {
-                    let text = gui.rich_text("xy", &[Span::new(0..1), Span::new(1..2)], TextStyle::new());
-                    list.push_text(
-                        TextRequest {
-                            text,
-                            colors: &[Color::rgb(255, 0, 0), color],
+fn paint_changes_invalidate_damage_without_changing_bounds() {
+    fn check(mut damage: impl DamageTracker) {
+        let screen = PhysicalRect::new(0, 0, 16, 16);
+        let area = screen.to_logical(SCALE);
+        let mut list = DisplayList::default();
+        let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config()).gui;
+        for case in ["fill", "border", "text color", "image", "shadow", "mesh", "clip"] {
+            for (frame, color) in [Color::BLACK, Color::WHITE, Color::WHITE].into_iter().enumerate() {
+                list.clear();
+                match case {
+                    "fill" | "border" => {
+                        let stops = [GradientStop::new(0.0, Color::BLACK), GradientStop::new(1.0, color)];
+                        let gradient = LinearGradient::new(&stops);
+                        let rectangle = if case == "fill" {
+                            Rectangle::new(area).background(gradient)
+                        } else {
+                            Rectangle::new(area).border(Border::gradient(2.0, gradient))
+                        };
+                        list.push_rectangle(rectangle, screen, ClipId::default());
+                    }
+                    "text color" => {
+                        let text = gui.rich_text("xy", &[Span::new(0..1), Span::new(1..2)], TextStyle::new());
+                        list.push_text(
+                            TextRequest {
+                                text,
+                                colors: &[Color::rgb(255, 0, 0), color],
+                                area,
+                                offset_x: 0.0,
+                                options: TextOptions::default(),
+                            },
+                            screen,
+                            ClipId::default(),
+                        );
+                    }
+                    "image" => list.push_image(
+                        ImageRequest {
+                            image: 1,
                             area,
-                            offset_x: 0.0,
-                            options: TextOptions::default(),
+                            fit: ImageFit::Fill,
+                            sampling: ImageSampling::Nearest,
+                            opacity: if color == Color::BLACK { 0.5 } else { 1.0 },
+                            colorize: None,
+                            nine_slice: None,
+                            horizontal_tiling: ImageTiling::None,
+                            vertical_tiling: ImageTiling::None,
                         },
                         screen,
                         ClipId::default(),
-                    );
-                }
-                "image" => list.push_image(
-                    ImageRequest {
-                        image: 1,
-                        area,
-                        fit: ImageFit::Fill,
-                        sampling: ImageSampling::Nearest,
-                        opacity: if color == Color::BLACK { 0.5 } else { 1.0 },
-                        colorize: None,
-                        nine_slice: None,
-                        horizontal_tiling: ImageTiling::None,
-                        vertical_tiling: ImageTiling::None,
-                    },
-                    screen,
-                    ClipId::default(),
-                ),
-                "shadow" => list.push_box_shadow(BoxShadow::new(area, color).blur(2.0), screen, ClipId::default()),
-                "mesh" => list.push_mesh(
-                    Mesh {
-                        vertices: &[
-                            MeshVertex::new(0.0, 0.0, color),
-                            MeshVertex::new(16.0, 0.0, Color::WHITE),
-                            MeshVertex::new(0.0, 16.0, Color::WHITE),
-                        ],
-                        indices: &[0, 1, 2],
-                    },
-                    SCALE,
-                    ClipId::default(),
-                ),
-                "clip" => {
-                    let clip = list.push_clip(
+                    ),
+                    "shadow" => list.push_box_shadow(BoxShadow::new(area, color).blur(2.0), screen, ClipId::default()),
+                    "mesh" => list.push_mesh(
+                        Mesh {
+                            vertices: &[
+                                MeshVertex::new(0.0, 0.0, color),
+                                MeshVertex::new(16.0, 0.0, Color::WHITE),
+                                MeshVertex::new(0.0, 16.0, Color::WHITE),
+                            ],
+                            indices: &[0, 1, 2],
+                        },
+                        SCALE,
                         ClipId::default(),
-                        area,
-                        BorderRadius::uniform(if color == Color::BLACK { 0.0 } else { 4.0 }),
-                    );
-                    list.push_rectangle(Rectangle::new(area).background(Color::WHITE), screen, clip);
+                    ),
+                    "clip" => {
+                        let clip = list.push_clip(
+                            ClipId::default(),
+                            area,
+                            BorderRadius::uniform(if color == Color::BLACK { 0.0 } else { 4.0 }),
+                        );
+                        list.push_rectangle(Rectangle::new(area).background(Color::WHITE), screen, clip);
+                    }
+                    _ => unreachable!(),
                 }
-                _ => unreachable!(),
+                damage.update(&list, screen, 1.0, 1);
+                assert_eq!(damage.is_empty(), frame == 2, "{case} frame {frame}");
+                damage.finish_frame(&mut list);
             }
-            damage.update(&list, screen, 1.0, 1);
-            assert_eq!(damage.is_empty(), frame == 2, "{case} frame {frame}");
         }
     }
+    check(TileDamage::new(8));
+    check(damage::command::CommandDiff::default());
 }
 
 #[test]
 fn reused_buffers_receive_every_change_since_their_last_presentation() {
-    fn check<const COUNT: usize>(stale: bool) {
-        let mut renderer = new_renderer(
+    fn check<const COUNT: usize, D: DamageTracker>(stale: bool, damage: D) {
+        let renderer = new_renderer(
             VecBuffer::<Argb8888>::new(37, 21),
             RendererConfig {
                 damage_tile_size: 8,
@@ -238,6 +242,10 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
             },
         )
         .strategy(Scanline::default());
+        let mut renderer = TestRenderer {
+            render: renderer.render.damage_tracker(damage),
+            gui: renderer.gui,
+        };
         let mut buffers: [_; COUNT] = std::array::from_fn(|_| VecBuffer::<Argb8888>::new(37, 21));
         let mut presented = [None; COUNT];
         for frame in 0..270usize {
@@ -276,10 +284,14 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
             presented[index] = Some(frame);
         }
     }
-    check::<1>(false);
-    check::<2>(false);
-    check::<3>(false);
-    check::<3>(true);
+    check::<1, _>(false, TileDamage::new(8));
+    check::<1, _>(false, damage::command::CommandDiff::default());
+    check::<2, _>(false, TileDamage::new(8));
+    check::<2, _>(false, damage::command::CommandDiff::default());
+    check::<3, _>(false, TileDamage::new(8));
+    check::<3, _>(false, damage::command::CommandDiff::default());
+    check::<3, _>(true, TileDamage::new(8));
+    check::<3, _>(true, damage::command::CommandDiff::default());
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -343,12 +355,12 @@ fn renderer_config() -> RendererConfig {
     }
 }
 
-struct TestRenderer<B: PixelBuffer, S: RenderStrategy<B> = Direct> {
-    render: Renderer<B, S>,
+struct TestRenderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTracker = TileDamage> {
+    render: Renderer<B, S, D>,
     gui: GuiContext,
 }
 
-impl<B: PixelBuffer, S: RenderStrategy<B>> TestRenderer<B, S> {
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> TestRenderer<B, S, D> {
     fn render(&mut self, display_list: &mut DisplayList) {
         let mut input = self.gui.render_input();
         input.display_list = display_list;
@@ -1717,41 +1729,53 @@ fn text_runs_are_keyed_by_content_and_style() {
 }
 
 #[test]
-fn tile_hashes_preserve_overlapping_reorders() {
-    let mut incremental =
-        new_renderer(VecBuffer::<Xrgb8888>::new(16, 16), renderer_config()).strategy(Scanline::default());
-    let mut reference =
-        new_renderer(VecBuffer::<Xrgb8888>::new(16, 16), renderer_config()).strategy(Scanline::default());
-    let frames: &[&[u8]] = &[
-        &[0, 1, 2],
-        &[0, 3, 1, 2, 4],
-        &[0, 1, 2],
-        &[2, 1, 0],
-        &[2, 2, 1, 0],
-        &[3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 2, 1, 0],
-        &[],
-        &[0, 1, 2],
-    ];
-    for frame in frames {
-        reference.render.invalidate_all();
-        for renderer in [&mut incremental, &mut reference] {
-            let input = renderer.gui.render_input();
-            input.display_list.clear();
-            input.display_list.push_clear(PhysicalRect::new(0, 0, 16, 16));
-            for &index in *frame {
-                let rectangle = Rectangle::new(LogicalRect::new(index as f32, index as f32, 10.0, 10.0))
-                    .background(Color::rgba(index * 50, 100, 200, 128));
-                input
-                    .display_list
-                    .push_rectangle(rectangle, rectangle.area.to_physical(SCALE), ClipId::default());
+fn damage_trackers_preserve_overlapping_reorders() {
+    fn check<D: DamageTracker>(make_damage: impl Fn() -> D) {
+        let incremental =
+            new_renderer(VecBuffer::<Xrgb8888>::new(16, 16), renderer_config()).strategy(Scanline::default());
+        let mut incremental = TestRenderer {
+            render: incremental.render.damage_tracker(make_damage()),
+            gui: incremental.gui,
+        };
+        let reference =
+            new_renderer(VecBuffer::<Xrgb8888>::new(16, 16), renderer_config()).strategy(Scanline::default());
+        let mut reference = TestRenderer {
+            render: reference.render.damage_tracker(make_damage()),
+            gui: reference.gui,
+        };
+        let frames: &[&[u8]] = &[
+            &[0, 1, 2],
+            &[0, 3, 1, 2, 4],
+            &[0, 1, 2],
+            &[2, 1, 0],
+            &[2, 2, 1, 0],
+            &[3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 2, 1, 0],
+            &[],
+            &[0, 1, 2],
+        ];
+        for frame in frames {
+            reference.render.invalidate_all();
+            for renderer in [&mut incremental, &mut reference] {
+                let input = renderer.gui.render_input();
+                input.display_list.clear();
+                input.display_list.push_clear(PhysicalRect::new(0, 0, 16, 16));
+                for &index in *frame {
+                    let rectangle = Rectangle::new(LogicalRect::new(index as f32, index as f32, 10.0, 10.0))
+                        .background(Color::rgba(index * 50, 100, 200, 128));
+                    input
+                        .display_list
+                        .push_rectangle(rectangle, rectangle.area.to_physical(SCALE), ClipId::default());
+                }
+                renderer.render.render(input, 1);
+                renderer.gui.finish_frame();
             }
-            renderer.render.render(input, 1);
-            renderer.gui.finish_frame();
+            assert_eq!(
+                incremental.render.buffer().pixels(),
+                reference.render.buffer().pixels(),
+                "{frame:?}"
+            );
         }
-        assert_eq!(
-            incremental.render.buffer().pixels(),
-            reference.render.buffer().pixels(),
-            "{frame:?}"
-        );
     }
+    check(|| TileDamage::new(8));
+    check(damage::command::CommandDiff::default);
 }

@@ -141,7 +141,12 @@ impl Prepared {
                 }
             }
         };
-        if self.radii.is_zero() {
+        let top = line - self.geometry.y;
+        let bottom = self.geometry.height - top - 1;
+        if self.radii.is_zero()
+            || (top >= self.radii.top_left.max(self.radii.top_right)
+                && bottom >= self.radii.bottom_left.max(self.radii.bottom_right))
+        {
             let pixels = &mut row.pixels[(start - row.x) as usize..(end - row.x) as usize];
             if self.border_width == 0 {
                 self.background.draw_span(gradients, start, line, coverage, pixels);
