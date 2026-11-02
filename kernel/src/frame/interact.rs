@@ -4,7 +4,11 @@ use crate::internal::bump::Offset;
 // slot node for a named widget missing from the layout
 const UNRESOLVED: u32 = u32::MAX;
 
-/// the previous layout and input routed to one interaction
+/// input and timing for your interaction
+///
+/// - [`Self::contacts`] for mouse presses and touches
+/// - [`Self::scroll`] for wheel and trackpad input
+/// - [`Self::wake_at`] for timed gestures
 pub struct InteractCx<'a, T> {
     id: Id,
     node: u32,
@@ -20,16 +24,22 @@ pub struct InteractCx<'a, T> {
 }
 
 impl<T: Scalar> InteractCx<'_, T> {
+    /// the current frame time
     pub fn time(&self) -> Duration {
         self.time
     }
 
-    /// builds a frame at this time without input
+    /// request another update at `time`, even without new input
+    ///
+    /// use this for a long press
     pub fn wake_at(&mut self, time: Duration) {
         *self.deadline = Some(self.deadline.map_or(time, |deadline| deadline.min(time)));
     }
 
-    /// every live press and touch
+    /// read live mouse presses and touches
+    ///
+    /// includes contacts your widget cannot use. see
+    /// [following a contact](crate::interact#following-a-contact) to choose and track one.
     pub fn contacts(&mut self) -> Contacts<'_, T> {
         Contacts {
             contacts: self.contacts.iter_mut(),
@@ -93,9 +103,9 @@ impl<T: Scalar> InteractCx<'_, T> {
     }
 }
 
-/// a mouse press or touch, as seen by one widget
+/// a mouse button press or touch, from down to release or cancellation
 ///
-/// borrows its routing for this interaction update
+/// see [sharing contacts](crate::interact#sharing-contacts) for when to claim or capture
 #[derive(Debug)]
 pub struct Contact<'a, T> {
     pub id: ContactId,
@@ -105,9 +115,9 @@ pub struct Contact<'a, T> {
     pub position: Point<T>,
     /// movement since the previous input
     pub delta: Point<T>,
-    /// frame clock time of the press
+    /// when the press started
     pub started: Duration,
-    /// the position falls on this widget rather than something above it
+    /// true if the position hits your widget or one of its children
     pub over: bool,
     /// free for this widget to use, including contacts it captured
     pub free: bool,
@@ -116,9 +126,7 @@ pub struct Contact<'a, T> {
 }
 
 impl<T> Contact<'_, T> {
-    /// keeps this contact from ancestors until the next update
-    ///
-    /// fails for a contact this widget already captured
+    /// reserve this contact for the current update
     pub fn claim(&mut self) -> bool {
         if let Some(Route::Pending { claim, .. }) = self.pending.as_deref_mut() {
             *claim = Some(self.widget);
@@ -127,9 +135,7 @@ impl<T> Contact<'_, T> {
         false
     }
 
-    /// takes this pending contact from every other widget until it ends
-    ///
-    /// a contact another widget claimed during this update stays with it
+    /// keep this contact until it ends or your widget disappears
     pub fn capture(&mut self) -> bool {
         let Some(route) = self.pending.take() else {
             return false;
@@ -139,7 +145,7 @@ impl<T> Contact<'_, T> {
     }
 }
 
-/// every live contact as seen by one widget
+/// iterate contact handles from [`InteractCx::contacts`]
 pub struct Contacts<'a, T> {
     contacts: std::slice::IterMut<'a, TrackedContact<T>>,
     id: Id,
@@ -177,6 +183,10 @@ impl<'a, T: Scalar> Iterator for Contacts<'a, T> {
         })
     }
 }
+
+//
+// internals
+//
 
 #[derive(Default)]
 pub struct InteractionState<T> {
