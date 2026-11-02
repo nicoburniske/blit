@@ -11,7 +11,7 @@ pub type VirtualListState = blit_widgets::VirtualListState<i32>;
 
 mod block;
 mod text;
-mod text_input;
+pub mod text_input;
 
 pub use self::{
     block::{Block, Title},

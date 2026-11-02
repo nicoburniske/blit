@@ -1,6 +1,6 @@
 use std::{cell::RefCell, io, rc::Rc, time::Duration};
 
-use blit::{Axis, Easing, Id, Input, Key, Scalar, Sides, Size, Transition, Widget};
+use blit::{Axis, Easing, Id, Input, Key, KeyboardEvent, Scalar, Sides, Size, Transition, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 use blit_tui::{
     BoundsClip, TuiContext, Ui,
@@ -52,10 +52,11 @@ impl Default for Demo {
 
 impl Demo {
     fn show(&mut self, mut ui: Ui<'_>) {
-        let escape = matches!(ui.input(), Input::Key(key)
-            if key.key == Key::Escape && key.pressed && !key.repeat);
-        let input_focused = ui.focused() == Some(Id::new("tui text input"));
-        if !self.modal.open && !input_focused && (escape || matches!(ui.input(), Input::Text('q'))) {
+        let quit = ui.interact(interact::keyboard(|input| match input {
+            KeyboardEvent::Text('q') => Some(()),
+            _ => None,
+        }));
+        if !self.modal.open && quit.is_some() {
             ui.context_mut().quit();
             return;
         }

@@ -1,8 +1,12 @@
 use blit::{
-    Atom, AtomCx, Axis, Constraints, Input, Key, PhysicalRect, PointerButton, Sides, Size, TouchPhase, Ui, Widget,
+    Atom, AtomCx, Axis, Constraints, Input, KeyboardEvent, PhysicalRect, PointerButton, Sides, Size, TouchPhase, Ui,
+    Widget,
 };
-pub use blit_widgets::TextInputResponse;
-use blit_widgets::interact;
+use blit_widgets::interact::{self, keyboard::Handler};
+pub use blit_widgets::{
+    TextInputResponse,
+    text_input::{Edit, default_keymap},
+};
 pub type TextInputState = blit_widgets::TextInputState<i32>;
 
 use crate::{
@@ -13,8 +17,13 @@ use crate::{
 };
 
 blit::builder! {
+    /// single line text editing with configurable keyboard bindings
+    ///
+    /// [`Self::keymap`] replaces [`default_keymap`]. return `None` to let an event bubble.
     pub struct TextInput<'a> {
         new(state: &'a mut TextInputState, value: &'a mut String),
+        #[bounds(Handler<Action = Edit>)]
+        keymap<F = fn(KeyboardEvent) -> Option<Edit>>: F = default_keymap,
         #[into]
         background: Option<Color> = None,
         placeholder: &'a str = "",
@@ -27,13 +36,14 @@ blit::builder! {
     }
 }
 
-impl<C: Context> Widget<C> for TextInput<'_> {
+impl<C: Context, F: Handler<Action = Edit>> Widget<C> for TextInput<'_, F> {
     type Response = TextInputResponse;
 
     fn build(self, mut ui: Ui<'_, C>) -> Self::Response {
         let Self {
             state,
             value,
+            keymap,
             background,
             placeholder,
             padding,
@@ -49,15 +59,12 @@ impl<C: Context> Widget<C> for TextInput<'_> {
         let dragged = drag.active || drag.released;
         let input = ui.input();
         let mut focused = ui.interact(interact::focus());
-        if focused
-            && let Input::Key(key) = input
-            && key.key == Key::Escape
-            && key.pressed
-        {
+        let editing = ui.interact(interact::keyboard(keymap).require_focus());
+        if focused && editing == Some(Edit::Blur) {
             ui.clear_focus();
             focused = false;
         }
-        let response = state.update(value, if focused { &input } else { &Input::None });
+        let response = state.update(value, if focused { editing } else { None });
         let text = ui.context_mut().as_mut().renderer_mut().text_run(value);
         let options = TextOptions::new().max_lines(1);
         let pointer = if focused {

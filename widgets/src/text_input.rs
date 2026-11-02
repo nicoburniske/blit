@@ -1,5 +1,31 @@
-use blit::{Input, Key, Scalar};
+use blit::{Key, KeyboardEvent, Scalar};
 use unicode_segmentation::UnicodeSegmentation;
+
+/// an editing action independent of its keyboard binding
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edit {
+    Insert(char),
+    DeleteBackward,
+    DeleteForward,
+    MoveLeft {
+        extend: bool,
+    },
+    MoveRight {
+        extend: bool,
+    },
+    MoveToStart {
+        extend: bool,
+    },
+    MoveToEnd {
+        extend: bool,
+    },
+    SelectAll,
+    Submit,
+    /// releases the widget's keyboard focus
+    Blur,
+    /// consumes the event without editing
+    Ignore,
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct State<T> {
@@ -15,13 +41,13 @@ pub struct Response {
 }
 
 impl<T: Scalar> State<T> {
-    pub fn update(&mut self, value: &mut String, input: &Input<T>) -> Response {
+    pub fn update(&mut self, value: &mut String, edit: Option<Edit>) -> Response {
         self.cursor = boundary(value, self.cursor);
         self.anchor = boundary(value, self.anchor);
         self.offset_x = self.offset_x.max(T::ZERO);
         let mut response = Response::default();
-        match *input {
-            Input::Text(character) if !character.is_control() => {
+        match edit {
+            Some(Edit::Insert(character)) if !character.is_control() => {
                 self.delete_selection(value);
                 let end = self.cursor + character.len_utf8();
                 value.insert(self.cursor, character);
@@ -33,53 +59,50 @@ impl<T: Scalar> State<T> {
                 self.anchor = self.cursor;
                 response.changed = true;
             }
-            Input::Key(key) if key.pressed => match key.key {
-                Key::Character('a' | 'A') if key.modifiers.control() || key.modifiers.super_key() => {
-                    self.anchor = 0;
-                    self.cursor = value.len();
+            Some(Edit::SelectAll) => {
+                self.anchor = 0;
+                self.cursor = value.len();
+            }
+            Some(Edit::DeleteBackward) => {
+                response.changed = self.delete_selection(value);
+                if !response.changed && self.cursor != 0 {
+                    let start = previous_boundary(value, self.cursor);
+                    value.replace_range(start..self.cursor, "");
+                    self.cursor = start;
+                    self.anchor = start;
+                    response.changed = true;
                 }
-                Key::Backspace => {
-                    response.changed = self.delete_selection(value);
-                    if !response.changed && self.cursor != 0 {
-                        let start = previous_boundary(value, self.cursor);
-                        value.replace_range(start..self.cursor, "");
-                        self.cursor = start;
-                        self.anchor = start;
-                        response.changed = true;
-                    }
+            }
+            Some(Edit::DeleteForward) => {
+                response.changed = self.delete_selection(value);
+                if !response.changed && self.cursor != value.len() {
+                    let end = next_boundary(value, self.cursor);
+                    value.replace_range(self.cursor..end, "");
+                    self.anchor = self.cursor;
+                    response.changed = true;
                 }
-                Key::Delete => {
-                    response.changed = self.delete_selection(value);
-                    if !response.changed && self.cursor != value.len() {
-                        let end = next_boundary(value, self.cursor);
-                        value.replace_range(self.cursor..end, "");
-                        self.anchor = self.cursor;
-                        response.changed = true;
-                    }
-                }
-                Key::ArrowLeft => {
-                    let (start, end) = self.selection();
-                    let cursor = if !key.modifiers.shift() && start != end {
-                        start
-                    } else {
-                        previous_boundary(value, self.cursor)
-                    };
-                    self.move_to(value, cursor, key.modifiers.shift());
-                }
-                Key::ArrowRight => {
-                    let (start, end) = self.selection();
-                    let cursor = if !key.modifiers.shift() && start != end {
-                        end
-                    } else {
-                        next_boundary(value, self.cursor)
-                    };
-                    self.move_to(value, cursor, key.modifiers.shift());
-                }
-                Key::Home => self.move_to(value, 0, key.modifiers.shift()),
-                Key::End => self.move_to(value, value.len(), key.modifiers.shift()),
-                Key::Enter if !key.repeat => response.submitted = true,
-                _ => {}
-            },
+            }
+            Some(Edit::MoveLeft { extend }) => {
+                let (start, end) = self.selection();
+                let cursor = if !extend && start != end {
+                    start
+                } else {
+                    previous_boundary(value, self.cursor)
+                };
+                self.move_to(value, cursor, extend);
+            }
+            Some(Edit::MoveRight { extend }) => {
+                let (start, end) = self.selection();
+                let cursor = if !extend && start != end {
+                    end
+                } else {
+                    next_boundary(value, self.cursor)
+                };
+                self.move_to(value, cursor, extend);
+            }
+            Some(Edit::MoveToStart { extend }) => self.move_to(value, 0, extend),
+            Some(Edit::MoveToEnd { extend }) => self.move_to(value, value.len(), extend),
+            Some(Edit::Submit) => response.submitted = true,
             _ => {}
         }
         response
@@ -90,6 +113,46 @@ impl<T: Scalar> State<T> {
         if !extend {
             self.anchor = self.cursor;
         }
+    }
+}
+
+/// default text editing bindings
+///
+/// macos uses command and arrow keys or control a and e for start and end.
+/// other platforms use home and end. shift extends the selection.
+///
+/// custom keymaps can fall back to this function for events they do not override.
+/// returning `None` lets an event bubble and [`Edit::Ignore`] consumes it.
+pub fn default_keymap(event: KeyboardEvent) -> Option<Edit> {
+    match event {
+        KeyboardEvent::Text(character) if !character.is_control() => Some(Edit::Insert(character)),
+        KeyboardEvent::Key(key) if key.pressed => {
+            let extend = key.modifiers.shift();
+            let macos = cfg!(target_os = "macos");
+            let shortcut = if macos {
+                key.modifiers.super_key()
+            } else {
+                key.modifiers.control()
+            };
+            Some(match key.key {
+                Key::Character('a' | 'A') if shortcut => Edit::SelectAll,
+                Key::ArrowLeft if macos && shortcut => Edit::MoveToStart { extend },
+                Key::ArrowRight if macos && shortcut => Edit::MoveToEnd { extend },
+                Key::Character('a' | 'A') if macos && key.modifiers.control() => Edit::MoveToStart { extend },
+                Key::Character('e' | 'E') if macos && key.modifiers.control() => Edit::MoveToEnd { extend },
+                Key::Backspace => Edit::DeleteBackward,
+                Key::Delete => Edit::DeleteForward,
+                Key::ArrowLeft => Edit::MoveLeft { extend },
+                Key::ArrowRight => Edit::MoveRight { extend },
+                Key::Home if !macos => Edit::MoveToStart { extend },
+                Key::End if !macos => Edit::MoveToEnd { extend },
+                Key::Enter if !key.repeat => Edit::Submit,
+                Key::Enter => Edit::Ignore,
+                Key::Escape => Edit::Blur,
+                _ => return None,
+            })
+        }
+        _ => None,
     }
 }
 

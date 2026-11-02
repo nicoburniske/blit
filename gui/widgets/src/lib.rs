@@ -1,5 +1,5 @@
 mod performance;
-mod text_input;
+pub mod text_input;
 
 pub use blit_gui::widget::{RichText, Text};
 pub use blit_widgets::{

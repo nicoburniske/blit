@@ -41,7 +41,7 @@ an atom describes visual content, like text or a rectangle. painting it typicall
 means recording draw commands for the backend using its resolved position and size.
 
 ```rust
-use blit::{Input, Sides};
+use blit::{KeyboardEvent, Sides};
 use blit_tui::{
     Ui,
     atom::Border,
@@ -95,7 +95,11 @@ fn main() -> std::io::Result<()> {
                         press.clicked
                     })
             });
-        if quit || matches!(root.input(), Input::Text('q')) {
+        let quit_key = root.interact(interact::keyboard(|input| match input {
+            KeyboardEvent::Text('q') => Some(()),
+            _ => None,
+        }));
+        if quit || quit_key.is_some() {
             root.context_mut().quit();
         }
     })
