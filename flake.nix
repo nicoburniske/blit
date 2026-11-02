@@ -32,6 +32,7 @@
             BLIT_TEST_FONT = "${pkgs.mononoki}/share/fonts/opentype/mononoki-Regular.otf";
           } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (with pkgs; [
+              fontconfig
               libxkbcommon
               wayland
               libx11
