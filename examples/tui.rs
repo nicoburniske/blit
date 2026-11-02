@@ -6,7 +6,7 @@ use blit_tui::{
     BoundsClip, TuiContext, Ui,
     atom::{Bar, BarChart, Border, BorderSides, BorderStyle, Gauge, Shadow, Sparkline, Tint, TitlePosition},
     color::Color,
-    interact::press,
+    interact,
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, single, wrap},
     text::{HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign},
     widget::{
@@ -193,7 +193,7 @@ impl Widget<TuiContext> for &mut Modal {
             self.palette.open = false;
         }
         let backdrop_id = Id::new("tui modal backdrop");
-        if self.open && root.interact_widget(backdrop_id, press::new()).clicked {
+        if self.open && root.interact_widget(backdrop_id, interact::press()).clicked {
             self.open = false;
         }
         if !self.open {
@@ -206,7 +206,7 @@ impl Widget<TuiContext> for &mut Modal {
         ];
         let (_, accent) = palettes[self.accent];
         let panel_id = Id::new("tui modal panel");
-        root.interact_widget(panel_id, press::new());
+        root.interact_widget(panel_id, interact::press());
         let mut modal = root
             .child()
             .parent(blit::NodeTarget::Root)
@@ -1018,13 +1018,13 @@ impl Widget<TuiContext> for Button<'_> {
     type Response = bool;
 
     fn build(self, mut ui: Ui<'_>) -> bool {
-        let press = ui.interact(press::new());
+        let press = ui.interact(interact::press());
         draw_button(ui, self.label, self.selected, press);
         press.clicked
     }
 }
 
-fn draw_button(ui: Ui<'_>, label: &str, selected: bool, press: press::Response) {
+fn draw_button(ui: Ui<'_>, label: &str, selected: bool, press: interact::press::Response) {
     let block = if press.active {
         Block::new().background(colors::ACCENT_DARK)
     } else if selected {

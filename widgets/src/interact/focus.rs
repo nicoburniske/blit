@@ -4,10 +4,6 @@ use blit::{ContactSource, Context, InteractCx, Phase, PointerButton};
 #[derive(Clone, Copy, Debug)]
 pub struct Interact;
 
-pub fn new() -> Interact {
-    Interact
-}
-
 impl<C: Context> blit::Interact<C> for Interact {
     type State = ();
     type Response = bool;
@@ -38,8 +34,10 @@ mod tests {
     };
     use blit_layout::rect;
 
-    use super::*;
-    use crate::test::{TestContext, pointer, step};
+    use crate::{
+        interact,
+        test::{TestContext, pointer, step},
+    };
 
     #[test]
     fn focus_follows_presses_and_taps() {
@@ -53,13 +51,13 @@ mod tests {
             }
             let mut ui = ui.layout(rect::new());
             let mut left = ui.child().item(Rect::new(0.0, 0.0, 100.0, 200.0)).id(Id::new("left"));
-            let left_focused = left.interact(new());
+            let left_focused = left.interact(interact::focus());
             if change_focus.replace(false) {
                 left.focus(right_id);
             }
             drop(left);
             let mut right = ui.child().item(Rect::new(100.0, 0.0, 100.0, 200.0)).id(right_id);
-            (left_focused, right.interact(new()))
+            (left_focused, right.interact(interact::focus()))
         };
         let mut next = |input| step(&mut frame, input, build);
         next(Input::None);

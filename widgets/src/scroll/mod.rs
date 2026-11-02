@@ -11,10 +11,7 @@ pub use self::{
     uniform_list::{Response as UniformListResponse, UniformList},
     virtual_list::{Response as VirtualListResponse, VirtualList, VirtualListState},
 };
-use crate::{
-    Context,
-    interact::{drag, press, scroll},
-};
+use crate::{Context, interact};
 
 /// persistent scroll position and motion
 #[derive(Debug, Default)]
@@ -324,10 +321,10 @@ fn scrollbar_input<C: Context>(
     let track_id = id.child("scroll track");
     let thumb_area = ui.area(thumb_id);
     let track_area = ui.area(track_id);
-    let thumb = ui.interact_widget(thumb_id, press::new());
-    let track = ui.interact_widget(track_id, press::new());
-    let thumb_drag = ui.interact_widget(thumb_id, drag::new());
-    let track_drag = ui.interact_widget(track_id, drag::new());
+    let thumb = ui.interact_widget(thumb_id, interact::press());
+    let track = ui.interact_widget(track_id, interact::press());
+    let thumb_drag = ui.interact_widget(thumb_id, interact::drag());
+    let track_drag = ui.interact_widget(track_id, interact::drag());
     let active = thumb.active || track.active || thumb_drag.active || track_drag.active;
     // cancelled drags leave the offset alone
     let thumb_moved = thumb_drag.active || thumb_drag.released;
@@ -375,14 +372,14 @@ fn scrollbar_input<C: Context>(
 }
 
 /// wheel scrolling and panning over the content
-fn content_input<C: Context>(ui: &mut Ui<'_, C>, axis: Axis) -> scroll::Response {
-    let scroll = ui.interact(scroll::new());
-    let pan = ui.interact(drag::new().axis(axis));
+fn content_input<C: Context>(ui: &mut Ui<'_, C>, axis: Axis) -> interact::scroll::Response {
+    let scroll = ui.interact(interact::scroll());
+    let pan = ui.interact(interact::drag().axis(axis));
     if !pan.active && !pan.deactivated {
         return scroll;
     }
     // touches pan the content, moving it against the finger
-    scroll::Response {
+    interact::scroll::Response {
         active: pan.active,
         activated: pan.activated,
         deactivated: pan.deactivated,
@@ -398,7 +395,7 @@ fn content_motion<C: Context>(
     axis: Axis,
     scroll_speed: f32,
     inertia_friction: f32,
-    motion: scroll::Response,
+    motion: interact::scroll::Response,
 ) -> f32 {
     let now = ui.time();
     let elapsed = state

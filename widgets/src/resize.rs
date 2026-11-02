@@ -1,9 +1,6 @@
 use blit::{Constraints, LayoutCx, Point, Scalar, Size, Ui, Widget};
 
-use crate::{
-    Context,
-    interact::{drag, press},
-};
+use crate::{Context, interact};
 
 #[derive(Debug, Default)]
 pub struct ResizeState<T> {
@@ -55,8 +52,8 @@ where
         let corner_id = id.child("corner grip");
         let previous = ui.area(id);
         let mut grip_input = |id, edge| {
-            let press = ui.interact_widget(id, press::new());
-            let drag = ui.interact_widget(id, drag::new());
+            let press = ui.interact_widget(id, interact::press());
+            let drag = ui.interact_widget(id, interact::drag());
             let grip = ResizeGrip {
                 edge,
                 hovered: press.hovered,

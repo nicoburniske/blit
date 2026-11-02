@@ -12,10 +12,6 @@ builder! {
     }
 }
 
-pub fn new() -> Interact {
-    Interact::new()
-}
-
 /// the response of [`Interact`]
 ///
 /// `activated` implies `active` unless `deactivated`, and `released` implies `deactivated`
@@ -81,14 +77,17 @@ mod tests {
     use blit_layout::{rect, single};
 
     use super::*;
-    use crate::test::{TestContext, step};
+    use crate::{
+        interact,
+        test::{TestContext, step},
+    };
 
     #[test]
     fn uncaptured_scroll_follows_reordered_nodes() {
         let mut frame = Frame::<TestContext>::default();
         let order = Cell::new([0, 1]);
         let build = |mut ui: Ui<'_, TestContext>| {
-            let responses = [0, 1].map(|id| ui.interact_widget(Id::new(id), new()));
+            let responses = [0, 1].map(|id| ui.interact_widget(Id::new(id), interact::scroll()));
             let mut root = ui.layout(rect::new());
             for id in order.get() {
                 root.child()
@@ -131,7 +130,7 @@ mod tests {
             let mounted = Cell::new(true);
             let build = |mut ui: Ui<'_, TestContext>| {
                 let id = Id::new("owner");
-                let response = ui.interact_widget(id, new());
+                let response = ui.interact_widget(id, interact::scroll());
                 let mut root = ui.layout(single::new().grow());
                 if mounted.get() {
                     root.child().id(id).build(|_: Ui<'_, TestContext>| {});
@@ -173,7 +172,11 @@ mod tests {
         // zero delta endings stay with the owner even outside its bounds
         for horizontal in [true, false] {
             let mut frame = Frame::<TestContext>::default();
-            let mut scroll = |input| step(&mut frame, input, |mut ui: Ui<'_, TestContext>| ui.interact(new()));
+            let mut scroll = |input| {
+                step(&mut frame, input, |mut ui: Ui<'_, TestContext>| {
+                    ui.interact(interact::scroll())
+                })
+            };
             scroll(Input::None);
             let held = Response {
                 active: true,
@@ -252,11 +255,11 @@ mod tests {
     fn wheel_axis_leaves_other_directions_to_ancestors() {
         let mut frame = Frame::<TestContext>::default();
         let build = |mut ui: Ui<'_, TestContext>| {
-            let list = ui.interact(new().axis(Axis::Vertical));
+            let list = ui.interact(interact::scroll().axis(Axis::Vertical));
             let carousel = ui
                 .layout(single::new().grow())
                 .child()
-                .build(|mut ui: Ui<'_, TestContext>| ui.interact(new().axis(Axis::Horizontal)));
+                .build(|mut ui: Ui<'_, TestContext>| ui.interact(interact::scroll().axis(Axis::Horizontal)));
             (list, carousel)
         };
         step(&mut frame, Input::None, build);

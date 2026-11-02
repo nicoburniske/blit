@@ -8,10 +8,6 @@ use crate::Context;
 #[derive(Clone, Copy, Debug)]
 pub struct Interact;
 
-pub fn new() -> Interact {
-    Interact
-}
-
 /// the response of [`Interact`]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Response {
@@ -78,9 +74,8 @@ mod tests {
     };
     use blit_layout::single;
 
-    use super::*;
     use crate::{
-        interact::drag,
+        interact,
         test::{TestContext, pointer, step},
     };
 
@@ -88,7 +83,11 @@ mod tests {
     fn presses() {
         for id in [None, Some(1)] {
             let mut frame = Frame::<TestContext>::default();
-            let mut press = |input| step(&mut frame, input, |mut ui: Ui<'_, TestContext>| ui.interact(new()));
+            let mut press = |input| {
+                step(&mut frame, input, |mut ui: Ui<'_, TestContext>| {
+                    ui.interact(interact::press())
+                })
+            };
             press(Input::None);
             let down = press(pointer(id, Down, 10.0, 10.0));
             assert!(down.active && down.activated && !down.clicked);
@@ -110,11 +109,11 @@ mod tests {
             let mut frame = Frame::<TestContext>::default();
             let build = |mut ui: Ui<'_, TestContext>| {
                 // takes a press once it moves, like a scroll view panning
-                let pan = ui.interact(drag::new());
+                let pan = ui.interact(interact::drag());
                 let press = ui
                     .layout(single::new().grow())
                     .child()
-                    .build(|mut ui: Ui<'_, TestContext>| ui.interact(new()));
+                    .build(|mut ui: Ui<'_, TestContext>| ui.interact(interact::press()));
                 (pan, press)
             };
             let mut next = |input| step(&mut frame, input, build);

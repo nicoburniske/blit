@@ -14,10 +14,6 @@ builder! {
     }
 }
 
-pub fn new() -> Interact {
-    Interact::new()
-}
-
 /// the response of [`Interact`]
 ///
 /// `activated` implies `active` unless `deactivated`, and `released` implies `deactivated`
@@ -108,15 +104,18 @@ mod tests {
     use blit_layout::single;
 
     use super::*;
-    use crate::test::{TestContext, pointer, step};
+    use crate::{
+        interact,
+        test::{TestContext, pointer, step},
+    };
 
     /// a horizontal slider inside a vertical pan
     fn slider(mut ui: Ui<'_, TestContext>) -> (Response<f32>, Response<f32>) {
-        let pan = ui.interact(new().axis(Axis::Vertical));
+        let pan = ui.interact(interact::drag().axis(Axis::Vertical));
         let slider = ui
             .layout(single::new().grow())
             .child()
-            .build(|mut ui: Ui<'_, TestContext>| ui.interact(new().axis(Axis::Horizontal)));
+            .build(|mut ui: Ui<'_, TestContext>| ui.interact(interact::drag().axis(Axis::Horizontal)));
         (pan, slider)
     }
 
@@ -183,7 +182,7 @@ mod tests {
         let mounted = Cell::new(true);
         let build = |mut ui: Ui<'_, TestContext>| {
             let handle = Id::new("handle");
-            let drag = ui.interact_widget(handle, new());
+            let drag = ui.interact_widget(handle, interact::drag());
             if mounted.get() {
                 ui.layout(single::new().grow())
                     .child()

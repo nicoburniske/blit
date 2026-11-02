@@ -21,8 +21,7 @@ use blit_gui::{
 use blit_gui_widgets::{
     Performance, PerformanceState, Popover, PopoverClose, PopoverState, Resize, ResizeEdge, ResizeGrip, ResizeState,
     RichText, ScrollArea, ScrollState, Split, SplitState, Text, TextInput, TextInputState, UniformList, VirtualList,
-    VirtualListState,
-    interact::press,
+    VirtualListState, interact,
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, single, wrap},
 };
 
@@ -1153,13 +1152,13 @@ impl Widget<DesktopContext> for Button<'_> {
     type Response = bool;
 
     fn build(self, mut ui: Ui<'_>) -> bool {
-        let press = ui.interact(press::new());
+        let press = ui.interact(interact::press());
         draw_button(ui, self.label, self.selected, press);
         press.clicked
     }
 }
 
-fn draw_button(ui: Ui<'_>, label: &str, selected: bool, press: press::Response) {
+fn draw_button(ui: Ui<'_>, label: &str, selected: bool, press: interact::press::Response) {
     let background = if press.active {
         colors::ACCENT_DARK
     } else if selected {

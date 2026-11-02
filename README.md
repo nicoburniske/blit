@@ -39,7 +39,7 @@ use blit::{Input, Sides};
 use blit_tui::{
     Ui,
     atom::Border,
-    interact::press,
+    interact,
     color::Color,
     layout::{Align, Justify, flex},
     text::{HorizontalAlign, TextAttributes, TextOptions},
@@ -76,7 +76,7 @@ fn main() -> std::io::Result<()> {
                     .child()
                     .item(flex::item().fixed(8, 1))
                     .build(|mut ui: Ui<'_>| {
-                        let press = ui.interact(press::new());
+                        let press = ui.interact(interact::press());
 
                         ui.insert(Block::new().background(Color::BLUE));
                         ui.insert(

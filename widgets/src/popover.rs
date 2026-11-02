@@ -5,7 +5,7 @@ use blit_layout::{
     single,
 };
 
-use crate::{Context, interact::press};
+use crate::{Context, interact};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PopoverClose {
@@ -18,8 +18,8 @@ pub enum PopoverClose {
 blit::builder! {
     pub struct Popover<'a, C: Context> {
         new(state: &'a mut PopoverState),
-        #[bounds(FnOnce(Ui<'_, C>, press::Response, bool))]
-        trigger<F = fn(Ui<'_, C>, press::Response, bool)>: F = |_, _, _| (),
+        #[bounds(FnOnce(Ui<'_, C>, interact::press::Response, bool))]
+        trigger<F = fn(Ui<'_, C>, interact::press::Response, bool)>: F = |_, _, _| (),
         content<W = fn(Ui<'_, C>)>: W = |_| (),
         #[into]
         parent: NodeTarget = NodeTarget::Root,
@@ -46,7 +46,7 @@ blit::builder! {
 
 impl<C: Context, F, W> Widget<C> for Popover<'_, C, F, W>
 where
-    F: FnOnce(Ui<'_, C>, press::Response, bool),
+    F: FnOnce(Ui<'_, C>, interact::press::Response, bool),
     W: Widget<C>,
 {
     type Response = Option<W::Response>;
@@ -56,7 +56,7 @@ where
         let content = self.content;
         let id = ui.current_id();
         let trigger_id = id.child("popover trigger");
-        let press = ui.interact_widget(trigger_id, press::new());
+        let press = ui.interact_widget(trigger_id, interact::press());
         if self.open_on_hover && press.hovered {
             state.open = true;
         } else if !self.open_on_hover && press.activated {
@@ -79,7 +79,7 @@ where
             return None;
         }
 
-        let backdrop = root.interact_widget(backdrop_id, press::new());
+        let backdrop = root.interact_widget(backdrop_id, interact::press());
         let content_hovered = root.interact_widget(content_id, BlockInput);
         let pointer_inside = content_hovered
             || root
@@ -161,7 +161,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        interact::scroll,
+        interact,
         test::{TestContext, step},
     };
 
@@ -171,14 +171,14 @@ mod tests {
         let mut state = PopoverState::new().open(true);
         let mut next = |input| {
             step(&mut frame, input, |mut ui: Ui<'_, TestContext>| {
-                let background = ui.interact(scroll::new()).delta;
+                let background = ui.interact(interact::scroll()).delta;
                 let content = ui
                     .build(
                         Popover::new(&mut state)
                             .width(Sizing::fixed(100.0))
                             .height(Sizing::fixed(100.0))
                             .content(|mut ui: Ui<'_, TestContext>| {
-                                ui.interact(scroll::new().axis(Axis::Horizontal)).delta
+                                ui.interact(interact::scroll().axis(Axis::Horizontal)).delta
                             }),
                     )
                     .unwrap();
