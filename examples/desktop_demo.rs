@@ -8,7 +8,7 @@ use blit_desktop::cpu;
 use blit_desktop::gpu;
 use blit_desktop::{Application, Config, DesktopContext, EventLoopProxy, Root, Ui};
 use blit_gui::{
-    BoundsClip, Family, FontData, FontStack, TextConfig, TextLayoutEngine,
+    BoundsClip, Family, FontData, FontStack, TextConfig,
     atom::{Rectangle, Shadow},
     color::Color,
     display_list::{Mesh, MeshVertex},
@@ -25,14 +25,12 @@ use blit_gui_widgets::{
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, single, wrap},
 };
 
-pub fn run(text: impl TextLayoutEngine, fallbacks: &[Family]) {
+pub fn run() {
     let fonts = std::fs::read_dir(std::path::Path::new(env!("BLIT_TEST_FONT")).with_file_name(""))
         .unwrap()
         .filter_map(|entry| std::fs::read(entry.ok()?.path()).ok())
         .map(|data| FontData::Shared(data.into()))
         .collect::<Vec<_>>();
-    let mut families = vec![Family::embedded(fonts)];
-    families.extend_from_slice(fallbacks);
     #[cfg(feature = "gpu")]
     let graphics = Box::new(gpu::Backend::new(gpu::Config::default()));
     #[cfg(not(feature = "gpu"))]
@@ -44,12 +42,16 @@ pub fn run(text: impl TextLayoutEngine, fallbacks: &[Family]) {
         text_config: TextConfig {
             fonts: vec![FontStack {
                 id: FontId::default(),
-                families,
+                families: vec![
+                    Family::embedded(fonts),
+                    Family::named("Noto Color Emoji"),
+                    Family::named("Apple Color Emoji"),
+                ],
             }],
             text_cache_capacity: 1024 * 1024,
             layout_cache_capacity: 2 * 1024 * 1024,
         },
-        text,
+        text: blit_text_parley::Backend::new(),
         graphics,
     })
     .unwrap();

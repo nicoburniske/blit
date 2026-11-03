@@ -379,14 +379,6 @@ impl<B: PixelBuffer> TestRenderer<B> {
 }
 
 fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> TestRenderer<B> {
-    new_renderer_with_backend(buffer, config, blit_text_parley::Backend::without_system_fonts())
-}
-
-fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(
-    buffer: B,
-    config: RendererConfig,
-    backend: T,
-) -> TestRenderer<B> {
     TestRenderer {
         render: Renderer::new(buffer, config),
         gui: GuiContext::new(
@@ -401,7 +393,7 @@ fn new_renderer_with_backend<B: PixelBuffer, T: TextLayoutEngine>(
                     text_cache_capacity: 1024 * 1024,
                     layout_cache_capacity: 1024 * 1024,
                 },
-                backend,
+                blit_text_parley::Backend::without_system_fonts(),
             )
             .unwrap(),
         ),
@@ -566,11 +558,7 @@ fn render_input_tracks_damage_and_invalidation() {
 #[test]
 fn text_placement_tracks_physical_clip_size() {
     let config = renderer_config();
-    let mut renderer = new_renderer_with_backend(
-        VecBuffer::<Xrgb8888>::new(16, 24),
-        config,
-        blit_text_fontdue::Backend::new(),
-    );
+    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(16, 24), config);
     let text = renderer
         .gui
         .rich_text("MM", &[Span::new(0..1), Span::new(1..2)], TextStyle::new().size(20.0));

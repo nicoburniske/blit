@@ -340,7 +340,7 @@ mod tests {
                     include_bytes!(env!("BLIT_TEST_FONT")),
                 )])],
             ),
-            blit_text_fontdue::Backend::new(),
+            blit_text_parley::Backend::without_system_fonts(),
         )
         .unwrap();
         let run = text.text_run(TextSource::Borrowed("a "), TextStyle::new());

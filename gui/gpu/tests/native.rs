@@ -66,7 +66,7 @@ fn renders_primitives_and_rebuilds_frames() {
                 text_cache_capacity: 1024,
                 layout_cache_capacity: 1024,
             },
-            blit_text_fontdue::Backend::new(),
+            blit_text_parley::Backend::without_system_fonts(),
         )
         .unwrap(),
     );

@@ -15,7 +15,7 @@ wgpu = { workspace = true, features = ["std", "wgsl"] }
 
 [dev-dependencies]
 blit-executor.workspace = true
-blit-text-fontdue.workspace = true
+blit-text-parley.workspace = true
 wgpu = { workspace = true, features = ["noop", "wgsl"] }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]

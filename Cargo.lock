@@ -158,7 +158,6 @@ dependencies = [
  "blit-cache",
  "blit-gui",
  "blit-text",
- "blit-text-fontdue",
  "blit-text-parley",
  "divan",
  "fearless_simd",
@@ -173,7 +172,6 @@ dependencies = [
  "blit-gui",
  "blit-gui-widgets",
  "blit-layout",
- "blit-text-fontdue",
  "blit-text-parley",
  "blit-tui",
 ]
@@ -209,7 +207,7 @@ dependencies = [
  "blit-executor",
  "blit-gui",
  "blit-text",
- "blit-text-fontdue",
+ "blit-text-parley",
  "bytemuck",
  "wgpu",
 ]
@@ -244,30 +242,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "blit-raster"
-version = "0.1.0"
-dependencies = [
- "blit-text",
- "ttf-parser",
-]
-
-[[package]]
 name = "blit-text"
 version = "0.1.0"
 dependencies = [
  "blit",
-]
-
-[[package]]
-name = "blit-text-fontdue"
-version = "0.1.0"
-dependencies = [
- "blit",
- "blit-raster",
- "blit-text",
- "fontdue",
- "ttf-parser",
- "unicode-segmentation",
 ]
 
 [[package]]
@@ -508,15 +486,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "core_maths"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77745e017f5edba1a9c1d854f6f3a52dac8a12dd5af5d2f54aecf61e43d80d30"
-dependencies = [
- "libm",
-]
-
-[[package]]
 name = "crossbeam-utils"
 version = "0.8.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -663,15 +632,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e64eb721ca85a34323425f4041adc5d82704d3782d5f8f03793bc012419dce23"
 dependencies = [
  "bytemuck",
-]
-
-[[package]]
-name = "fontdue"
-version = "0.9.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7894823fa221401399e2598f8b63f81ac77ff5c63248b7656779bff1632d7d3d"
-dependencies = [
- "ttf-parser",
 ]
 
 [[package]]
@@ -2303,15 +2263,6 @@ name = "tracing-core"
 version = "0.1.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
-
-[[package]]
-name = "ttf-parser"
-version = "0.25.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
-dependencies = [
- "core_maths",
-]
 
 [[package]]
 name = "unicode-ident"
