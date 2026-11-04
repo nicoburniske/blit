@@ -4,28 +4,28 @@ use crate::geometry::Point;
 pub enum Input<T> {
     #[default]
     None,
-    PointerDown {
+    MouseDown {
         position: Point<T>,
-        button: PointerButton,
+        button: MouseButton,
         modifiers: Modifiers,
     },
-    PointerUp {
+    MouseUp {
         position: Point<T>,
-        button: PointerButton,
+        button: MouseButton,
         modifiers: Modifiers,
         leave: bool,
     },
-    PointerMove {
+    MouseMove {
         position: Point<T>,
         modifiers: Modifiers,
     },
-    PointerLeave,
+    MouseLeave,
     Touch {
         id: u64,
         position: Point<T>,
         phase: TouchPhase,
     },
-    /// cancels all pointer and touch sequences
+    /// cancels all mouse and touch sequences
     Cancel,
     Scroll {
         position: Point<T>,
@@ -145,7 +145,7 @@ impl Modifiers {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum PointerButton {
+pub enum MouseButton {
     #[default]
     Primary,
     Secondary,

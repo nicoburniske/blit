@@ -26,7 +26,7 @@ pub trait Context: blit::Context {
 mod test {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, Input, Modifiers, Point, PointerButton, Size, TouchPhase, Ui};
+    use blit::{Frame, FrameInfo, Input, Modifiers, MouseButton, Point, Size, TouchPhase, Ui};
 
     pub struct TestContext;
 
@@ -60,18 +60,18 @@ mod test {
         let position = Point::new(x, y);
         match (id, phase) {
             (Some(id), phase) => Input::Touch { id, position, phase },
-            (None, TouchPhase::Down) => Input::PointerDown {
+            (None, TouchPhase::Down) => Input::MouseDown {
                 position,
-                button: PointerButton::Primary,
+                button: MouseButton::Primary,
                 modifiers: Modifiers::NONE,
             },
-            (None, TouchPhase::Move) => Input::PointerMove {
+            (None, TouchPhase::Move) => Input::MouseMove {
                 position,
                 modifiers: Modifiers::NONE,
             },
-            (None, TouchPhase::Up) => Input::PointerUp {
+            (None, TouchPhase::Up) => Input::MouseUp {
                 position,
-                button: PointerButton::Primary,
+                button: MouseButton::Primary,
                 modifiers: Modifiers::NONE,
                 leave: false,
             },

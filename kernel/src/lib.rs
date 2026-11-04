@@ -61,7 +61,7 @@ pub use self::{
         Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point, Rect,
         Scalar, Scale2, Sides, Size,
     },
-    input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase, TouchPhase},
+    input::{Input, Key, KeyInput, Modifiers, MouseButton, ScrollPhase, TouchPhase},
     interact::{Contact, ContactId, ContactSource, Interact, KeyboardEvent, Phase, ScrollEvent},
     layout::{Axis, Layout, LayoutCx, Scratch, Sizing},
 };

@@ -211,7 +211,7 @@ pub struct InteractionState<T> {
     pub clips: Vec<ResolvedClip<T>>,
     pub deadline: Option<Duration>,
     pub focused: Option<Id>,
-    pub position: Option<Point<T>>,
+    pub mouse_position: Option<Point<T>>,
     contacts: Vec<TrackedContact<T>>,
     next_contact: u32,
     scroll: Option<TrackedScroll>,
@@ -327,26 +327,24 @@ impl<T: Scalar> InteractionState<T> {
             }
         }
         match *input {
-            Input::PointerDown { position, .. }
-            | Input::PointerMove { position, .. }
-            | Input::PointerUp { position, .. } => {
-                self.position = Some(position);
+            Input::MouseDown { position, .. } | Input::MouseMove { position, .. } | Input::MouseUp { position, .. } => {
+                self.mouse_position = Some(position);
                 for index in 0..self.contacts.len() {
                     let ContactSource::Mouse(button) = self.contacts[index].source else {
                         continue;
                     };
-                    let released = matches!(input, Input::PointerUp { button: released, .. } if *released == button);
+                    let released = matches!(input, Input::MouseUp { button: released, .. } if *released == button);
                     self.update(index, position, if released { Phase::Ended } else { Phase::Changed });
                 }
-                if let Input::PointerDown { button, .. } = *input {
+                if let Input::MouseDown { button, .. } = *input {
                     // a press away from any focusable widget clears focus
-                    if button == PointerButton::Primary {
+                    if button == MouseButton::Primary {
                         self.focused = None;
                     }
                     self.press(ContactSource::Mouse(button), position, time);
                 }
-                if matches!(input, Input::PointerUp { leave: true, .. }) {
-                    self.position = None;
+                if matches!(input, Input::MouseUp { leave: true, .. }) {
+                    self.mouse_position = None;
                 }
             }
             Input::Touch {
@@ -378,7 +376,7 @@ impl<T: Scalar> InteractionState<T> {
                     }
                 }
             }
-            Input::PointerLeave => self.position = None,
+            Input::MouseLeave => self.mouse_position = None,
             Input::Scroll {
                 position,
                 delta_x,
@@ -387,7 +385,7 @@ impl<T: Scalar> InteractionState<T> {
                 continuous,
                 ..
             } => {
-                self.position = Some(position);
+                self.mouse_position = Some(position);
                 let previous = self.scroll.filter(|scroll| scroll.active);
                 let cancelled = self.scroll.and_then(|scroll| scroll.cancelled);
                 let continuing = continuous && phase != ScrollPhase::Started && previous.is_some();
@@ -425,7 +423,7 @@ impl<T: Scalar> InteractionState<T> {
                 });
             }
             Input::Cancel => {
-                self.position = None;
+                self.mouse_position = None;
                 for index in 0..self.contacts.len() {
                     self.update(index, self.contacts[index].position, Phase::Cancelled);
                 }
@@ -441,7 +439,7 @@ impl<T: Scalar> InteractionState<T> {
             Input::None | Input::Text(_) | Input::Key(_) => {}
         }
         let hover = self
-            .position
+            .mouse_position
             .and_then(|position| hit(&self.hits, &self.clips, position))
             .map(|hit| hit.node);
         for tracked in &mut self.contacts {
@@ -486,6 +484,13 @@ impl<T: Scalar> InteractionState<T> {
         if let Some(scroll) = &mut self.scroll {
             scroll.cancelled = None;
         }
+    }
+
+    pub fn contact_position(&self, id: ContactId) -> Option<Point<T>> {
+        self.contacts
+            .iter()
+            .find(|contact| contact.id == id)
+            .map(|contact| contact.position)
     }
 
     fn press(&mut self, source: ContactSource, position: Point<T>, time: Duration) {

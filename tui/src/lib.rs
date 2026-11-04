@@ -45,7 +45,7 @@ use std::{
 
 use blit::{
     Frame, FrameInfo, PhysicalPoint,
-    input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
+    input::{Input, Key, KeyInput, Modifiers, MouseButton, ScrollPhase},
 };
 use terminal::{Size, Terminal};
 use widget::Stage;
@@ -284,26 +284,26 @@ impl<C: Context> Session<C> {
                     let modifiers =
                         Modifiers::new(modifiers.shift, modifiers.control, modifiers.alt, modifiers.super_key);
                     let button = |button| match button {
-                        protocol::MouseButton::Left => PointerButton::Primary,
-                        protocol::MouseButton::Middle => PointerButton::Middle,
-                        protocol::MouseButton::Right => PointerButton::Secondary,
-                        protocol::MouseButton::Back => PointerButton::Back,
-                        protocol::MouseButton::Forward => PointerButton::Forward,
-                        protocol::MouseButton::Other(number) => PointerButton::Other(number),
+                        protocol::MouseButton::Left => MouseButton::Primary,
+                        protocol::MouseButton::Middle => MouseButton::Middle,
+                        protocol::MouseButton::Right => MouseButton::Secondary,
+                        protocol::MouseButton::Back => MouseButton::Back,
+                        protocol::MouseButton::Forward => MouseButton::Forward,
+                        protocol::MouseButton::Other(number) => MouseButton::Other(number),
                     };
                     Some(match kind {
-                        protocol::MouseKind::Down(value) => Input::PointerDown {
+                        protocol::MouseKind::Down(value) => Input::MouseDown {
                             position,
                             button: button(value),
                             modifiers,
                         },
-                        protocol::MouseKind::Up(value) => Input::PointerUp {
+                        protocol::MouseKind::Up(value) => Input::MouseUp {
                             position,
                             button: button(value),
                             modifiers,
                             leave: false,
                         },
-                        protocol::MouseKind::Move => Input::PointerMove { position, modifiers },
+                        protocol::MouseKind::Move => Input::MouseMove { position, modifiers },
                         protocol::MouseKind::Scroll { x, y } => Input::Scroll {
                             position,
                             delta_x: f32::from(x) * 3.0,
@@ -318,8 +318,8 @@ impl<C: Context> Session<C> {
             };
             if let Some(input) = input {
                 if result.input_count != 0
-                    && matches!(input, Input::PointerMove { .. })
-                    && matches!(inputs[result.input_count - 1], Input::PointerMove { .. })
+                    && matches!(input, Input::MouseMove { .. })
+                    && matches!(inputs[result.input_count - 1], Input::MouseMove { .. })
                 {
                     inputs[result.input_count - 1] = input;
                 } else {

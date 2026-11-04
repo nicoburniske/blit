@@ -292,7 +292,7 @@ where
             }
         };
 
-        let pointer_row = if let Some((pointer, viewport)) = content.pointer_position().zip(viewport)
+        let pointer_row = if let Some((pointer, viewport)) = content.mouse_position().zip(viewport)
             && !state.sample.is_empty()
         {
             let target = offset.endpoint((pointer.y - viewport.y).clamp(C::Scalar::ZERO, viewport.height));
@@ -580,10 +580,10 @@ fn metrics<T: Scalar>(state: &VirtualListState<T>, count: Option<usize>, height:
 mod tests {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, Input, Rect};
+    use blit::{Frame, FrameInfo, Input, Rect, TouchPhase};
 
     use super::*;
-    use crate::test::TestContext;
+    use crate::test::{TestContext, pointer};
 
     #[test]
     fn shrinking_anchor_keeps_the_window_bounded() {
@@ -639,47 +639,41 @@ mod tests {
 
     #[test]
     fn thumb_end_seeks_the_finite_or_explored_boundary() {
-        for (count, heights) in [
-            (Some(1), &[1_000.0][..]),
-            (Some(3), &[10.0, 10.0, 1_000.0]),
-            (Some(20), &[10.0; 20]),
-            (Some(3), &[10.0, 500.0, 10.0]),
-            (Some(2), &[10.0, 10.0]),
-            (None, &[10.0]),
-        ] {
-            let mut frame = Frame::default();
-            let mut state = VirtualListState::default();
-            settle_frame(&mut frame, &mut state, count, |index| {
-                (Id::new(index), heights[index % heights.len()])
-            });
-            for input in [
-                Input::PointerDown {
-                    position: Point::new(79.5, 49.999),
-                    button: blit::PointerButton::Primary,
-                    modifiers: blit::Modifiers::NONE,
-                },
-                Input::PointerUp {
-                    position: Point::new(79.5, 49.999),
-                    button: blit::PointerButton::Primary,
-                    modifiers: blit::Modifiers::NONE,
-                    leave: false,
-                },
+        for id in [None, Some(1)] {
+            for (count, heights) in [
+                (Some(1), &[1_000.0][..]),
+                (Some(3), &[10.0, 10.0, 1_000.0]),
+                (Some(20), &[10.0; 20]),
+                (Some(3), &[10.0, 500.0, 10.0]),
+                (Some(2), &[10.0, 10.0]),
+                (None, &[10.0]),
             ] {
-                render_frame(&mut frame, &mut state, count, input, |index| {
-                    (Id::new(index), heights[index % heights.len()])
-                });
-            }
-            if frame.has_pending_redraw() {
+                let mut frame = Frame::default();
+                let mut state = VirtualListState::default();
                 settle_frame(&mut frame, &mut state, count, |index| {
                     (Id::new(index), heights[index % heights.len()])
                 });
-            }
-            if let Some(count) = count {
-                let area = frame.area(Id::new(count - 1)).unwrap();
-                assert_eq!(area.y + area.height, heights.iter().sum::<f32>().min(50.0));
-            } else {
-                assert_eq!(state.position().0, 5);
-                assert_eq!(state.within, 0.0);
+                for phase in [TouchPhase::Down, TouchPhase::Up] {
+                    render_frame(
+                        &mut frame,
+                        &mut state,
+                        count,
+                        pointer(id, phase, 79.5, 49.999),
+                        |index| (Id::new(index), heights[index % heights.len()]),
+                    );
+                }
+                if frame.has_pending_redraw() {
+                    settle_frame(&mut frame, &mut state, count, |index| {
+                        (Id::new(index), heights[index % heights.len()])
+                    });
+                }
+                if let Some(count) = count {
+                    let area = frame.area(Id::new(count - 1)).unwrap();
+                    assert_eq!(area.y + area.height, heights.iter().sum::<f32>().min(50.0));
+                } else {
+                    assert_eq!(state.position().0, 5);
+                    assert_eq!(state.within, 0.0);
+                }
             }
         }
     }

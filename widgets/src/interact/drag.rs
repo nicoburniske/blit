@@ -1,4 +1,4 @@
-use blit::{Axis, ContactId, ContactSource, InteractCx, Phase, Point, PointerButton, Scalar, builder};
+use blit::{Axis, ContactId, ContactSource, InteractCx, MouseButton, Phase, Point, Scalar, builder};
 
 use crate::Context;
 
@@ -62,7 +62,7 @@ impl<C: Context> blit::Interact<C> for Interact {
                 && contact.free
                 && match contact.source {
                     ContactSource::Touch(_) => true,
-                    ContactSource::Mouse(button) => button == PointerButton::Primary,
+                    ContactSource::Mouse(button) => button == MouseButton::Primary,
                 }
                 && distance > 0.0
                 && distance >= slop * slop

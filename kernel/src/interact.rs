@@ -56,7 +56,7 @@
 use std::num::NonZeroU32;
 
 pub use crate::frame::interact::Contact;
-use crate::{Context, InteractCx, KeyInput, PointerButton, geometry::Point};
+use crate::{Context, InteractCx, KeyInput, MouseButton, geometry::Point};
 
 /// handle input for your widget
 ///
@@ -82,7 +82,7 @@ pub struct ContactId(pub(crate) NonZeroU32);
 /// kind of pointer producing a contact
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContactSource {
-    Mouse(PointerButton),
+    Mouse(MouseButton),
     Touch(u64),
 }
 

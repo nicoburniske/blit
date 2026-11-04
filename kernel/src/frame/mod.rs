@@ -27,7 +27,7 @@ use crate::{
     Atom, AtomWidget, Clip, ClipShape, ContactId, ContactSource, Context, FrameInfo, Id, IntoWidget, Scalar, Widget,
     animation::{Easing, Transition, TransitionProperties},
     geometry::{Constraints, Point, Rect, Sides, Size},
-    input::{Input, PointerButton, ScrollPhase, TouchPhase},
+    input::{Input, MouseButton, ScrollPhase, TouchPhase},
     interact::{Interact, Phase, ScrollEvent},
     internal::bump::{Bump, Slice},
     layout::{Axis, Layout, Sizing},

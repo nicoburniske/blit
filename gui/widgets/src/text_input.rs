@@ -1,5 +1,5 @@
 use blit::{
-    Atom, AtomCx, Axis, Constraints, Input, KeyboardEvent, LogicalRect, PointerButton, Sides, Size, TouchPhase, Widget,
+    Atom, AtomCx, Axis, Constraints, Input, KeyboardEvent, LogicalRect, MouseButton, Sides, Size, TouchPhase, Widget,
 };
 use blit_widgets::interact::{self, keyboard::Handler};
 pub use blit_widgets::{
@@ -53,7 +53,6 @@ impl<C: Context + blit_widgets::Context, F: Handler<Action = Edit>> Widget<C> fo
         let press = ui.interact(interact::press());
         let mut focused = ui.interact(interact::focus());
         let drag = ui.interact(interact::drag().axis(Axis::Horizontal));
-        let dragged = drag.active || drag.released;
         let input = ui.input();
         let editing = ui.interact(interact::keyboard(keymap).require_focus());
         if focused && editing == Some(Edit::Blur) {
@@ -66,47 +65,37 @@ impl<C: Context + blit_widgets::Context, F: Handler<Action = Edit>> Widget<C> fo
             max_lines: Some(1),
             ..TextOptions::default()
         };
-        let pointer = if focused {
-            match input {
-                Input::PointerDown {
-                    button: PointerButton::Primary,
-                    position,
-                    modifiers,
-                } if press.active => Some((position, modifiers.shift())),
-                Input::Touch {
-                    position,
-                    phase: TouchPhase::Down,
-                    ..
-                } if press.active => Some((position, false)),
-                Input::PointerMove { position, .. }
+        let moved = matches!(
+            input,
+            Input::MouseMove { .. }
                 | Input::Touch {
-                    position,
                     phase: TouchPhase::Move,
                     ..
-                } if press.active || dragged => Some((position, true)),
-                Input::PointerUp {
-                    button: PointerButton::Primary,
-                    position,
-                    modifiers,
-                    ..
-                } if press.clicked => Some((position, modifiers.shift())),
-                Input::Touch {
-                    position,
-                    phase: TouchPhase::Up,
-                    ..
-                } if press.clicked => Some((position, false)),
-                Input::PointerUp {
-                    button: PointerButton::Primary,
-                    position,
-                    ..
                 }
-                | Input::Touch {
-                    position,
-                    phase: TouchPhase::Up,
-                    ..
-                } if dragged => Some((position, true)),
-                _ => None,
+        );
+        let released = matches!(
+            input,
+            Input::MouseUp {
+                button: MouseButton::Primary,
+                ..
+            } | Input::Touch {
+                phase: TouchPhase::Up,
+                ..
             }
+        );
+        let press_position = press.contact.and_then(|id| ui.contact_position(id));
+        let pointer = if !focused {
+            None
+        } else if (drag.active || drag.released) && (moved || released) {
+            Some((drag.position, true))
+        } else if press.activated || press.clicked {
+            let extend = match input {
+                Input::MouseDown { modifiers, .. } | Input::MouseUp { modifiers, .. } => modifiers.shift(),
+                _ => false,
+            };
+            press_position.map(|position| (position, extend))
+        } else if press.active && moved {
+            press_position.map(|position| (position, true))
         } else {
             None
         };

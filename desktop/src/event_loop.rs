@@ -5,7 +5,7 @@ use std::{
 
 use blit::{
     Frame, FrameInfo, LogicalPoint, Size,
-    input::{Input, Key, KeyInput, Modifiers, PointerButton, ScrollPhase},
+    input::{Input, Key, KeyInput, Modifiers, MouseButton, ScrollPhase},
 };
 use blit_executor::LocalExecutor;
 use blit_gui::{GuiContext, TextLayoutEngine, TextSystem};
@@ -13,7 +13,7 @@ use blit_widgets::Stage;
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize as WindowSize, PhysicalPosition, PhysicalSize},
-    event::{ElementState, Ime, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
+    event::{ElementState, Ime, MouseButton as WinitMouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{Key as WindowKey, NamedKey},
     platform::pump_events::{EventLoopExtPumpEvents, PumpStatus},
@@ -156,8 +156,8 @@ impl<A: Application> Runner<A> {
     }
 
     fn push_input(&mut self, input: Input<f32>) {
-        if let Input::PointerMove { position, modifiers } = input
-            && let Some(Input::PointerMove {
+        if let Input::MouseMove { position, modifiers } = input
+            && let Some(Input::MouseMove {
                 position: pending,
                 modifiers: pending_modifiers,
             }) = self.inputs.last_mut()
@@ -363,7 +363,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 active.window.request_redraw();
                 self.cursor = Some(position);
                 let position = logical_position(position, active.scale());
-                self.push_input(Input::PointerMove {
+                self.push_input(Input::MouseMove {
                     position,
                     modifiers: self.modifiers,
                 });
@@ -371,7 +371,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             WindowEvent::CursorLeft { .. } => {
                 active.window.request_redraw();
                 self.cursor = None;
-                self.inputs.push(Input::PointerLeave);
+                self.inputs.push(Input::MouseLeave);
             }
             WindowEvent::Focused(false) => {
                 active.window.request_redraw();
@@ -381,22 +381,22 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                 if let Some(position) = self.cursor {
                     let position = logical_position(position, active.scale());
                     let button = match button {
-                        MouseButton::Left => PointerButton::Primary,
-                        MouseButton::Right => PointerButton::Secondary,
-                        MouseButton::Middle => PointerButton::Middle,
-                        MouseButton::Back => PointerButton::Back,
-                        MouseButton::Forward => PointerButton::Forward,
-                        MouseButton::Other(button) => PointerButton::Other(button),
+                        WinitMouseButton::Left => MouseButton::Primary,
+                        WinitMouseButton::Right => MouseButton::Secondary,
+                        WinitMouseButton::Middle => MouseButton::Middle,
+                        WinitMouseButton::Back => MouseButton::Back,
+                        WinitMouseButton::Forward => MouseButton::Forward,
+                        WinitMouseButton::Other(button) => MouseButton::Other(button),
                     };
                     active.window.request_redraw();
                     self.push_input(if state == ElementState::Pressed {
-                        Input::PointerDown {
+                        Input::MouseDown {
                             position,
                             button,
                             modifiers: self.modifiers,
                         }
                     } else {
-                        Input::PointerUp {
+                        Input::MouseUp {
                             position,
                             button,
                             modifiers: self.modifiers,

@@ -7,9 +7,9 @@ use std::{
 
 use blit::{
     Atom, AtomCx, Clip, ClipShape, Constraints, Contact, ContactId, ContactSource, Context, Easing, Frame, FrameInfo,
-    Id, Input, Interact, InteractCx, Layout, LayoutCx, Modifiers, NodeTarget,
+    Id, Input, Interact, InteractCx, Layout, LayoutCx, Modifiers, MouseButton, NodeTarget,
     Phase::{Cancelled, Ended, Held, Started},
-    Point, PointerButton, Rect, ScrollPhase, Size, TouchPhase,
+    Point, Rect, ScrollPhase, Size, TouchPhase,
     TouchPhase::{Cancel, Down, Move, Up},
     Transition, Widget,
 };
@@ -326,18 +326,18 @@ fn pointer(id: Option<u64>, phase: TouchPhase, position: [f32; 2]) -> Input<f32>
     let position = Point::new(position[0], position[1]);
     match (id, phase) {
         (Some(id), phase) => Input::Touch { id, position, phase },
-        (None, Down) => Input::PointerDown {
+        (None, Down) => Input::MouseDown {
             position,
-            button: PointerButton::Primary,
+            button: MouseButton::Primary,
             modifiers: Modifiers::NONE,
         },
-        (None, Move) => Input::PointerMove {
+        (None, Move) => Input::MouseMove {
             position,
             modifiers: Modifiers::NONE,
         },
-        (None, Up) => Input::PointerUp {
+        (None, Up) => Input::MouseUp {
             position,
-            button: PointerButton::Primary,
+            button: MouseButton::Primary,
             modifiers: Modifiers::NONE,
             leave: false,
         },

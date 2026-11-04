@@ -83,11 +83,11 @@ where
         let content_hovered = root.interact_widget(content_id, BlockInput);
         let pointer_inside = content_hovered
             || root
-                .pointer_position()
+                .mouse_position()
                 .is_some_and(|position| areas.into_iter().flatten().any(|area| area.contains(position)));
         if match (self.close, root.input()) {
             (PopoverClose::Click, _) => backdrop.activated,
-            (PopoverClose::Exit, Input::PointerMove { .. } | Input::PointerLeave) => !pointer_inside,
+            (PopoverClose::Exit, Input::MouseMove { .. } | Input::MouseLeave) => !pointer_inside,
             _ => false,
         } {
             state.open = false;
@@ -157,7 +157,7 @@ impl<C: Context> blit::Interact<C> for BlockInput {
 mod tests {
     use std::time::Duration;
 
-    use blit::{Axis, Frame, FrameInfo, Id, Modifiers, Point as InputPoint, PointerButton, Rect, ScrollPhase, Size};
+    use blit::{Axis, Frame, FrameInfo, Id, Modifiers, MouseButton, Point as InputPoint, Rect, ScrollPhase, Size};
 
     use super::*;
     use crate::{
@@ -240,15 +240,15 @@ mod tests {
         frame.layout(&mut context);
         let mut expected = [true, true, false].into_iter();
         for input in [
-            Input::PointerMove {
+            Input::MouseMove {
                 position: InputPoint::new(1.0, 0.5),
                 modifiers: Modifiers::NONE,
             },
-            Input::PointerMove {
+            Input::MouseMove {
                 position: InputPoint::new(1.0, 1.5),
                 modifiers: Modifiers::NONE,
             },
-            Input::PointerMove {
+            Input::MouseMove {
                 position: InputPoint::new(9.0, 9.0),
                 modifiers: Modifiers::NONE,
             },
@@ -269,20 +269,20 @@ mod tests {
         let mut expected = [true, true, false].into_iter();
         let mut content_area = None;
         for input in [
-            Input::PointerDown {
+            Input::MouseDown {
                 position: InputPoint::new(1.0, 0.5),
-                button: PointerButton::Primary,
+                button: MouseButton::Primary,
                 modifiers: Modifiers::NONE,
             },
-            Input::PointerUp {
+            Input::MouseUp {
                 position: InputPoint::new(1.0, 0.5),
-                button: PointerButton::Primary,
+                button: MouseButton::Primary,
                 modifiers: Modifiers::NONE,
                 leave: false,
             },
-            Input::PointerDown {
+            Input::MouseDown {
                 position: InputPoint::new(9.0, 9.0),
-                button: PointerButton::Primary,
+                button: MouseButton::Primary,
                 modifiers: Modifiers::NONE,
             },
         ] {
@@ -292,7 +292,7 @@ mod tests {
                 Duration::ZERO,
                 input,
                 |mut ui: Ui<'_, TestContext>| {
-                    if let Input::PointerUp { .. } = input {
+                    if let Input::MouseUp { .. } = input {
                         content_area = ui.area(content_id);
                     }
                     render(
@@ -305,7 +305,7 @@ mod tests {
                 },
             );
             frame.layout(&mut context);
-            if let Input::PointerUp { .. } = input {
+            if let Input::MouseUp { .. } = input {
                 assert_eq!(frame.area(Id::new("named content")), content_area);
                 assert_eq!(
                     frame.area(Id::new("named trigger")),

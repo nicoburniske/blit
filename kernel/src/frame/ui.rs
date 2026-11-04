@@ -266,8 +266,16 @@ impl<C: Context, S> Ui<'_, C, S> {
         self.inner.frame.interaction.focused = None;
     }
 
-    pub fn pointer_position(&self) -> Option<Point<C::Scalar>> {
-        self.inner.frame.interaction.position
+    /// the mouse cursor position, independent of touches
+    pub fn mouse_position(&self) -> Option<Point<C::Scalar>> {
+        self.inner.frame.interaction.mouse_position
+    }
+
+    /// the position of a contact in this frame
+    ///
+    /// ended and cancelled contacts remain available until the next build
+    pub fn contact_position(&self, id: ContactId) -> Option<Point<C::Scalar>> {
+        self.inner.frame.interaction.contact_position(id)
     }
 
     /// this frame's input regardless of focus or claims

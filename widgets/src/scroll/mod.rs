@@ -355,7 +355,7 @@ fn scrollbar_input<C: Context>(
         let pointer = if track_moved {
             Some(track_drag.position)
         } else {
-            ui.pointer_position()
+            track.contact.and_then(|id| ui.contact_position(id))
         };
         match (track_area, pointer) {
             (Some(track), Some(pointer)) => {

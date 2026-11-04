@@ -55,7 +55,7 @@ fn keyboard_input_bubbles_until_claimed() {
     next(Input::None);
     assert_eq!(next(Input::Text('d')), Some('d'));
     assert_eq!(next(Input::Text('x')), Some('c'));
-    assert_eq!(next(Input::PointerLeave), None);
+    assert_eq!(next(Input::MouseLeave), None);
 }
 
 /// whether the pointer is over this widget

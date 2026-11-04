@@ -1,4 +1,4 @@
-use blit::{ContactSource, Context, InteractCx, Phase, PointerButton};
+use blit::{ContactSource, Context, InteractCx, MouseButton, Phase};
 
 /// takes focus when pressed or tapped, returning whether this widget is focused
 #[derive(Clone, Copy, Debug)]
@@ -12,7 +12,7 @@ impl<C: Context> blit::Interact<C> for Interact {
         if cx.contacts().any(|contact| {
             contact.free
                 && match contact.source {
-                    ContactSource::Mouse(PointerButton::Primary) => contact.phase == Phase::Started,
+                    ContactSource::Mouse(MouseButton::Primary) => contact.phase == Phase::Started,
                     ContactSource::Touch(_) => contact.phase == Phase::Ended,
                     ContactSource::Mouse(_) => false,
                 }
