@@ -8,7 +8,7 @@ use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, SpringDrag};
 use blit_desktop::cpu;
 #[cfg(feature = "gpu")]
 use blit_desktop::gpu;
-use blit_desktop::{Application, Config, DesktopContext, EventLoopProxy, Root, Ui};
+use blit_desktop::{Application, Config, DesktopContext, EventLoopProxy, Scope, Ui};
 use blit_gui::{
     BoundsClip, Family, FontData, FontStack, TextConfig,
     atom::{Rectangle, Shadow},
@@ -106,7 +106,7 @@ impl Default for App {
 impl Application for App {
     type Input = ();
 
-    fn new(_: EventLoopProxy<Self::Input>, _: Root<Self>, context: &mut DesktopContext) -> Self {
+    fn new(_: EventLoopProxy<Self::Input>, _: Scope<Self>, context: &mut DesktopContext) -> Self {
         context.profiler.set_enabled(true);
         Self::default()
     }
