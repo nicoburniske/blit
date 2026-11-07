@@ -1,9 +1,37 @@
 use std::time::Duration;
 
-use blit::{Axis, Id, Point, Scalar, Sides, Size, Spring, Ui};
+use blit::{Animation, Axis, Easing, Id, Layout, Motion, Point, Scalar, Sides, Size, Spring, Tween, Ui, Widget};
 pub use blit_layout::{Align, Justify};
 use blit_layout::{Sizing, absolute::Anchor};
 use blit_widgets::{Context, interact};
+
+/// applies selection changes before building any option's visuals
+pub fn select<'a, C: Context, T: Copy + PartialEq, D>(
+    selected: &'a mut T,
+    options: &'a [(D, T)],
+    layout: impl Layout<C>,
+    mut render: impl FnMut(Ui<'_, C>, &'a D, bool, interact::press::Response),
+) -> impl Widget<C, Response = bool> {
+    move |mut ui: Ui<'_, C>| {
+        let id = ui.current_id();
+        let mut clicked = false;
+        for (index, (_, value)) in options.iter().enumerate() {
+            let press = ui.interact_widget(id.child(index), interact::press());
+            if press.clicked {
+                *selected = *value;
+                clicked = true;
+            }
+        }
+        let mut group = ui.layout(layout);
+        for (index, (data, value)) in options.iter().enumerate() {
+            group.child().id(id.child(index)).build(|mut ui: Ui<'_, C>| {
+                let press = ui.interact(interact::press());
+                render(ui, data, *selected == *value, press);
+            });
+        }
+        clicked
+    }
+}
 
 pub struct SpringDrag {
     pub spring: Spring,
@@ -61,6 +89,26 @@ pub enum ItemSizing {
     Grow,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Transition {
+    Off,
+    #[default]
+    Spring,
+    Tween,
+}
+
+impl Transition {
+    pub fn motion(self) -> Option<Motion> {
+        let duration = Duration::from_millis(250);
+        let animation = match self {
+            Self::Off => return None,
+            Self::Spring => Animation::Spring(Spring::new(duration, 0.2).rest(0.01, 0.01)),
+            Self::Tween => Animation::Tween(Tween::new(duration, Easing::EASE_IN_OUT)),
+        };
+        Some(Motion::new(animation).layout())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CanvasConfig {
     pub layout: CanvasLayout,
@@ -71,7 +119,7 @@ pub struct CanvasConfig {
     pub zoom: f32,
     pub gap_steps: u8,
     pub padding_steps: u8,
-    pub motion: bool,
+    pub transition: Transition,
 }
 
 impl Default for CanvasConfig {
@@ -85,7 +133,7 @@ impl Default for CanvasConfig {
             zoom: 1.0,
             gap_steps: 1,
             padding_steps: 1,
-            motion: true,
+            transition: Transition::Spring,
         }
     }
 }
