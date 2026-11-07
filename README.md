@@ -3,7 +3,7 @@
 blit is an experimental immediate-mode ui toolkit for rust.
 
 in ~4k LOC, blit's kernel provides a fast, composable api for layout,
-interaction, animation and transitions.
+interaction, animation and motion.
 
 the same kernel can drive terminal cells or a pixel framebuffer.
 

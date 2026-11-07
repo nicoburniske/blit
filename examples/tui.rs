@@ -1,6 +1,6 @@
 use std::{cell::RefCell, io, rc::Rc, time::Duration};
 
-use blit::{Axis, Easing, Id, Input, Key, KeyboardEvent, Scalar, Sides, Size, Transition, Widget};
+use blit::{Axis, Easing, Id, Input, Key, KeyboardEvent, Motion, Scalar, Sides, Size, Spring, Tween, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 use blit_tui::{
     BoundsClip, TuiContext, Ui,
@@ -178,8 +178,10 @@ impl Widget<TuiContext> for &mut Modal {
     type Response = bool;
 
     fn build(self, ui: Ui<'_>) -> bool {
-        if matches!(ui.input(), Input::Key(key)
-            if key.key == Key::Escape && key.pressed && !key.repeat)
+        if let Input::Key(key) = ui.input()
+            && key.key == Key::Escape
+            && key.pressed
+            && !key.repeat
         {
             if self.palette.open {
                 self.palette.open = false;
@@ -424,12 +426,7 @@ impl Widget<TuiContext> for &mut LayoutPage {
                                         );
                                     });
                                     controls.child().build(|ui: Ui<'_>| {
-                                        choices(
-                                            ui,
-                                            "transitions",
-                                            &mut canvas.transitions,
-                                            &[(" On ", true), (" Off ", false)],
-                                        );
+                                        choices(ui, "motion", &mut canvas.motion, &[(" On ", true), (" Off ", false)]);
                                     });
                                 },
                                 |mut ui: Ui<'_>| {
@@ -859,7 +856,10 @@ impl Widget<TuiContext> for &mut AtomsPage {
     type Response = ();
 
     fn build(self, mut ui: Ui<'_>) {
-        let phase = ui.animate_loop(Id::new("tui atom animation"), Duration::from_secs(3), Easing::Linear);
+        let phase = ui.animate_loop(
+            Id::new("tui atom animation"),
+            Tween::new(Duration::from_secs(3), Easing::LINEAR),
+        );
         let ratio = (phase * std::f32::consts::TAU).sin() * 0.25 + 0.5;
         for (x, value) in self.sparkline.borrow_mut().iter_mut().enumerate() {
             *value = (((x as f32 * 0.24 + phase * std::f32::consts::TAU).sin() + 1.0) * 50.0) as u64;
@@ -1150,12 +1150,9 @@ impl Widget<TuiContext> for Canvas {
 fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: CanvasConfig, unit: Size<i32>) {
     let mut item = ui.layout(flex::column().align(Align::Center).justify(Justify::Center));
     item.insert(Block::new().background(colors::ITEMS[index]));
-    let mut item = if config.transitions {
-        item.id(Id::new(("tui canvas item", index))).transition(
-            Transition::new(Duration::from_millis(320))
-                .easing(Easing::EaseOutQuad)
-                .layout(),
-        )
+    let mut item = if config.motion {
+        item.id(Id::new(("tui canvas item", index)))
+            .motion(Motion::new(Spring::new(Duration::from_millis(250), 0.2).rest(0.01, 0.01)).layout())
     } else {
         item
     };

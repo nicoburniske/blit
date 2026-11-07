@@ -4,7 +4,10 @@ mod virtual_list;
 
 use std::time::Duration;
 
-use blit::{Axis, Clip, Constraints, Easing, Id, Layout, LayoutCx, NodeId, Point, Scalar, Size, Sizing, Ui, Widget};
+use blit::{
+    Animation, AnimationOptions, Axis, Clip, Constraints, Id, Layout, LayoutCx, NodeId, Point, Scalar, Size, Sizing,
+    Ui, Widget, internal::animator::Animator,
+};
 
 pub use self::{
     area::ScrollArea,
@@ -16,15 +19,16 @@ use crate::{Context, interact};
 /// persistent scroll position and motion
 #[derive(Debug, Default)]
 pub struct ScrollState<T> {
+    /// scroll position which may temporarily be outside the scrollable range after a request
     pub offset: T,
     pub content_extent: T,
     pub viewport_extent: T,
-    motion: Motion,
+    inertia: Inertia,
     request: Request<T>,
 }
 
 #[derive(Debug, Default)]
-struct Motion {
+struct Inertia {
     velocity: f32,
     tracking: bool,
     last_frame: Option<Duration>,
@@ -40,42 +44,41 @@ impl<T: Scalar> ScrollState<T> {
         (self.content_extent - self.viewport_extent).max(T::ZERO)
     }
 
-    pub fn scroll_by(&mut self, amount: T, animation: Option<(Duration, Easing)>) {
-        self.scroll_to(self.offset.endpoint(amount), animation);
+    pub fn scroll_by(&mut self, amount: T, animation: impl Into<Animation>, options: AnimationOptions) {
+        self.scroll_to(self.offset.endpoint(amount), animation, options);
     }
 
     /// queues an offset resolved against the scroll area's measured limits
-    /// none jumps immediately and an animation specifies duration and easing
-    pub fn scroll_to(&mut self, offset: T, animation: Option<(Duration, Easing)>) {
-        self.stop();
-        self.request = Request {
-            target: Target::Offset(offset),
-            animation: animation.unwrap_or_default(),
-            started: None,
-        };
+    /// zero duration jumps immediately and retargeting carries existing request velocity
+    pub fn scroll_to(&mut self, offset: T, animation: impl Into<Animation>, options: AnimationOptions) {
+        self.inertia.stop();
+        self.request.target = Target::Offset(offset);
+        self.request.animation = animation.into();
+        self.request.options = options;
     }
 
     /// queues a child or list row to reveal within the viewport
-    pub fn scroll_to_widget(&mut self, id: Id, animation: Option<(Duration, Easing)>) {
-        self.stop();
-        self.request = Request {
-            target: Target::Widget(id),
-            animation: animation.unwrap_or_default(),
-            started: None,
-        };
+    pub fn scroll_to_widget(&mut self, id: Id, animation: impl Into<Animation>, options: AnimationOptions) {
+        self.inertia.stop();
+        self.request.target = Target::Widget(id);
+        self.request.animation = animation.into();
+        self.request.options = options;
     }
 
     pub fn stop(&mut self) {
-        self.motion.stop();
+        self.inertia.stop();
         self.request = Request::default();
     }
 
     pub fn is_moving(&self) -> bool {
-        self.motion.velocity != 0.0 || !matches!(self.request.target, Target::None)
+        match self.request.target {
+            Target::None => self.inertia.velocity != 0.0,
+            Target::Offset(_) | Target::Widget(_) => true,
+        }
     }
 }
 
-impl Motion {
+impl Inertia {
     fn stop(&mut self) {
         self.remainder = 0.0;
         self.velocity = 0.0;
@@ -93,8 +96,9 @@ impl Motion {
 #[derive(Debug, Default)]
 struct Request<T> {
     target: Target<T>,
-    animation: (Duration, Easing),
-    started: Option<(T, Duration)>,
+    animation: Animation,
+    options: AnimationOptions,
+    animator: Option<Animator<T, 1>>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -283,22 +287,22 @@ fn update<C: Context>(
 
     let motion = content_input(ui, axis);
     if motion.active || motion.deactivated || motion.delta != Point::ZERO {
-        state.request.target = Target::None;
+        state.request = Request::default();
     }
     let maximum = state.maximum_offset();
-    let (thumb_active, scrollbar) = scrollbar_input(&mut state.motion, ui, axis, state.viewport_extent);
+    let (thumb_active, scrollbar) = scrollbar_input(&mut state.inertia, ui, axis, state.viewport_extent);
     if let Some(action) = scrollbar {
-        state.request.target = Target::None;
+        state.request = Request::default();
         match action {
             ScrollbarInput::Thumb(delta) => move_by(state, delta * maximum.to_f32()),
             ScrollbarInput::Track(position) => {
                 state.offset = C::Scalar::from_f32(position * maximum.to_f32()).clamp(C::Scalar::ZERO, maximum);
-                state.motion.remainder = 0.0;
+                state.inertia.remainder = 0.0;
             }
             ScrollbarInput::Idle => {}
         }
     } else {
-        let delta = content_motion(&mut state.motion, ui, axis, scroll_speed, inertia_friction, motion);
+        let delta = content_motion(&mut state.inertia, ui, axis, scroll_speed, inertia_friction, motion);
         move_by(state, delta);
     }
     (thumb_active, viewport_known)
@@ -311,7 +315,7 @@ enum ScrollbarInput {
 }
 
 fn scrollbar_input<C: Context>(
-    state: &mut Motion,
+    state: &mut Inertia,
     ui: &mut Ui<'_, C>,
     axis: Axis,
     viewport_extent: C::Scalar,
@@ -390,7 +394,7 @@ fn content_input<C: Context>(ui: &mut Ui<'_, C>, axis: Axis) -> interact::scroll
 }
 
 fn content_motion<C: Context>(
-    state: &mut Motion,
+    state: &mut Inertia,
     ui: &mut Ui<'_, C>,
     axis: Axis,
     scroll_speed: f32,
@@ -465,39 +469,42 @@ fn animate<C: Context, S>(state: &mut ScrollState<C::Scalar>, ui: &mut Ui<'_, C,
             state.offset.clamp((end - state.viewport_extent).min(start), start)
         }
     };
-    if request.started.is_none() {
-        request.target = Target::Offset(target);
-    }
-    let (duration, easing) = request.animation;
-    let (start, time) = *request.started.get_or_insert((state.offset, ui.time()));
-    let progress = if duration.is_zero() {
-        1.0
-    } else {
-        (ui.time().saturating_sub(time).as_secs_f32() / duration.as_secs_f32()).min(1.0)
-    };
-    state.offset = if progress == 1.0 {
+    request.target = Target::Offset(target);
+    // bounds here describe the previous frame, so clamping a destination now would
+    // stop at the old end when content is appended and scrolled to in the same frame
+    // bound the moving position, then pass the original destination to layout when motion ends
+    // layout clamps it to the new content size and the next update clamps state.offset
+    let maximum = (state.content_extent - state.viewport_extent).max(C::Scalar::ZERO);
+    let goal = if target.is_finite() {
         target
     } else {
-        C::Scalar::from_f32(start.to_f32() + (target.to_f32() - start.to_f32()) * easing.apply(progress))
+        target.clamp(C::Scalar::ZERO, maximum)
     };
-    if progress == 1.0 || start == target {
-        request.target = Target::None;
-    } else {
+    let animator = request
+        .animator
+        .get_or_insert_with(|| Animator::new([state.offset], Animation::default(), AnimationOptions::default()));
+    animator.advance([goal], [true], request.animation, request.options, ui.time(), true);
+    let offset = animator.clamp(0, C::Scalar::ZERO, maximum, ui.time());
+    if animator.is_active() {
+        state.offset = offset;
         ui.request_frame();
+    } else {
+        state.offset = target;
+        *request = Request::default();
     }
 }
 
 fn move_by<T: Scalar>(state: &mut ScrollState<T>, amount: f32) {
     let maximum = state.maximum_offset();
-    let whole = state.motion.pixel_delta(amount);
+    let whole = state.inertia.pixel_delta(amount);
     let offset = state.offset.endpoint(whole);
     state.offset = offset.clamp(T::ZERO, maximum);
     if state.offset != offset
-        || (state.offset == T::ZERO && state.motion.remainder < 0.0)
-        || (state.offset == maximum && state.motion.remainder > 0.0)
+        || (state.offset == T::ZERO && state.inertia.remainder < 0.0)
+        || (state.offset == maximum && state.inertia.remainder > 0.0)
     {
-        state.motion.remainder = 0.0;
-        state.motion.velocity = 0.0;
+        state.inertia.remainder = 0.0;
+        state.inertia.velocity = 0.0;
     }
 }
 
@@ -541,3 +548,53 @@ where
 
 const MIN_SCROLL_VELOCITY: f32 = 5.0;
 const MAX_SCROLL_VELOCITY: f32 = 12_000.0;
+
+#[cfg(test)]
+mod tests {
+    use blit::{Frame, FrameInfo, Input, Spring};
+
+    use super::*;
+    use crate::test::TestContext;
+
+    #[test]
+    fn animated_requests_retarget_bound_and_settle() {
+        let mut frame = Frame::default();
+        let mut state = ScrollState {
+            content_extent: 1000.0,
+            viewport_extent: 100.0,
+            ..ScrollState::default()
+        };
+        let spring = Spring::new(Duration::from_millis(500), 0.3).rest(0.01, 0.01);
+        let mut step = |state: &mut ScrollState<f32>, millis| {
+            frame.build(
+                &mut TestContext,
+                FrameInfo::new(Size::uniform(100.0)),
+                Duration::from_millis(millis),
+                Input::None,
+                |mut ui: Ui<'_, TestContext>| animate(state, &mut ui, Axis::Vertical, true),
+            );
+            frame.layout(&mut TestContext);
+        };
+        state.scroll_to(500.0, spring, AnimationOptions::default());
+        step(&mut state, 0);
+        step(&mut state, 30);
+        let moving = state.offset;
+        assert!(moving > 0.0 && moving < 500.0);
+        state.scroll_to(0.0, spring, AnimationOptions::default());
+        step(&mut state, 30);
+        assert_eq!(state.offset, moving);
+        step(&mut state, 31);
+        assert!(state.offset > moving);
+        state.scroll_to(10_000.0, spring, AnimationOptions::default());
+        step(&mut state, 31);
+        step(&mut state, 2000);
+        move_by(&mut state, 0.0);
+        assert_eq!(state.offset, 900.0);
+        assert!(!state.is_moving());
+        assert!(state.request.animator.is_none());
+        state.scroll_to(300.0, Animation::default(), AnimationOptions::default());
+        step(&mut state, 2000);
+        assert_eq!(state.offset, 300.0);
+        assert!(!frame.has_pending_redraw());
+    }
+}

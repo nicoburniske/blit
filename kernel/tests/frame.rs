@@ -62,7 +62,7 @@ fn scratch_and_default_items() {
                 let mut root = ui.layout(SharedItems(3));
                 root.child()
                     .id(id)
-                    .transition(Transition::new(Duration::from_secs(1)).size())
+                    .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).size())
                     .layout(Temporary)
                     .child()
                     .layout(Temporary)
@@ -292,7 +292,7 @@ fn targets_reject_invalid_references() {
             let mut root = ui.id(id).layout(Overlay);
             root.child().id(id.child(1_u32)).insert(());
             root.child()
-                .transition(Transition::new(Duration::from_secs(1)))
+                .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)))
                 .insert(());
         },
         |ui, id| {

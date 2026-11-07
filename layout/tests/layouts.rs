@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use blit::{
-    Atom, AtomCx, Constraints, Context, Frame, FrameInfo, Id, Input, Rect, Scalar, Sides, Size, Sizing, Transition, Ui,
-    Widget,
+    Atom, AtomCx, Constraints, Context, Easing, Frame, FrameInfo, Id, Input, Motion, Rect, Scalar, Sides, Size, Sizing,
+    Tween, Ui, Widget,
 };
 use blit_layout::{Align, absolute, absolute::Anchor, flex, grid, single, wrap};
 
@@ -448,7 +448,7 @@ fn flex_respects_growth_caps() {
 }
 
 #[test]
-fn flex_size_transition_preserves_exact_overflow_and_reflows_siblings() {
+fn flex_size_motion_preserves_exact_overflow_and_reflows_siblings() {
     let mut frame = Frame::default();
     let animated = Id::new("animated flex child");
     let sibling = Id::new("flex sibling");
@@ -463,7 +463,7 @@ fn flex_size_transition_preserves_exact_overflow_and_reflows_siblings() {
                 row.child()
                     .item(flex::item().fixed(extent, extent))
                     .id(animated)
-                    .transition(Transition::new(Duration::from_secs(1)).size())
+                    .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).size())
                     .insert(BoxAtom(Size::ZERO));
                 row.child()
                     .item(flex::item().fixed(1.0, 1.0))
@@ -562,7 +562,7 @@ fn wrap_grows_each_run_and_stretches_cross_grow() {
 }
 
 #[test]
-fn wrap_keeps_target_runs_during_size_transitions() {
+fn wrap_keeps_target_runs_during_size_motions() {
     let mut frame = Frame::default();
     let ids: [Id; 10] = std::array::from_fn(|index| Id::new(("item", index)));
     let mut render = |width, time| {
@@ -577,7 +577,7 @@ fn wrap_keeps_target_runs_during_size_transitions() {
                     wrap.child()
                         .item(wrap::item().width(Sizing::grow_range(2, i32::MAX)))
                         .id(id)
-                        .transition(Transition::new(Duration::from_secs(1)).size())
+                        .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).size())
                         .insert(BoxAtom(Size::uniform(1)));
                 }
             },
@@ -609,7 +609,7 @@ fn wrap_shrinkwraps_animated_target_runs() {
                     wrap.child()
                         .item(wrap::item().fixed(extent, 1.0))
                         .id(id)
-                        .transition(Transition::new(Duration::from_secs(1)).size())
+                        .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).size())
                         .insert(BoxAtom(Size::ZERO));
                 }
             },
@@ -771,7 +771,7 @@ fn grid_preserves_an_animated_child_extent_with_a_larger_sibling() {
                 let mut grid = ui.layout(grid::new(2));
                 grid.child()
                     .id(id)
-                    .transition(Transition::new(Duration::from_secs(1)).height())
+                    .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).height())
                     .insert(BoxAtom(Size::new(1, extent)));
                 grid.child().insert(BoxAtom(Size::new(1, extent)));
             },

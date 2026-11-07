@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
-use blit::{Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Sides, Size, Transition, Widget};
+use blit::{Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Motion, Sides, Size, Spring, Tween, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
 #[cfg(not(feature = "gpu"))]
 use blit_desktop::cpu;
@@ -621,8 +621,8 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                             controls.child().build(|ui: Ui<'_>| {
                                 choices(
                                     ui,
-                                    "transition",
-                                    &mut canvas.transitions,
+                                    "motion",
+                                    &mut canvas.motion,
                                     &[("On", true), ("Off", false)],
                                 );
                             });
@@ -1301,12 +1301,9 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
             .background(colors::ITEMS[index])
             .radius(BorderRadius::uniform(sz::XXS)),
     );
-    let mut item = if config.transitions {
-        item.id(Id::new(("canvas item", index))).transition(
-            Transition::new(Duration::from_millis(320))
-                .easing(Easing::EaseOutQuad)
-                .layout(),
-        )
+    let mut item = if config.motion {
+        item.id(Id::new(("canvas item", index)))
+            .motion(Motion::new(Spring::new(Duration::from_millis(250), 0.2).rest(0.01, 0.01)).layout())
     } else {
         item
     };
@@ -1437,7 +1434,10 @@ mod graphics {
 
         fn build(self, mut ui: Ui<'_>) {
             if self.running {
-                self.phase = ui.animate_loop(Id::new("terrain flyover"), Duration::from_secs(12), Easing::Linear);
+                self.phase = ui.animate_loop(
+                    Id::new("terrain flyover"),
+                    Tween::new(Duration::from_secs(12), Easing::LINEAR),
+                );
             }
             let (columns, rows) = match self.detail {
                 Detail::Low => (64, 36),

@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use blit::{Axis, Clip, Constraints, Id, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget};
 
-use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
+use super::{Request, ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
 use crate::{Context, ScrollState};
 
 blit::builder! {
@@ -89,7 +89,7 @@ where
         state.content_extent = total_extent;
         // resolve offscreen rows by index before choosing which rows to build
         if viewport_known && let Target::Widget(target) = state.request.target {
-            state.request.target = match items
+            match items
                 .clone()
                 .enumerate()
                 .position(|(index, value)| item_id(id, index, &value) == target)
@@ -100,10 +100,10 @@ where
                     let minimum = (end - state.viewport_extent).min(start);
                     let maximum = start;
                     // move only as far as needed to reveal the row
-                    Target::Offset(state.offset.clamp(minimum, maximum))
+                    state.request.target = Target::Offset(state.offset.clamp(minimum, maximum));
                 }
-                None => Target::None,
-            };
+                None => state.request = Request::default(),
+            }
         }
         animate(state, &mut ui, axis, viewport_known);
         state.offset = state.offset.clamp(C::Scalar::ZERO, state.maximum_offset());

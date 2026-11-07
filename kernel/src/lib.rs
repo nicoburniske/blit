@@ -48,7 +48,7 @@ pub mod internal;
 pub mod layout;
 
 pub use self::{
-    animation::{Easing, Transition, TransitionProperties},
+    animation::{Animation, AnimationOptions, Easing, Motion, MotionProps, Spring, Tween},
     clip::{Clip, ClipShape},
     frame::{
         Frame, NodeId,

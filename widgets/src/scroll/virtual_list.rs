@@ -83,10 +83,10 @@ where
         let overscan = size.height.repeat(VIEWPORTS);
         let row = state.sample.get(state.visible.start);
         let motion = content_input(&mut ui, Axis::Vertical);
-        let (thumb_active, scrollbar) = scrollbar_input(&mut state.motion, &mut ui, Axis::Vertical, size.height);
+        let (thumb_active, scrollbar) = scrollbar_input(&mut state.inertia, &mut ui, Axis::Vertical, size.height);
         let movement = match scrollbar {
             None => content_motion(
-                &mut state.motion,
+                &mut state.inertia,
                 &mut ui,
                 Axis::Vertical,
                 scroll_speed,
@@ -104,7 +104,7 @@ where
             state.within = C::Scalar::ZERO;
         }
         let delta = {
-            let delta: C::Scalar = state.motion.pixel_delta(movement);
+            let delta: C::Scalar = state.inertia.pixel_delta(movement);
             let delta = delta.endpoint(std::mem::take(&mut state.scroll_delta));
             if delta.to_f32().abs() > overscan.to_f32() && state.average == 0.0 {
                 // wait for the initial heights before estimating a large jump
@@ -134,7 +134,7 @@ where
                 }
             }
             Some(ScrollbarInput::Thumb(value) | ScrollbarInput::Track(value)) => {
-                state.motion.remainder = 0.0;
+                state.inertia.remainder = 0.0;
                 let offset = row.map_or(C::Scalar::ZERO, |row| row.top.endpoint(state.within));
                 let (position, visible) = metrics(state, count, size.height, offset);
                 let total = count.map_or(state.scrollbar.explored, |count| count as f64);
@@ -241,8 +241,8 @@ where
         if (first == 0 && offset == C::Scalar::ZERO && movement < 0.0)
             || (window.end == limit && offset == (extent - size.height).max(C::Scalar::ZERO) && movement > 0.0)
         {
-            state.motion.velocity = 0.0;
-            state.motion.remainder = 0.0;
+            state.inertia.velocity = 0.0;
+            state.inertia.remainder = 0.0;
         }
         state.visible = state
             .sample
@@ -357,7 +357,7 @@ pub struct Response {
 
 #[derive(Default)]
 pub struct VirtualListState<T> {
-    motion: super::Motion,
+    inertia: super::Inertia,
 
     // movement queued for the next build
     scroll_delta: T,
@@ -379,7 +379,7 @@ impl<T: Scalar> VirtualListState<T> {
     /// replaces the movement in pixels queued for the next build
     pub fn scroll_by(&mut self, amount: T) {
         self.scroll_delta = amount;
-        self.motion.stop();
+        self.inertia.stop();
     }
 
     /// scrolls to a list index and pixel offset
@@ -392,7 +392,7 @@ impl<T: Scalar> VirtualListState<T> {
         self.sample.clear();
         self.visible = 0..0;
         self.scroll_delta = T::ZERO;
-        self.motion.stop();
+        self.inertia.stop();
     }
 
     /// returns the row index and pixel offset

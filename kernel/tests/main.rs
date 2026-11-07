@@ -6,12 +6,13 @@ use std::{
 };
 
 use blit::{
-    Atom, AtomCx, Clip, ClipShape, Constraints, Contact, ContactId, ContactSource, Context, Easing, Frame, FrameInfo,
-    Id, Input, Interact, InteractCx, Layout, LayoutCx, Modifiers, MouseButton, NodeTarget,
+    Animation, AnimationOptions, Atom, AtomCx, Clip, ClipShape, Constraints, Contact, ContactId, ContactSource,
+    Context, Easing, Frame, FrameInfo, Id, Input, Interact, InteractCx, Layout, LayoutCx, Modifiers, Motion,
+    MouseButton, NodeTarget,
     Phase::{Cancelled, Ended, Held, Started},
-    Point, Rect, ScrollPhase, Size, TouchPhase,
+    Point, Rect, ScrollPhase, Size, Spring, TouchPhase,
     TouchPhase::{Cancel, Down, Move, Up},
-    Transition, Widget,
+    Tween, Widget,
 };
 
 mod animation;

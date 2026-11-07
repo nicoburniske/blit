@@ -123,11 +123,11 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         (
             target
                 .properties
-                .intersects(TransitionProperties::WIDTH)
+                .intersects(MotionProps::WIDTH)
                 .then_some(current.width),
             target
                 .properties
-                .intersects(TransitionProperties::HEIGHT)
+                .intersects(MotionProps::HEIGHT)
                 .then_some(current.height),
         )
     }
@@ -232,12 +232,12 @@ impl Iterator for Children<'_> {
     }
 }
 
-/// resolves transitions against a subtree's target layout
+/// resolves layout motion against a subtree's target layout
 ///
 /// - layout first establishes target areas
-/// - active size transitions write animated sizes into placements and replay layout
+/// - size animation updates placements and replays layout
 /// - target sizes remain available for structural decisions such as wrapping
-/// - position transitions apply after layout without replay
+/// - position animation applies after layout without replay
 pub fn resolve<C: Context>(
     frame: &mut Frame<C>,
     bump: &BumpArena,
@@ -250,7 +250,7 @@ pub fn resolve<C: Context>(
     if frame.bounds.is_empty() {
         return size;
     }
-    let mut active = TransitionProperties::NONE;
+    let mut active = MotionProps::NONE;
     let start = root.index();
     let end = frame.nodes[start].subtree_end as usize + 1;
     let nodes = &frame.nodes[..end];
@@ -266,72 +266,71 @@ pub fn resolve<C: Context>(
             continue;
         };
         let record = frame.bounds[bounds];
-        let Some(config) = record.transition else { continue };
-        if !commit && !config.properties.intersects(TransitionProperties::SIZE) {
+        let Some(mut config) = record.motion else { continue };
+        if !commit && !config.properties.intersects(MotionProps::SIZE) {
             continue;
         }
         let node = record.node;
         let id = stored.widget_id;
-        let found = frame.transitions.binary_search_by_key(&id, |state| state.id);
-        let mut state = match found {
-            Ok(index) => frame.transitions[index],
-            Err(_) => TransitionState::new(id, node, config),
+        if stored.parent == node {
+            config.properties = config
+                .properties
+                .intersection(MotionProps::POSITION | MotionProps::RESIZE);
+        }
+        let found = frame.motions.binary_search_by_key(&id, |state| state.id);
+        let mut initial = MotionState::new(id, node);
+        let state = match found {
+            Ok(index) => &mut frame.motions[index],
+            Err(_) => &mut initial,
         };
-        state.node = node;
-        state.config = config;
-        state.seen = true;
-        state.advance(frame.placements[node.index()].area, frame.time, frame.resized);
-        let properties = state.active.intersection(TransitionProperties::SIZE);
-        if nodes[node.index()].parent == node {
-            if properties.intersects(TransitionProperties::WIDTH) {
-                state.current.width = state.target.width;
-                state.initial.width = state.target.width;
-            }
-            if properties.intersects(TransitionProperties::HEIGHT) {
-                state.current.height = state.target.height;
-                state.initial.height = state.target.height;
-            }
-            state.active = state.active.intersection(TransitionProperties::POSITION);
-            if state.active.is_empty() {
-                state.started_at = None;
-            }
-        } else if !properties.is_empty() {
+        let (values, animated) = state.advance(
+            frame.placements[node.index()].area,
+            config,
+            frame.time,
+            frame.resized,
+            commit,
+        );
+        if commit {
+            state.node = node;
+            state.seen = true;
+        }
+        let properties = animated.intersection(MotionProps::SIZE);
+        if !properties.is_empty() {
             if frame.target_sizes.is_empty() {
                 let placements = &frame.placements[start..end];
                 frame.target_sizes.extend(placements.iter().map(|node| TargetSize {
                     size: node.area.size(),
-                    properties: TransitionProperties::NONE,
+                    properties: MotionProps::NONE,
                 }));
             }
             let area = &mut frame.placements[node.index()].area;
-            if properties.intersects(TransitionProperties::WIDTH) {
-                area.width = state.current.width;
+            if properties.intersects(MotionProps::WIDTH) {
+                area.width = values[2];
             }
-            if properties.intersects(TransitionProperties::HEIGHT) {
-                area.height = state.current.height;
+            if properties.intersects(MotionProps::HEIGHT) {
+                area.height = values[3];
             }
             frame.target_sizes[node.index() - start].properties = properties;
         }
-        active = active.union(state.active);
-        if commit {
-            match found {
-                Ok(index) => frame.transitions[index] = state,
-                Err(index) => frame.transitions.insert(index, state),
-            }
+        active |= animated;
+        if let Err(index) = found
+            && commit
+        {
+            frame.motions.insert(index, initial);
         }
     }
     if !frame.target_sizes.is_empty() {
         size = arrange(frame, bump, context, root, bounds);
         frame.target_sizes.clear();
     }
-    if commit && active.intersects(TransitionProperties::POSITION) {
-        for state in frame.transitions.iter().filter(|state| state.seen) {
+    if commit && active.intersects(MotionProps::POSITION) {
+        for state in frame.motions.iter().filter(|state| state.seen) {
             let area = &mut frame.placements[state.node.index()].area;
-            if state.active.intersects(TransitionProperties::X) {
-                area.x = state.current.x;
+            if state.active.intersects(MotionProps::X) {
+                area.x = state.animator.values[0];
             }
-            if state.active.intersects(TransitionProperties::Y) {
-                area.y = state.current.y;
+            if state.active.intersects(MotionProps::Y) {
+                area.y = state.animator.values[1];
             }
         }
     }

@@ -21,6 +21,14 @@ pub trait Scalar:
     fn from_f32(value: f32) -> Self;
     /// converts to a float which may lose precision
     fn to_f32(self) -> f32;
+    /// signed distance to another coordinate without snapping either endpoint
+    fn delta(self, end: Self) -> f32 {
+        end.to_f32() - self.to_f32()
+    }
+    /// applies a continuous offset before snapping the result
+    fn offset(self, amount: f32) -> Self {
+        Self::from_f32(self.to_f32() + amount)
+    }
     /// resolves shares using one cursor initialized to zero for the whole group
     /// discrete coordinates advance the cursor and subtract consecutive snapped boundaries
     /// e.g. three equal shares of ten cells snap to `3, 4, 3`
@@ -115,6 +123,14 @@ impl Scalar for i32 {
     #[inline]
     fn to_f32(self) -> f32 {
         self as f32
+    }
+    #[inline]
+    fn delta(self, end: Self) -> f32 {
+        (end as f64 - self as f64) as f32
+    }
+    #[inline]
+    fn offset(self, amount: f32) -> Self {
+        (self as f64 + amount as f64).round() as Self
     }
     #[inline]
     fn allocate(cursor: &mut f32, share: f32) -> Self {

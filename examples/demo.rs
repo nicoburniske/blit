@@ -28,7 +28,7 @@ pub struct CanvasConfig {
     pub zoom: f32,
     pub gap_steps: u8,
     pub padding_steps: u8,
-    pub transitions: bool,
+    pub motion: bool,
 }
 
 impl Default for CanvasConfig {
@@ -42,7 +42,7 @@ impl Default for CanvasConfig {
             zoom: 1.0,
             gap_steps: 1,
             padding_steps: 1,
-            transitions: true,
+            motion: true,
         }
     }
 }

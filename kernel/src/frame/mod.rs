@@ -18,18 +18,21 @@ use std::{
 };
 
 use self::{
-    animation::{AnimationState, TransitionState},
+    animation::{AnimationState, MotionState, Playback},
     arena::{BumpArena, BumpId, FrameSlice, Scratch},
     timer::TimerState,
     ui::{NodeTarget, Ui},
 };
 use crate::{
     Atom, AtomWidget, Clip, ClipShape, ContactId, ContactSource, Context, FrameInfo, Id, IntoWidget, Scalar, Widget,
-    animation::{Easing, Transition, TransitionProperties},
+    animation::{Animation, AnimationOptions, Motion, MotionProps, Tween},
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::{Input, MouseButton, ScrollPhase, TouchPhase},
     interact::{Interact, Phase, ScrollEvent},
-    internal::bump::{Bump, Slice},
+    internal::{
+        animator::Animator,
+        bump::{Bump, Slice},
+    },
     layout::{Axis, Layout, Sizing},
 };
 
@@ -52,7 +55,7 @@ pub struct Frame<C: Context> {
     // requested areas from the previous layout, sorted by id
     areas_previous: Vec<(Id, Rect<C::Scalar>)>,
     animations: Vec<AnimationState>,
-    transitions: Vec<TransitionState<C::Scalar>>,
+    motions: Vec<MotionState<C::Scalar>>,
     target_sizes: Vec<TargetSize<C::Scalar>>,
     timers: Vec<TimerState>,
     input: Input<C::Scalar>,
@@ -85,7 +88,7 @@ impl<C: Context> Default for Frame<C> {
             areas_previous: Vec::new(),
             areas_requested: Vec::new(),
             animations: Vec::new(),
-            transitions: Vec::new(),
+            motions: Vec::new(),
             target_sizes: Vec::new(),
             timers: Vec::new(),
             input: Input::None,
@@ -112,11 +115,15 @@ impl<C: Context> Frame<C> {
     ) -> W::Response {
         // interactions update against the previous layout, so every frame settles in one more
         // unless nothing but settling built it
-        let settling = std::mem::take(&mut self.settle)
-            && !self.has_pending_redraw()
-            && matches!(input, Input::None)
-            && self.screen.size() == frame.size
-            && self.next_timer_deadline().is_none_or(|deadline| deadline > time);
+        let settling = match input {
+            Input::None => {
+                std::mem::take(&mut self.settle)
+                    && !self.has_pending_redraw()
+                    && self.screen.size() == frame.size
+                    && self.next_timer_deadline().is_none_or(|deadline| deadline > time)
+            }
+            _ => false,
+        };
         self.settle = !settling;
         self.frame_requested = false;
         #[cfg(debug_assertions)]
@@ -145,7 +152,7 @@ impl<C: Context> Frame<C> {
         for animation in &mut self.animations {
             animation.seen = false;
         }
-        for state in &mut self.transitions {
+        for state in &mut self.motions {
             state.seen = false;
         }
         for timer in &mut self.timers {
@@ -189,7 +196,7 @@ impl<C: Context> Frame<C> {
         paint::resolve_clips(self, &bump);
         interact::resolve(self);
         self.animations.retain(|animation| animation.seen);
-        self.transitions.retain(|state| state.seen);
+        self.motions.retain(|state| state.seen);
         self.timers.retain(|timer| timer.seen);
         bump.prepare_scratch();
         self.bump = bump;
@@ -207,7 +214,7 @@ impl<C: Context> Frame<C> {
         self.frame_requested
             || self.settle
             || self.animations.iter().any(AnimationState::is_active)
-            || self.transitions.iter().any(TransitionState::is_active)
+            || self.motions.iter().any(MotionState::is_active)
     }
 
     pub fn next_timer_deadline(&self) -> Option<Duration> {
@@ -384,7 +391,7 @@ impl<C: Context> Frame<C> {
             self.bounds.push(Bounds {
                 node,
                 hit: Sides::all(C::Scalar::ZERO),
-                transition: None,
+                motion: None,
             });
             id.index().unwrap()
         };
@@ -451,14 +458,14 @@ struct Placement<T> {
 #[derive(Clone, Copy)]
 struct TargetSize<T> {
     size: Size<T>,
-    properties: TransitionProperties,
+    properties: MotionProps,
 }
 
 #[derive(Clone, Copy)]
 struct Bounds<T> {
     node: NodeId,
     hit: Sides<T>,
-    transition: Option<Transition>,
+    motion: Option<Motion>,
 }
 
 #[derive(Clone, Copy)]

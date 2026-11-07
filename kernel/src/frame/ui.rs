@@ -56,8 +56,8 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
         self
     }
 
-    pub fn transition(self, transition: Transition) -> Self {
-        self.inner.frame.bounds_mut(self.inner.node).transition = Some(transition);
+    pub fn motion(self, motion: Motion) -> Self {
+        self.inner.frame.bounds_mut(self.inner.node).motion = Some(motion);
         self
     }
 
@@ -293,18 +293,43 @@ impl<C: Context, S> Ui<'_, C, S> {
         self.inner.frame.time
     }
 
-    pub fn animate(&mut self, id: Id, target: f32, duration: Duration, easing: Easing) -> f32 {
+    pub fn animate(&mut self, id: Id, target: f32, animation: impl Into<Animation>, options: AnimationOptions) -> f32 {
         let frame = &mut *self.inner.frame;
-        AnimationState::update(&mut frame.animations, id, target, |animation| {
-            animation.advance(target, duration, easing, frame.time)
-        })
+        let state = AnimationState::update(&mut frame.animations, id, target);
+        match &mut state.playback {
+            Playback::Target(animator) => {
+                animator
+                    .advance([target], [true], animation.into(), options, frame.time, true)
+                    .0[0]
+            }
+            Playback::Loop { value, .. } => {
+                let mut animator = Animator::new([*value], Animation::default(), AnimationOptions::default());
+                let value = animator
+                    .advance([target], [true], animation.into(), options, frame.time, true)
+                    .0[0];
+                state.playback = Playback::Target(animator);
+                value
+            }
+        }
     }
 
-    pub fn animate_loop(&mut self, id: Id, duration: Duration, easing: Easing) -> f32 {
+    pub fn animate_loop(&mut self, id: Id, tween: Tween) -> f32 {
+        if tween.duration.is_zero() {
+            return self.animate(id, 0.0, Animation::default(), AnimationOptions::default());
+        }
         let frame = &mut *self.inner.frame;
-        AnimationState::update(&mut frame.animations, id, 0.0, |animation| {
-            animation.advance_loop(duration, easing, frame.time)
-        })
+        let state = AnimationState::update(&mut frame.animations, id, 0.0);
+        let now = frame.time.as_secs_f64();
+        let time = match state.playback {
+            Playback::Loop {
+                tween: previous, time, ..
+            } if previous == tween => time,
+            _ => now,
+        };
+        let progress = (now - time).max(0.0) as f32 / tween.duration.as_secs_f32();
+        let value = tween.easing.sample(progress % 1.0).0;
+        state.playback = Playback::Loop { tween, time, value };
+        value
     }
 
     pub fn timer(&mut self, id: Id, duration: Duration) -> bool {

@@ -1,7 +1,7 @@
 use blit::{Axis, Clip, Scalar, Ui, Widget};
 
 pub use super::ScrollState;
-use super::{ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
+use super::{Request, ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
 use crate::Context;
 
 blit::builder! {
@@ -85,7 +85,7 @@ impl<T: Scalar, X> ScrollArea<'_, T, X> {
             thumb_active,
         );
         match reveal {
-            Some(id) if !viewport.contains_widget(id) => state.request.target = Target::None,
+            Some(id) if !viewport.contains_widget(id) => state.request = Request::default(),
             Some(_) => {
                 animate(state, &mut viewport, axis, viewport_known);
                 if state.offset != offset {
