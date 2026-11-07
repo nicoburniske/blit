@@ -1,6 +1,49 @@
-use blit::{Axis, Scalar, Sides, Size, Sizing};
+use std::time::Duration;
+
+use blit::{Axis, Id, Point, Scalar, Sides, Size, Sizing, Spring, Ui};
 use blit_layout::absolute::Anchor;
 pub use blit_layout::{Align, Justify};
+use blit_widgets::{Context, interact};
+
+pub struct SpringDrag {
+    pub spring: Spring,
+    pub active: bool,
+    position: [f32; 2],
+}
+
+impl Default for SpringDrag {
+    fn default() -> Self {
+        Self {
+            spring: Spring::new(Duration::from_millis(650), 0.5).rest(0.01, 0.01),
+            active: false,
+            position: [0.0; 2],
+        }
+    }
+}
+
+impl SpringDrag {
+    pub fn update<C: Context, S>(&mut self, ui: &mut Ui<'_, C, S>, id: Id) -> Point<C::Scalar> {
+        let drag = ui.interact_widget(id, interact::drag());
+        let card = ui.area(id);
+        let home = ui.area(Id::new((id, "home")));
+        self.active = drag.active;
+        if drag.activated
+            && let (Some(card), Some(home)) = (card, home)
+        {
+            self.position = [(card.x - home.x).to_f32(), (card.y - home.y).to_f32()];
+        }
+        if drag.active {
+            self.position[0] += drag.delta.x.to_f32();
+            self.position[1] += drag.delta.y.to_f32();
+        } else {
+            self.position = [0.0; 2];
+        }
+        Point::new(
+            C::Scalar::from_f32(self.position[0]),
+            C::Scalar::from_f32(self.position[1]),
+        )
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CanvasLayout {

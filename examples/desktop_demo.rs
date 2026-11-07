@@ -1,7 +1,9 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
-use blit::{Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Motion, Sides, Size, Spring, Tween, Widget};
-use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing};
+use blit::{
+    Animation, Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Motion, Sides, Size, Spring, Tween, Widget,
+};
+use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, SpringDrag};
 #[cfg(not(feature = "gpu"))]
 use blit_desktop::cpu;
 #[cfg(feature = "gpu")]
@@ -65,6 +67,7 @@ enum Page {
     Input,
     Styles,
     Scroll,
+    Animation,
     Graphics,
 }
 
@@ -75,6 +78,7 @@ struct App {
     input: InputPage,
     styles: StylesPage,
     scroll: ScrollPage,
+    animation: AnimationPage,
     graphics: graphics::View,
     settings: PopoverState,
     performance: PerformanceState,
@@ -90,6 +94,7 @@ impl Default for App {
             input: InputPage::default(),
             styles: StylesPage::default(),
             scroll: ScrollPage::default(),
+            animation: AnimationPage::default(),
             graphics: graphics::View::default(),
             settings: PopoverState::new(),
             performance: PerformanceState::default(),
@@ -143,6 +148,7 @@ impl Application for App {
                 (Page::Input, "input"),
                 (Page::Styles, "styles"),
                 (Page::Scroll, "scroll"),
+                (Page::Animation, "animation"),
                 (Page::Graphics, "graphics"),
             ] {
                 if header.child().build(Button::new(label, self.page == page)) {
@@ -187,6 +193,7 @@ impl Application for App {
             Page::Input => root.child().item(flex::item().grow()).build(&mut self.input),
             Page::Styles => root.child().item(flex::item().grow()).build(&mut self.styles),
             Page::Scroll => root.child().item(flex::item().grow()).build(&mut self.scroll),
+            Page::Animation => root.child().item(flex::item().grow()).build(&mut self.animation),
             Page::Graphics => root.child().item(flex::item().grow()).build(&mut self.graphics),
         };
         root.context_mut().profiler.set_enabled(self.show_performance);
@@ -210,6 +217,150 @@ impl Application for App {
                         .accent(colors::ACCENT),
                 );
         }
+    }
+}
+
+#[derive(Default)]
+struct AnimationPage {
+    drag: SpringDrag,
+    show_drag: bool,
+    right: bool,
+}
+
+impl Widget<DesktopContext> for &mut AnimationPage {
+    type Response = ();
+
+    fn build(self, ui: Ui<'_>) {
+        let mut section = ui.layout(flex::column().padding(Sides::all(sz::LG)).gap(sz::SM));
+        section.insert(panel(colors::SURFACE));
+        {
+            let mut modes = section.child().layout(flex::row().gap(sz::XXS));
+            if modes.child().build(Button::new("retarget", !self.show_drag)) {
+                self.show_drag = false;
+            }
+            if modes.child().build(Button::new("drag", self.show_drag)) {
+                self.show_drag = true;
+            }
+        }
+        {
+            let mut controls = section.child().layout(flex::row().gap(sz::XXL));
+            controls.child().build(|ui: Ui<'_>| {
+                choices(
+                    ui,
+                    "bounce",
+                    &mut self.drag.spring.bounce,
+                    &[("0", 0.0), ("0.25", 0.25), ("0.5", 0.5)],
+                );
+            });
+            controls.child().build(|ui: Ui<'_>| {
+                choices(
+                    ui,
+                    "duration",
+                    &mut self.drag.spring.duration,
+                    &[
+                        ("350ms", Duration::from_millis(350)),
+                        ("650ms", Duration::from_millis(650)),
+                        ("1000ms", Duration::from_millis(1000)),
+                        ("2000ms", Duration::from_millis(2000)),
+                    ],
+                );
+            });
+        }
+        if !self.show_drag {
+            if section
+                .child()
+                .item(flex::item().fixed(180.0, 56.0))
+                .build(Button::new(if self.right { "move left" } else { "move right" }, true))
+            {
+                self.right = !self.right;
+            }
+            let tween = Tween::new(self.drag.spring.duration, Easing::EASE_IN_OUT);
+            for (index, (label, animation, restart)) in [
+                ("tween / carry", Animation::Tween(tween), false),
+                ("tween / restart", Animation::Tween(tween), true),
+                ("spring / carry", Animation::Spring(self.drag.spring), false),
+                ("spring / restart", Animation::Spring(self.drag.spring), true),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let mut row = section
+                    .child()
+                    .item(flex::item().grow())
+                    .layout(flex::column().gap(sz::XXS));
+                row.child()
+                    .insert(Text::new(label).style(TextStyle::new().size(sz::MD).color(colors::TEXT_MUTED)));
+                let mut lane = row
+                    .child()
+                    .item(flex::item().grow())
+                    .layout(single::new().grow())
+                    .clip(BoundsClip);
+                lane.insert(panel(colors::CANVAS));
+                let mut track = lane.child().layout(
+                    absolute::place(single::new().grow())
+                        .target_anchor(Anchor::Center)
+                        .child_anchor(Anchor::Center)
+                        .width(absolute::Sizing::percent(0.65))
+                        .height(absolute::Sizing::full()),
+                );
+                let marker = absolute::place(())
+                    .target_anchor(if self.right { Anchor::Right } else { Anchor::Left })
+                    .child_anchor(Anchor::Center)
+                    .width(absolute::Sizing::fixed(20.0))
+                    .height(absolute::Sizing::fixed(20.0));
+                track.child().layout(marker).insert(
+                    Rectangle::new()
+                        .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
+                        .radius(BorderRadius::uniform(sz::XXS)),
+                );
+                track
+                    .child()
+                    .id(Id::new(("retarget", index)))
+                    .layout(marker)
+                    .motion(Motion::new(animation).x().restart(restart))
+                    .insert(
+                        Rectangle::new()
+                            .background(colors::ACCENT)
+                            .radius(BorderRadius::uniform(sz::XXS)),
+                    );
+            }
+            return;
+        }
+        let id = Id::new("spring card");
+        let position = self.drag.update(&mut section, id);
+        let mut canvas = section
+            .child()
+            .item(flex::item().grow())
+            .layout(single::new().grow())
+            .clip(BoundsClip);
+        canvas.insert(panel(colors::CANVAS));
+        let card = absolute::place(flex::column().align(Align::Center).justify(Justify::Center))
+            .target_anchor(Anchor::Center)
+            .child_anchor(Anchor::Center)
+            .width(absolute::Sizing::fixed(128.0))
+            .height(absolute::Sizing::fixed(96.0));
+        canvas.child().id(Id::new((id, "home"))).layout(card).insert(
+            Rectangle::new()
+                .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
+                .radius(BorderRadius::uniform(sz::SM)),
+        );
+        let mut handle = canvas
+            .child()
+            .id(id)
+            .layout(card.x(position.x).y(position.y))
+            .motion(Motion::new(self.drag.spring).position());
+        handle.insert(
+            Rectangle::new()
+                .background(if self.drag.active {
+                    colors::ACCENT_DARK
+                } else {
+                    colors::ACCENT
+                })
+                .radius(BorderRadius::uniform(sz::SM)),
+        );
+        handle
+            .child()
+            .insert(Text::new("drag me").style(TextStyle::new().size(sz::LG).color(colors::BACKGROUND)));
     }
 }
 
@@ -1171,7 +1322,12 @@ fn draw_button(ui: Ui<'_>, label: &str, selected: bool, press: interact::press::
         colors::TRACK
     };
     let border = if selected { colors::ACCENT } else { colors::BORDER };
-    let mut button = ui.layout(flex::row().padding(Sides::xy(sz::SM, sz::XS)));
+    let mut button = ui.layout(
+        flex::row()
+            .padding(Sides::xy(sz::SM, sz::XS))
+            .align(Align::Center)
+            .justify(Justify::Center),
+    );
     button.insert(
         Rectangle::new()
             .background(background)
