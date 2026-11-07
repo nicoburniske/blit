@@ -1,9 +1,9 @@
 use std::time::Duration;
 
-use blit::{Frame, FrameInfo, Id, Input, Size};
+use blit::{Constraints, Frame, FrameInfo, Id, Input, Size};
 use blit_tui::{
     RendererConfig, TuiContext, TuiRenderer, Ui,
-    layout::{Sizing, flex, grid, single},
+    layout::{Sizing, flex, grid},
     text::{TextOptions, TextWrap},
     widget::Text,
 };
@@ -19,24 +19,27 @@ fn three_columns_use_all_ten_cells_and_wrap_at_the_assigned_width() {
             Duration::ZERO,
             Input::None,
             |ui: Ui<'_>| {
-                ui.layout(single::new().fixed(10, 2)).child().build(|ui: Ui<'_>| {
-                    if use_grid {
-                        let mut row = ui.layout(grid::new(3));
-                        for column in 0..3 {
-                            row.child()
-                                .id(Id::new(column))
-                                .insert(Text::new("abcd").options(TextOptions::new().wrap(TextWrap::Character)));
+                ui.constrain(Constraints::tight(Size::new(10, 2)))
+                    .layout(())
+                    .child()
+                    .build(|ui: Ui<'_>| {
+                        if use_grid {
+                            let mut row = ui.layout(grid::new(3));
+                            for column in 0..3 {
+                                row.child()
+                                    .id(Id::new(column))
+                                    .insert(Text::new("abcd").options(TextOptions::new().wrap(TextWrap::Character)));
+                            }
+                        } else {
+                            let mut row = ui.layout(flex::row());
+                            for column in 0..3 {
+                                row.child()
+                                    .id(Id::new(column))
+                                    .item(flex::item().width(Sizing::grow()))
+                                    .insert(Text::new("abcd").options(TextOptions::new().wrap(TextWrap::Character)));
+                            }
                         }
-                    } else {
-                        let mut row = ui.layout(flex::row());
-                        for column in 0..3 {
-                            row.child()
-                                .id(Id::new(column))
-                                .item(flex::item().width(Sizing::grow()))
-                                .insert(Text::new("abcd").options(TextOptions::new().wrap(TextWrap::Character)));
-                        }
-                    }
-                });
+                    });
             },
         );
         frame.layout(&mut context);

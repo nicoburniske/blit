@@ -101,7 +101,6 @@ mod tests {
         TouchPhase::{Down, Move, Up},
         Ui,
     };
-    use blit_layout::single;
 
     use super::*;
     use crate::{
@@ -113,7 +112,7 @@ mod tests {
     fn slider(mut ui: Ui<'_, TestContext>) -> (Response<f32>, Response<f32>) {
         let pan = ui.interact(interact::drag().axis(Axis::Vertical));
         let slider = ui
-            .layout(single::new().grow())
+            .layout(())
             .child()
             .build(|mut ui: Ui<'_, TestContext>| ui.interact(interact::drag().axis(Axis::Horizontal)));
         (pan, slider)
@@ -184,10 +183,7 @@ mod tests {
             let handle = Id::new("handle");
             let drag = ui.interact_widget(handle, interact::drag());
             if mounted.get() {
-                ui.layout(single::new().grow())
-                    .child()
-                    .id(handle)
-                    .build(|_: Ui<'_, TestContext>| {});
+                ui.layout(()).child().id(handle).build(|_: Ui<'_, TestContext>| {});
             }
             drag
         };

@@ -81,7 +81,6 @@ mod tests {
         TouchPhase::{Cancel, Down, Move, Up},
         Ui,
     };
-    use blit_layout::single;
 
     use crate::{
         interact,
@@ -152,7 +151,7 @@ mod tests {
                 // takes a press once it moves, like a scroll view panning
                 let pan = ui.interact(interact::drag());
                 let press = ui
-                    .layout(single::new().grow())
+                    .layout(())
                     .child()
                     .build(|mut ui: Ui<'_, TestContext>| ui.interact(interact::press()));
                 (pan, press)

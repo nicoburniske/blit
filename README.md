@@ -41,7 +41,7 @@ an atom describes visual content, like text or a rectangle. painting it typicall
 means recording draw commands for the backend using its resolved position and size.
 
 ```rust
-use blit::{KeyboardEvent, Sides};
+use blit::KeyboardEvent;
 use blit_tui::{
     Ui,
     atom::Border,
@@ -55,7 +55,7 @@ use blit_tui::{
 fn main() -> std::io::Result<()> {
     blit_tui::run(|ui| {
         // layout arranges the root's children in a column
-        let mut root = ui.layout(flex::column().padding(Sides::all(1)).gap(1));
+        let mut root = ui.layout(flex::column().gap(1).pad(1));
 
         let quit = root
             // the header sizes itself to its contents
@@ -65,8 +65,8 @@ fn main() -> std::io::Result<()> {
                 let mut header = ui.layout(
                     flex::row()
                         .align(Align::Start)
-                        .padding(Sides::all(1))
-                        .justify(Justify::SpaceBetween),
+                        .justify(Justify::SpaceBetween)
+                        .pad(1),
                 );
 
                 // insert draws content directly on the node

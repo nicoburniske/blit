@@ -1,6 +1,54 @@
 use super::*;
 
 #[test]
+fn local_bounds_apply_to_atoms_and_layouts() {
+    let (mut frame, mut context) = frame(Size::new(8.0, 6.0));
+    for with_layout in [false, true] {
+        let measured = render(&mut frame, &mut context, |ui: Ui<'_>| {
+            ui.build_measured(Constraints::loose(Size::new(5.0, 6.0)), |ui: Ui<'_>| {
+                let mut ui = ui
+                    .constrain(Constraints::loose(Size::new(7.0, 4.0)))
+                    .constrain(Constraints::tight(Size::new(10.0, 2.0)));
+                if with_layout {
+                    ui.layout(()).insert(Fill('L', Size::uniform(1.0)));
+                } else {
+                    ui.insert(Fill('A', Size::uniform(1.0)));
+                }
+            })
+            .1
+        });
+        assert_eq!(measured, Size::new(5.0, 2.0));
+        assert_eq!(
+            context.commands[0],
+            Paint(if with_layout { 'L' } else { 'A' }, Rect::new(0.0, 0.0, 8.0, 6.0))
+        );
+    }
+}
+
+#[test]
+fn local_bounds_reject_invalid_ranges() {
+    let (mut frame, mut context) = frame(Size::uniform(4.0));
+    for bounds in [
+        Constraints::tight(Size::new(-1.0, 1.0)),
+        Constraints::tight(Size::new(f32::INFINITY, 1.0)),
+        Constraints::loose(Size::new(f32::NAN, 1.0)),
+        Constraints {
+            min: Size::uniform(2.0),
+            max: Size::uniform(1.0),
+        },
+    ] {
+        assert!(
+            catch_unwind(AssertUnwindSafe(|| {
+                render(&mut frame, &mut context, |ui: Ui<'_>| {
+                    ui.constrain(bounds);
+                });
+            }))
+            .is_err()
+        );
+    }
+}
+
+#[test]
 fn layout_and_paint() {
     let (mut frame, mut context) = frame(Size::new(8.0, 6.0));
     render(&mut frame, &mut context, |ui: Ui<'_>| {

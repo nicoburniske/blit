@@ -1,4 +1,4 @@
-use blit::{KeyboardEvent, Sides};
+use blit::KeyboardEvent;
 use blit_tui::{
     Ui,
     atom::Border,
@@ -11,10 +11,10 @@ use blit_tui::{
 
 fn main() -> std::io::Result<()> {
     blit_tui::run(|ui| {
-        let mut root = ui.layout(flex::column().padding(Sides::all(1)).gap(1));
+        let mut root = ui.layout(flex::column().gap(1).pad(1));
 
         let quit = root.child().build(|ui: Ui<'_>| {
-            let mut header = ui.layout(flex::row().padding(Sides::all(1)).justify(Justify::SpaceBetween));
+            let mut header = ui.layout(flex::row().justify(Justify::SpaceBetween).pad(1));
 
             header.insert(Block::new().border(Border::new(Color::BLUE)));
             header.child().build(|mut ui: Ui<'_>| {

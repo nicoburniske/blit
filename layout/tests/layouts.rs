@@ -1,10 +1,10 @@
 use std::time::Duration;
 
 use blit::{
-    Atom, AtomCx, Constraints, Context, Easing, Frame, FrameInfo, Id, Input, Motion, Rect, Scalar, Sides, Size, Sizing,
-    Tween, Ui, Widget,
+    Atom, AtomCx, Constraints, Context, Easing, Frame, FrameInfo, Id, Input, Motion, Rect, Scalar, Sides, Size, Tween,
+    Ui, Widget,
 };
-use blit_layout::{Align, absolute, absolute::Anchor, flex, grid, single, wrap};
+use blit_layout::{Align, Sizing, absolute, absolute::Anchor, flex, grid, pad, wrap};
 
 #[derive(Default)]
 struct TestContext;
@@ -76,12 +76,15 @@ fn absolute_positions_use_the_target_and_sizes_use_the_parent() {
         &mut TestContext,
         FrameInfo::new(Size::new(10.0, 4.0)),
         |ui: Ui<'_, TestContext>| {
-            let mut root = ui.layout(single::new().padding(Sides {
-                left: 2.0,
-                right: 2.0,
-                top: 1.0,
-                bottom: 1.0,
-            }));
+            let mut root = ui.layout(pad(
+                (),
+                Sides {
+                    left: 2.0,
+                    right: 2.0,
+                    top: 1.0,
+                    bottom: 1.0,
+                },
+            ));
             let target = root.child().build(|mut ui: Ui<'_, TestContext>| {
                 ui.insert(BoxAtom(Size::new(6.0, 2.0)));
                 ui.node_id()
@@ -119,13 +122,16 @@ fn flex_remeasures_constraint_dependent_atoms() {
 }
 
 #[test]
-fn flow_items_inherit_child_sizing_and_override_each_axis() {
+fn parent_items_allocate_and_component_bounds_constrain_each_axis() {
     for wrapping in [false, true] {
         let mut frame = Frame::default();
         let inherited = Id::new("inherited");
         let fixed = Id::new("fixed");
         let fit = Id::new("fit");
-        let button = || single::new().width(Sizing::grow()).height(Sizing::fixed(6.0));
+        let height = Constraints {
+            min: Size::new(0.0, 6.0),
+            max: Size::new(f32::INFINITY, 6.0),
+        };
         layout_frame(
             &mut frame,
             &mut TestContext,
@@ -133,31 +139,40 @@ fn flow_items_inherit_child_sizing_and_override_each_axis() {
             |ui: Ui<'_, TestContext>| {
                 if wrapping {
                     let mut row = ui.layout(wrap::horizontal());
-                    row.child().id(inherited).layout(button());
+                    row.child()
+                        .id(inherited)
+                        .item(wrap::item().width(Sizing::grow()))
+                        .constrain(height)
+                        .layout(());
                     row.child()
                         .id(fixed)
                         .item(wrap::item().fixed(20.0, 9.0))
-                        .layout(button());
+                        .constrain(height)
+                        .layout(());
                     row.child()
                         .id(fit)
                         .item(wrap::item().width(Sizing::fit()))
-                        .layout(button())
+                        .constrain(height)
+                        .layout(())
                         .child()
                         .insert(BoxAtom(Size::uniform(10.0)));
                 } else {
                     let mut row = ui.layout(flex::row());
                     row.child()
                         .id(inherited)
-                        .item(flex::item().weight(2.0))
-                        .layout(button());
+                        .item(flex::item().weight(2.0).width(Sizing::grow()))
+                        .constrain(height)
+                        .layout(());
                     row.child()
                         .id(fixed)
                         .item(flex::item().fixed(20.0, 9.0))
-                        .layout(button());
+                        .constrain(height)
+                        .layout(());
                     row.child()
                         .id(fit)
                         .item(flex::item().width(Sizing::fit()))
-                        .layout(button())
+                        .constrain(height)
+                        .layout(())
                         .child()
                         .insert(BoxAtom(Size::uniform(10.0)));
                 }
@@ -170,15 +185,11 @@ fn flow_items_inherit_child_sizing_and_override_each_axis() {
 }
 
 #[test]
-fn sizing_queries_are_optional_and_explicit_items_skip_them() {
-    struct NoQuery;
+fn explicit_items_and_grid_accept_custom_layouts() {
+    struct Plain;
 
-    impl blit::Layout<TestContext> for NoQuery {
+    impl blit::Layout<TestContext> for Plain {
         type Item = ();
-
-        fn sizing(&self, _: blit::Axis) -> Sizing<f32> {
-            panic!("unexpected sizing query")
-        }
 
         fn layout(&self, _: &mut blit::LayoutCx<'_, TestContext>, bounds: Constraints<f32>) -> Size<f32> {
             bounds.constrain(Size::uniform(10.0))
@@ -186,20 +197,27 @@ fn sizing_queries_are_optional_and_explicit_items_skip_them() {
     }
 
     for use_grid in [false, true] {
+        let child = Id::new("custom layout");
+        let mut frame = Frame::default();
         layout_frame(
-            &mut Frame::default(),
+            &mut frame,
             &mut TestContext,
             FrameInfo::new(Size::uniform(100.0)),
             |ui: Ui<'_, TestContext>| {
                 if use_grid {
-                    ui.layout(grid::new(1)).child().layout(NoQuery);
+                    ui.layout(grid::new(1)).child().id(child).layout(Plain);
                 } else {
                     ui.layout(flex::row())
                         .child()
+                        .id(child)
                         .item(flex::item().fixed(10.0, 10.0))
-                        .layout(NoQuery);
+                        .layout(Plain);
                 }
             },
+        );
+        assert_eq!(
+            frame.area(child).unwrap().size(),
+            Size::new(if use_grid { 100.0 } else { 10.0 }, 10.0)
         );
     }
 }
@@ -268,10 +286,10 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
                 &mut context,
                 FrameInfo::new(screen),
                 |ui: Ui<'_, CountContext>| {
-                    let mut outer = ui.layout(single::new());
+                    let mut outer = ui.layout(flex::column().align(Align::Start));
                     let mut root = outer
                         .child()
-                        .layout(CountedFlex(flex::layout(axis).padding(Sides::all(2.0)).gap(4.0), 0));
+                        .layout(pad(CountedFlex(flex::layout(axis).gap(4.0), 0), 2.0));
                     let grow_item = match (axis, cross_fixed) {
                         (_, true) => flex::item().grow(),
                         (Axis::Horizontal, false) => flex::item().width(Sizing::grow()),
@@ -282,14 +300,13 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
                             .child()
                             .item(grow_item)
                             .id(branch_id)
-                            .layout(CountedFlex(flex::layout(axis).padding(Sides::all(1.0)), 1));
-                        let mut nested = branch.child().item(grow_item).layout(CountedFlex(
-                            flex::layout(axis).padding(Sides::all(1.0)).align(if cross_fixed {
-                                Align::Stretch
-                            } else {
-                                Align::Start
-                            }),
-                            2,
+                            .layout(pad(CountedFlex(flex::layout(axis), 1), 1.0));
+                        let mut nested = branch.child().item(grow_item).layout(pad(
+                            CountedFlex(
+                                flex::layout(axis).align(if cross_fixed { Align::Stretch } else { Align::Start }),
+                                2,
+                            ),
+                            1.0,
                         ));
                         nested.child().id(leaf).insert(BoxAtom(Size::uniform(10.0)));
                     }
@@ -366,7 +383,7 @@ fn flex_unbounded_cross_uses_content_or_zero_for_fill_children() {
                         FrameInfo::new(Size::new(100.0, 80.0)),
                         |ui: Ui<'_, TestContext>| {
                             let mut outer = ui.layout(UnboundedCross(axis, minimum));
-                            let mut flex = outer.child().layout(flex::layout(axis).padding(Sides::all(2.0)));
+                            let mut flex = outer.child().layout(flex::layout(axis).pad(2.0));
                             for (id, main, sizing) in [
                                 (grow, main, Sizing::grow_range(0.0, 8.0)),
                                 (fit, Sizing::fixed(10.0), Sizing::fit_range(3.0, 12.0)),
@@ -488,7 +505,7 @@ fn empty_layouts_keep_padding() {
         Id::new("empty flex"),
         Id::new("empty wrap"),
         Id::new("empty grid"),
-        Id::new("empty single"),
+        Id::new("empty plain"),
     ];
     layout_frame(
         &mut frame,
@@ -497,10 +514,10 @@ fn empty_layouts_keep_padding() {
         |ui: Ui<'_, Cells>| {
             let mut root = ui.layout(flex::row().align(Align::Start));
             let padding = Sides::all(2);
-            root.child().id(ids[0]).layout(flex::row().padding(padding));
-            root.child().id(ids[1]).layout(wrap::horizontal().padding(padding));
-            root.child().id(ids[2]).layout(grid::new(2).padding(padding));
-            root.child().id(ids[3]).layout(single::new().padding(padding));
+            root.child().id(ids[0]).layout(flex::row().pad(padding));
+            root.child().id(ids[1]).layout(wrap::horizontal().pad(padding));
+            root.child().id(ids[2]).layout(grid::new(2).pad(padding));
+            root.child().id(ids[3]).layout(pad((), padding));
         },
     );
     assert_eq!(ids.map(|id| frame.area(id).unwrap().size()), [Size::uniform(4); 4]);
@@ -572,7 +589,7 @@ fn wrap_keeps_target_runs_during_size_motions() {
             time,
             Input::None,
             |ui: Ui<'_, Cells>| {
-                let mut wrap = ui.layout(wrap::horizontal().padding(Sides::all(1)).gap(1));
+                let mut wrap = ui.layout(wrap::horizontal().gap(1).pad(1));
                 for id in ids {
                     wrap.child()
                         .item(wrap::item().width(Sizing::grow_range(2, i32::MAX)))
@@ -603,7 +620,7 @@ fn wrap_shrinkwraps_animated_target_runs() {
             time,
             Input::None,
             |ui: Ui<'_, TestContext>| {
-                let mut root = ui.layout(single::new());
+                let mut root = ui.layout(flex::column().align(Align::Start));
                 let mut wrap = root.child().id(wrap_id).layout(wrap::horizontal());
                 for id in child_ids {
                     wrap.child()
@@ -664,7 +681,7 @@ fn percentage_children_share_rounded_space() {
 }
 
 #[test]
-fn single_percentages_use_the_incoming_budget() {
+fn parent_percentages_apply_once_before_padding() {
     let mut frame = Frame::default();
     let percent = Id::new("percentage child");
     let container = Id::new("percentage container");
@@ -673,13 +690,12 @@ fn single_percentages_use_the_incoming_budget() {
         &mut TestContext,
         FrameInfo::new(Size::new(20.0, 10.0)),
         |ui: Ui<'_, TestContext>| {
-            let mut outer = ui.layout(single::new());
-            let mut fit = outer.child().id(container).layout(
-                single::new()
-                    .width(Sizing::percent(0.5))
-                    .height(Sizing::percent(0.5))
-                    .padding(Sides::all(1.0)),
-            );
+            let mut outer = ui.layout(flex::row());
+            let mut fit = outer
+                .child()
+                .id(container)
+                .item(flex::item().width(Sizing::percent(0.5)).height(Sizing::percent(0.5)))
+                .layout(pad((), 1.0));
             fit.child().id(percent).insert(BoxAtom(Size::new(4.0, 2.0)));
         },
     );
@@ -719,7 +735,7 @@ fn grid_intrinsic_width_preserves_integer_spans() {
             &mut Cells,
             FrameInfo::new(Size::new(100, 20)),
             |ui: Ui<'_, Cells>| {
-                let mut root = ui.layout(single::new());
+                let mut root = ui.layout(flex::column().align(Align::Start));
                 let mut grid = root.child().id(grid_id).layout(grid::new(columns));
                 if start != 0 {
                     grid.child()

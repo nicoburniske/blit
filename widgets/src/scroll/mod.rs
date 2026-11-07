@@ -5,8 +5,8 @@ mod virtual_list;
 use std::time::Duration;
 
 use blit::{
-    Animation, AnimationOptions, Axis, Clip, Constraints, Id, Layout, LayoutCx, NodeId, Point, Scalar, Size, Sizing,
-    Ui, Widget, internal::animator::Animator,
+    Animation, AnimationOptions, Axis, Clip, Constraints, Id, Layout, LayoutCx, NodeId, Point, Scalar, Size, Ui,
+    Widget, internal::animator::Animator,
 };
 
 pub use self::{
@@ -133,10 +133,6 @@ enum ScrollItem {
 
 impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for ScrollLayout<T> {
     type Item = ScrollItem;
-
-    fn sizing(&self, _axis: Axis) -> Sizing<T> {
-        Sizing::grow()
-    }
 
     fn layout(&self, ui: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints<T>) -> Size<T> {
         let mut content = None;

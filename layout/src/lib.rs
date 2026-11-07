@@ -1,12 +1,54 @@
 pub mod absolute;
 pub mod flex;
 pub mod grid;
+mod pad;
 pub mod rect;
-pub mod single;
+pub use pad::{Pad, pad};
 pub mod wrap;
 
-use blit::{Axis, Constraints, Context, LayoutCx, NodeId, Scalar, Size, Sizing};
+use blit::{Axis, Constraints, Context, LayoutCx, NodeId, Scalar, Size};
 
+/// allocation requested from a parent layout on one axis
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Sizing<T> {
+    Fit { min: T, max: T },
+    Grow { min: T, max: T },
+    Fixed(T),
+    Percent(f32),
+}
+
+impl<T: Scalar> Sizing<T> {
+    pub const fn fit() -> Self {
+        Self::fit_range(T::ZERO, T::UNBOUNDED)
+    }
+    pub const fn fit_range(min: T, max: T) -> Self {
+        Self::Fit { min, max }
+    }
+    pub const fn grow() -> Self {
+        Self::grow_range(T::ZERO, T::UNBOUNDED)
+    }
+    pub const fn grow_range(min: T, max: T) -> Self {
+        Self::Grow { min, max }
+    }
+    pub const fn fixed(size: T) -> Self {
+        Self::Fixed(size)
+    }
+    pub const fn percent(fraction: f32) -> Self {
+        Self::Percent(fraction)
+    }
+
+    #[inline]
+    pub fn clamp(self, size: T) -> T {
+        match self {
+            Self::Fit { min, max } | Self::Grow { min, max } => {
+                let min = min.max(T::ZERO);
+                size.clamp(min, max.max(min))
+            }
+            Self::Fixed(fixed) => fixed.max(T::ZERO),
+            Self::Percent(_) => size.max(T::ZERO),
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Align {
     Start,
@@ -108,7 +150,9 @@ fn justify_offset<T: Scalar>(justify: Justify, remaining: T, count: usize) -> (T
 macro_rules! export {
     ($coord:ty) => {
         pub use $crate::{Align, Justify, rect};
-        pub type Sizing = ::blit::Sizing<$coord>;
+        pub type Sizing = $crate::Sizing<$coord>;
+        pub type Pad<L> = $crate::Pad<L, $coord>;
+        pub fn pad<L>(inner: L, padding: impl Into<::blit::Sides<$coord>>) -> Pad<L> { $crate::pad(inner, padding) }
 
         pub mod absolute {
             pub use $crate::absolute::Anchor;
@@ -128,7 +172,6 @@ macro_rules! export {
             new(columns: u32) -> Layout,
             item() -> Item
         ]);
-        $crate::export!(@ $coord, single, [Layout], [new() -> Layout]);
         $crate::export!(@ $coord, wrap, [Layout, Item], [
             new(axis: ::blit::Axis) -> Layout,
             horizontal() -> Layout,

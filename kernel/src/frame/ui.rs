@@ -28,6 +28,33 @@ pub struct Ui<'ui, C: Context, S = state::Build> {
 }
 
 impl<'ui, C: Context, S> Ui<'ui, C, S> {
+    /// adds local bounds inside previously supplied bounds
+    /// local bounds are clamped to the bounds supplied by the parent
+    pub fn constrain(self, limits: Constraints<C::Scalar>) -> Self {
+        assert!(
+            limits.min.width >= C::Scalar::ZERO
+                && limits.min.height >= C::Scalar::ZERO
+                && limits.min.width.is_finite()
+                && limits.min.height.is_finite()
+                && limits.max.width >= limits.min.width
+                && limits.max.height >= limits.min.height,
+            "invalid local bounds"
+        );
+        let frame = &mut *self.inner.frame;
+        let node = &mut frame.nodes[self.inner.node.index()];
+        if let Some(index) = node.limits.index() {
+            let outer = frame.limits[index];
+            frame.limits[index] = Constraints {
+                min: outer.constrain(limits.min),
+                max: outer.constrain(limits.max),
+            };
+        } else {
+            node.limits = LimitsId::new(frame.limits.len());
+            frame.limits.push(limits);
+        }
+        self
+    }
+
     /// identifies this node for references within the current render
     pub fn node_id(&self) -> NodeId {
         self.inner.node

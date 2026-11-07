@@ -77,12 +77,7 @@ where
                 .y(self.popover_y)
                 .close(PopoverClose::Manual)
                 .trigger(|ui: blit::Ui<'_, C>, press: interact::press::Response, open| {
-                    let mut badge = ui.layout(
-                        flex::row()
-                            .padding(self.badge_padding)
-                            .gap(self.gap)
-                            .align(Align::Center),
-                    );
+                    let mut badge = ui.layout(flex::row().gap(self.gap).align(Align::Center).pad(self.badge_padding));
                     badge.insert(
                         Rectangle::new()
                             .background(if press.hovered || open {
@@ -108,7 +103,7 @@ where
                         *value = millis;
                     }
                     let scale = graph_values.iter().copied().fold(33.4_f32, f32::max);
-                    let mut panel = ui.layout(flex::column().padding(self.padding).gap(self.gap));
+                    let mut panel = ui.layout(flex::column().gap(self.gap).pad(self.padding));
                     panel.insert(
                         Rectangle::new()
                             .background(self.background)

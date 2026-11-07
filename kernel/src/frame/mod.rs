@@ -33,7 +33,7 @@ use crate::{
         animator::Animator,
         bump::{Bump, Slice},
     },
-    layout::{Axis, Layout, Sizing},
+    layout::{Axis, Layout},
 };
 
 pub struct Frame<C: Context> {
@@ -41,6 +41,7 @@ pub struct Frame<C: Context> {
     placements: Vec<Placement<C::Scalar>>,
     atoms: Vec<StoredAtom>,
     clips: Vec<StoredClip>,
+    limits: Vec<Constraints<C::Scalar>>,
     bounds: Vec<Bounds<C::Scalar>>,
     atom_kinds: Vec<AtomKind<C>>,
     layout_kinds: Vec<LayoutKind<C>>,
@@ -76,6 +77,7 @@ impl<C: Context> Default for Frame<C> {
             placements: Vec::new(),
             atoms: Vec::new(),
             clips: Vec::new(),
+            limits: Vec::new(),
             bounds: Vec::new(),
             atom_kinds: Vec::new(),
             layout_kinds: Vec::new(),
@@ -134,6 +136,7 @@ impl<C: Context> Frame<C> {
         self.placements.clear();
         self.atoms.clear();
         self.clips.clear();
+        self.limits.clear();
         self.bounds.clear();
         self.areas_requested.clear();
         self.bump.clear();
@@ -281,7 +284,6 @@ impl<C: Context> Frame<C> {
                 self.layout_kinds.push(LayoutKind {
                     type_id,
                     run: layout::run::<C, L>,
-                    sizing: |bump, id, axis| bump.load::<L>(id).sizing(axis),
                     default_item: BumpId::NONE,
                 });
                 self.layout_kinds.len() - 1
@@ -330,6 +332,7 @@ impl<C: Context> Frame<C> {
             last_atom: StoredAtomId::NONE,
             layout: BumpId::NONE,
             layout_kind: 0,
+            limits: LimitsId::NONE,
             clip: StoredClipId::NONE,
             item: BumpId::NONE,
             relative: parent.unwrap_or(id),
@@ -440,6 +443,7 @@ pub struct StoredNode {
     last_atom: StoredAtomId,
     layout: BumpId,
     layout_kind: u16,
+    limits: LimitsId,
     clip: StoredClipId,
     item: BumpId,
     relative: NodeId,
@@ -508,6 +512,7 @@ impl<T> Index<T> {
 
 type StoredAtomId = Index<StoredAtom>;
 type StoredClipId = Index<StoredClip>;
+type LimitsId = Index<Constraints<()>>;
 type BoundsId = Index<Bounds<()>>;
 type ResolvedClipId = Index<ResolvedClip<()>>;
 
@@ -521,7 +526,6 @@ struct AtomKind<C: Context> {
 struct LayoutKind<C: Context> {
     type_id: TypeId,
     run: for<'a> fn(&mut layout::LayoutCx<'a, C>, BumpId, Constraints<C::Scalar>) -> Size<C::Scalar>,
-    sizing: fn(&BumpArena, BumpId, Axis) -> Sizing<C::Scalar>,
     default_item: BumpId,
 }
 

@@ -1,8 +1,8 @@
 use blit::{Input, InteractCx, NodeTarget, Scalar, Sides, Ui, Widget};
 use blit_layout::{
-    absolute,
+    Align, absolute,
     absolute::{Anchor, Sizing},
-    single,
+    flex,
 };
 
 use crate::{Context, interact};
@@ -62,7 +62,7 @@ where
         } else if !self.open_on_hover && press.activated {
             state.open = !state.open;
         }
-        let mut root = ui.layout(single::new());
+        let mut root = ui.layout(flex::column().align(Align::Start));
         let anchor = {
             let mut trigger_node = root.child().id(trigger_id).hit(self.hit).layout(());
             let anchor = trigger_node.node_id();
@@ -157,7 +157,9 @@ impl<C: Context> blit::Interact<C> for BlockInput {
 mod tests {
     use std::time::Duration;
 
-    use blit::{Axis, Frame, FrameInfo, Id, Modifiers, MouseButton, Point as InputPoint, Rect, ScrollPhase, Size};
+    use blit::{
+        Axis, Constraints, Frame, FrameInfo, Id, Modifiers, MouseButton, Point as InputPoint, Rect, ScrollPhase, Size,
+    };
 
     use super::*;
     use crate::{
@@ -209,13 +211,15 @@ mod tests {
             popover
                 .trigger(|ui, _, _| {
                     ui.id(Id::new("named trigger"))
-                        .layout(single::new().fixed(2.0, 1.0))
+                        .constrain(Constraints::tight(Size::new(2.0, 1.0)))
+                        .layout(())
                         .child()
                         .insert(())
                 })
                 .content(|ui: Ui<'_, TestContext>| {
                     ui.id(Id::new("named content"))
-                        .layout(single::new().fixed(4.0, 3.0))
+                        .constrain(Constraints::tight(Size::new(4.0, 3.0)))
+                        .layout(())
                         .child()
                         .insert(())
                 }),

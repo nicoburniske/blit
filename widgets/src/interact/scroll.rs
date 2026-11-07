@@ -74,7 +74,7 @@ mod tests {
     use std::cell::Cell;
 
     use blit::{Frame, Id, Input, Modifiers, Rect, ScrollPhase, Ui};
-    use blit_layout::{rect, single};
+    use blit_layout::rect;
 
     use super::*;
     use crate::{
@@ -131,7 +131,7 @@ mod tests {
             let build = |mut ui: Ui<'_, TestContext>| {
                 let id = Id::new("owner");
                 let response = ui.interact_widget(id, interact::scroll());
-                let mut root = ui.layout(single::new().grow());
+                let mut root = ui.layout(());
                 if mounted.get() {
                     root.child().id(id).build(|_: Ui<'_, TestContext>| {});
                 }
@@ -257,7 +257,7 @@ mod tests {
         let build = |mut ui: Ui<'_, TestContext>| {
             let list = ui.interact(interact::scroll().axis(Axis::Vertical));
             let carousel = ui
-                .layout(single::new().grow())
+                .layout(())
                 .child()
                 .build(|mut ui: Ui<'_, TestContext>| ui.interact(interact::scroll().axis(Axis::Horizontal)));
             (list, carousel)

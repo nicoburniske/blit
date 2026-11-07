@@ -9,6 +9,8 @@ pub struct LayoutCx<'a, C: Context, I = ()> {
     frame_requested: &'a mut bool,
     target_start: usize,
     node: NodeId,
+    content_origin: Point<C::Scalar>,
+    position_origin: Point<C::Scalar>,
     default_item: BumpId,
     item: PhantomData<fn() -> I>,
 }
@@ -38,8 +40,32 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
 
     pub fn set_position(&mut self, position: Point<C::Scalar>) {
         let area = &mut self.placements[self.node.index()].area;
-        area.x = position.x;
-        area.y = position.y;
+        area.x = position.x.endpoint(self.position_origin.x);
+        area.y = position.y.endpoint(self.position_origin.y);
+    }
+
+    /// offsets current flow children and subsequent child position writes
+    /// self position writes compensate for the content offset
+    pub fn offset(&mut self, offset: Point<C::Scalar>) -> LayoutCx<'_, C, I> {
+        for child in self.children() {
+            let area = &mut self.placements[child.index()].area;
+            area.x = area.x.endpoint(offset.x);
+            area.y = area.y.endpoint(offset.y);
+        }
+        LayoutCx {
+            placements: &mut *self.placements,
+            context: &mut *self.context,
+            frame_requested: &mut *self.frame_requested,
+            content_origin: Point::new(
+                self.content_origin.x.endpoint(offset.x),
+                self.content_origin.y.endpoint(offset.y),
+            ),
+            position_origin: Point::new(
+                self.position_origin.x.endpoint(-offset.x),
+                self.position_origin.y.endpoint(-offset.y),
+            ),
+            ..*self
+        }
     }
 
     #[inline]
@@ -63,14 +89,18 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         self.cast::<()>().resolve(child, bounds)
     }
 
-    /// queries a child's declared sizing without running its layout
-    pub fn child_sizing(&self, child: NodeId, axis: Axis) -> Sizing<C::Scalar> {
+    /// queries a child's exact local dimension without running its layout
+    pub fn child_declared_extent(&self, child: NodeId, axis: Axis) -> Option<C::Scalar> {
         let stored = self.assert_child(child);
-        if stored.layout.offset().is_none() {
-            return Sizing::fit();
+        if let Some(index) = stored.limits.index() {
+            let limits = self.frame.limits[index];
+            let min = axis.extent(limits.min);
+            let max = axis.extent(limits.max);
+            if min == max {
+                return Some(min);
+            }
         }
-        let kind = &self.frame.layout_kinds[stored.layout_kind as usize];
-        (kind.sizing)(self.bump, stored.layout, axis)
+        None
     }
 
     pub fn target_size(&self, child: NodeId) -> Size<C::Scalar> {
@@ -85,8 +115,8 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         #[cfg(debug_assertions)]
         self.assert_child(child);
         let area = &mut self.placements[child.index()].area;
-        area.x = position.x;
-        area.y = position.y;
+        area.x = position.x.endpoint(self.content_origin.x);
+        area.y = position.y.endpoint(self.content_origin.y);
     }
 
     pub fn request_frame(&mut self) {
@@ -170,6 +200,13 @@ impl<'a, C: Context> LayoutCx<'a, C> {
 
     #[inline]
     fn resolve(&mut self, node: NodeId, mut bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
+        if let Some(index) = self.frame.nodes[node.index()].limits.index() {
+            let limits = self.frame.limits[index];
+            bounds = Constraints {
+                min: bounds.constrain(limits.min),
+                max: bounds.constrain(limits.max),
+            };
+        }
         let (width, height) = self.size_overrides(node);
         if let Some(width) = width {
             bounds.min.width = width;
@@ -190,9 +227,16 @@ impl<'a, C: Context> LayoutCx<'a, C> {
                 frame_requested: self.frame_requested,
                 target_start: self.target_start,
                 node,
+                content_origin: Point::ZERO,
+                position_origin: self.content_origin,
                 default_item: kind.default_item,
                 item: PhantomData,
             };
+            for child in cx.children() {
+                let area = &mut cx.placements[child.index()].area;
+                area.x = C::Scalar::ZERO;
+                area.y = C::Scalar::ZERO;
+            }
             (kind.run)(&mut cx, stored.layout, bounds)
         } else {
             self.measure(node, bounds)
@@ -376,6 +420,8 @@ fn arrange<C: Context>(
         frame_requested: &mut requested,
         target_start: node.index(),
         node,
+        content_origin: Point::ZERO,
+        position_origin: Point::ZERO,
         default_item: BumpId::NONE,
         item: PhantomData::<fn() -> ()>,
     };

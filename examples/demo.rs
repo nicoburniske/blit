@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use blit::{Axis, Id, Point, Scalar, Sides, Size, Sizing, Spring, Ui};
-use blit_layout::absolute::Anchor;
+use blit::{Axis, Id, Point, Scalar, Sides, Size, Spring, Ui};
 pub use blit_layout::{Align, Justify};
+use blit_layout::{Sizing, absolute::Anchor};
 use blit_widgets::{Context, interact};
 
 pub struct SpringDrag {

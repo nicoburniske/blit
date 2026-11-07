@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Axis, Clip, Constraints, Id, Layout, LayoutCx, Point, Scalar, Size, Sizing, Ui, Widget};
+use blit::{Axis, Clip, Constraints, Id, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget};
 
 use super::{Scrollbar, ScrollbarInput, ThumbProgress, content_input, content_motion, scrollbar_input};
 use crate::Context;
@@ -491,10 +491,6 @@ struct VirtualLayout<T> {
 impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for VirtualLayout<T> {
     type Item = Item;
 
-    fn sizing(&self, _axis: Axis) -> Sizing<T> {
-        Sizing::grow()
-    }
-
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints<T>) -> Size<T> {
         let width = if constraints.max.width.is_finite() {
             constraints.max.width
@@ -761,7 +757,8 @@ mod tests {
                         .id(|_, index| row(index).0)
                         .build_scrollbar(
                             |ui: Ui<'_, TestContext>, index| {
-                                ui.layout(blit_layout::single::new().fixed(79.0, row(index).1));
+                                ui.constrain(Constraints::tight(Size::new(79.0, row(index).1)))
+                                    .layout(());
                             },
                             |_| {},
                             |_, _| {},

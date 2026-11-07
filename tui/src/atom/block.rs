@@ -300,10 +300,10 @@ fn border_character(style: BorderStyle, edges: u8) -> char {
 mod tests {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, Input, Size};
+    use blit::{Constraints, Frame, FrameInfo, Input, Size};
 
     use super::*;
-    use crate::{RendererConfig, TuiRenderer, atom::Shadow, layout::single, widget};
+    use crate::{RendererConfig, TuiRenderer, atom::Shadow, layout::flex, widget};
 
     #[test]
     fn block_and_shadow_paint_as_atoms() {
@@ -317,11 +317,11 @@ mod tests {
             Duration::ZERO,
             Input::None,
             |ui: crate::Ui<'_>| {
-                let mut root = ui.layout(single::new().fixed(20, 4));
+                let mut root = ui.layout(flex::column());
                 root.insert(widget::Text::new(
                     "xxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx",
                 ));
-                root.child().insert(
+                root.child().constrain(Constraints::tight(Size::new(20, 4))).insert(
                     widget::Block::new()
                         .background(Color::WHITE)
                         .border(Border::new(Color::GREEN).style(BorderStyle::Double))

@@ -430,6 +430,12 @@ impl<T: Copy> Sides<T> {
     }
 }
 
+impl<T: Scalar> From<T> for Sides<T> {
+    fn from(value: T) -> Self {
+        Self::all(value)
+    }
+}
+
 impl<T: Add<Output = T>> Sides<T> {
     #[inline]
     pub fn size(self) -> Size<T> {
