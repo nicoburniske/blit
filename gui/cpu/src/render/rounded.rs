@@ -126,7 +126,7 @@ impl RoundedLine {
                     .sum()
             }
         };
-        (coverage * (255.0 / 8.0)).round() as u8
+        (coverage * (255.0 / 8.0) + 0.5) as u8
     }
 }
 
