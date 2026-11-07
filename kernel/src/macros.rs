@@ -33,9 +33,9 @@ macro_rules! builder {
         $(#[$attribute:meta])* $visibility:vis struct $name:ident
         $(<$($generic:tt $($constant:ident)? $(: $bound:path)? $(= $default:tt)?),+ $(,)?>)?
         $(where $($shared:ident: $shared_bound:path),+ $(,)?)? {
-            new($($(#[$required_into:ident])? $required:ident: $required_type:ty),* $(,)?),
+            new($($(#[$required_into:ident $(= $required_doc:literal)?])* $required:ident: $required_type:ty),* $(,)?),
             $(
-                $(#[$setter:ident $(($($field_bounds:tt)*))?])* $field:ident
+                $(#[$setter:ident $(= $field_doc:literal)? $(($($field_bounds:tt)*))?])* $field:ident
                 $(<$field_generic:ident = $field_default:ty>)?
                 : $type:ty = $value:expr
             ),* $(,)?
@@ -46,8 +46,8 @@ macro_rules! builder {
                 [$($($generic $($constant)? $(: $bound)? $(= $default)?,)+)?]
                 [$($($generic $($constant)? $(: $bound)?,)+)?]
                 [$($($shared: $shared_bound,)*)?]
-                [$([$($required_into)?] $required: $required_type,)*]
-                [$( ([$($setter)*] [$($($($field_bounds)*)?)*] $field
+                [$([$($required_into)*] [$($(#[doc = $required_doc])?)*] $required: $required_type,)*]
+                [$( ([$($setter)*] [$($($($field_bounds)*)?)*] [$($(#[doc = $field_doc])?)*] $field
                     [$($field_generic = $field_default)?]
                     [$type] [$value]) )*]]
             [] $($($generic $($constant)?,)+)?
@@ -55,21 +55,21 @@ macro_rules! builder {
     };
     (@emit [[$($attributes:tt)*] [$visibility:vis] $name:ident
         [$($declarations:tt)*] [$($generics:tt)*] [$($shared:ident: $shared_bound:path,)*]
-        [$([$($required_into:ident)?] $required:ident: $required_type:ty,)*]
-        [$( ([$($setter:ident)*] [$($field_bounds:tt)*] $field:ident
+        [$([$($required_into:ident)*] [$($required_doc:tt)*] $required:ident: $required_type:ty,)*]
+        [$( ([$($setter:ident)*] [$($field_bounds:tt)*] [$($field_doc:tt)*] $field:ident
             [$($generic:ident = $default:ty)?]
             [$type:ty] [$value:expr]) )*]] [$($arguments:tt)*]
     ) => {
         $($attributes)*
         $visibility struct $name<$($declarations)* $($($generic = $default,)?)*>
         where $($shared: $shared_bound,)* {
-            $(pub $required: $required_type,)*
-            $(pub $field: $type,)*
+            $($($required_doc)* pub $required: $required_type,)*
+            $($($field_doc)* pub $field: $type,)*
         }
         impl<$($generics)*> $name<$($arguments)* $($($default,)?)*>
         where $($shared: $shared_bound,)* {
             #[doc = concat!("creates a new [`", stringify!($name), "`]")]
-            $visibility fn new($($required: $crate::builder!(@type [$($required_into)?] $required_type)),*) -> Self {
+            $visibility fn new($($required: $crate::builder!(@type [$($required_into)*] $required_type)),*) -> Self {
                 Self { $($required: $required.into(),)* $($field: $value,)* }
             }
         }
@@ -77,13 +77,13 @@ macro_rules! builder {
             [$($arguments)* $($($default,)?)*] [$($shared: $shared_bound,)*]; $($required),*);
         impl<$($generics)* $($($generic,)?)*> $name<$($arguments)* $($($generic,)?)*>
         where $($shared: $shared_bound,)* {
-            $( $crate::builder!(@ordinary [$visibility] $required [] [$($required_into)?] [] [$required_type]); )*
+            $( $crate::builder!(@ordinary [$visibility] $required [] [$($required_into)*] [] [$required_type]); )*
             $( $crate::builder!(@ordinary [$visibility] $field [$($generic)?] [$($setter)*] [$($field_bounds)*] [$type]); )*
         }
         $crate::builder!(@setters [$visibility] $name [$($generics)*] [$($arguments)*]
             [$($shared: $shared_bound,)*]
             [] [];
-            $( ([$($required_into)?] [] $required [] [$required_type]) )*
+            $( ([$($required_into)*] [] $required [] [$required_type]) )*
             $( ([$($setter)*] [$($field_bounds)*] $field [$($generic)?] [$type]) )*
         );
     };
@@ -138,6 +138,7 @@ macro_rules! builder {
         }
     };
     (@ordinary $visibility:tt $field:ident [$generic:ident] $setter:tt $bounds:tt $type:tt) => {};
+    (@type [doc $($rest:ident)*] $type:ty) => { $crate::builder!(@type [$($rest)*] $type) };
     (@type [bounds $($rest:ident)*] $type:ty) => { $crate::builder!(@type [$($rest)*] $type) };
     (@type [into $($rest:ident)*] $type:ty) => { impl ::core::convert::Into<$crate::builder!(@type [$($rest)*] $type)> };
     (@type [] $type:ty) => { $type };
