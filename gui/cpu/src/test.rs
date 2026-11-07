@@ -1358,6 +1358,14 @@ fn scanline_skips_commands_behind_opaque_content() {
     paint.push_rectangle(overlay, screen, ClipId::default());
     renderer.render(&mut paint);
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 18);
+
+    RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
+    paint.clear();
+    paint.push_rectangle(background, screen, ClipId::default());
+    paint.push_image(partial_image, screen, ClipId::default());
+    paint.push_rectangle(overlay, screen, ClipId::default());
+    renderer.render(&mut paint);
+    assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 10);
 }
 
 #[test]

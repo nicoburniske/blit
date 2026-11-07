@@ -20,7 +20,6 @@ pub type CommandId = u32;
 pub struct CommandList {
     commands: Vec<StoredCommand>,
     pub gradients: Gradients,
-    has_translucent_image: bool,
     has_partial_opaque: bool,
     pub has_clips: bool,
 }
@@ -84,9 +83,8 @@ impl CommandList {
         opaque: bool,
         has_opaque_spans: bool,
     ) {
-        let partial_opaque = !opaque && self.has_translucent_image && has_opaque_spans;
+        let partial_opaque = !opaque && has_opaque_spans;
         self.push(StoredPayload::Image(image), bounds, clip, opaque, partial_opaque);
-        self.has_translucent_image |= !opaque;
         self.has_partial_opaque |= partial_opaque;
     }
 
@@ -164,7 +162,6 @@ impl CommandList {
         self.commands.clear();
         self.gradients.entries.clear();
         self.gradients.stops.clear();
-        self.has_translucent_image = false;
         self.has_partial_opaque = false;
         self.has_clips = false;
     }
