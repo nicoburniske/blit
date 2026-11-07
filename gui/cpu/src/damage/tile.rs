@@ -235,6 +235,7 @@ impl DamageTracker for TileDamage {
                     }
                     mesh.indices.hash(&mut hash);
                 }
+                Command::Custom(custom) => custom.hash(&mut hash),
                 _ => continue,
             }
             let hash = hash.finish();

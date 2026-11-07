@@ -4,7 +4,12 @@ use blit::PhysicalRect;
 use blit_gui::display_list::DisplayList;
 
 pub mod command;
+mod frame;
+mod passes;
+pub(crate) mod region;
 pub mod tile;
+pub(crate) use frame::FrameDamage;
+pub(crate) use passes::PassDamage;
 
 pub trait DamageTracker {
     fn update(&mut self, display_list: &DisplayList, screen: PhysicalRect, scale: f32, buffer_age: u8);

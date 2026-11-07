@@ -1,4 +1,5 @@
 pub mod damage;
+pub mod extension;
 mod glyph;
 mod pixel;
 mod render;
@@ -50,6 +51,8 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTrac
     context: RenderContext<B>,
     strategy: S,
     damage: D,
+    pass_damage: damage::PassDamage,
+    pass_shift: u32,
 }
 
 impl<B: PixelBuffer> Renderer<B, Direct> {
@@ -63,20 +66,36 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
                 text: TextRenderer::new(&config),
                 commands: CommandList::default(),
                 clips: ClipStack::default(),
+                extensions: extension::Registry::new(),
             },
             strategy: Direct::default(),
             damage: TileDamage::new(config.damage_tile_size),
+            pass_damage: damage::PassDamage::default(),
+            pass_shift: config.damage_tile_size.trailing_zeros(),
         }
     }
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
+    pub fn register<E: extension::Extension<B::Pixel>>(&mut self, extension: E) {
+        self.context.extensions.register(extension);
+        self.damage.invalidate();
+    }
+
     pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T, D> {
-        let Self { context, damage, .. } = self;
+        let Self {
+            context,
+            damage,
+            pass_damage,
+            pass_shift,
+            ..
+        } = self;
         Renderer {
             context,
             strategy,
             damage,
+            pass_damage,
+            pass_shift,
         }
     }
 
@@ -86,6 +105,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             context: self.context,
             strategy: self.strategy,
             damage,
+            pass_damage: self.pass_damage,
+            pass_shift: self.pass_shift,
         }
     }
 
@@ -107,16 +128,75 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         self.set_scale(input.scale);
         self.damage
             .update(input.display_list, self.screen(), input.scale.x, buffer_age);
+        let screen = self.screen();
+        self.pass_damage.update(
+            input.display_list,
+            &self.context.extensions,
+            &self.damage,
+            screen,
+            input.scale.x,
+            self.pass_shift,
+        );
+        let plan = &self.pass_damage;
+        let mut damage = damage::FrameDamage {
+            tracker: &mut self.damage,
+            region: plan.stages.first(),
+        };
         let context = &mut self.context;
         assert!(context.commands.is_empty());
-        if !self.damage.is_empty() {
+        if !damage.is_empty() {
+            if let Some(region) = plan.stages.first() {
+                context
+                    .extensions
+                    .read(&mut context.buffer, extension::ReadRequest::Preserve(&plan.preserve));
+                for bounds in region.rects() {
+                    for y in bounds.y..bounds.y + bounds.height {
+                        context.buffer.process_line(
+                            y as usize,
+                            bounds.x as usize..(bounds.x + bounds.width) as usize,
+                            |pixels| pixels.fill(B::Pixel::background()),
+                        );
+                    }
+                }
+            }
             for clip in input.display_list.clips() {
                 context
                     .clips
                     .push_node(clip.parent.0, clip.area, clip.radius, context.scale_factor);
             }
-            for record in input.display_list.iter() {
-                if !self.damage.intersects(record.bounds, record.clip.0) {
+            let mut stage = 0;
+            for (index, record) in input.display_list.iter().enumerate() {
+                if let Some(node) = plan.passes.get(stage).filter(|node| node.index == index) {
+                    self.strategy.render(context, &damage);
+                    context.commands.clear();
+                    stage += 1;
+                    damage.region = Some(&plan.stages[stage]);
+                    if damage.intersects(node.bounds, record.clip.0) {
+                        let Command::Custom(command) = record.command else {
+                            unreachable!()
+                        };
+                        let id = context.extensions.prepare(
+                            command,
+                            context.scale_factor,
+                            record.bounds,
+                            &mut context.images,
+                        );
+                        context
+                            .extensions
+                            .read(&mut context.buffer, extension::ReadRequest::Snapshot(&node.reads));
+                        context.extensions.pass(
+                            id,
+                            &mut context.buffer,
+                            &context.clips,
+                            node.bounds,
+                            record.clip.0,
+                            &context.images,
+                            &plan.stages[stage],
+                        );
+                    }
+                    continue;
+                }
+                if !damage.intersects(record.bounds, record.clip.0) {
                     continue;
                 }
                 match record.command {
@@ -137,19 +217,39 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                                 Scale2::uniform(context.scale_factor),
                                 record.bounds,
                                 record.clip.0,
-                                &self.damage,
+                                &damage,
                             ) {
                                 context.commands.push_triangle(triangle, bounds, record.clip.0);
                             }
                         }
                     }
+                    Command::Custom(command) => {
+                        if context
+                            .extensions
+                            .read_bounds(command, record.bounds, context.scale_factor)
+                            .is_some()
+                        {
+                            continue;
+                        }
+                        let id = context.extensions.prepare(
+                            command,
+                            context.scale_factor,
+                            record.bounds,
+                            &mut context.images,
+                        );
+                        context.commands.push_custom(id, record.bounds, record.clip.0);
+                    }
                     _ => {}
                 }
             }
-            self.strategy.render(context, &self.damage);
+            self.strategy.render(context, &damage);
+            if !plan.passes.is_empty() {
+                context.extensions.restore(&mut context.buffer, &plan.preserve);
+            }
         }
         context.commands.clear();
         context.clips.clear();
+        context.extensions.finish_frame();
         context.shadows.finish_frame();
         context.text.finish_frame(input.text);
         context.images.retain(|image| !image.handle.is_uniquely_owned());
@@ -196,6 +296,7 @@ pub struct RenderContext<B: PixelBuffer> {
     text: TextRenderer,
     commands: CommandList,
     clips: ClipStack,
+    extensions: extension::Registry<B::Pixel>,
 }
 
 struct StoredImage {

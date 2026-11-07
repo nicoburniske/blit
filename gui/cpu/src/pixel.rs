@@ -59,7 +59,7 @@ pub struct Rgb8Pixel {
     pub blue: u8,
 }
 
-pub trait Pixel: Copy {
+pub trait Pixel: Copy + 'static {
     /// composites `color`, skipping transparent colors and replacing opaque pixels
     #[inline(always)]
     fn blend(&mut self, color: PremultipliedRgbaColor) {
@@ -358,6 +358,10 @@ pub trait PixelBuffer {
     fn width(&self) -> usize;
     fn height(&self) -> usize;
     fn line_mut(&mut self, line: usize) -> &mut [Self::Pixel];
+
+    fn read_line(&mut self, line: usize, range: Range<usize>) -> &[Self::Pixel] {
+        &self.line_mut(line)[range]
+    }
 
     fn process_line(&mut self, line: usize, range: Range<usize>, process: impl FnOnce(&mut [Self::Pixel])) {
         process(&mut self.line_mut(line)[range]);

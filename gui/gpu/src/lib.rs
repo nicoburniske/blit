@@ -776,6 +776,7 @@ impl Renderer {
                     }
                     continue;
                 }
+                Command::Custom(command) => panic!("no gpu extension registered for {}", command.type_name()),
                 _ => continue,
             };
             let end = self.instances.len() as u32;

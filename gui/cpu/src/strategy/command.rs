@@ -31,6 +31,7 @@ pub enum Payload<'a> {
     Image(&'a PreparedImage),
     Text(&'a PreparedText),
     Triangle(&'a PreparedTriangle),
+    Custom(u32),
 }
 
 #[derive(Clone, Copy)]
@@ -44,6 +45,10 @@ pub struct PreparedText {
 }
 
 impl CommandList {
+    pub fn push_custom(&mut self, id: u32, bounds: PhysicalRect, clip: ClipId) {
+        self.push(StoredPayload::Custom(id), bounds, clip, false, false);
+    }
+
     pub fn is_empty(&self) -> bool {
         self.commands.is_empty()
     }
@@ -105,6 +110,7 @@ impl CommandList {
             StoredPayload::Image(image) => Payload::Image(image),
             StoredPayload::Text(text) => Payload::Text(text),
             StoredPayload::Triangle(triangle) => Payload::Triangle(triangle),
+            StoredPayload::Custom(id) => Payload::Custom(*id),
         }
     }
 
@@ -145,7 +151,7 @@ impl CommandList {
             Payload::Rectangle(rectangle, _) => rectangle.overwrite_span(line)?,
             Payload::SolidPair(_) => bounds.clone(),
             Payload::Image(_) => bounds.clone(),
-            Payload::Text(_) | Payload::Triangle(_) => {
+            Payload::Text(_) | Payload::Triangle(_) | Payload::Custom(_) => {
                 return None;
             }
         };
@@ -202,4 +208,5 @@ enum StoredPayload {
     Image(PreparedImage),
     Text(PreparedText),
     Triangle(PreparedTriangle),
+    Custom(u32),
 }

@@ -2,7 +2,7 @@ use blit::{Clip, ClipShape, LogicalPoint, LogicalRect, LogicalSize, Scale2};
 
 use crate::{
     Context, TextSystem,
-    display_list::{BoxShadow, ClipId, DisplayList, Mesh, Rectangle},
+    display_list::{BoxShadow, ClipId, CustomCommand, DisplayList, Mesh, Rectangle, arena::Writer},
     image::ImageRequest,
     text::{Span, TextLayoutRequest, TextRequest, TextRun, TextSource, TextStyle},
 };
@@ -37,6 +37,11 @@ pub struct RenderInput<'a> {
 }
 
 impl GuiContext {
+    pub fn paint_custom<T: CustomCommand>(&mut self, bounds: LogicalRect, build: impl FnOnce(&mut Writer<'_>) -> T) {
+        self.display_list
+            .push_custom(bounds.to_physical(self.scale), self.clip, build);
+    }
+
     pub fn new(text: TextSystem) -> Self {
         Self {
             text,

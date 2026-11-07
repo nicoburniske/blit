@@ -1,9 +1,14 @@
 //! retained backend independent drawing commands
 
+pub mod arena;
+mod custom;
+
 use blit::{
     geometry::{LogicalPoint, LogicalRect, PhysicalRect, Scale2},
-    internal::bump::{Bump, Offset, Slice},
+    internal::bump::{Offset, Slice},
 };
+pub use custom::{Custom, CustomCommand};
+use custom::{Header, StoredCustom};
 
 use crate::{
     color::Color,
@@ -15,7 +20,7 @@ use crate::{
 #[derive(Default)]
 pub struct DisplayList {
     commands: Vec<StoredCommand>,
-    data: Bump,
+    data: arena::Arena,
     clips: Vec<ClipNode>,
 }
 
@@ -36,6 +41,7 @@ pub enum Command<'a> {
     Text(TextRequest<'a>),
     BoxShadow(BoxShadow),
     Mesh(Mesh<'a>),
+    Custom(Custom<'a>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -118,6 +124,24 @@ pub struct ClipNode {
 }
 
 impl DisplayList {
+    #[inline]
+    pub fn push_custom<T: CustomCommand>(
+        &mut self,
+        bounds: PhysicalRect,
+        clip: ClipId,
+        build: impl FnOnce(&mut arena::Writer<'_>) -> T,
+    ) {
+        self.assert_clip(clip);
+        let value = build(&mut self.data.writer());
+        let stored = self.data.push(StoredCustom {
+            header: Header {
+                table: &StoredCustom::<T>::TABLE,
+            },
+            value,
+        });
+        self.push(bounds, clip, CommandKind::Custom(Offset::new(stored.offset)));
+    }
+
     pub fn len(&self) -> usize {
         self.commands.len()
     }
@@ -144,7 +168,7 @@ impl DisplayList {
     pub fn push_rectangle(&mut self, rectangle: Rectangle<'_>, bounds: PhysicalRect, clip: ClipId) {
         let background = self.store_fill(rectangle.background);
         let border = self.store_fill(rectangle.border.fill);
-        let rectangle = self.data.push(StoredRectangle {
+        let rectangle = self.data.bump.push(StoredRectangle {
             area: rectangle.area,
             background,
             border,
@@ -156,13 +180,13 @@ impl DisplayList {
     }
 
     pub fn push_image(&mut self, image: ImageRequest, bounds: PhysicalRect, clip: ClipId) {
-        let image = self.data.push(image);
+        let image = self.data.bump.push(image);
         self.push(bounds, clip, CommandKind::Image(image))
     }
 
     pub fn push_text(&mut self, text: TextRequest<'_>, bounds: PhysicalRect, clip: ClipId) {
-        let colors = self.data.extend(text.colors.iter().copied());
-        let text = self.data.push(StoredText {
+        let colors = self.data.bump.extend(text.colors.iter().copied());
+        let text = self.data.bump.push(StoredText {
             text: text.text,
             colors,
             area: text.area,
@@ -173,7 +197,7 @@ impl DisplayList {
     }
 
     pub fn push_box_shadow(&mut self, shadow: BoxShadow, bounds: PhysicalRect, clip: ClipId) {
-        let shadow = self.data.push(shadow);
+        let shadow = self.data.bump.push(shadow);
         self.push(bounds, clip, CommandKind::BoxShadow(shadow))
     }
 
@@ -198,9 +222,9 @@ impl DisplayList {
             bottom = bottom.max(point.y);
         }
         let bounds = LogicalRect::new(left, top, right - left, bottom - top).to_physical(scale);
-        let vertices = self.data.extend(mesh.vertices.iter().copied());
-        let indices = self.data.extend(mesh.indices.iter().copied());
-        let mesh = self.data.push(StoredMesh { vertices, indices });
+        let vertices = self.data.bump.extend(mesh.vertices.iter().copied());
+        let indices = self.data.bump.extend(mesh.indices.iter().copied());
+        let mesh = self.data.bump.push(StoredMesh { vertices, indices });
         self.push(bounds, clip, CommandKind::Mesh(mesh));
     }
 
@@ -212,7 +236,7 @@ impl DisplayList {
             match stored.kind {
                 CommandKind::Clear => Command::Clear,
                 CommandKind::Rectangle(rectangle) => {
-                    let rectangle = self.data.get(rectangle);
+                    let rectangle = self.data.bump.get(rectangle);
                     Command::Rectangle(Rectangle {
                         area: rectangle.area,
                         background: self.fill(rectangle.background),
@@ -224,25 +248,30 @@ impl DisplayList {
                         opacity: rectangle.opacity,
                     })
                 }
-                CommandKind::Image(image) => Command::Image(*self.data.get(image)),
+                CommandKind::Image(image) => Command::Image(*self.data.bump.get(image)),
                 CommandKind::Text(text) => {
-                    let text = self.data.get(text);
+                    let text = self.data.bump.get(text);
                     Command::Text(TextRequest {
                         text: text.text,
-                        colors: self.data.slice(text.colors),
+                        colors: self.data.bump.slice(text.colors),
                         area: text.area,
                         offset_x: text.offset_x,
                         options: text.options,
                     })
                 }
-                CommandKind::BoxShadow(shadow) => Command::BoxShadow(*self.data.get(shadow)),
+                CommandKind::BoxShadow(shadow) => Command::BoxShadow(*self.data.bump.get(shadow)),
                 CommandKind::Mesh(mesh) => {
-                    let mesh = self.data.get(mesh);
+                    let mesh = self.data.bump.get(mesh);
                     Command::Mesh(Mesh {
-                        vertices: self.data.slice(mesh.vertices),
-                        indices: self.data.slice(mesh.indices),
+                        vertices: self.data.bump.slice(mesh.vertices),
+                        indices: self.data.bump.slice(mesh.indices),
                     })
                 }
+                CommandKind::Custom(stored) => Command::Custom(Custom {
+                    arena: &self.data,
+                    offset: stored,
+                    table: self.data.bump.get(stored).table,
+                }),
             }
         };
         Record {
@@ -305,8 +334,8 @@ impl DisplayList {
                             .all(|stops| stops[0].position < stops[1].position),
                     "invalid linear gradient"
                 );
-                let stops = self.data.extend(gradient.stops.iter().copied());
-                StoredFill::Gradient(self.data.push(StoredGradient {
+                let stops = self.data.bump.extend(gradient.stops.iter().copied());
+                StoredFill::Gradient(self.data.bump.push(StoredGradient {
                     stops,
                     angle: gradient.angle_degrees,
                 }))
@@ -320,8 +349,10 @@ impl DisplayList {
             StoredFill::Gradient(offset) => {
                 // safety: stored fills contain initialized offsets in this frame
                 unsafe {
-                    let gradient = self.data.get(offset);
-                    Fill::LinearGradient(LinearGradient::new(self.data.slice(gradient.stops)).angle(gradient.angle))
+                    let gradient = self.data.bump.get(offset);
+                    Fill::LinearGradient(
+                        LinearGradient::new(self.data.bump.slice(gradient.stops)).angle(gradient.angle),
+                    )
                 }
             }
         }
@@ -352,6 +383,7 @@ enum CommandKind {
     Text(Offset<StoredText>),
     BoxShadow(Offset<BoxShadow>),
     Mesh(Offset<StoredMesh>),
+    Custom(Offset<Header>),
 }
 
 #[derive(Clone, Copy)]

@@ -1,0 +1,17 @@
+
+running 1 test
+direct 1 shadows full: native 157.760 us custom 165.613 us ratio 1.050
+direct 1 shadows unchanged: native 1.192 us custom 1.202 us ratio 1.008
+direct 1 shadows one_changed: native 145.556 us custom 153.908 us ratio 1.057
+direct 64 shadows full: native 527.677 us custom 596.200 us ratio 1.130
+direct 64 shadows unchanged: native 6.258 us custom 7.625 us ratio 1.218
+direct 64 shadows one_changed: native 17.785 us custom 20.217 us ratio 1.137
+scanline 1 shadows full: native 92.464 us custom 110.401 us ratio 1.194
+scanline 1 shadows unchanged: native 1.194 us custom 1.208 us ratio 1.011
+scanline 1 shadows one_changed: native 82.769 us custom 97.767 us ratio 1.181
+scanline 64 shadows full: native 595.243 us custom 652.880 us ratio 1.097
+scanline 64 shadows unchanged: native 6.251 us custom 7.587 us ratio 1.214
+scanline 64 shadows one_changed: native 21.104 us custom 23.951 us ratio 1.135
+test extension::benchmark::shadow_extension_cost ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 3.26s
