@@ -5,7 +5,7 @@ mod paint;
 mod pixel;
 pub mod raster;
 mod render;
-mod shadow;
+pub mod shadow;
 mod strategy;
 mod text;
 
@@ -61,7 +61,6 @@ impl<B: PixelBuffer> Renderer<B> {
                 commands: CommandList::default(),
                 clips: ClipStack::default(),
                 handlers: (),
-                shadow: shadow::Cache::new(config.shadow_cache_capacity),
                 snapshot: Surface {
                     width: 0,
                     height: 0,
@@ -95,7 +94,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
             images,
             text,
             clips,
-            shadow,
             snapshot,
             preserved,
             ..
@@ -106,7 +104,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
             images,
             text,
             clips,
-            shadow,
             snapshot,
             preserved,
             commands: CommandList::default(),
@@ -244,7 +241,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
                         &mut DrawContext {
                             bounds: node.bounds,
                             images: &mut context.images,
-                            shadow: &mut context.shadow,
                             source: Some(snapshot),
                             target: DrawTarget::Pass {
                                 target: &mut context.buffer,
@@ -358,7 +354,6 @@ pub struct DrawContext<'a, P> {
     /// physical drawing bounds independent of the current span
     pub bounds: PhysicalRect,
     images: &'a mut Arena<StoredImage>,
-    shadow: &'a mut shadow::Cache,
     source: Option<&'a Surface<P>>,
     target: DrawTarget<'a, P>,
 }
@@ -376,8 +371,6 @@ pub struct RendererConfig {
     pub damage_tile_size: u16,
     /// maximum retained rasterized glyph data in bytes
     pub glyph_cache_capacity: usize,
-    /// maximum retained shadow mask data in bytes
-    pub shadow_cache_capacity: usize,
 }
 
 impl Default for RendererConfig {
@@ -385,7 +378,6 @@ impl Default for RendererConfig {
         Self {
             damage_tile_size: 32,
             glyph_cache_capacity: 1024 * 1024,
-            shadow_cache_capacity: 512 * 1024,
         }
     }
 }
@@ -399,7 +391,6 @@ pub struct RenderContext<B: PixelBuffer, H> {
     commands: CommandList<H, B::Pixel>,
     clips: ClipStack,
     handlers: H,
-    shadow: shadow::Cache,
     snapshot: Surface<B::Pixel>,
     preserved: Vec<B::Pixel>,
 }

@@ -2,7 +2,7 @@ use blit::geometry::PhysicalRect;
 use blit_arena::Arena;
 
 use super::command::Payload;
-use crate::{DrawContext, Pixel, PixelBuffer, PixelSpan, StoredImage, TextRenderer, arena, paint::DrawTarget, shadow};
+use crate::{DrawContext, Pixel, PixelBuffer, PixelSpan, StoredImage, TextRenderer, arena, paint::DrawTarget};
 
 #[inline(always)]
 pub fn draw_line<B: PixelBuffer, H>(
@@ -12,7 +12,6 @@ pub fn draw_line<B: PixelBuffer, H>(
     clip: PhysicalRect,
     coverage: u8,
     images: &mut Arena<StoredImage>,
-    shadow: &mut shadow::Cache,
     text: &mut TextRenderer,
     data: &arena::Arena,
     handlers: &mut H,
@@ -32,7 +31,6 @@ pub fn draw_line<B: PixelBuffer, H>(
                 &mut DrawContext {
                     bounds,
                     images,
-                    shadow,
                     source: None,
                     target: DrawTarget::Span {
                         x: clip.x,

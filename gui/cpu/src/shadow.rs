@@ -12,19 +12,31 @@ use blit_gui::{
 };
 
 use crate::{
-    Handler, PaintContext, Pixel,
+    PaintContext, Pixel,
     raster::{
         blur,
         rounded::{Radii, RoundedLine},
     },
 };
 
-/// retained box shadow masks
-pub struct Cache {
+/// optional box shadow handler with retained masks
+///
+/// enable with `.handlers(shadow::Handler::default())`
+/// custom handler state can opt in through `AsMut<shadow::Handler>`
+///
+/// ```compile_fail
+/// use blit::Paint;
+/// use blit_cpu::{Renderer, VecBuffer, Xrgb8888};
+/// use blit_gui::shadow::BoxShadow;
+/// fn draw(renderer: &mut Renderer<VecBuffer<Xrgb8888>>, shadow: BoxShadow) {
+///     renderer.paint(shadow.bounds(), shadow);
+/// }
+/// ```
+pub struct Handler {
     entries: DeferredCache<KeyData, CachedShadow, ShadowScale>,
 }
 
-impl Cache {
+impl Handler {
     /// capacity is the maximum retained mask data in bytes
     pub fn new(capacity: usize) -> Self {
         Self {
@@ -33,13 +45,25 @@ impl Cache {
     }
 }
 
-impl<P: Pixel, H: 'static> Handler<BoxShadow, P> for H {
+impl Default for Handler {
+    fn default() -> Self {
+        Self::new(512 * 1024)
+    }
+}
+
+impl AsMut<Self> for Handler {
+    fn as_mut(&mut self) -> &mut Self {
+        self
+    }
+}
+
+impl<P: Pixel, H: AsMut<Handler> + 'static> crate::Handler<BoxShadow, P> for H {
     fn handle(&mut self, shadow: BoxShadow, cx: &mut PaintContext<'_, Self, P>) {
         let scale = cx.scale;
         cx.draw(
             &shadow,
             (shadow, scale, OnceCell::new()),
-            |_, (shadow, scale, prepared), cx| {
+            |handler, (shadow, scale, prepared), cx| {
                 let prepared = prepared.get_or_init(|| {
                     let scale_factor = *scale;
                     if shadow.color.alpha == 0 {
@@ -104,7 +128,7 @@ impl<P: Pixel, H: 'static> Handler<BoxShadow, P> for H {
                             },
                         )
                     };
-                    let (image, nine_slice) = if let Some((cached, _)) = cx.shadow.entries.get(&key) {
+                    let (image, nine_slice) = if let Some((cached, _)) = handler.as_mut().entries.get(&key) {
                         (cached.image.id(), cached.nine_slice)
                     } else {
                         let width = bounds.width as usize;
@@ -232,7 +256,7 @@ impl<P: Pixel, H: 'static> Handler<BoxShadow, P> for H {
                             bytes,
                             nine_slice,
                         };
-                        let (cached, _) = cx.shadow.entries.get_or_insert(key, |key| (key, cached));
+                        let (cached, _) = handler.as_mut().entries.get_or_insert(key, |key| (key, cached));
                         (cached.image.id(), cached.nine_slice)
                     };
                     let image = cx.prepare_image(
@@ -249,7 +273,7 @@ impl<P: Pixel, H: 'static> Handler<BoxShadow, P> for H {
                         },
                         1.0,
                     );
-                    cx.shadow.entries.trim_to_weight();
+                    handler.as_mut().entries.trim_to_weight();
                     image
                 });
                 let Some(image) = prepared else {

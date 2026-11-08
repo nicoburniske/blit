@@ -24,6 +24,7 @@ const SCALE: Scale2 = Scale2::IDENTITY;
 #[test]
 fn shadow_resources_are_created_only_when_visible() {
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 20), text_system(), renderer_config())
+        .handlers(shadow::Handler::default())
         .strategy(Scanline::default());
     let bounds = LogicalRect::new(0.0, 0.0, 32.0, 20.0);
     let shadow = blit_gui::shadow::BoxShadow::new(LogicalRect::new(8.0, 6.0, 8.0, 6.0), Color::WHITE).blur(2.0);
@@ -46,7 +47,8 @@ fn atoms_record_into_the_renderer_context() {
     use blit::{Frame, FrameInfo, Input, LogicalSize};
     use blit_gui::{BoundsClip, atom, widget};
 
-    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(64, 48), text_system(), renderer_config());
+    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(64, 48), text_system(), renderer_config())
+        .handlers(shadow::Handler::default());
     let mut frame = Frame::default();
     for _ in 0..2 {
         frame.build(
@@ -303,7 +305,6 @@ fn renderer_config() -> RendererConfig {
     RendererConfig {
         damage_tile_size: 32,
         glyph_cache_capacity: 1024 * 1024,
-        shadow_cache_capacity: 1024 * 1024,
     }
 }
 
@@ -500,7 +501,8 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
                 renderer_config(),
             )
             .strategy(Scanline::default())
-            .damage_tracker(damage());
+            .damage_tracker(damage())
+            .handlers(shadow::Handler::default());
             let image = renderer.create_image(ImageData::new(
                 ImagePixels::Static(&[255, 255, 255]),
                 ImageFormat::Rgb8,

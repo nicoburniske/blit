@@ -21,7 +21,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
         let commands = &context.commands;
         let clips = &context.clips;
         let images = &mut context.images;
-        let shadow = &mut context.shadow;
         let text = &mut context.text;
         let data = &commands.data;
         let handlers = &mut context.handlers;
@@ -51,7 +50,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                                 clip,
                                 255,
                                 images,
-                                shadow,
                                 text,
                                 data,
                                 handlers,
@@ -66,7 +64,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                                     PhysicalRect::new(range.start, line, range.end - range.start, 1),
                                     coverage,
                                     images,
-                                    shadow,
                                     text,
                                     data,
                                     handlers,

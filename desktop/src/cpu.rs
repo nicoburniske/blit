@@ -1,8 +1,8 @@
 use std::{num::NonZeroU32, ptr::NonNull, sync::Arc};
 
 use blit::{LogicalRect, Paint};
-pub use blit_cpu::RendererConfig as Config;
 use blit_cpu::{Handler, PixelBuffer, Renderer, Scanline, TileDamage, Xrgb8888};
+pub use blit_cpu::{RendererConfig as Config, shadow};
 use blit_gui::{
     TextSystem,
     image::{ImageData, ImageHandle},

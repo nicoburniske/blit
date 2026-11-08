@@ -9,7 +9,7 @@ use super::{
     command::{CommandId, CommandList, Payload},
     raster,
 };
-use crate::{DamageTracker, Pixel, PixelBuffer, RenderContext, StoredImage, TextRenderer, shadow};
+use crate::{DamageTracker, Pixel, PixelBuffer, RenderContext, StoredImage, TextRenderer};
 
 #[derive(Default)]
 pub struct Scanline {
@@ -52,7 +52,6 @@ fn draw_commands<const CLIPPED: bool, H, P: Pixel>(
     active: &[CommandId],
     clip_ranges: &[Option<ClipLine>],
     images: &mut Arena<StoredImage>,
-    shadow: &mut shadow::Cache,
     text: &mut TextRenderer,
     handlers: &mut H,
     buffer: &mut LineBuffer<'_, P>,
@@ -113,7 +112,6 @@ fn draw_commands<const CLIPPED: bool, H, P: Pixel>(
                                 clip,
                                 coverage,
                                 images,
-                                shadow,
                                 text,
                                 data,
                                 handlers,
@@ -138,7 +136,6 @@ fn draw_commands<const CLIPPED: bool, H, P: Pixel>(
             clip,
             255,
             images,
-            shadow,
             text,
             data,
             handlers,
@@ -155,7 +152,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         let commands = &context.commands;
         let clips = &context.clips;
         let images = &mut context.images;
-        let shadow = &mut context.shadow;
         let text = &mut context.text;
         let handlers = &mut context.handlers;
         let buffer = &mut context.buffer;
@@ -248,7 +244,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 active,
                                 &self.clip_ranges,
                                 images,
-                                shadow,
                                 text,
                                 handlers,
                                 &mut buffer,
@@ -259,7 +254,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 active,
                                 &self.clip_ranges,
                                 images,
-                                shadow,
                                 text,
                                 handlers,
                                 &mut buffer,
@@ -309,7 +303,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 &self.active[first..],
                                 &self.clip_ranges,
                                 images,
-                                shadow,
                                 text,
                                 handlers,
                                 &mut buffer,
@@ -320,7 +313,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 &self.active[first..],
                                 &self.clip_ranges,
                                 images,
-                                shadow,
                                 text,
                                 handlers,
                                 &mut buffer,

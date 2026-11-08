@@ -1,7 +1,7 @@
 use blit::{LogicalRect, Paint};
 use blit_cpu::{
     DamageTracker, Direct, RenderStrategy, Renderer, RendererConfig, Scanline, TileDamage, VecBuffer, Xrgb8888,
-    damage::command::CommandDiff,
+    damage::command::CommandDiff, shadow,
 };
 use blit_gui::{
     Context, TextConfig, TextSystem, color::Color, paint::Rectangle, shadow::BoxShadow, style::BorderRadius,
@@ -9,6 +9,14 @@ use blit_gui::{
 
 #[test]
 fn shadows_match_reference_pixels_and_incremental_damage() {
+    struct Handlers(shadow::Handler);
+
+    impl AsMut<shadow::Handler> for Handlers {
+        fn as_mut(&mut self) -> &mut shadow::Handler {
+            &mut self.0
+        }
+    }
+
     fn check<S: RenderStrategy<VecBuffer<Xrgb8888>> + Default, D: DamageTracker>(damage: impl Fn() -> D) {
         for capacity in [0, 512 * 1024] {
             // reference pixels from the shadow mask path
@@ -44,11 +52,9 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
                 let mut renderer = Renderer::new(
                     VecBuffer::<Xrgb8888>::new(128, 96),
                     TextSystem::new(TextConfig::default(), blit_text_parley::Backend::without_system_fonts()).unwrap(),
-                    RendererConfig {
-                        shadow_cache_capacity: capacity,
-                        ..RendererConfig::default()
-                    },
+                    RendererConfig::default(),
                 )
+                .handlers(Handlers(shadow::Handler::new(capacity)))
                 .strategy(S::default())
                 .damage_tracker(damage());
                 let mut spare = VecBuffer::new(128, 96);
