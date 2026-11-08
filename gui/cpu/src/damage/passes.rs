@@ -18,7 +18,6 @@ pub struct PassDamage {
 #[derive(Default)]
 pub struct PassNode {
     pub index: u32,
-    pub callback: u32,
     pub bounds: PhysicalRect,
     pub reads: Region,
 }
@@ -46,10 +45,10 @@ impl PassDamage {
         }
         let mut count = 0;
         for index in commands.offsets() {
-            let Payload::Callback(callback) = commands.get(index) else {
+            let Payload::Custom = commands.get(index) else {
                 continue;
             };
-            let call = &commands.callbacks[callback as usize];
+            let call = &commands.entries[index as usize];
             if call.reads.is_none() {
                 continue;
             }
@@ -64,7 +63,6 @@ impl PassDamage {
             }
             let node = &mut self.passes[count];
             node.index = index;
-            node.callback = callback;
             node.bounds = bounds;
             node.reads.reset(screen, shift);
             count += 1;
@@ -86,7 +84,7 @@ impl PassDamage {
         }
         let size = 1i32 << shift;
         for node in &mut self.passes {
-            let call = &commands.callbacks[node.callback as usize];
+            let call = &commands.entries[node.index as usize];
             let mut y = node.bounds.y & !(size - 1);
             while y < node.bounds.y + node.bounds.height {
                 let mut x = node.bounds.x & !(size - 1);
@@ -106,7 +104,7 @@ impl PassDamage {
         for index in (0..count).rev() {
             let node = &mut self.passes[index];
             node.reads.reset(screen, shift);
-            let call = &commands.callbacks[node.callback as usize];
+            let call = &commands.entries[node.index as usize];
             for output in self.stages[index + 1]
                 .rects()
                 .filter_map(|bounds| bounds.intersection(node.bounds))

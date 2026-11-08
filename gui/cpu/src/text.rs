@@ -7,6 +7,7 @@ use blit_text::GlyphRequest;
 use crate::{Pixel, PixelSpan, RendererConfig, glyph::GlyphCache, strategy::command::PreparedText};
 
 pub struct TextRenderer {
+    pub system: TextSystem,
     glyphs: GlyphCache,
     prepared: Vec<PreparedGlyph>,
     runs: Vec<PreparedRun>,
@@ -44,8 +45,9 @@ impl PreparedRuns {
 }
 
 impl TextRenderer {
-    pub fn new(config: &RendererConfig) -> Self {
+    pub fn new(config: &RendererConfig, system: TextSystem) -> Self {
         Self {
+            system,
             glyphs: GlyphCache::new(config.glyph_cache_capacity),
             prepared: Vec::new(),
             runs: Vec::new(),
@@ -53,14 +55,9 @@ impl TextRenderer {
         }
     }
 
-    pub fn prepare(
-        &mut self,
-        text: &mut TextSystem,
-        request: &TextRequest<'_>,
-        scale_factor: f32,
-    ) -> (PreparedText, PhysicalRect) {
+    pub fn prepare(&mut self, request: &TextRequest<'_>, scale_factor: f32) -> (PreparedText, PhysicalRect) {
         let area = request.area.to_physical(Scale2::uniform(scale_factor));
-        let mut resolved = text.paint_layout(request);
+        let mut resolved = self.system.paint_layout(request);
         let layout = resolved.layout;
         let glyph_start = self.prepared.len() as u32;
         let run_start = self.runs.len() as u32;
@@ -256,10 +253,11 @@ impl TextRenderer {
         }
     }
 
-    pub fn finish_frame(&mut self, text: &mut TextSystem) {
+    pub fn finish_frame(&mut self) {
         self.prepared.clear();
         self.runs.clear();
-        self.glyphs.finish_frame(text);
+        self.glyphs.finish_frame(&mut self.system);
+        self.system.finish_frame();
     }
 }
 
@@ -270,7 +268,8 @@ mod tests {
 
     #[test]
     fn mixed_glyphs_preserve_color_opacity_and_painter_order() {
-        let mut renderer = TextRenderer::new(&RendererConfig::default());
+        let system = TextSystem::new(Default::default(), blit_text_parley::Backend::without_system_fonts()).unwrap();
+        let mut renderer = TextRenderer::new(&RendererConfig::default(), system);
         let mut alpha = [255u8];
         let mut rgba = [128u8, 0, 0, 128];
         renderer.prepared = [false, true, false]

@@ -149,6 +149,48 @@ fn prepared_draws_capture_data_and_drop_results_once() {
 }
 
 #[test]
+fn builtin_preparation_skips_covered_and_unchanged_work() {
+    use std::{cell::Cell, rc::Rc};
+
+    use crate::strategy::command::Payload;
+
+    struct Check {
+        scanline: Scanline,
+        calls: Rc<Cell<usize>>,
+    }
+
+    impl RenderStrategy<VecBuffer<Xrgb8888>> for Check {
+        fn render(&mut self, context: &mut RenderContext<VecBuffer<Xrgb8888>>, damage: &impl DamageTracker) {
+            assert!(matches!(context.commands.get(1), Payload::Pending));
+            self.scanline.render(context, damage);
+            if self.calls.get() == 0 {
+                assert!(matches!(context.commands.get(1), Payload::Pending));
+            } else {
+                assert!(matches!(context.commands.get(1), Payload::Rectangle(_)));
+            }
+            self.calls.set(self.calls.get() + 1);
+        }
+    }
+
+    let calls = Rc::new(Cell::new(0));
+    let mut renderer = new_renderer(VecBuffer::new(32, 24), renderer_config()).strategy(Check {
+        scanline: Scanline::default(),
+        calls: calls.clone(),
+    });
+    let bounds = LogicalRect::new(0.0, 0.0, 32.0, 24.0);
+    let area = LogicalRect::new(1.0, 1.0, 30.0, 22.0);
+    for covered in [true, false, false] {
+        renderer.paint(bounds, blit_gui::atom::Clear);
+        renderer.paint(area, Rectangle::new(area).background(Color::WHITE));
+        if covered {
+            renderer.paint(bounds, Rectangle::new(bounds).background(Color::WHITE));
+        }
+        renderer.render(1);
+    }
+    assert_eq!(calls.get(), 2);
+}
+
+#[test]
 fn shadow_resources_are_created_only_when_visible() {
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 20), text_system(), renderer_config())
         .strategy(Scanline::default());
@@ -473,9 +515,12 @@ fn renderer_supports_custom_pixel_layouts() {
         }
     );
 
-    let text = renderer
-        .text_system
-        .rich_text("M M", &[Span::new(0..2), Span::new(2..3)], TextStyle::new().size(20.0));
+    let text =
+        renderer
+            .context
+            .text
+            .system
+            .rich_text("M M", &[Span::new(0..2), Span::new(2..3)], TextStyle::new().size(20.0));
     for (x, mut colors) in [
         (0.0, [Color::WHITE, Color::rgb(255, 0, 0)]),
         (32.0, [Color::rgb(255, 0, 0), Color::WHITE]),
@@ -712,7 +757,7 @@ fn text_placement_tracks_physical_clip_size() {
         for renderer in [&mut renderer, &mut fresh] {
             let text =
                 renderer
-                    .text_system
+                    .text()
                     .rich_text("MM", &[Span::new(0..1), Span::new(1..2)], TextStyle::new().size(20.0));
             let request = TextRequest {
                 text,
@@ -883,7 +928,10 @@ fn text_cache_stages_are_independent() {
 
 #[test]
 fn text_measurement_and_carets_follow_layout() {
-    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config()).text_system;
+    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config())
+        .context
+        .text
+        .system;
     let request = TextLayoutRequest {
         text: gui.text_run("hello world", TextStyle::default()),
         wrap: TextWrap::None,
@@ -1502,7 +1550,7 @@ fn rounded_clips_match_between_strategies() {
     fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(strategy: S) -> Renderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(16, 16), renderer_config()).strategy(strategy);
         let image = renderer.create_image(ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgb8, 1, 1));
-        let string = renderer.text_system.text_run("M", TextStyle::new());
+        let string = renderer.text().text_run("M", TextStyle::new());
         let screen = renderer.screen();
         let area = LogicalRect {
             width: 16.0,
@@ -1626,7 +1674,10 @@ fn dropped_image_remains_valid_until_frame_end() {
 
 #[test]
 fn text_runs_are_keyed_by_content_and_style() {
-    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config()).text_system;
+    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config())
+        .context
+        .text
+        .system;
     let style = TextStyle::default();
     let text = gui.text_run("same", style);
     let white = gui.text_run("same", style.color(Color::WHITE));

@@ -1,5 +1,7 @@
 use blit::PhysicalRect;
-use blit_gui::image::{ImageData, ImageRequest, prepare_image_patches};
+use blit_gui::image::{
+    ImageData, ImageFormat, ImagePatch, ImageRequest, ImageSampling, ImageTiling, prepare_image_patches,
+};
 
 use super::image_patch::Prepared;
 
@@ -19,12 +21,39 @@ pub fn prepare(
     });
 }
 
+pub fn coverage(
+    request: &ImageRequest,
+    patch: ImagePatch,
+    texture: &ImageData,
+    pixels_opaque: bool,
+    has_opaque_spans: bool,
+) -> (bool, bool) {
+    let full_opacity = (request.opacity.clamp(0.0, 1.0) * 255.0).round() as u8 == 255;
+    let valid_source = patch.source.intersection(texture.texture_rect) == Some(patch.source);
+    let opaque = pixels_opaque
+        && full_opacity
+        && valid_source
+        && request.colorize.is_none_or(|color| color.alpha == 255)
+        && !matches!(texture.format, ImageFormat::Alpha8(color) if color.alpha != 255);
+    let partial = has_opaque_spans
+        && full_opacity
+        && valid_source
+        && request.colorize.is_none()
+        && request.sampling == ImageSampling::Nearest
+        && patch.source.width == patch.display.width
+        && patch.horizontal_tiling == ImageTiling::None
+        && patch.vertical_tiling == ImageTiling::None;
+    (opaque, partial)
+}
+
 #[cfg(test)]
 mod tests {
-    use blit::LogicalRect;
+    use blit::{LogicalRect, PhysicalRect};
     use blit_gui::{
         color::Color,
-        image::{ImageFit, ImageFormat, ImageId, ImagePixels, ImageSampling, ImageTiling, NineSlice},
+        image::{
+            ImageFit, ImageFormat, ImageId, ImagePixels, ImageSampling, ImageTiling, NineSlice, prepare_image_patches,
+        },
     };
 
     use super::*;
@@ -157,8 +186,8 @@ mod tests {
 
         assert_eq!(buffer.pixels(), [0x800000, 0x800000, 0x800000].map(Xrgb8888::from_raw));
         let mut opaque = None;
-        prepare(&request, &texture, clip, 1.0, |image, _| {
-            opaque = Some(image.is_opaque(&texture, true));
+        prepare_image_patches(&request, texture.size, 1.0, |patch| {
+            opaque = Some(coverage(&request, patch, &texture, true, false).0);
         });
         assert_eq!(opaque, Some(false));
     }

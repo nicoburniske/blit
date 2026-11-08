@@ -194,7 +194,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     .find(|(_, command)| {
                         commands.overwrites(**command)
                             && commands
-                                .overwrite_span(**command, line)
+                                .overwrite_span(**command, line, images, text)
                                 .and_then(|span| clip_span(commands.clip(**command), span))
                                 .is_some_and(|span| span.start <= range.start as i32 && span.end >= range.end as i32)
                     })
@@ -227,10 +227,13 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         let command_first = first + 1 + offset;
                         // rounded commands and partially opaque images can hide a scanline center
                         let span = if commands.overwrites(*command) {
-                            commands.overwrite_span(*command, line)
+                            commands.overwrite_span(*command, line, images, text)
                         } else if commands.partial_opaque(*command) {
+                            if matches!(commands.get(*command), Payload::Pending) {
+                                commands.prepare(*command, images, text);
+                            }
                             let Payload::Image(image) = commands.get(*command) else {
-                                unreachable!()
+                                return None;
                             };
                             let texture = images.get(image.image.into())?;
                             image.opaque_span(line, commands.bounds(*command), &texture.data, &texture.alpha_rows)

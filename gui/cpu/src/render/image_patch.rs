@@ -92,25 +92,6 @@ impl Prepared {
         })
     }
 
-    pub fn is_opaque(&self, texture: &ImageData, pixels_opaque: bool) -> bool {
-        pixels_opaque
-            && self.opacity == 255
-            && self.source.intersection(texture.texture_rect) == Some(self.source)
-            && self.colorize.is_none_or(|color| color.alpha == 255)
-            && !matches!(texture.format, ImageFormat::Alpha8(color) if color.alpha != 255)
-    }
-
-    pub fn has_opaque_spans(&self, texture: &ImageData, texture_has_opaque_spans: bool) -> bool {
-        texture_has_opaque_spans
-            && self.opacity == 255
-            && self.colorize.is_none()
-            && self.sampling == ImageSampling::Nearest
-            && self.step_x == FIXED_ONE
-            && self.flags & flag::WRAP_X == 0
-            && self.flags & flag::WRAP_Y == 0
-            && self.source.intersection(texture.texture_rect) == Some(self.source)
-    }
-
     pub fn opaque_span(
         &self,
         line: i32,

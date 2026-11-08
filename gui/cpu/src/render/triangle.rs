@@ -24,18 +24,7 @@ impl Prepared {
     #[inline(always)]
     pub fn new(vertices: [MeshVertex; 3], scale: Scale2, clip: PhysicalRect) -> Option<(Self, PhysicalRect)> {
         let mut points = vertices.map(|vertex| [vertex.position.x * scale.x, vertex.position.y * scale.y]);
-        let [first, second, third] = points;
-        let left = first[0].min(second[0]).min(third[0]).floor() as i32;
-        let top = first[1].min(second[1]).min(third[1]).floor() as i32;
-        let right = first[0].max(second[0]).max(third[0]).ceil() as i32;
-        let bottom = first[1].max(second[1]).max(third[1]).ceil() as i32;
-        let bounds = PhysicalRect {
-            x: left,
-            y: top,
-            width: right.saturating_sub(left),
-            height: bottom.saturating_sub(top),
-        };
-        let bounds = bounds.intersection(clip)?;
+        let bounds = bounds(points).intersection(clip)?;
         let mut colors = vertices.map(|vertex| PremultipliedRgbaColor::new(vertex.color, 255));
         let mut area = (points[1][0] - points[0][0]) * (points[2][1] - points[0][1])
             - (points[1][1] - points[0][1]) * (points[2][0] - points[0][0]);
@@ -211,4 +200,12 @@ impl Prepared {
             }
         }
     }
+}
+
+pub fn bounds([first, second, third]: [[f32; 2]; 3]) -> PhysicalRect {
+    let left = first[0].min(second[0]).min(third[0]).floor() as i32;
+    let top = first[1].min(second[1]).min(third[1]).floor() as i32;
+    let right = first[0].max(second[0]).max(third[0]).ceil() as i32;
+    let bottom = first[1].max(second[1]).max(third[1]).ceil() as i32;
+    PhysicalRect::new(left, top, right.saturating_sub(left), bottom.saturating_sub(top))
 }

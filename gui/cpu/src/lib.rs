@@ -39,7 +39,6 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTrac
     context: RenderContext<B>,
     handlers: Vec<ErasedHandler>,
     damage_input: DamageInput,
-    text_system: TextSystem,
     paint_clip: u32,
     paint_clips: Vec<u32>,
     strategy: S,
@@ -55,7 +54,7 @@ impl<B: PixelBuffer> Renderer<B> {
                 buffer,
                 scale_factor: 1.0,
                 images: Arena::new(),
-                text: TextRenderer::new(&config),
+                text: TextRenderer::new(&config, text),
                 commands: CommandList::default(),
                 clips: ClipStack::default(),
                 snapshot: Surface {
@@ -68,7 +67,6 @@ impl<B: PixelBuffer> Renderer<B> {
             },
             handlers: Vec::new(),
             damage_input: DamageInput::default(),
-            text_system: text,
             paint_clip: 0,
             paint_clips: Vec::new(),
             strategy: Direct::default(),
@@ -85,7 +83,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             context: self.context,
             handlers: self.handlers,
             damage_input: self.damage_input,
-            text_system: self.text_system,
             paint_clip: self.paint_clip,
             paint_clips: self.paint_clips,
             strategy,
@@ -101,7 +98,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             context: self.context,
             handlers: self.handlers,
             damage_input: self.damage_input,
-            text_system: self.text_system,
             paint_clip: self.paint_clip,
             paint_clips: self.paint_clips,
             strategy: self.strategy,
@@ -185,18 +181,20 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                                 .copy_from_slice(context.buffer.read_line(y as usize, range));
                         }
                     }
-                    context.commands.callbacks[node.callback as usize].draw(
+                    context.commands.entries[node.index as usize].draw(
                         &context.commands.data,
                         &mut context.commands.prepared,
                         &mut DrawContext {
                             bounds: node.bounds,
+                            data: &context.commands.data,
+                            text: &mut context.text,
+                            gradients: &mut context.commands.gradients,
                             images: &mut context.images,
                             source: Some(snapshot),
                             target: DrawTarget::Pass {
                                 target: &mut context.buffer,
                                 clips: &context.clips,
                                 clip,
-                                data: &context.commands.data,
                                 output: &plan.stages[stage + 1],
                             },
                         },
@@ -223,12 +221,11 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         }
         context.commands.clear();
         context.clips.clear();
-        context.text.finish_frame(&mut self.text_system);
+        context.text.finish_frame();
         context.images.retain(|image| !image.handle.is_uniquely_owned());
         self.damage.finish_frame(&mut self.damage_input);
         self.damage_input.clear();
         self.paint_clip = 0;
-        self.text_system.finish_frame();
     }
 
     pub fn screen(&self) -> PhysicalRect {
@@ -269,7 +266,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> blit::Context for R
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Context for Renderer<B, S, D> {
     fn text(&mut self) -> &mut TextSystem {
-        &mut self.text_system
+        &mut self.context.text.system
     }
 
     fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
@@ -303,6 +300,9 @@ pub struct Span<'a, P> {
 pub struct DrawContext<'a, P> {
     /// physical drawing bounds independent of the current span
     pub bounds: PhysicalRect,
+    data: &'a arena::Arena,
+    text: &'a mut TextRenderer,
+    gradients: &'a mut render::fill::Gradients,
     images: &'a mut Arena<StoredImage>,
     source: Option<&'a Surface<P>>,
     target: DrawTarget<'a, P>,

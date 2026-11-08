@@ -15,10 +15,14 @@ pub fn draw_line<B: PixelBuffer>(
     text: &mut TextRenderer,
     buffer: &mut B,
 ) {
+    if matches!(commands.get(command), Payload::Pending) {
+        commands.prepare(command, images, text);
+    }
     let bounds = commands.bounds(command);
     match commands.get(command) {
-        Payload::Callback(index) => {
-            let call = &mut commands.callbacks[index as usize];
+        Payload::Pending | Payload::Empty => {}
+        Payload::Custom => {
+            let call = &mut commands.entries[command as usize];
             if call.reads.is_some() {
                 return;
             }
@@ -30,6 +34,9 @@ pub fn draw_line<B: PixelBuffer>(
                 &mut commands.prepared,
                 &mut DrawContext {
                     bounds,
+                    data,
+                    text,
+                    gradients: &mut commands.gradients,
                     images,
                     source: None,
                     target: DrawTarget::Span {
@@ -37,7 +44,6 @@ pub fn draw_line<B: PixelBuffer>(
                         y: line,
                         pixels,
                         coverage,
-                        data,
                     },
                 },
             );
@@ -48,10 +54,10 @@ pub fn draw_line<B: PixelBuffer>(
             let end = start + clip.width as usize;
             buffer.line_mut(line as usize)[start..end].fill(B::Pixel::background());
         }
-        Payload::Rectangle(rectangle, gradients) => {
+        Payload::Rectangle(rectangle) => {
             let x = buffer.x_offset() as i32;
             rectangle.draw_line(
-                gradients,
+                &commands.gradients,
                 line,
                 clip,
                 coverage,
@@ -96,7 +102,10 @@ pub fn draw_line<B: PixelBuffer>(
                 );
             }
         }
-        Payload::Text(command) => {
+        Payload::Text(command, _) => {
+            if line < bounds.y || line >= bounds.y + bounds.height {
+                return;
+            }
             let x = buffer.x_offset() as i32;
             text.draw_line(
                 command,

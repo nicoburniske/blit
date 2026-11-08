@@ -16,7 +16,7 @@ pub struct Prepared {
     inner: PhysicalRect,
     pub background: PreparedFill,
     border: PreparedFill,
-    border_width: i32,
+    pub border_width: i32,
 }
 
 impl Prepared {

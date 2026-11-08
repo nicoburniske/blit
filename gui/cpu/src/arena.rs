@@ -95,6 +95,12 @@ impl Arena {
         Some(unsafe { self.bump.get(Offset::new(value.offset)) })
     }
 
+    pub(crate) unsafe fn value_unchecked<T: 'static>(&self, value: Value) -> &T {
+        debug_assert!(self.value::<T>(value).is_some());
+        // safety: the caller pairs the value with its recorded type and arena
+        unsafe { self.bump.get(Offset::new(value.offset)) }
+    }
+
     pub fn slice<T: Copy + 'static>(&self, slice: Slice<T>) -> &[T] {
         assert_eq!(slice.handle.owner, self.owner, "arena slice belongs to another frame");
         // safety: the private handle preserves the inserted type length and arena epoch
