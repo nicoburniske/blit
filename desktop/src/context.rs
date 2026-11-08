@@ -1,21 +1,21 @@
+use blit::{LogicalRect, Paint};
 use blit_gui::{
-    GuiContext,
+    TextSystem,
     image::{ImageData, ImageHandle},
+    style::BorderRadius,
 };
 use blit_widgets::FrameProfiler;
 
 use crate::{GraphicsBackend, GraphicsError};
 
-pub struct DesktopContext {
-    pub gui: GuiContext,
+pub struct DesktopContext<G> {
     pub profiler: FrameProfiler,
-    pub graphics: Box<dyn GraphicsBackend>,
+    pub graphics: G,
 }
 
-impl DesktopContext {
-    pub fn new(gui: GuiContext, graphics: Box<dyn GraphicsBackend>) -> Self {
+impl<G: GraphicsBackend> DesktopContext<G> {
+    pub fn new(graphics: G) -> Self {
         Self {
-            gui,
             profiler: FrameProfiler::default(),
             graphics,
         }
@@ -26,21 +26,35 @@ impl DesktopContext {
     }
 }
 
-impl blit::Context for DesktopContext {
+impl<G: GraphicsBackend> blit::Context for DesktopContext<G> {
     type Scalar = f32;
 }
 
-impl blit_widgets::Context for DesktopContext {
+impl<G: GraphicsBackend> blit_widgets::Context for DesktopContext<G> {
     const SLOP: f32 = 6.0;
 }
 
-impl AsMut<GuiContext> for DesktopContext {
-    fn as_mut(&mut self) -> &mut GuiContext {
-        &mut self.gui
+impl<G: GraphicsBackend + Paint<T>, T> Paint<T> for DesktopContext<G> {
+    fn paint(&mut self, bounds: LogicalRect, command: T) {
+        self.graphics.paint(bounds, command);
     }
 }
 
-impl AsRef<FrameProfiler> for DesktopContext {
+impl<G: GraphicsBackend> blit_gui::Context for DesktopContext<G> {
+    fn text(&mut self) -> &mut TextSystem {
+        self.graphics.text()
+    }
+
+    fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
+        self.graphics.push_clip(area, radius);
+    }
+
+    fn pop_clip(&mut self) {
+        self.graphics.pop_clip();
+    }
+}
+
+impl<G> AsRef<FrameProfiler> for DesktopContext<G> {
     fn as_ref(&self) -> &FrameProfiler {
         &self.profiler
     }

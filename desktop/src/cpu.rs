@@ -1,30 +1,67 @@
 use std::{num::NonZeroU32, ptr::NonNull, sync::Arc};
 
+use blit::{LogicalRect, Paint};
 pub use blit_cpu::RendererConfig as Config;
-use blit_cpu::{PixelBuffer, Renderer, Scanline, Xrgb8888};
+use blit_cpu::{Handler, PixelBuffer, Renderer, Scanline, TileDamage, Xrgb8888};
 use blit_gui::{
-    RenderInput,
+    TextSystem,
     image::{ImageData, ImageHandle},
+    style::BorderRadius,
 };
 use softbuffer::{Context, Surface};
 use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::{GraphicsBackend, GraphicsError};
 
-pub struct Backend {
+pub struct Backend<H: 'static = ()> {
     active: Option<Active>,
-    renderer: Renderer<DesktopBuffer, Scanline>,
+    renderer: Renderer<DesktopBuffer, Scanline, TileDamage, H>,
 }
 
 impl Backend {
-    pub fn new(config: Config) -> Self {
-        let mut renderer = Renderer::new(DesktopBuffer::new(1, 1), config).strategy(Scanline::default());
-        renderer.register(blit_cpu::shadow::Renderer::default());
+    pub fn new(text: TextSystem, config: Config) -> Self {
+        let renderer = Renderer::new(DesktopBuffer::new(1, 1), text, config).strategy(Scanline::default());
         Self { active: None, renderer }
     }
 }
 
-impl GraphicsBackend for Backend {
+impl<H: 'static> Backend<H> {
+    pub fn handlers<T: 'static>(self, handlers: T) -> Backend<T> {
+        Backend {
+            active: self.active,
+            renderer: self.renderer.handlers(handlers),
+        }
+    }
+}
+
+impl<H: 'static> blit::Context for Backend<H> {
+    type Scalar = f32;
+}
+
+impl<H, T> Paint<T> for Backend<H>
+where
+    H: Handler<T, Xrgb8888>,
+{
+    fn paint(&mut self, bounds: LogicalRect, command: T) {
+        self.renderer.paint(bounds, command);
+    }
+}
+
+impl<H: 'static> blit_gui::Context for Backend<H> {
+    fn text(&mut self) -> &mut TextSystem {
+        self.renderer.text()
+    }
+
+    fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
+        self.renderer.push_clip(area, radius);
+    }
+
+    fn pop_clip(&mut self) {
+        self.renderer.pop_clip();
+    }
+}
+
+impl<H: 'static> GraphicsBackend for Backend<H> {
     fn create_image(&mut self, data: ImageData) -> Result<ImageHandle, GraphicsError> {
         Ok(self.renderer.create_image(data))
     }
@@ -55,14 +92,18 @@ impl GraphicsBackend for Backend {
         Ok(())
     }
 
-    fn render(&mut self, input: RenderInput<'_>) -> Result<bool, GraphicsError> {
+    fn set_scale(&mut self, scale: f32) {
+        self.renderer.set_scale(scale);
+    }
+
+    fn render(&mut self) -> Result<bool, GraphicsError> {
         let Some(active) = &mut self.active else {
             return Ok(false);
         };
         let mut buffer = active.surface.buffer_mut()?;
         let age = buffer.age();
         self.renderer.buffer_mut().set(&mut buffer);
-        self.renderer.render(input, age);
+        self.renderer.render(age);
         active.window.pre_present_notify();
         buffer.present()?;
         Ok(true)

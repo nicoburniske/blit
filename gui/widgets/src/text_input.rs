@@ -1,5 +1,6 @@
 use blit::{
-    Atom, AtomCx, Axis, Constraints, Input, KeyboardEvent, LogicalRect, MouseButton, Sides, Size, TouchPhase, Widget,
+    Atom, AtomCx, Axis, Constraints, Input, KeyboardEvent, LogicalRect, MouseButton, Paint, Sides, Size, TouchPhase,
+    Widget,
 };
 use blit_widgets::interact::{self, keyboard::Handler};
 pub use blit_widgets::{
@@ -11,7 +12,7 @@ pub type TextInputState = blit_widgets::TextInputState<f32>;
 use blit_gui::{
     Context,
     color::Color,
-    display_list::Rectangle,
+    paint::Rectangle,
     text::{TextLayoutRequest, TextOptions, TextRequest, TextRun, TextStyle, TextWrap},
 };
 
@@ -33,7 +34,11 @@ blit::builder! {
     }
 }
 
-impl<C: Context + blit_widgets::Context, F: Handler<Action = Edit>> Widget<C> for TextInput<'_, F> {
+impl<C, F: Handler<Action = Edit>> Widget<C> for TextInput<'_, F>
+where
+    C: Context + blit_widgets::Context,
+    for<'a> C: Paint<Rectangle<'a>> + Paint<TextRequest<'a>>,
+{
     type Response = TextInputResponse;
 
     fn build(self, mut ui: blit::Ui<'_, C>) -> Self::Response {
@@ -60,7 +65,7 @@ impl<C: Context + blit_widgets::Context, F: Handler<Action = Edit>> Widget<C> fo
             focused = false;
         }
         let response = state.update(value, if focused { editing } else { None });
-        let text = ui.context_mut().as_mut().text_run(value.as_str(), style);
+        let text = ui.context_mut().text().text_run(value.as_str(), style);
         let options = TextOptions {
             max_lines: Some(1),
             ..TextOptions::default()
@@ -109,11 +114,11 @@ impl<C: Context + blit_widgets::Context, F: Handler<Action = Edit>> Widget<C> fo
                 options,
             };
             if let Some((position, extend)) = pointer {
-                let offset = ui.context_mut().as_mut().text_offset_at_position(&request, position);
+                let offset = ui.context_mut().text().offset_at_position(&request, position);
                 state.move_to(value, offset, extend);
             }
             if area.width > 0.0 {
-                let cursor = ui.context_mut().as_mut().text_cursor_rect(&request, state.cursor);
+                let cursor = ui.context_mut().text().cursor_rect(&request, state.cursor, 1.0);
                 if cursor.x < area.x {
                     state.offset_x = (state.offset_x - area.x + cursor.x).max(0.0);
                 } else if cursor.x + cursor.width > area.x + area.width {
@@ -124,10 +129,7 @@ impl<C: Context + blit_widgets::Context, F: Handler<Action = Edit>> Widget<C> fo
             ui.request_frame();
         }
         let (display, color) = if value.is_empty() && !placeholder.is_empty() {
-            (
-                ui.context_mut().as_mut().text_run(placeholder, style),
-                placeholder_color,
-            )
+            (ui.context_mut().text().text_run(placeholder, style), placeholder_color)
         } else {
             (text, style.color)
         };
@@ -160,9 +162,12 @@ struct InputAtom {
     cursor_background: Color,
 }
 
-impl<C: Context> Atom<C> for InputAtom {
+impl<C: Context> Atom<C> for InputAtom
+where
+    for<'a> C: Paint<Rectangle<'a>> + Paint<TextRequest<'a>>,
+{
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
-        let size = cx.context_mut().as_mut().measure_text(&TextLayoutRequest {
+        let size = cx.context_mut().text().measure(&TextLayoutRequest {
             text: self.display,
             wrap: TextWrap::None,
             max_width: None,
@@ -172,10 +177,10 @@ impl<C: Context> Atom<C> for InputAtom {
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        let context = cx.context_mut().as_mut();
+        let context = cx.context_mut();
         let area = area.inset(self.padding);
         if self.background != Color::TRANSPARENT {
-            context.paint_rectangle(Rectangle::new(area).background(self.background));
+            context.paint(area, Rectangle::new(area).background(self.background));
         }
         let request = TextRequest {
             text: self.text,
@@ -187,23 +192,29 @@ impl<C: Context> Atom<C> for InputAtom {
         let start_offset = self.state.cursor.min(self.state.anchor);
         let end_offset = self.state.cursor.max(self.state.anchor);
         if start_offset != end_offset {
-            let start = context.text_cursor_rect(&request, start_offset);
-            let end = context.text_cursor_rect(&request, end_offset);
+            let start = context.text().cursor_rect(&request, start_offset, 1.0);
+            let end = context.text().cursor_rect(&request, end_offset, 1.0);
             if let Some(selection) =
                 LogicalRect::new(start.x, start.y, end.x - start.x, start.height).intersection(area)
             {
-                context.paint_rectangle(Rectangle::new(selection).background(self.selection_background));
+                context.paint(
+                    selection,
+                    Rectangle::new(selection).background(self.selection_background),
+                );
             }
         }
         if self.focused
-            && let Some(cursor) = context.text_cursor_rect(&request, self.state.cursor).intersection(area)
+            && let Some(cursor) = context
+                .text()
+                .cursor_rect(&request, self.state.cursor, 1.0)
+                .intersection(area)
         {
-            context.paint_rectangle(Rectangle::new(cursor).background(self.cursor_background));
+            context.paint(cursor, Rectangle::new(cursor).background(self.cursor_background));
         }
         let request = TextRequest {
             text: self.display,
             ..request
         };
-        context.paint_text(request);
+        context.paint(area, request);
     }
 }

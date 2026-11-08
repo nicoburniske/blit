@@ -18,26 +18,21 @@ pub mod gpu;
 
 use std::{error::Error, fmt, sync::Arc};
 
-use blit_gui::{
-    RenderInput, TextConfig,
-    image::{ImageData, ImageHandle},
-};
+use blit_gui::image::{ImageData, ImageHandle};
 use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy as WinitEventLoopProxy, window::Window};
 
-pub struct Config<T> {
+pub struct Config<G> {
     pub title: String,
     pub width: u32,
     pub height: u32,
-    pub text_config: TextConfig,
-    pub text: T,
-    pub graphics: Box<dyn GraphicsBackend>,
+    pub graphics: G,
 }
 
-pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, DesktopContext, S>;
+pub type Ui<'a, G, S = blit::state::Build> = blit::Ui<'a, DesktopContext<G>, S>;
 
 pub type GraphicsError = Box<dyn Error>;
 
-pub trait GraphicsBackend: 'static {
+pub trait GraphicsBackend: blit_gui::Context + 'static {
     fn create_image(&mut self, data: ImageData) -> Result<ImageHandle, GraphicsError>;
 
     fn resume(&mut self, window: Arc<Window>) -> Result<(), GraphicsError>;
@@ -46,10 +41,12 @@ pub trait GraphicsBackend: 'static {
 
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), GraphicsError>;
 
+    fn set_scale(&mut self, scale: f32);
+
     /// returns whether a frame was presented
     ///
     /// request a redraw before returning false to retry without new input
-    fn render(&mut self, input: RenderInput<'_>) -> Result<bool, GraphicsError>;
+    fn render(&mut self) -> Result<bool, GraphicsError>;
 }
 
 /// sends application input to the desktop event loop
@@ -78,17 +75,21 @@ impl<T> EventLoopProxy<T> {
 
 pub trait Application: Sized + 'static {
     type Input: Send + 'static;
+    type Graphics: GraphicsBackend;
 
-    fn new(input: EventLoopProxy<Self::Input>, scope: Scope<Self>, context: &mut DesktopContext) -> Self;
+    fn new(
+        input: EventLoopProxy<Self::Input>,
+        scope: Scope<Self>,
+        context: &mut DesktopContext<Self::Graphics>,
+    ) -> Self;
 
     fn input(&mut self, input: Self::Input);
 
-    fn render(&mut self, ui: Ui<'_>);
+    fn render(&mut self, ui: Ui<'_, Self::Graphics>);
 }
 
 #[derive(Debug)]
 pub enum RunError {
-    Font(blit_gui::FontError),
     EventLoop(winit::error::EventLoopError),
     Window(winit::error::OsError),
     Graphics(GraphicsError),
@@ -97,7 +98,6 @@ pub enum RunError {
 impl fmt::Display for RunError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Font(error) => error.fmt(formatter),
             Self::EventLoop(error) => error.fmt(formatter),
             Self::Window(error) => error.fmt(formatter),
             Self::Graphics(error) => error.fmt(formatter),
@@ -106,12 +106,6 @@ impl fmt::Display for RunError {
 }
 
 impl Error for RunError {}
-
-impl From<blit_gui::FontError> for RunError {
-    fn from(error: blit_gui::FontError) -> Self {
-        Self::Font(error)
-    }
-}
 
 impl From<winit::error::EventLoopError> for RunError {
     fn from(error: winit::error::EventLoopError) -> Self {

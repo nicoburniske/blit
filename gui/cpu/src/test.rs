@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
+use blit::{LogicalPoint, LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_gui::{
     FontData, FontStack, TextConfig, TextSystem,
     color::Color,

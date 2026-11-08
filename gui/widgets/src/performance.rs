@@ -1,12 +1,13 @@
 use std::fmt::Write as _;
 
-use blit::{Sides, Size, Widget};
+use blit::{Paint, Sides, Size, Widget};
 use blit_gui::{
     Context,
     atom::Rectangle,
     color::Color,
+    paint,
     style::{Border, BorderRadius},
-    text::TextStyle,
+    text::{TextRequest, TextStyle},
 };
 use blit_widgets::{FrameProfiler, interact};
 
@@ -47,6 +48,7 @@ blit::builder! {
 impl<C> Widget<C> for Performance<'_>
 where
     C: Context + blit_widgets::Context + AsRef<FrameProfiler>,
+    for<'a> C: Paint<paint::Rectangle<'a>> + Paint<TextRequest<'a>>,
 {
     type Response = ();
 

@@ -4,18 +4,20 @@ use std::{
     time::Duration,
 };
 
-use blit::{Animation, Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Motion, Sides, Size, Tween, Widget};
+use blit::{
+    Animation, Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Motion, Paint, Sides, Size, Tween, Widget,
+};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, SpringDrag, Transition, select};
 #[cfg(not(feature = "gpu"))]
 use blit_desktop::cpu;
 #[cfg(feature = "gpu")]
 use blit_desktop::gpu;
-use blit_desktop::{Application, Config, DesktopContext, EventLoopProxy, Scope, Ui};
+use blit_desktop::{Application, Config, EventLoopProxy, Scope};
 use blit_gui::{
-    BoundsClip, Family, FontData, FontStack, TextConfig,
+    BoundsClip, Family, FontData, FontStack, TextConfig, TextSystem,
     atom::{Rectangle, Shadow},
     color::Color,
-    display_list::{Mesh, MeshVertex},
+    paint::{Mesh, MeshVertex},
     style::{Border, BorderRadius},
     text::{
         FontId, FontStyle, HorizontalAlign, Span, SpanStyle, TextOptions, TextOverflow, TextStyle, TextWrap,
@@ -35,15 +37,8 @@ pub fn run() {
         .filter_map(|entry| std::fs::read(entry.ok()?.path()).ok())
         .map(|data| FontData::Shared(data.into()))
         .collect::<Vec<_>>();
-    #[cfg(feature = "gpu")]
-    let graphics = Box::new(gpu::Backend::new(gpu::Config::default()));
-    #[cfg(not(feature = "gpu"))]
-    let graphics = Box::new(cpu::Backend::new(cpu::Config::default()));
-    blit_desktop::run::<App>(Config {
-        title: "Blit layout playground".into(),
-        width: 1120,
-        height: 800,
-        text_config: TextConfig {
+    let text = TextSystem::new(
+        TextConfig {
             fonts: vec![FontStack {
                 id: FontId::default(),
                 families: vec![
@@ -55,11 +50,27 @@ pub fn run() {
             text_cache_capacity: 1024 * 1024,
             layout_cache_capacity: 2 * 1024 * 1024,
         },
-        text: blit_text_parley::Backend::new(),
+        blit_text_parley::Backend::new(),
+    )
+    .unwrap();
+    #[cfg(not(feature = "gpu"))]
+    let graphics = cpu::Backend::new(text, cpu::Config::default());
+    #[cfg(feature = "gpu")]
+    let graphics = gpu::Backend::new(text, gpu::Config::default());
+    blit_desktop::run::<App>(Config {
+        title: "Blit layout playground".into(),
+        width: 1120,
+        height: 800,
         graphics,
     })
     .unwrap();
 }
+
+#[cfg(not(feature = "gpu"))]
+type DesktopContext = blit_desktop::DesktopContext<cpu::Backend>;
+#[cfg(feature = "gpu")]
+type DesktopContext = blit_desktop::DesktopContext<gpu::Backend>;
+type Ui<'a> = blit::Ui<'a, DesktopContext>;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Page {
@@ -107,6 +118,10 @@ impl Default for App {
 
 impl Application for App {
     type Input = ();
+    #[cfg(not(feature = "gpu"))]
+    type Graphics = cpu::Backend;
+    #[cfg(feature = "gpu")]
+    type Graphics = gpu::Backend;
 
     fn new(_: EventLoopProxy<Self::Input>, _: Scope<Self>, context: &mut DesktopContext) -> Self {
         context.profiler.set_enabled(true);
@@ -627,12 +642,11 @@ impl Widget<DesktopContext> for &mut InputPage {
                     .cursor_background(colors::ACCENT),
             )
         });
-        body.child()
-            .insert(Text::new("esc to unfocus").style(TextStyle {
-                size: sz::MD,
-                color: colors::TEXT_MUTED,
-                ..TextStyle::default()
-            }));
+        body.child().insert(Text::new("esc to unfocus").style(TextStyle {
+            size: sz::MD,
+            color: colors::TEXT_MUTED,
+            ..TextStyle::default()
+        }));
     }
 }
 
@@ -658,8 +672,10 @@ impl Widget<DesktopContext> for &mut LayoutPage {
         let unit = Size::uniform(sz::SM);
         let preview_config = *canvas;
         let mut body = ui.layout(flex::row());
-        body.child().item(flex::item().grow()).id(Id::new("layout page split")).build(
-            split(
+        body.child()
+            .item(flex::item().grow())
+            .id(Id::new("layout page split"))
+            .build(split(
                 split_state,
                 sz::SIDEBAR,
                 |ui: Ui<'_>| {
@@ -668,10 +684,10 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                     sidebar
                         .child()
                         .insert(Text::new("config").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-                    sidebar.child().item(flex::item().grow()).build(
-                        scroll_area(
-                            controls_scroll,
-                            |ui: Ui<'_>| {
+                    sidebar
+                        .child()
+                        .item(flex::item().grow())
+                        .build(scroll_area(controls_scroll, |ui: Ui<'_>| {
                             let mut controls = ui.layout(flex::column().gap(sz::LG));
                             controls.child().build(|ui: Ui<'_>| {
                                 choices(
@@ -771,8 +787,7 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                                     ],
                                 );
                             });
-                        }),
-                    );
+                        }));
                 },
                 |ui: Ui<'_>| {
                     let mut preview = ui.layout(flex::column().gap(sz::SM).pad(sz::LG));
@@ -787,21 +802,22 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                                 .background(colors::TRACK)
                                 .radius(BorderRadius::uniform(sz::XS)),
                         );
-                        let initial = (screen - sz::CANVAS_INITIAL_OFFSET)
-                            .max(sz::CANVAS_INITIAL_MIN)
-                            * sz::CANVAS_INITIAL_SCALE;
+                        let initial =
+                            (screen - sz::CANVAS_INITIAL_OFFSET).max(sz::CANVAS_INITIAL_MIN) * sz::CANVAS_INITIAL_SCALE;
                         viewport.child().id(Id::new("layout canvas")).build(
-                            Resize::new(resize).initial(initial)
-                                    .minimum(sz::CANVAS_MIN)
-                                    .grip_size(Size::uniform(sz::MD)).content(Canvas {
+                            Resize::new(resize)
+                                .initial(initial)
+                                .minimum(sz::CANVAS_MIN)
+                                .grip_size(Size::uniform(sz::MD))
+                                .content(Canvas {
                                     config: preview_config,
                                     unit,
-                                }).grip(draw_grip),
+                                })
+                                .grip(draw_grip),
                         );
                     });
                 },
-            ),
-        );
+            ));
     }
 }
 
@@ -856,8 +872,10 @@ impl Widget<DesktopContext> for &mut StylesPage {
         let shadow_spread = *spread;
         let shadow_offset = *offset;
         let mut body = ui.layout(flex::row());
-        body.child().item(flex::item().grow()).id(Id::new("styles page split")).build(
-            split(
+        body.child()
+            .item(flex::item().grow())
+            .id(Id::new("styles page split"))
+            .build(split(
                 split_state,
                 sz::SIDEBAR,
                 |ui: Ui<'_>| {
@@ -866,10 +884,10 @@ impl Widget<DesktopContext> for &mut StylesPage {
                     sidebar
                         .child()
                         .insert(Text::new("config").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-                    sidebar.child().item(flex::item().grow()).build(
-                        scroll_area(
-                            controls_scroll,
-                            |ui: Ui<'_>| {
+                    sidebar
+                        .child()
+                        .item(flex::item().grow())
+                        .build(scroll_area(controls_scroll, |ui: Ui<'_>| {
                             let mut controls = ui.layout(flex::column().gap(sz::LG));
                             controls.child().build(|ui: Ui<'_>| {
                                 choices(
@@ -884,31 +902,17 @@ impl Widget<DesktopContext> for &mut StylesPage {
                                 );
                             });
                             controls.child().build(|ui: Ui<'_>| {
-                                choices(
-                                    ui,
-                                    "radius",
-                                    radius,
-                                    &[("0", 0.0), ("18", sz::LG), ("32", sz::XXL)],
-                                );
+                                choices(ui, "radius", radius, &[("0", 0.0), ("18", sz::LG), ("32", sz::XXL)]);
                             });
                             controls.child().build(|ui: Ui<'_>| {
-                                choices(
-                                    ui,
-                                    "blur",
-                                    blur,
-                                    &[("0", 0.0), ("8", sz::XS), ("18", sz::LG)],
-                                );
+                                choices(ui, "blur", blur, &[("0", 0.0), ("8", sz::XS), ("18", sz::LG)]);
                             });
                             controls.child().build(|ui: Ui<'_>| {
                                 choices(
                                     ui,
                                     "spread",
                                     spread,
-                                    &[
-                                        ("0", 0.0),
-                                        ("2", sz::BORDER_STRONG),
-                                        ("8", sz::XS),
-                                    ],
+                                    &[("0", 0.0), ("2", sz::BORDER_STRONG), ("8", sz::XS)],
                                 );
                             });
                             controls.child().build(|ui: Ui<'_>| {
@@ -923,8 +927,7 @@ impl Widget<DesktopContext> for &mut StylesPage {
                                     ],
                                 );
                             });
-                        }),
-                    );
+                        }));
                 },
                 |ui: Ui<'_>| {
                     let mut preview = ui.layout(flex::column().gap(sz::SM).pad(sz::LG));
@@ -933,14 +936,11 @@ impl Widget<DesktopContext> for &mut StylesPage {
                         .child()
                         .insert(Text::new("preview").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
                     preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
-                        let mut stage = ui.layout(
-                            flex::row()
-                                .align(Align::Center)
-                                .justify(Justify::Center)
-                                .pad(sz::XXXL),
-                        );
+                        let mut stage =
+                            ui.layout(flex::row().align(Align::Center).justify(Justify::Center).pad(sz::XXXL));
                         stage
-                            .child().item(flex::item().fixed(sz::CARD_WIDTH, sz::CARD_HEIGHT))
+                            .child()
+                            .item(flex::item().fixed(sz::CARD_WIDTH, sz::CARD_HEIGHT))
                             .build(|ui: Ui<'_>| {
                                 let mut card = ui.layout(
                                     flex::column()
@@ -968,19 +968,15 @@ impl Widget<DesktopContext> for &mut StylesPage {
                                 if shadow_kind == ShadowKind::Inset {
                                     card.insert(shadow);
                                 }
-                                card.child().insert(
-                                    Text::new("shadow")
-                                        .style(TextStyle {
-                                            size: sz::XL,
-                                            color: colors::TEXT,
-                                            ..TextStyle::default()
-                                        }),
-                                );
+                                card.child().insert(Text::new("shadow").style(TextStyle {
+                                    size: sz::XL,
+                                    color: colors::TEXT,
+                                    ..TextStyle::default()
+                                }));
                             });
                     });
                 },
-            ),
-        );
+            ));
     }
 }
 
@@ -1168,7 +1164,10 @@ impl Atom<DesktopContext> for Terrain {
                 }
             }
         }
-        cx.context_mut().gui.paint_mesh(Mesh { vertices, indices });
+        let bounds = vertices.iter().fold(area, |bounds, vertex| {
+            bounds.union(LogicalRect::new(vertex.position.x, vertex.position.y, 0.0, 0.0))
+        });
+        cx.context_mut().paint(bounds, Mesh { vertices, indices });
     }
 }
 

@@ -4,7 +4,7 @@ use crate::{
     Context,
     color::Color,
     image::{ImageFit, ImageId, ImageRequest, ImageSampling, ImageTiling, NineSlice},
-    paint::Rectangle as DrawRectangle,
+    paint,
     shadow::BoxShadow,
     style::{Border, BorderRadius, Fill},
     text::{TextLayoutRequest, TextOptions, TextRequest, TextRun, TextWrap},
@@ -22,7 +22,7 @@ blit::builder! {
     }
 }
 
-impl<C: for<'a> Paint<DrawRectangle<'a>, Scalar = f32>> Atom<C> for Rectangle {
+impl<C: for<'a> Paint<paint::Rectangle<'a>, Scalar = f32>> Atom<C> for Rectangle {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
     }
@@ -31,7 +31,7 @@ impl<C: for<'a> Paint<DrawRectangle<'a>, Scalar = f32>> Atom<C> for Rectangle {
         if self.background != Fill::Solid(Color::TRANSPARENT) || self.border.width > 0.0 {
             cx.context_mut().paint(
                 area,
-                DrawRectangle {
+                paint::Rectangle {
                     area,
                     background: self.background,
                     border: self.border,

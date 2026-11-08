@@ -3,9 +3,9 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use blit::{PhysicalRect, Scale2, internal::hash::FxHasher};
-use blit_arena::Arena as ImageArena;
+use blit::{LogicalRect, Paint, PhysicalRect, Scale2, internal::hash::FxHasher};
 use blit_gui::{
+    TextSystem,
     image::{ImageData, ImageHandle, ImageRequest},
     paint::{Mesh, Rectangle},
     style::Fill,
@@ -13,10 +13,12 @@ use blit_gui::{
 };
 
 use crate::{
-    DrawContext, PaintContext, Pixel, PixelBuffer, Span, StoredImage, Surface,
+    DamageTracker, DrawContext, Pixel, PixelBuffer, RenderStrategy, Renderer, Span, StoredImage, Surface,
     arena::{Arena, Value},
-    damage::{Record, region::Region},
-    strategy::clip::ClipStack,
+    damage::{DamageInput, Record, region::Region},
+    shadow,
+    strategy::{clip::ClipStack, command::CommandList},
+    text::TextRenderer,
 };
 
 /// consumes drawing data and records cpu work before its borrows expire
@@ -46,6 +48,40 @@ use crate::{
 /// ```
 pub trait Handler<T, P: Pixel>: Sized + 'static {
     fn handle(&mut self, command: T, cx: &mut PaintContext<'_, Self, P>);
+}
+
+pub struct PaintContext<'a, H, P: Pixel> {
+    pub scale: f32,
+    pub bounds: PhysicalRect,
+    clip: u32,
+    damage_input: &'a mut DamageInput,
+    commands: &'a mut CommandList<H, P>,
+    pub(crate) images: &'a mut blit_arena::Arena<StoredImage>,
+    text: &'a mut TextRenderer,
+    text_system: &'a mut TextSystem,
+    pub(crate) shadow: &'a mut shadow::Cache,
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: Handler<T, B::Pixel>, T> Paint<T>
+    for Renderer<B, S, D, H>
+{
+    fn paint(&mut self, bounds: LogicalRect, command: T) {
+        let context = &mut self.context;
+        context.handlers.handle(
+            command,
+            &mut PaintContext {
+                scale: context.scale_factor,
+                bounds: bounds.to_physical(Scale2::uniform(context.scale_factor)),
+                clip: self.paint_clip,
+                damage_input: &mut self.damage_input,
+                commands: &mut context.commands,
+                images: &mut context.images,
+                text: &mut context.text,
+                text_system: &mut self.text_system,
+                shadow: &mut context.shadow,
+            },
+        );
+    }
 }
 
 impl<P: Pixel, H: 'static> Handler<Rectangle<'_>, P> for H {
@@ -411,7 +447,7 @@ pub enum DrawTarget<'a, P> {
         bounds: PhysicalRect,
         clip: u32,
         data: &'a Arena,
-        images: &'a ImageArena<StoredImage>,
+        images: &'a blit_arena::Arena<StoredImage>,
         output: &'a Region,
     },
 }

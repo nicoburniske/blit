@@ -9,7 +9,7 @@ mod shadow;
 mod strategy;
 mod text;
 
-use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
+use blit::{LogicalRect, PhysicalRect};
 use blit_arena::Arena;
 use blit_gui::{
     Context, TextSystem,
@@ -33,7 +33,7 @@ use self::{
 };
 pub use self::{
     damage::{DamageTracker, tile::TileDamage},
-    paint::Handler,
+    paint::{Handler, PaintContext},
     pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888},
     strategy::{Direct, RenderStrategy, Scanline},
 };
@@ -320,28 +320,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> blit::C
     type Scalar = f32;
 }
 
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: Handler<T, B::Pixel>, T> Paint<T>
-    for Renderer<B, S, D, H>
-{
-    fn paint(&mut self, bounds: LogicalRect, command: T) {
-        let context = &mut self.context;
-        context.handlers.handle(
-            command,
-            &mut PaintContext {
-                scale: context.scale_factor,
-                bounds: bounds.to_physical(Scale2::uniform(context.scale_factor)),
-                clip: self.paint_clip,
-                damage_input: &mut self.damage_input,
-                commands: &mut context.commands,
-                images: &mut context.images,
-                text: &mut context.text,
-                text_system: &mut self.text_system,
-                shadow: &mut context.shadow,
-            },
-        );
-    }
-}
-
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Context for Renderer<B, S, D, H> {
     fn text(&mut self) -> &mut TextSystem {
         &mut self.text_system
@@ -363,18 +341,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Context
     fn pop_clip(&mut self) {
         self.paint_clip = self.paint_clips.pop().expect("no paint clip to pop");
     }
-}
-
-pub struct PaintContext<'a, H, P: Pixel> {
-    pub scale: f32,
-    pub bounds: PhysicalRect,
-    clip: u32,
-    damage_input: &'a mut DamageInput,
-    commands: &'a mut CommandList<H, P>,
-    images: &'a mut Arena<StoredImage>,
-    text: &'a mut TextRenderer,
-    text_system: &'a mut TextSystem,
-    shadow: &'a mut shadow::Cache,
 }
 
 pub struct Span<'a, P> {
