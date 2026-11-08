@@ -12,15 +12,16 @@ pub fn draw_line<B: PixelBuffer>(
     coverage: u8,
     images: &Arena<StoredImage>,
     text: &mut TextRenderer,
-    extensions: &mut crate::extension::registry::Registry<B::Pixel>,
+    draws: &mut crate::paint::Draws<B::Pixel>,
     buffer: &mut B,
 ) {
     match payload {
         Payload::Custom(id) => {
             let start = (clip.x - buffer.x_offset() as i32) as usize;
             let pixels = &mut buffer.line_mut(line as usize)[start..start + clip.width as usize];
-            extensions.raster(*id, clip.x, line, pixels, coverage, images);
+            draws.raster(*id, clip.x, line, pixels, coverage, images);
         }
+        Payload::Pass(_) => {}
         Payload::Clear => {
             let x = buffer.x_offset() as i32;
             let start = (clip.x - x) as usize;

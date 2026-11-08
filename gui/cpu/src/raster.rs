@@ -1,15 +1,14 @@
 use blit::{LogicalRect, PhysicalRect};
 use blit_gui::{
     color::Color,
-    display_list::Rectangle,
     image::{ImageHandle, ImageRequest},
+    paint::Rectangle,
     style::BorderRadius,
 };
 
 pub use crate::render::{blur, rounded};
 use crate::{
-    Pixel, PixelSpan,
-    extension::{PrepareContext, Span},
+    PaintContext, Pixel, PixelSpan, Span,
     render::{fill::Gradients, image, image_patch, rectangle},
 };
 
@@ -22,7 +21,7 @@ pub struct Image {
 /// a prepared solid rectangle with optional rounded corners
 pub struct SolidRect(rectangle::Prepared);
 
-impl PrepareContext<'_> {
+impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
     /// prepares an image with an explicit logical to physical scale
     pub fn prepare_image(&self, request: &ImageRequest, scale: f32) -> Option<Image> {
         let texture = self.images.get(request.image.into())?;

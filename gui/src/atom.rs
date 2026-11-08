@@ -3,8 +3,8 @@ use blit::{Atom, AtomCx, Constraints, FrameSlice, LogicalRect, Paint, Size};
 use crate::{
     Context,
     color::Color,
-    display_list::Rectangle as DrawRectangle,
     image::{ImageFit, ImageId, ImageRequest, ImageSampling, ImageTiling, NineSlice},
+    paint::Rectangle as DrawRectangle,
     shadow::BoxShadow,
     style::{Border, BorderRadius, Fill},
     text::{TextLayoutRequest, TextOptions, TextRequest, TextRun, TextWrap},

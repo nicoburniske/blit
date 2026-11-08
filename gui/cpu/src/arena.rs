@@ -9,7 +9,7 @@ use blit::internal::bump::{Bump, Offset};
 
 #[derive(Default)]
 pub struct Arena {
-    pub(crate) bump: Bump,
+    bump: Bump,
     drops: Vec<(u32, unsafe fn(&mut Bump, u32))>,
     owner: u64,
 }
@@ -19,13 +19,13 @@ pub struct Writer<'a>(&'a mut Arena);
 /// typed handles are invariant and tied to their arena epoch
 ///
 /// ```compile_fail
-/// use blit_gui::display_list::arena::{Arena, Handle};
+/// use blit_cpu::arena::{Arena, Handle};
 /// let mut arena = Arena::default();
 /// let handle: Handle<fn(&str)> = arena.push((|_: &str| {}) as fn(&str));
 /// let _: Handle<fn(&'static str)> = handle;
 /// ```
 pub struct Handle<T> {
-    pub(crate) offset: u32,
+    offset: u32,
     owner: u64,
     marker: PhantomData<fn(T) -> T>,
 }

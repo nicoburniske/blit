@@ -22,7 +22,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
         let clips = &context.clips;
         let images = &context.images;
         let text = &mut context.text;
-        let extensions = &mut context.extensions;
+        let draws = &mut context.draws;
         let buffer = &mut context.buffer;
 
         for offset in commands.offsets() {
@@ -41,7 +41,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                     for range in &self.ranges {
                         let clip = PhysicalRect::new(range.start as i32, line, (range.end - range.start) as i32, 1);
                         if clip_id == 0 {
-                            raster::draw_line(&payload, line, clip, 255, images, text, extensions, buffer);
+                            raster::draw_line(&payload, line, clip, 255, images, text, draws, buffer);
                         } else {
                             clips.for_each(clip_id, line, clip.x..clip.x + clip.width, |range, coverage| {
                                 raster::draw_line(
@@ -51,7 +51,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                                     coverage,
                                     images,
                                     text,
-                                    extensions,
+                                    draws,
                                     buffer,
                                 );
                             });

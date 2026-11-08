@@ -4,13 +4,12 @@ use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 use blit_gui::{
     FontData, FontStack, TextConfig, TextSystem,
     color::Color,
-    display_list::{ClipId, DisplayList, Mesh, MeshVertex, Rectangle},
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
-    shadow::BoxShadow,
+    paint::{Mesh, MeshVertex, Rectangle},
     style::{Border, BorderRadius, Fill, GradientStop, LinearGradient},
     text::{
-        FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextRequest, TextRun, TextStyle,
-        TextWrap, VerticalAlign,
+        FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextRequest, TextStyle, TextWrap,
+        VerticalAlign,
     },
 };
 use blit_text::{
@@ -47,7 +46,7 @@ fn atoms_record_into_the_renderer_context() {
         frame.layout(&mut renderer);
         frame.paint(&mut renderer);
         renderer.render(1);
-        assert!(renderer.display_list.is_empty());
+        assert!(renderer.frame.records.is_empty());
         assert!(renderer.buffer().pixels().iter().any(|pixel| pixel.raw() != 0xffffff));
     }
 }
@@ -55,7 +54,6 @@ fn atoms_record_into_the_renderer_context() {
 #[test]
 fn oversized_borders_fill_rectangle() {
     let area = LogicalRect::new(0.0, 0.0, 8.0, 8.0);
-    let bounds = area.to_physical(SCALE);
     let stops = [
         GradientStop::new(0.0, Color::WHITE),
         GradientStop::new(1.0, Color::WHITE),
@@ -64,18 +62,10 @@ fn oversized_borders_fill_rectangle() {
         Border::solid(f32::MAX, Color::WHITE),
         Border::gradient(f32::MAX, LinearGradient::new(&stops)),
     ] {
-        let mut list = DisplayList::default();
-        list.push_rectangle(Rectangle::new(area).border(border), bounds, ClipId::default());
         let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
-        renderer.render(&mut list);
-        assert!(
-            renderer
-                .render
-                .buffer()
-                .pixels()
-                .iter()
-                .all(|pixel| pixel.raw() == 0xffffff)
-        );
+        renderer.paint(area, Rectangle::new(area).border(border));
+        renderer.render(0);
+        assert!(renderer.buffer().pixels().iter().all(|pixel| pixel.raw() == 0xffffff));
     }
 }
 
@@ -96,26 +86,28 @@ fn scattered_tiles_stay_local_across_command_reorders() {
     )
     .strategy(Scanline::default());
     for frame in 0..3 {
-        renderer.render.buffer_mut().ranges.clear();
-        let list = &mut renderer.render.display_list;
-        list.push_clear(PhysicalRect::new(0, 0, 643, 53));
-        let clip = list.push_clip(
-            ClipId::default(),
+        renderer.buffer_mut().ranges.clear();
+
+        renderer.paint(
+            (PhysicalRect::new(0, 0, 643, 53)).to_logical(SCALE),
+            blit_gui::atom::Clear,
+        );
+        renderer.push_clip(
             LogicalRect::new(0.0, 0.0, if frame == 2 { 635.0 } else { 643.0 }, 53.0),
             BorderRadius::default(),
         );
         for position in 0..40 {
             let index = if frame == 2 { 39 - position } else { position };
             let area = LogicalRect::new((index * 16 + 1) as f32, 1.0, 2.0, 2.0);
-            list.push_rectangle(
+            renderer.paint(
+                area,
                 Rectangle::new(area).background(if frame == 0 { Color::WHITE } else { Color::BLACK }),
-                area.to_physical(SCALE),
-                clip,
             );
         }
-        renderer.render.render(1);
+        renderer.pop_clip();
+        renderer.render(1);
 
-        let touched: usize = renderer.render.buffer().ranges.iter().map(Range::len).sum();
+        let touched: usize = renderer.buffer().ranges.iter().map(Range::len).sum();
         assert_eq!(touched, [643 * 53, 40 * 8 * 8, 0][frame]);
     }
 }
@@ -139,27 +131,25 @@ fn dirty_tiles_preserve_gaps_and_blend_once() {
         )
         .strategy(S::default());
         for frame in 0..2 {
-            let list = &mut renderer.render.display_list;
-            list.push_rectangle(
+            renderer.paint(
+                screen.to_logical(SCALE),
                 Rectangle::new(screen.to_logical(SCALE)).background(Color::rgba(255, 0, 0, 128)),
-                screen,
-                ClipId::default(),
             );
             for region in regions {
-                list.push_rectangle(
+                renderer.paint(
+                    region.to_logical(SCALE),
                     Rectangle::new(region.to_logical(SCALE))
                         .background(Color::WHITE)
                         .opacity(frame as f32),
-                    region,
-                    ClipId::default(),
                 );
             }
             if frame == 0 {
                 // seed tracking without drawing to isolate partial rasterization
-                renderer.render.damage.update(list, screen, 1.0, 1);
-                renderer.render.display_list.clear();
+                renderer.damage.update(&renderer.frame, screen, 1.0, 1);
+                renderer.frame.clear();
+                renderer.context.commands.clear();
             } else {
-                renderer.render.render(1);
+                renderer.render(1);
             }
         }
         let red = 0x800000;
@@ -171,97 +161,12 @@ fn dirty_tiles_preserve_gaps_and_blend_once() {
             [0, 0, red, red, 0, 0, 0],
             [white, red, 0, 0, 0, 0, white],
         ];
-        for (index, pixel) in renderer.render.buffer().pixels().iter().enumerate() {
+        for (index, pixel) in renderer.buffer().pixels().iter().enumerate() {
             assert_eq!(pixel.raw(), expected[index / 7][index % 7], "pixel {index}");
         }
     }
     check::<Direct>();
     check::<Scanline>();
-}
-
-#[test]
-fn paint_changes_invalidate_damage_without_changing_bounds() {
-    fn check(mut damage: impl DamageTracker) {
-        let screen = PhysicalRect::new(0, 0, 16, 16);
-        let area = screen.to_logical(SCALE);
-        let mut list = DisplayList::default();
-        let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config())
-            .render
-            .text_system;
-        for case in ["fill", "border", "text color", "image", "shadow", "mesh", "clip"] {
-            for (frame, color) in [Color::BLACK, Color::WHITE, Color::WHITE].into_iter().enumerate() {
-                list.clear();
-                match case {
-                    "fill" | "border" => {
-                        let stops = [GradientStop::new(0.0, Color::BLACK), GradientStop::new(1.0, color)];
-                        let gradient = LinearGradient::new(&stops);
-                        let rectangle = if case == "fill" {
-                            Rectangle::new(area).background(gradient)
-                        } else {
-                            Rectangle::new(area).border(Border::gradient(2.0, gradient))
-                        };
-                        list.push_rectangle(rectangle, screen, ClipId::default());
-                    }
-                    "text color" => {
-                        let text = gui.rich_text("xy", &[Span::new(0..1), Span::new(1..2)], TextStyle::new());
-                        list.push_text(
-                            TextRequest {
-                                text,
-                                colors: &[Color::rgb(255, 0, 0), color],
-                                area,
-                                offset_x: 0.0,
-                                options: TextOptions::default(),
-                            },
-                            screen,
-                            ClipId::default(),
-                        );
-                    }
-                    "image" => list.push_image(
-                        ImageRequest {
-                            image: 1,
-                            area,
-                            fit: ImageFit::Fill,
-                            sampling: ImageSampling::Nearest,
-                            opacity: if color == Color::BLACK { 0.5 } else { 1.0 },
-                            colorize: None,
-                            nine_slice: None,
-                            horizontal_tiling: ImageTiling::None,
-                            vertical_tiling: ImageTiling::None,
-                        },
-                        screen,
-                        ClipId::default(),
-                    ),
-                    "shadow" => list.push_custom(screen, ClipId::default(), |_| BoxShadow::new(area, color).blur(2.0)),
-                    "mesh" => list.push_mesh(
-                        Mesh {
-                            vertices: &[
-                                MeshVertex::new(0.0, 0.0, color),
-                                MeshVertex::new(16.0, 0.0, Color::WHITE),
-                                MeshVertex::new(0.0, 16.0, Color::WHITE),
-                            ],
-                            indices: &[0, 1, 2],
-                        },
-                        SCALE,
-                        ClipId::default(),
-                    ),
-                    "clip" => {
-                        let clip = list.push_clip(
-                            ClipId::default(),
-                            area,
-                            BorderRadius::uniform(if color == Color::BLACK { 0.0 } else { 4.0 }),
-                        );
-                        list.push_rectangle(Rectangle::new(area).background(Color::WHITE), screen, clip);
-                    }
-                    _ => unreachable!(),
-                }
-                damage.update(&list, screen, 1.0, 1);
-                assert_eq!(damage.is_empty(), frame == 2, "{case} frame {frame}");
-                damage.finish_frame(&mut list);
-            }
-        }
-    }
-    check(TileDamage::new(8));
-    check(damage::command::CommandDiff::default());
 }
 
 #[test]
@@ -275,9 +180,7 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
             },
         )
         .strategy(Scanline::default());
-        let mut renderer = TestRenderer {
-            render: renderer.render.damage_tracker(damage),
-        };
+        let mut renderer = renderer.damage_tracker(damage);
         let mut buffers: [_; COUNT] = std::array::from_fn(|_| VecBuffer::<Argb8888>::new(37, 21));
         let mut presented = [None; COUNT];
         for frame in 0..270usize {
@@ -291,28 +194,27 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
             let age = presented[index]
                 .map(|last| u8::try_from(frame - last).unwrap_or(0))
                 .unwrap_or(0);
-            std::mem::swap(renderer.render.buffer_mut(), &mut buffers[index]);
+            std::mem::swap(renderer.buffer_mut(), &mut buffers[index]);
             let left = frame.min(19) % 5 * 7;
-            let list = &mut renderer.render.display_list;
-            list.push_clear(PhysicalRect::new(0, 0, 37, 21));
-            let area = LogicalRect::new(left as f32, 2.0, 6.0, 16.0);
-            list.push_rectangle(
-                Rectangle::new(area).background(Color::WHITE),
-                area.to_physical(SCALE),
-                ClipId::default(),
+
+            renderer.paint(
+                (PhysicalRect::new(0, 0, 37, 21)).to_logical(SCALE),
+                blit_gui::atom::Clear,
             );
-            renderer.render.render(age);
+            let area = LogicalRect::new(left as f32, 2.0, 6.0, 16.0);
+            renderer.paint(area, Rectangle::new(area).background(Color::WHITE));
+            renderer.render(age);
             let mut expected = [Argb8888::default(); 37 * 21];
             for row in 2..18 {
                 expected[row * 37 + left..row * 37 + left + 6].fill(Argb8888::from_raw(u32::MAX));
             }
             assert_eq!(
-                renderer.render.buffer().pixels(),
+                renderer.buffer().pixels(),
                 expected,
                 "buffers {COUNT} stale {stale} frame {frame} age {age}"
             );
 
-            std::mem::swap(renderer.render.buffer_mut(), &mut buffers[index]);
+            std::mem::swap(renderer.buffer_mut(), &mut buffers[index]);
             presented[index] = Some(frame);
         }
     }
@@ -386,31 +288,10 @@ fn renderer_config() -> RendererConfig {
     }
 }
 
-struct TestRenderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTracker = TileDamage> {
-    render: Renderer<B, S, D>,
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> TestRenderer<B, S, D> {
-    fn render(&mut self, display_list: &mut DisplayList) {
-        std::mem::swap(&mut self.render.display_list, display_list);
-        self.render.draw(0);
-        std::mem::swap(&mut self.render.display_list, display_list);
-        self.render.text_system.finish_frame();
-    }
-}
-
-impl<B: PixelBuffer> TestRenderer<B> {
-    fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> TestRenderer<B, T> {
-        TestRenderer {
-            render: self.render.strategy(strategy),
-        }
-    }
-}
-
-fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> TestRenderer<B> {
-    let mut render = Renderer::new(buffer, text_system(), config);
-    render.register(shadow::Renderer::new(1024 * 1024));
-    TestRenderer { render }
+fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B> {
+    Renderer::new(buffer, text_system(), config).handlers(Builtins {
+        shadow: shadow::Renderer::new(1024 * 1024),
+    })
 }
 
 fn text_system() -> TextSystem {
@@ -433,16 +314,15 @@ fn text_system() -> TextSystem {
 #[test]
 fn renderer_supports_custom_pixel_layouts() {
     let mut renderer = new_renderer(VecBuffer::<BgrPixel>::new(96, 24), renderer_config());
-    let clip = renderer.render.screen();
-    let mut paint = DisplayList::default();
-    paint.push_rectangle(
+    let clip = renderer.screen();
+
+    renderer.paint(
+        clip.to_logical(SCALE),
         Rectangle::new(clip.to_logical(SCALE)).background(Color::rgb(12, 34, 56)),
-        clip,
-        ClipId::default(),
     );
-    renderer.render(&mut paint);
+    renderer.render(0);
     assert_eq!(
-        renderer.render.buffer().pixels()[0],
+        renderer.buffer().pixels()[0],
         BgrPixel {
             blue: 56,
             green: 34,
@@ -450,11 +330,9 @@ fn renderer_supports_custom_pixel_layouts() {
         }
     );
 
-    let text =
-        renderer
-            .render
-            .text_system
-            .rich_text("M M", &[Span::new(0..2), Span::new(2..3)], TextStyle::new().size(20.0));
+    let text = renderer
+        .text_system
+        .rich_text("M M", &[Span::new(0..2), Span::new(2..3)], TextStyle::new().size(20.0));
     for (x, mut colors) in [
         (0.0, [Color::WHITE, Color::rgb(255, 0, 0)]),
         (32.0, [Color::rgb(255, 0, 0), Color::WHITE]),
@@ -466,7 +344,7 @@ fn renderer_supports_custom_pixel_layouts() {
             offset_x: 0.0,
             options: TextOptions::default(),
         };
-        renderer.render.paint(request.area, request);
+        renderer.paint(request.area, request);
         colors.fill(Color::TRANSPARENT);
     }
     let request = TextRequest {
@@ -476,10 +354,10 @@ fn renderer_supports_custom_pixel_layouts() {
         offset_x: 0.0,
         options: TextOptions::default(),
     };
-    renderer.render.paint(request.area, request);
-    renderer.render.render(0);
+    renderer.paint(request.area, request);
+    renderer.render(0);
 
-    let pixels = renderer.render.buffer().pixels();
+    let pixels = renderer.buffer().pixels();
     for (column, white) in [true, false, false, true, true, true].into_iter().enumerate() {
         assert!(pixels.chunks_exact(96).any(|row| {
             row[column * 16..(column + 1) * 16]
@@ -508,30 +386,35 @@ fn mesh_interpolates_colors_without_shared_edge_overdraw() {
         MeshVertex::new(16.0, 0.0, Color::rgb(0, 255, 0)),
         MeshVertex::new(8.0, 8.0, Color::rgb(0, 0, 255)),
     ];
-    let mut paint = DisplayList::default();
-    paint.push_mesh(
+
+    renderer.paint(
+        renderer.screen().to_logical(SCALE),
         Mesh {
             vertices: &vertices,
             indices: &[0, 1, 2, 2, 1, 3, 4, 5, 6],
         },
-        Scale2::IDENTITY,
-        ClipId::default(),
     );
 
-    renderer.render(&mut paint);
+    renderer.render(0);
 
-    let expected: [BgrPixel; 128] = renderer.render.buffer().pixels().try_into().unwrap();
-    let mut rectangles = DisplayList::default();
-    rectangles.push_rectangle(
+    let expected: [BgrPixel; 128] = renderer.buffer().pixels().try_into().unwrap();
+
+    renderer.paint(
+        bounds.to_logical(SCALE),
         Rectangle::new(LogicalRect::new(0.0, 0.0, 16.0, 8.0)).background(Color::BLACK),
-        bounds,
-        ClipId::default(),
     );
-    renderer.render(&mut rectangles);
-    renderer.render(&mut paint);
-    assert_eq!(renderer.render.buffer().pixels(), expected);
+    renderer.render(0);
+    renderer.paint(
+        bounds.to_logical(SCALE),
+        Mesh {
+            vertices: &vertices,
+            indices: &[0, 1, 2, 2, 1, 3, 4, 5, 6],
+        },
+    );
+    renderer.render(0);
+    assert_eq!(renderer.buffer().pixels(), expected);
 
-    let pixels = renderer.render.buffer().pixels();
+    let pixels = renderer.buffer().pixels();
     assert!(pixels.chunks_exact(16).all(|row| row[..8].iter().all(|pixel| *pixel
         == BgrPixel {
             red: 128,
@@ -557,34 +440,124 @@ fn recorded_commands_track_damage_and_invalidation() {
     )
     .strategy(Scanline::default());
     let rectangle = Rectangle::new(LogicalRect::new(0.0, 0.0, 2.0, 2.0)).background(Color::WHITE);
-    let render = |renderer: &mut TestRenderer<TrackingBuffer, Scanline>| {
-        renderer.render.buffer_mut().lines.clear();
-        renderer
-            .render
-            .display_list
-            .push_rectangle(rectangle, PhysicalRect::new(0, 0, 4, 4), ClipId::default());
-        renderer.render.render(1);
+    let render = |renderer: &mut Renderer<TrackingBuffer, Scanline>| {
+        renderer.buffer_mut().lines.clear();
+        renderer.paint(LogicalRect::new(0.0, 0.0, 4.0, 4.0), rectangle);
+        renderer.render(1);
     };
 
     render(&mut renderer);
-    assert!(!renderer.render.buffer().lines.is_empty());
+    assert!(!renderer.buffer().lines.is_empty());
 
     render(&mut renderer);
-    assert!(renderer.render.buffer().lines.is_empty());
+    assert!(renderer.buffer().lines.is_empty());
 
-    renderer.render.invalidate_all();
+    renderer.invalidate_all();
     render(&mut renderer);
-    assert!(!renderer.render.buffer().lines.is_empty());
+    assert!(!renderer.buffer().lines.is_empty());
 
-    renderer.render.set_scale(2.0);
+    renderer.set_scale(2.0);
     render(&mut renderer);
-    assert!(!renderer.render.buffer().lines.is_empty());
+    assert!(!renderer.buffer().lines.is_empty());
 
-    let buffer = renderer.render.buffer_mut();
+    let buffer = renderer.buffer_mut();
     buffer.width = 8;
     buffer.pixels.resize(8 * 4, Xrgb8888::default());
     render(&mut renderer);
-    assert!(!renderer.render.buffer().lines.is_empty());
+    assert!(!renderer.buffer().lines.is_empty());
+}
+
+#[test]
+fn paint_changes_invalidate_damage_without_changing_bounds() {
+    fn check<D: DamageTracker>(damage: impl Fn() -> D) {
+        let area = LogicalRect::new(0.0, 0.0, 16.0, 16.0);
+        for case in ["fill", "border", "text", "image", "shadow", "mesh", "clip"] {
+            let mut renderer = new_renderer(
+                TrackingBuffer {
+                    pixels: vec![Xrgb8888::default(); 16 * 16],
+                    lines: Vec::new(),
+                    ranges: Vec::new(),
+                    width: 16,
+                    height: 16,
+                },
+                renderer_config(),
+            )
+            .strategy(Scanline::default())
+            .damage_tracker(damage());
+            let image = renderer.create_image(ImageData::new(
+                ImagePixels::Static(&[255, 255, 255]),
+                ImageFormat::Rgb8,
+                1,
+                1,
+            ));
+            let text = renderer.text().text_run("M", TextStyle::default());
+            for (frame, color) in [Color::BLACK, Color::WHITE, Color::WHITE].into_iter().enumerate() {
+                renderer.buffer_mut().ranges.clear();
+                renderer.paint(area, blit_gui::atom::Clear);
+                match case {
+                    "fill" | "border" => {
+                        let stops = [GradientStop::new(0.0, Color::BLACK), GradientStop::new(1.0, color)];
+                        let gradient = LinearGradient::new(&stops);
+                        let rectangle = if case == "fill" {
+                            Rectangle::new(area).background(gradient)
+                        } else {
+                            Rectangle::new(area).border(Border::gradient(2.0, gradient))
+                        };
+                        renderer.paint(area, rectangle);
+                    }
+                    "text" => renderer.paint(
+                        area,
+                        TextRequest {
+                            text,
+                            colors: &[color],
+                            area,
+                            offset_x: 0.0,
+                            options: TextOptions::default(),
+                        },
+                    ),
+                    "image" => renderer.paint(
+                        area,
+                        ImageRequest {
+                            image: image.id(),
+                            area,
+                            fit: ImageFit::Fill,
+                            sampling: ImageSampling::Nearest,
+                            opacity: if frame == 0 { 0.5 } else { 1.0 },
+                            colorize: None,
+                            nine_slice: None,
+                            horizontal_tiling: ImageTiling::None,
+                            vertical_tiling: ImageTiling::None,
+                        },
+                    ),
+                    "shadow" => renderer.paint(
+                        area,
+                        blit_gui::shadow::BoxShadow::new(area, color).blur(2.0).inset(true),
+                    ),
+                    "mesh" => renderer.paint(
+                        area,
+                        Mesh {
+                            vertices: &[
+                                MeshVertex::new(0.0, 0.0, color),
+                                MeshVertex::new(16.0, 0.0, Color::WHITE),
+                                MeshVertex::new(0.0, 16.0, Color::WHITE),
+                            ],
+                            indices: &[0, 1, 2],
+                        },
+                    ),
+                    "clip" => {
+                        renderer.push_clip(area, BorderRadius::uniform(if frame == 0 { 0.0 } else { 4.0 }));
+                        renderer.paint(area, Rectangle::new(area).background(Color::WHITE));
+                        renderer.pop_clip();
+                    }
+                    _ => unreachable!(),
+                }
+                renderer.render(1);
+                assert_eq!(renderer.buffer().ranges.is_empty(), frame == 2, "{case} frame {frame}");
+            }
+        }
+    }
+    check(|| TileDamage::new(8));
+    check(damage::command::CommandDiff::default);
 }
 
 #[test]
@@ -594,11 +567,10 @@ fn text_placement_tracks_physical_clip_size() {
     for (x, y) in [(0.0, 0.0), (0.5, 0.0), (0.0, 0.5)] {
         let mut fresh = new_renderer(VecBuffer::<Xrgb8888>::new(16, 24), config);
         for renderer in [&mut renderer, &mut fresh] {
-            let text = renderer.render.text_system.rich_text(
-                "MM",
-                &[Span::new(0..1), Span::new(1..2)],
-                TextStyle::new().size(20.0),
-            );
+            let text =
+                renderer
+                    .text_system
+                    .rich_text("MM", &[Span::new(0..1), Span::new(1..2)], TextStyle::new().size(20.0));
             let request = TextRequest {
                 text,
                 colors: &[Color::rgb(255, 0, 0), Color::WHITE],
@@ -606,20 +578,13 @@ fn text_placement_tracks_physical_clip_size() {
                 offset_x: 12.0,
                 options: TextOptions::default(),
             };
-            let screen = renderer.render.screen();
-            renderer.render.display_list.push_clear(screen);
-            renderer.render.paint(request.area, request);
-            renderer.render.render(0);
+            let screen = renderer.screen();
+            renderer.paint(screen.to_logical(SCALE), blit_gui::atom::Clear);
+            renderer.paint(request.area, request);
+            renderer.render(0);
         }
-        assert_eq!(renderer.render.buffer().pixels(), fresh.render.buffer().pixels());
-        assert!(
-            fresh
-                .render
-                .buffer()
-                .pixels()
-                .iter()
-                .any(|pixel| pixel.raw() & 0xff00 != 0)
-        );
+        assert_eq!(renderer.buffer().pixels(), fresh.buffer().pixels());
+        assert!(fresh.buffer().pixels().iter().any(|pixel| pixel.raw() & 0xff00 != 0));
     }
 }
 
@@ -775,9 +740,7 @@ fn text_cache_stages_are_independent() {
 
 #[test]
 fn text_measurement_and_carets_follow_layout() {
-    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config())
-        .render
-        .text_system;
+    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config()).text_system;
     let request = TextLayoutRequest {
         text: gui.text_run("hello world", TextStyle::default()),
         wrap: TextWrap::None,
@@ -850,8 +813,8 @@ fn text_measurement_and_carets_follow_layout() {
 fn clear_resets_stale_pixels_before_drawing() {
     fn render<S: RenderStrategy<VecBuffer<Argb8888>>>(strategy: S, clear: bool, stale: Argb8888) -> Vec<Argb8888> {
         let mut renderer = new_renderer(VecBuffer::<Argb8888>::new(12, 10), renderer_config()).strategy(strategy);
-        renderer.render.buffer_mut().pixels_mut().fill(stale);
-        let screen = renderer.render.screen();
+        renderer.buffer_mut().pixels_mut().fill(stale);
+        let screen = renderer.screen();
         let rectangle = Rectangle::new(LogicalRect {
             width: 12.0,
             height: 10.0,
@@ -860,13 +823,13 @@ fn clear_resets_stale_pixels_before_drawing() {
         .background(Color::rgba(40, 120, 220, 144))
         .border(Border::solid(2.0, Color::rgba(240, 80, 30, 192)))
         .radius(BorderRadius::uniform(5.0));
-        let mut paint = DisplayList::default();
+
         if clear {
-            paint.push_clear(screen);
+            renderer.paint(screen.to_logical(SCALE), blit_gui::atom::Clear);
         }
-        paint.push_rectangle(rectangle, screen, ClipId::default());
-        renderer.render(&mut paint);
-        renderer.render.buffer().pixels().to_vec()
+        renderer.paint(screen.to_logical(SCALE), rectangle);
+        renderer.render(0);
+        renderer.buffer().pixels().to_vec()
     }
 
     let transparent = Argb8888::default();
@@ -881,79 +844,12 @@ fn clear_resets_stale_pixels_before_drawing() {
     assert_ne!(expected[12 / 2 + 10 / 2 * 12], transparent);
 
     let mut renderer = new_renderer(VecBuffer::<Argb8888>::new(12, 10), renderer_config());
-    renderer.render.buffer_mut().pixels_mut().fill(stale);
-    let screen = renderer.render.screen();
-    let mut paint = DisplayList::default();
-    paint.push_clear(screen);
-    renderer.render(&mut paint);
-    assert!(
-        renderer
-            .render
-            .buffer()
-            .pixels()
-            .iter()
-            .all(|pixel| *pixel == transparent)
-    );
-}
+    renderer.buffer_mut().pixels_mut().fill(stale);
+    let screen = renderer.screen();
 
-#[test]
-fn commands_outside_damage_are_not_prepared() {
-    let mut renderer = new_renderer(
-        VecBuffer::<Xrgb8888>::new(8, 4),
-        RendererConfig {
-            damage_tile_size: 2,
-            ..renderer_config()
-        },
-    );
-    let damaged = LogicalRect {
-        x: 0.0,
-        y: 0.0,
-        width: 2.0,
-        height: 2.0,
-    };
-    let outside = LogicalRect {
-        x: 4.0,
-        y: 0.0,
-        width: 4.0,
-        height: 4.0,
-    };
-    let mut paint = DisplayList::default();
-    paint.push_text(
-        TextRequest {
-            text: TextRun::default(),
-            colors: &[Color::BLACK],
-            area: outside,
-            offset_x: 0.0,
-            options: TextOptions::default(),
-        },
-        outside.to_physical(SCALE),
-        ClipId::default(),
-    );
-    paint.push_rectangle(
-        Rectangle::new(damaged).background(Color::WHITE),
-        damaged.to_physical(SCALE),
-        ClipId::default(),
-    );
-
-    // seed tracking without preparing the invalid text
-    let screen = renderer.render.screen();
-    renderer.render.damage.update(&paint, screen, 1.0, 1);
-    paint.push_rectangle(
-        Rectangle::new(damaged).background(Color::WHITE),
-        damaged.to_physical(SCALE),
-        ClipId::default(),
-    );
-    std::mem::swap(&mut renderer.render.display_list, &mut paint);
-    renderer.render.render(1);
-
-    assert_eq!(
-        renderer.render.buffer().pixels(),
-        [
-            0xffffff, 0xffffff, 0, 0, 0, 0, 0, 0, 0xffffff, 0xffffff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0
-        ]
-        .map(Xrgb8888::from_raw)
-    );
+    renderer.paint(screen.to_logical(SCALE), blit_gui::atom::Clear);
+    renderer.render(0);
+    assert!(renderer.buffer().pixels().iter().all(|pixel| *pixel == transparent));
 }
 
 #[test]
@@ -962,19 +858,19 @@ fn dropped_image_is_removed_after_last_handle() {
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config());
     let texture = ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgba8, 1, 1);
 
-    let first = renderer.render.create_image(texture);
+    let first = renderer.create_image(texture);
     let retained = first.clone();
     let first_id = first.id();
-    renderer.render(&mut DisplayList::default());
+    renderer.render(0);
     drop(first);
-    renderer.render(&mut DisplayList::default());
-    assert!(renderer.render.context.images.get(first_id.into()).is_some());
+    renderer.render(0);
+    assert!(renderer.context.images.get(first_id.into()).is_some());
 
     drop(retained);
-    renderer.render(&mut DisplayList::default());
-    assert!(renderer.render.context.images.get(first_id.into()).is_none());
+    renderer.render(0);
+    assert!(renderer.context.images.get(first_id.into()).is_none());
 
-    let replacement = renderer.render.create_image(ImageData::new(
+    let replacement = renderer.create_image(ImageData::new(
         ImagePixels::Static(&[0, 255, 0, 255]),
         ImageFormat::Rgba8,
         1,
@@ -1025,24 +921,24 @@ fn image_alpha_rows_are_cached_and_used() {
     }
     let mut renderer =
         new_renderer(VecBuffer::<TrackingPixel>::new(6, 4), renderer_config()).strategy(Scanline::default());
-    let image = renderer.render.create_image(ImageData::new(
+    let image = renderer.create_image(ImageData::new(
         ImagePixels::Owned(pixels.into()),
         ImageFormat::Rgba8Premultiplied,
         6,
         4,
     ));
-    renderer.render(&mut DisplayList::default());
+    renderer.render(0);
     let key = image.id();
-    let rows = &renderer.render.context.images.get(key.into()).unwrap().alpha_rows;
+    let rows = &renderer.context.images.get(key.into()).unwrap().alpha_rows;
     let rows: [_; 4] = std::array::from_fn(|index| rows.get(ImageFormat::Rgba8Premultiplied, index).unwrap());
     assert!(rows.iter().map(|row| row.visible_start).eq([1, 1, 0, 0]));
     assert!(rows.iter().map(|row| row.visible_end).eq([4, 4, 6, 6]));
     assert!(rows.iter().map(|row| row.opaque_start).eq([1, 1, 0, 0]));
     assert!(rows.iter().map(|row| row.opaque_end).eq([4, 4, 2, 2]));
-    assert!(renderer.render.context.images.get(key.into()).unwrap().has_opaque_spans);
-    assert!(!renderer.render.context.images.get(key.into()).unwrap().opaque);
+    assert!(renderer.context.images.get(key.into()).unwrap().has_opaque_spans);
+    assert!(!renderer.context.images.get(key.into()).unwrap().opaque);
 
-    let screen = renderer.render.screen();
+    let screen = renderer.screen();
     let request = ImageRequest {
         image: image.id(),
         area: screen.to_logical(SCALE),
@@ -1056,28 +952,27 @@ fn image_alpha_rows_are_cached_and_used() {
     };
     BLENDED.store(0, Ordering::Relaxed);
     COPIED.store(0, Ordering::Relaxed);
-    let mut paint = DisplayList::default();
-    paint.push_image(request, screen, ClipId::default());
-    renderer.render(&mut paint);
+
+    renderer.paint(screen.to_logical(SCALE), request);
+    renderer.render(0);
     assert_eq!(COPIED.load(Ordering::Relaxed), 10);
     assert_eq!(BLENDED.load(Ordering::Relaxed), 8);
 
     BLENDED.store(0, Ordering::Relaxed);
     COPIED.store(0, Ordering::Relaxed);
-    paint.clear();
-    paint.push_image(
+
+    renderer.paint(
+        screen.to_logical(SCALE),
         ImageRequest {
             opacity: 0.5,
             ..request
         },
-        screen,
-        ClipId::default(),
     );
-    renderer.render(&mut paint);
+    renderer.render(0);
     assert_eq!(COPIED.load(Ordering::Relaxed), 0);
     assert_eq!(BLENDED.load(Ordering::Relaxed), 18);
 
-    let image = renderer.render.create_image(ImageData::new(
+    let image = renderer.create_image(ImageData::new(
         ImagePixels::Owned(
             [
                 0, 64, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 2, 0, 0, 255, 255, 255, 255, 255, 255,
@@ -1088,48 +983,47 @@ fn image_alpha_rows_are_cached_and_used() {
         6,
         4,
     ));
-    renderer.render(&mut DisplayList::default());
+    renderer.render(0);
     let key = image.id();
-    let rows = &renderer.render.context.images.get(key.into()).unwrap().alpha_rows;
+    let rows = &renderer.context.images.get(key.into()).unwrap().alpha_rows;
     let rows: [_; 4] = std::array::from_fn(|index| rows.get(ImageFormat::Alpha8(Color::WHITE), index).unwrap());
     assert!(rows.iter().map(|row| row.visible_start).eq([1, 0, 1, 0]));
     assert!(rows.iter().map(|row| row.visible_end).eq([3, 0, 4, 6]));
     assert!(rows.iter().all(|row| row.opaque_start == 0 && row.opaque_end == 0));
     BLENDED.store(0, Ordering::Relaxed);
-    paint.clear();
-    paint.push_image(
+
+    renderer.paint(
+        screen.to_logical(SCALE),
         ImageRequest {
             image: image.id(),
             opacity: 1.0,
             ..request
         },
-        screen,
-        ClipId::default(),
     );
-    renderer.render(&mut paint);
+    renderer.render(0);
     assert_eq!(BLENDED.load(Ordering::Relaxed), 11);
 
-    let image = renderer.render.create_image(ImageData::new(
+    let image = renderer.create_image(ImageData::new(
         ImagePixels::Static(&[255; 6 * 4]),
         ImageFormat::Alpha8(Color::WHITE),
         6,
         4,
     ));
-    renderer.render(&mut DisplayList::default());
+    renderer.render(0);
     let key = image.id();
-    let image = &renderer.render.context.images.get(key.into()).unwrap();
+    let image = &renderer.context.images.get(key.into()).unwrap();
     assert!(image.opaque);
     assert!(image.alpha_rows.get(ImageFormat::Alpha8(Color::WHITE), 0).is_none());
 
-    let image = renderer.render.create_image(ImageData::new(
+    let image = renderer.create_image(ImageData::new(
         ImagePixels::Static(&[255; 6 * 4 * 4]),
         ImageFormat::Rgba8Premultiplied,
         6,
         4,
     ));
-    renderer.render(&mut DisplayList::default());
+    renderer.render(0);
     let key = image.id();
-    let image = &renderer.render.context.images.get(key.into()).unwrap();
+    let image = &renderer.context.images.get(key.into()).unwrap();
     assert!(image.opaque);
     assert!(image.alpha_rows.get(ImageFormat::Rgba8Premultiplied, 0).is_none());
 }
@@ -1181,63 +1075,57 @@ fn scanline_skips_commands_behind_opaque_content() {
 
     let mut renderer =
         new_renderer(VecBuffer::<CountingPixel>::new(4, 2), renderer_config()).strategy(Scanline::default());
-    let screen = renderer.render.screen();
+    let screen = renderer.screen();
     let area = LogicalRect {
         width: 4.0,
         height: 2.0,
         ..LogicalRect::default()
     };
-    let mut paint = DisplayList::default();
-    paint.push_rectangle(
+
+    renderer.paint(
+        screen.to_logical(SCALE),
         Rectangle::new(area).background(Color::rgba(255, 0, 0, 128)),
-        screen,
-        ClipId::default(),
     );
-    paint.push_rectangle(
+    renderer.paint(
+        screen.to_logical(SCALE),
         Rectangle::new(area).background(Color::rgb(0, 255, 0)),
-        screen,
-        ClipId::default(),
     );
-    paint.push_rectangle(
+    renderer.paint(
+        screen.to_logical(SCALE),
         Rectangle::new(area).background(Color::rgba(0, 0, 255, 128)),
-        screen,
-        ClipId::default(),
     );
-    renderer.render(&mut paint);
+    renderer.render(0);
 
     assert_eq!(SOLID_PAIRS.load(std::sync::atomic::Ordering::Relaxed), 2);
-    assert!(renderer.render.buffer().pixels().iter().all(|pixel| pixel.draws == 2));
+    assert!(renderer.buffer().pixels().iter().all(|pixel| pixel.draws == 2));
 
     let mut renderer =
         new_renderer(VecBuffer::<CountingPixel>::new(8, 7), renderer_config()).strategy(Scanline::default());
-    let screen = renderer.render.screen();
+    let screen = renderer.screen();
     let area = LogicalRect {
         width: 8.0,
         height: 7.0,
         ..LogicalRect::default()
     };
-    paint.clear();
-    paint.push_rectangle(
+
+    renderer.paint(
+        screen.to_logical(SCALE),
         Rectangle::new(area).background(Color::rgba(255, 0, 0, 128)),
-        screen,
-        ClipId::default(),
     );
-    paint.push_rectangle(
+    renderer.paint(
+        screen.to_logical(SCALE),
         Rectangle::new(area)
             .background(Color::rgb(0, 255, 0))
             .radius(BorderRadius::uniform(3.0)),
-        screen,
-        ClipId::default(),
     );
-    paint.push_rectangle(
+    renderer.paint(
+        screen.to_logical(SCALE),
         Rectangle::new(area).background(Color::rgba(0, 0, 255, 128)),
-        screen,
-        ClipId::default(),
     );
-    renderer.render(&mut paint);
+    renderer.render(0);
 
     assert!(
-        renderer.render.buffer().pixels()[3 * 8..4 * 8]
+        renderer.buffer().pixels()[3 * 8..4 * 8]
             .iter()
             .all(|pixel| pixel.draws == 2)
     );
@@ -1245,13 +1133,13 @@ fn scanline_skips_commands_behind_opaque_content() {
     static IMAGE_PIXEL: [u8; 4] = [0, 255, 0, 255];
     let mut renderer =
         new_renderer(VecBuffer::<CountingPixel>::new(4, 2), renderer_config()).strategy(Scanline::default());
-    let image = renderer.render.create_image(ImageData::new(
+    let image = renderer.create_image(ImageData::new(
         ImagePixels::Static(&IMAGE_PIXEL),
         ImageFormat::Rgba8,
         1,
         1,
     ));
-    let screen = renderer.render.screen();
+    let screen = renderer.screen();
     let area = LogicalRect {
         width: 4.0,
         height: 2.0,
@@ -1269,24 +1157,22 @@ fn scanline_skips_commands_behind_opaque_content() {
         vertical_tiling: ImageTiling::None,
     };
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
-    paint.clear();
-    paint.push_rectangle(
+
+    renderer.paint(
+        screen.to_logical(SCALE),
         Rectangle::new(area).background(Color::rgba(255, 0, 0, 128)),
-        screen,
-        ClipId::default(),
     );
-    paint.push_image(image, screen, ClipId::default());
-    paint.push_rectangle(
+    renderer.paint(screen.to_logical(SCALE), image);
+    renderer.paint(
+        screen.to_logical(SCALE),
         Rectangle::new(area).background(Color::rgba(0, 0, 255, 128)),
-        screen,
-        ClipId::default(),
     );
-    renderer.render(&mut paint);
+    renderer.render(0);
 
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 8);
 
     static TRANSPARENT_IMAGE_PIXEL: [u8; 4] = [0, 255, 0, 254];
-    let transparent_image = renderer.render.create_image(ImageData::new(
+    let transparent_image = renderer.create_image(ImageData::new(
         ImagePixels::Static(&TRANSPARENT_IMAGE_PIXEL),
         ImageFormat::Rgba8,
         1,
@@ -1297,19 +1183,17 @@ fn scanline_skips_commands_behind_opaque_content() {
         ..image
     };
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
-    paint.clear();
-    paint.push_rectangle(
+
+    renderer.paint(
+        screen.to_logical(SCALE),
         Rectangle::new(area).background(Color::rgba(255, 0, 0, 128)),
-        screen,
-        ClipId::default(),
     );
-    paint.push_image(transparent_image, screen, ClipId::default());
-    paint.push_rectangle(
+    renderer.paint(screen.to_logical(SCALE), transparent_image);
+    renderer.paint(
+        screen.to_logical(SCALE),
         Rectangle::new(area).background(Color::rgba(0, 0, 255, 128)),
-        screen,
-        ClipId::default(),
     );
-    renderer.render(&mut paint);
+    renderer.render(0);
 
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 16);
 
@@ -1319,14 +1203,14 @@ fn scanline_skips_commands_behind_opaque_content() {
     static UNDERLAY_ALPHA: [u8; 1] = [128];
     let mut renderer =
         new_renderer(VecBuffer::<CountingPixel>::new(6, 1), renderer_config()).strategy(Scanline::default());
-    let partial_image = renderer.render.create_image(ImageData::new(
+    let partial_image = renderer.create_image(ImageData::new(
         ImagePixels::Static(&PARTIAL_IMAGE_PIXELS),
         ImageFormat::Rgba8Premultiplied,
         6,
         1,
     ));
-    let screen = renderer.render.screen();
-    let underlay = renderer.render.create_image(ImageData::new(
+    let screen = renderer.screen();
+    let underlay = renderer.create_image(ImageData::new(
         ImagePixels::Static(&UNDERLAY_ALPHA),
         ImageFormat::Alpha8(Color::BLACK),
         1,
@@ -1357,15 +1241,14 @@ fn scanline_skips_commands_behind_opaque_content() {
     let background = Rectangle::new(screen.to_logical(SCALE)).background(Color::rgba(255, 0, 0, 128));
     let overlay = Rectangle::new(screen.to_logical(SCALE)).background(Color::rgba(0, 0, 255, 128));
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
-    paint.clear();
-    paint.push_rectangle(background, screen, ClipId::default());
-    paint.push_image(underlay, screen, ClipId::default());
-    paint.push_image(partial_image, screen, ClipId::default());
-    paint.push_rectangle(overlay, screen, ClipId::default());
-    renderer.render(&mut paint);
+
+    renderer.paint(screen.to_logical(SCALE), background);
+    renderer.paint(screen.to_logical(SCALE), underlay);
+    renderer.paint(screen.to_logical(SCALE), partial_image);
+    renderer.paint(screen.to_logical(SCALE), overlay);
+    renderer.render(0);
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 14);
     for (rendered, source) in renderer
-        .render
         .buffer()
         .pixels()
         .iter()
@@ -1385,121 +1268,27 @@ fn scanline_skips_commands_behind_opaque_content() {
     }
 
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
-    paint.clear();
-    paint.push_rectangle(background, screen, ClipId::default());
-    paint.push_image(underlay, screen, ClipId::default());
-    paint.push_image(
+
+    renderer.paint(screen.to_logical(SCALE), background);
+    renderer.paint(screen.to_logical(SCALE), underlay);
+    renderer.paint(
+        screen.to_logical(SCALE),
         ImageRequest {
             opacity: 0.5,
             ..partial_image
         },
-        screen,
-        ClipId::default(),
     );
-    paint.push_rectangle(overlay, screen, ClipId::default());
-    renderer.render(&mut paint);
+    renderer.paint(screen.to_logical(SCALE), overlay);
+    renderer.render(0);
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 18);
 
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
-    paint.clear();
-    paint.push_rectangle(background, screen, ClipId::default());
-    paint.push_image(partial_image, screen, ClipId::default());
-    paint.push_rectangle(overlay, screen, ClipId::default());
-    renderer.render(&mut paint);
+
+    renderer.paint(screen.to_logical(SCALE), background);
+    renderer.paint(screen.to_logical(SCALE), partial_image);
+    renderer.paint(screen.to_logical(SCALE), overlay);
+    renderer.render(0);
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 10);
-}
-
-#[test]
-fn box_shadows_match_between_strategies_and_cache_sizes() {
-    fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(strategy: S) -> TestRenderer<VecBuffer<Xrgb8888>, S> {
-        let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(128, 96), renderer_config()).strategy(strategy);
-        renderer.render.set_scale(2.0);
-        let screen = renderer.render.screen();
-        let image = renderer.render.create_image(ImageData::new(
-            ImagePixels::Static(&[255, 0, 0, 255]),
-            ImageFormat::Rgba8,
-            1,
-            1,
-        ));
-        let request = ImageRequest {
-            image: image.id(),
-            area: LogicalRect::new(0.0, 0.0, 1.0, 1.0),
-            fit: ImageFit::Fill,
-            sampling: ImageSampling::Nearest,
-            opacity: 1.0,
-            colorize: None,
-            nine_slice: None,
-            horizontal_tiling: ImageTiling::None,
-            vertical_tiling: ImageTiling::None,
-        };
-        let first = BoxShadow::new(
-            LogicalRect {
-                x: 12.0,
-                y: 10.0,
-                width: 36.0,
-                height: 24.0,
-            },
-            Color::rgba(220, 40, 20, 180),
-        )
-        .radius(BorderRadius {
-            top_left: 6.0,
-            top_right: 6.0,
-            bottom_right: 6.0,
-            bottom_left: 6.0,
-        })
-        .offset(2.0, 3.0)
-        .blur(5.0)
-        .spread(1.0);
-        let second = BoxShadow {
-            area: LogicalRect {
-                x: 4.0,
-                y: 24.0,
-                width: 52.0,
-                height: 20.0,
-            },
-            color: Color::rgba(20, 80, 220, 140),
-            ..first
-        };
-        let mut paint = DisplayList::default();
-        paint.push_custom(screen, ClipId::default(), |_| first);
-        paint.push_custom(screen, ClipId::default(), |_| second);
-        paint.push_image(request, screen, ClipId::default());
-        renderer.render(&mut paint);
-        assert_eq!(renderer.render.context.images.len(), 3);
-        assert!(renderer.render.context.images.get(image.id().into()).is_some());
-        paint.clear();
-        paint.push_custom(screen, ClipId::default(), |_| BoxShadow {
-            area: LogicalRect { x: 20.0, ..first.area },
-            ..first
-        });
-        paint.push_rectangle(
-            Rectangle::new(first.area).background(Color::WHITE).radius(first.radius),
-            screen,
-            ClipId::default(),
-        );
-        let inset = BoxShadow {
-            area: first.area,
-            color: Color::BLACK,
-            offset_x: 0.0,
-            offset_y: 0.0,
-            spread: 0.0,
-            inset: true,
-            ..first
-        };
-        paint.push_custom(screen, ClipId::default(), |_| inset);
-        paint.push_image(request, screen, ClipId::default());
-        renderer.render(&mut paint);
-        assert_eq!(renderer.render.context.images.len(), 4);
-        renderer
-    }
-
-    let direct = render(Direct::default());
-    let scanline = render(Scanline::default());
-    assert_eq!(scanline.render.buffer().pixels(), direct.render.buffer().pixels());
-    let pixels = direct.render.buffer().pixels();
-    assert_eq!(pixels[44 * 128 + 60].raw(), 0x00ff_ffff);
-    assert_ne!(pixels[20 * 128 + 60].raw(), 0x00ff_ffff);
-    assert_eq!(pixels[0].raw(), 0x00ff_0000);
 }
 
 #[test]
@@ -1507,12 +1296,11 @@ fn gradients_match_between_strategies_and_rounded_clips() {
     fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(
         strategy: S,
         gradient_background: bool,
-    ) -> TestRenderer<VecBuffer<Xrgb8888>, S> {
+    ) -> Renderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(48, 36), renderer_config()).strategy(strategy);
-        let screen = renderer.render.screen();
-        let mut paint = DisplayList::default();
-        let clip = paint.push_clip(
-            ClipId::default(),
+        let screen = renderer.screen();
+
+        renderer.push_clip(
             LogicalRect {
                 x: 2.0,
                 y: 2.0,
@@ -1532,7 +1320,8 @@ fn gradients_match_between_strategies_and_rounded_clips() {
                 GradientStop::new(0.4, Color::rgba(40, 240, 80, 180)),
                 GradientStop::new(1.0, Color::rgba(32, 64, 255, 240)),
             ];
-            paint.push_rectangle(
+            renderer.paint(
+                screen.to_logical(SCALE),
                 Rectangle::new(LogicalRect {
                     x: 4.0,
                     y: 3.0,
@@ -1546,20 +1335,19 @@ fn gradients_match_between_strategies_and_rounded_clips() {
                 })
                 .border(Border::gradient(3.0, LinearGradient::new(&stops).angle(135.0)))
                 .radius(BorderRadius::uniform(9.0)),
-                screen,
-                clip,
             );
         }
-        renderer.render(&mut paint);
+        renderer.pop_clip();
+        renderer.render(0);
         renderer
     }
 
     for gradient_background in [false, true] {
         let direct = render(Direct::default(), gradient_background);
         let scanline = render(Scanline::default(), gradient_background);
-        assert_eq!(scanline.render.buffer().pixels(), direct.render.buffer().pixels());
+        assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
         assert_eq!(
-            direct.render.buffer().pixels()[18 * 48 + 24].raw(),
+            direct.buffer().pixels()[18 * 48 + 24].raw(),
             if gradient_background { 0x001c_945a } else { 0x0010_131a }
         );
     }
@@ -1568,13 +1356,11 @@ fn gradients_match_between_strategies_and_rounded_clips() {
 #[test]
 fn rounded_clips_match_between_strategies() {
     static PIXEL: [u8; 3] = [0, 255, 0];
-    fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(strategy: S) -> TestRenderer<VecBuffer<Xrgb8888>, S> {
+    fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(strategy: S) -> Renderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(16, 16), renderer_config()).strategy(strategy);
-        let image = renderer
-            .render
-            .create_image(ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgb8, 1, 1));
-        let string = renderer.render.text_system.text_run("M", TextStyle::new());
-        let screen = renderer.render.screen();
+        let image = renderer.create_image(ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgb8, 1, 1));
+        let string = renderer.text_system.text_run("M", TextStyle::new());
+        let screen = renderer.screen();
         let area = LogicalRect {
             width: 16.0,
             height: 16.0,
@@ -1600,9 +1386,7 @@ fn rounded_clips_match_between_strategies() {
             options: TextOptions::default(),
         };
 
-        let mut paint = DisplayList::default();
-        let outer_clip = paint.push_clip(
-            ClipId::default(),
+        renderer.push_clip(
             area,
             BorderRadius {
                 top_left: 8.0,
@@ -1611,9 +1395,8 @@ fn rounded_clips_match_between_strategies() {
                 bottom_left: 8.0,
             },
         );
-        paint.push_rectangle(red, screen, outer_clip);
-        let inner_clip = paint.push_clip(
-            outer_clip,
+        renderer.paint(screen.to_logical(SCALE), red);
+        renderer.push_clip(
             LogicalRect {
                 width: 8.0,
                 height: 8.0,
@@ -1621,9 +1404,12 @@ fn rounded_clips_match_between_strategies() {
             },
             BorderRadius::default(),
         );
-        paint.push_image(image, screen, inner_clip);
-        paint.push_text(text, screen, inner_clip);
-        paint.push_rectangle(
+        renderer.paint(screen.to_logical(SCALE), image);
+        renderer.paint(screen.to_logical(SCALE), text);
+        renderer.pop_clip();
+        renderer.pop_clip();
+        renderer.paint(
+            screen.to_logical(SCALE),
             Rectangle::new(LogicalRect {
                 x: 15.0,
                 y: 15.0,
@@ -1631,36 +1417,33 @@ fn rounded_clips_match_between_strategies() {
                 height: 1.0,
             })
             .background(Color::rgb(0, 0, 255)),
-            screen,
-            ClipId::default(),
         );
-        renderer.render(&mut paint);
+        renderer.render(0);
         renderer
     }
 
     let direct = render(Direct::default());
     let scanline = render(Scanline::default());
 
-    assert_eq!(scanline.render.buffer().pixels(), direct.render.buffer().pixels());
-    assert_eq!(direct.render.buffer().pixels()[0].raw(), 0);
-    let edge = direct.render.buffer().pixels()[6].raw();
+    assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
+    assert_eq!(direct.buffer().pixels()[0].raw(), 0);
+    let edge = direct.buffer().pixels()[6].raw();
     assert!((1..255).contains(&((edge >> 8) & 0xff)));
-    let edge = direct.render.buffer().pixels()[9].raw();
+    let edge = direct.buffer().pixels()[9].raw();
     assert!((1..255).contains(&((edge >> 16) & 0xff)));
-    assert_eq!(direct.render.buffer().pixels()[15 * 16 + 15].raw(), 0x0000_00ff);
+    assert_eq!(direct.buffer().pixels()[15 * 16 + 15].raw(), 0x0000_00ff);
 }
 
 #[test]
 fn dropped_image_remains_valid_until_frame_end() {
     static PIXEL: [u8; 4] = [255, 0, 0, 255];
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config()).strategy(Scanline::default());
-    let image = renderer
-        .render
-        .create_image(ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgba8, 1, 1));
-    let screen = renderer.render.screen();
-    let mut paint = DisplayList::default();
-    paint.push_clear(screen);
-    paint.push_image(
+    let image = renderer.create_image(ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgba8, 1, 1));
+    let screen = renderer.screen();
+
+    renderer.paint(screen.to_logical(SCALE), blit_gui::atom::Clear);
+    renderer.paint(
+        screen.to_logical(SCALE),
         ImageRequest {
             image: image.id(),
             area: LogicalRect {
@@ -1677,33 +1460,30 @@ fn dropped_image_remains_valid_until_frame_end() {
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
         },
-        screen,
-        ClipId::default(),
     );
     let image_id = image.id();
     drop(image);
-    renderer.render(&mut paint);
+    renderer.render(0);
 
-    assert_eq!(renderer.render.buffer().pixels()[0].raw(), 0x00ff_0000);
-    assert!(renderer.render.context.images.get(image_id.into()).is_none());
-    assert!(renderer.render.context.images.is_empty());
+    assert_eq!(renderer.buffer().pixels()[0].raw(), 0x00ff_0000);
+    assert!(renderer.context.images.get(image_id.into()).is_none());
+    assert!(renderer.context.images.is_empty());
 
-    let replacement = renderer.render.create_image(ImageData::new(
+    let replacement = renderer.create_image(ImageData::new(
         ImagePixels::Static(&[0, 255, 0, 255]),
         ImageFormat::Rgba8,
         1,
         1,
     ));
     assert_ne!(replacement.id(), image_id);
-    renderer.render(&mut paint);
-    assert_eq!(renderer.render.buffer().pixels()[0].raw(), 0);
+    renderer.paint(screen.to_logical(SCALE), blit_gui::atom::Clear);
+    renderer.render(0);
+    assert_eq!(renderer.buffer().pixels()[0].raw(), 0);
 }
 
 #[test]
 fn text_runs_are_keyed_by_content_and_style() {
-    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config())
-        .render
-        .text_system;
+    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config()).text_system;
     let style = TextStyle::default();
     let text = gui.text_run("same", style);
     let white = gui.text_run("same", style.color(Color::WHITE));
@@ -1775,14 +1555,10 @@ fn damage_trackers_preserve_overlapping_reorders() {
     fn check<D: DamageTracker>(make_damage: impl Fn() -> D) {
         let incremental =
             new_renderer(VecBuffer::<Xrgb8888>::new(16, 16), renderer_config()).strategy(Scanline::default());
-        let mut incremental = TestRenderer {
-            render: incremental.render.damage_tracker(make_damage()),
-        };
+        let mut incremental = incremental.damage_tracker(make_damage());
         let reference =
             new_renderer(VecBuffer::<Xrgb8888>::new(16, 16), renderer_config()).strategy(Scanline::default());
-        let mut reference = TestRenderer {
-            render: reference.render.damage_tracker(make_damage()),
-        };
+        let mut reference = reference.damage_tracker(make_damage());
         let frames: &[&[u8]] = &[
             &[0, 1, 2],
             &[0, 3, 1, 2, 4],
@@ -1794,25 +1570,20 @@ fn damage_trackers_preserve_overlapping_reorders() {
             &[0, 1, 2],
         ];
         for frame in frames {
-            reference.render.invalidate_all();
+            reference.invalidate_all();
             for renderer in [&mut incremental, &mut reference] {
-                renderer.render.display_list.push_clear(PhysicalRect::new(0, 0, 16, 16));
+                renderer.paint(
+                    (PhysicalRect::new(0, 0, 16, 16)).to_logical(SCALE),
+                    blit_gui::atom::Clear,
+                );
                 for &index in *frame {
                     let rectangle = Rectangle::new(LogicalRect::new(index as f32, index as f32, 10.0, 10.0))
                         .background(Color::rgba(index * 50, 100, 200, 128));
-                    renderer.render.display_list.push_rectangle(
-                        rectangle,
-                        rectangle.area.to_physical(SCALE),
-                        ClipId::default(),
-                    );
+                    renderer.paint(rectangle.area, rectangle);
                 }
-                renderer.render.render(1);
+                renderer.render(1);
             }
-            assert_eq!(
-                incremental.render.buffer().pixels(),
-                reference.render.buffer().pixels(),
-                "{frame:?}"
-            );
+            assert_eq!(incremental.buffer().pixels(), reference.buffer().pixels(), "{frame:?}");
         }
     }
     check(|| TileDamage::new(8));

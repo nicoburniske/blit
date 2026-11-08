@@ -53,7 +53,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
     clip_ranges: &[Option<ClipLine>],
     images: &Arena<StoredImage>,
     text: &mut TextRenderer,
-    extensions: &mut crate::extension::registry::Registry<P>,
+    draws: &mut crate::paint::Draws<P>,
     buffer: &mut LineBuffer<'_, P>,
 ) {
     let line = buffer.line as i32;
@@ -104,7 +104,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
                                 width: range.end - range.start,
                                 height: 1,
                             };
-                            raster::draw_line(&payload, line, clip, coverage, images, text, extensions, buffer);
+                            raster::draw_line(&payload, line, clip, coverage, images, text, draws, buffer);
                         },
                     );
                     continue;
@@ -117,16 +117,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
             width: end - start,
             height: 1,
         };
-        raster::draw_line(
-            &commands.get(*command),
-            line,
-            clip,
-            255,
-            images,
-            text,
-            extensions,
-            buffer,
-        );
+        raster::draw_line(&commands.get(*command), line, clip, 255, images, text, draws, buffer);
     }
 }
 
@@ -139,7 +130,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         let clips = &context.clips;
         let images = &context.images;
         let text = &mut context.text;
-        let extensions = &mut context.extensions;
+        let draws = &mut context.draws;
         let buffer = &mut context.buffer;
         let clipped = commands.has_clips;
 
@@ -231,7 +222,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 &self.clip_ranges,
                                 images,
                                 text,
-                                extensions,
+                                draws,
                                 &mut buffer,
                             );
                         } else {
@@ -241,7 +232,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 &self.clip_ranges,
                                 images,
                                 text,
-                                extensions,
+                                draws,
                                 &mut buffer,
                             );
                         }
@@ -290,7 +281,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 &self.clip_ranges,
                                 images,
                                 text,
-                                extensions,
+                                draws,
                                 &mut buffer,
                             );
                         } else {
@@ -300,7 +291,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 &self.clip_ranges,
                                 images,
                                 text,
-                                extensions,
+                                draws,
                                 &mut buffer,
                             );
                         }

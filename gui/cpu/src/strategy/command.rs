@@ -19,6 +19,7 @@ pub type CommandId = u32;
 #[derive(Default)]
 pub struct CommandList {
     commands: Vec<StoredCommand>,
+    pub range: Option<Range<CommandId>>,
     pub gradients: Gradients,
     has_partial_opaque: bool,
     pub has_clips: bool,
@@ -32,6 +33,7 @@ pub enum Payload<'a> {
     Text(&'a PreparedText),
     Triangle(&'a PreparedTriangle),
     Custom(u32),
+    Pass(u32),
 }
 
 #[derive(Clone, Copy)]
@@ -45,12 +47,16 @@ pub struct PreparedText {
 }
 
 impl CommandList {
-    pub fn push_custom(&mut self, id: u32, bounds: PhysicalRect, clip: ClipId) {
-        self.push(StoredPayload::Custom(id), bounds, clip, false, false);
+    pub fn push_pass(&mut self, id: u32, bounds: PhysicalRect, clip: ClipId) {
+        self.push(StoredPayload::Pass(id), bounds, clip, false, false);
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.commands.is_empty()
+    pub fn len(&self) -> CommandId {
+        CommandId::try_from(self.commands.len()).expect("too many cpu commands in one frame")
+    }
+
+    pub fn push_custom(&mut self, id: u32, bounds: PhysicalRect, clip: ClipId) {
+        self.push(StoredPayload::Custom(id), bounds, clip, false, false);
     }
 
     pub fn push_clear(&mut self, bounds: PhysicalRect) {
@@ -111,6 +117,7 @@ impl CommandList {
             StoredPayload::Text(text) => Payload::Text(text),
             StoredPayload::Triangle(triangle) => Payload::Triangle(triangle),
             StoredPayload::Custom(id) => Payload::Custom(*id),
+            StoredPayload::Pass(id) => Payload::Pass(*id),
         }
     }
 
@@ -151,7 +158,7 @@ impl CommandList {
             Payload::Rectangle(rectangle, _) => rectangle.overwrite_span(line)?,
             Payload::SolidPair(_) => bounds.clone(),
             Payload::Image(_) => bounds.clone(),
-            Payload::Text(_) | Payload::Triangle(_) | Payload::Custom(_) => {
+            Payload::Text(_) | Payload::Triangle(_) | Payload::Custom(_) | Payload::Pass(_) => {
                 return None;
             }
         };
@@ -161,11 +168,12 @@ impl CommandList {
     }
 
     pub fn offsets(&self) -> Range<CommandId> {
-        0..CommandId::try_from(self.commands.len()).expect("too many CPU commands in one frame")
+        self.range.clone().unwrap_or_else(|| 0..self.len())
     }
 
     pub fn clear(&mut self) {
         self.commands.clear();
+        self.range = None;
         self.gradients.entries.clear();
         self.gradients.stops.clear();
         self.has_partial_opaque = false;
@@ -209,4 +217,5 @@ enum StoredPayload {
     Text(PreparedText),
     Triangle(PreparedTriangle),
     Custom(u32),
+    Pass(u32),
 }

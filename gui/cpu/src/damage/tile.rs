@@ -2,7 +2,7 @@
 //!
 //! each frame hashes command contents and relevant clips in drawing order into the
 //! physical tiles they intersect. comparing tile hashes detects changes without
-//! retaining the previous display list
+//! retaining the previous command data
 //!
 //! per tile ages count presentations since the last change. tiles younger than the
 //! supplied buffer age need repainting. buffer age zero forces a full repaint
@@ -10,18 +10,11 @@
 //! a summed area table supports constant time damage queries over command bounds
 //! rendering consumes disjoint horizontal runs of dirty tiles
 
-use std::{
-    hash::{Hash, Hasher},
-    ops::Range,
-};
+use std::{hash::Hash, ops::Range};
 
 use blit::{PhysicalRect, Scale2, internal::hash::FxHasher};
-use blit_gui::{
-    display_list::{Command, DisplayList},
-    style::Fill,
-};
 
-use super::DamageTracker;
+use super::{DamageTracker, Frame};
 
 pub struct TileDamage {
     shift: u32,
@@ -62,7 +55,7 @@ impl TileDamage {
 }
 
 impl DamageTracker for TileDamage {
-    fn update(&mut self, display_list: &DisplayList, screen: PhysicalRect, scale: f32, buffer_age: u8) {
+    fn update(&mut self, frame: &Frame, screen: PhysicalRect, scale: f32, buffer_age: u8) {
         let tile_size = 1usize << self.shift;
         if self.screen != screen {
             self.screen = screen;
@@ -87,8 +80,8 @@ impl DamageTracker for TileDamage {
             bounds: screen,
             inner: screen,
         });
-        for clip in display_list.clips() {
-            let parent = &self.clips[clip.parent.0 as usize];
+        for clip in &frame.clips {
+            let parent = &self.clips[clip.parent as usize];
             let area = clip.area.to_physical(Scale2::uniform(scale));
             let radius = [
                 clip.radius.top_left,
@@ -125,8 +118,8 @@ impl DamageTracker for TileDamage {
                 inner: inner.intersection(parent.inner).unwrap_or_default(),
             });
         }
-        for record in display_list.iter() {
-            let clip = &self.clips[record.clip.0 as usize];
+        for record in &frame.records {
+            let clip = &self.clips[record.clip as usize];
             let Some(bounds) = record.bounds.intersection(clip.bounds) else {
                 continue;
             };
@@ -135,89 +128,7 @@ impl DamageTracker for TileDamage {
             if bounds.intersection(clip.inner) != Some(bounds) {
                 hash.write_u64(clip.hash);
             }
-            std::mem::discriminant(&record.command).hash(&mut hash);
-            match record.command {
-                Command::Clear => {}
-                Command::Rectangle(rectangle) => {
-                    [
-                        rectangle.area.x,
-                        rectangle.area.y,
-                        rectangle.area.width,
-                        rectangle.area.height,
-                        rectangle.radius.top_left,
-                        rectangle.radius.top_right,
-                        rectangle.radius.bottom_right,
-                        rectangle.radius.bottom_left,
-                        rectangle.opacity,
-                        rectangle.border.width,
-                    ]
-                    .map(f32::to_bits)
-                    .hash(&mut hash);
-                    for fill in [rectangle.background, rectangle.border.fill] {
-                        std::mem::discriminant(&fill).hash(&mut hash);
-                        match fill {
-                            Fill::Solid(color) => color.hash(&mut hash),
-                            Fill::LinearGradient(gradient) => {
-                                hash.write_u32(gradient.angle_degrees.to_bits());
-                                gradient.stops.len().hash(&mut hash);
-                                for stop in gradient.stops {
-                                    hash.write_u32(stop.position.to_bits());
-                                    stop.color.hash(&mut hash);
-                                }
-                            }
-                        }
-                    }
-                }
-                Command::Text(text) => {
-                    text.text.hash(&mut hash);
-                    text.colors.hash(&mut hash);
-                    [
-                        text.area.x,
-                        text.area.y,
-                        text.area.width,
-                        text.area.height,
-                        text.offset_x,
-                    ]
-                    .map(f32::to_bits)
-                    .hash(&mut hash);
-                    text.options.wrap.hash(&mut hash);
-                    text.options.overflow.hash(&mut hash);
-                    text.options.horizontal_align.hash(&mut hash);
-                    text.options.vertical_align.hash(&mut hash);
-                    text.options.max_lines.hash(&mut hash);
-                }
-                Command::Image(image) => {
-                    hash.write_u64(image.image);
-                    [
-                        image.area.x,
-                        image.area.y,
-                        image.area.width,
-                        image.area.height,
-                        image.opacity,
-                    ]
-                    .map(f32::to_bits)
-                    .hash(&mut hash);
-                    std::mem::discriminant(&image.fit).hash(&mut hash);
-                    std::mem::discriminant(&image.sampling).hash(&mut hash);
-                    std::mem::discriminant(&image.horizontal_tiling).hash(&mut hash);
-                    std::mem::discriminant(&image.vertical_tiling).hash(&mut hash);
-                    image.colorize.hash(&mut hash);
-                    image
-                        .nine_slice
-                        .map(|slice| [slice.top, slice.right, slice.bottom, slice.left])
-                        .hash(&mut hash);
-                }
-                Command::Mesh(mesh) => {
-                    mesh.vertices.len().hash(&mut hash);
-                    for vertex in mesh.vertices {
-                        [vertex.position.x, vertex.position.y].map(f32::to_bits).hash(&mut hash);
-                        vertex.color.hash(&mut hash);
-                    }
-                    mesh.indices.hash(&mut hash);
-                }
-                Command::Custom(custom) => custom.hash(&mut hash),
-                _ => continue,
-            }
+            hash.write_u64(record.fingerprint);
             let hash = hash.finish();
             let left = bounds.x as usize >> self.shift;
             let right = ((bounds.x + bounds.width - 1) as usize >> self.shift) + 1;
@@ -260,7 +171,7 @@ impl DamageTracker for TileDamage {
         self.sums.last() == Some(&0)
     }
 
-    /// conservatively tests bounds against damage and their display list clip
+    /// conservatively tests bounds against damage and their frame clip
     fn intersects(&self, bounds: PhysicalRect, clip: u32) -> bool {
         let Some(bounds) = bounds.intersection(self.clips[clip as usize].bounds) else {
             return false;

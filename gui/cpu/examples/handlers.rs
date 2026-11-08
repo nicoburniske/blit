@@ -2,17 +2,14 @@ use std::{cell::Cell, collections::HashMap, io::Write, rc::Rc};
 
 use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_cpu::{
-    Pixel, PixelBuffer, PremultipliedRgbaColor, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888,
-    extension::{DrawContext, Extension, PrepareContext},
+    Builtins, Direct, Handler, PaintContext, Pixel, PixelBuffer, PremultipliedRgbaColor, Renderer, RendererConfig,
+    Scanline, TileDamage, VecBuffer, Xrgb8888, arena::Slice,
 };
 use blit_gui::{
     TextConfig, TextSystem,
     color::Color,
-    display_list::{
-        CustomCommand, Rectangle,
-        arena::{Arena, Slice, Writer},
-    },
     image::{ImageData, ImageFormat, ImageHandle, ImagePixels},
+    paint::Rectangle,
     style::BorderRadius,
 };
 
@@ -22,66 +19,41 @@ const HEIGHT: usize = 100;
 fn main() -> std::io::Result<()> {
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT), RendererConfig::default())
         .strategy(Scanline::default());
-    renderer.register(PathRenderer);
-    renderer.register(ShadowRenderer::new(Rc::default()));
-    renderer.register(BlurRenderer {
-        scratch: Vec::new(),
-        calls: Rc::default(),
-    });
     scene(&mut renderer, 0, true);
     renderer.render(0);
     let path = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "/tmp/blit-render-extensions.ppm".into());
+        .unwrap_or_else(|| "/tmp/blit-handlers.ppm".into());
     let mut output = std::io::BufWriter::new(std::fs::File::create(&path)?);
     write!(output, "P6\n{WIDTH} {HEIGHT}\n255\n")?;
     for pixel in renderer.buffer().pixels() {
         let pixel = pixel.raw();
         output.write_all(&[(pixel >> 16) as u8, (pixel >> 8) as u8, pixel as u8])?;
     }
-    println!("rendered custom path, cached shadow, and two pass blur to {path}");
+    println!("rendered path, cached shadow, and framebuffer blur to {path}");
     Ok(())
 }
 
-#[derive(PartialEq, Hash)]
+#[derive(Default)]
+struct Handlers {
+    builtins: Builtins,
+    masks: HashMap<[i32; 3], ImageHandle>,
+    stats: Rc<Stats>,
+    scratch: Vec<[u32; 3]>,
+    calls: Rc<Cell<usize>>,
+}
+
+impl AsMut<Builtins> for Handlers {
+    fn as_mut(&mut self) -> &mut Builtins {
+        &mut self.builtins
+    }
+}
+
+#[derive(Hash)]
 struct Path<'a> {
     points: &'a [[i16; 2]],
     width: u16,
     color: Color,
-}
-
-struct StoredPath {
-    points: Slice<[i16; 2]>,
-    width: u16,
-    color: Color,
-}
-
-impl CustomCommand for StoredPath {
-    type View<'a> = Path<'a>;
-
-    fn view<'a>(&'a self, arena: &'a Arena) -> Path<'a> {
-        Path {
-            points: arena.slice(self.points),
-            width: self.width,
-            color: self.color,
-        }
-    }
-}
-
-#[derive(Default)]
-struct PathRenderer;
-
-impl blit_cpu::extension::Command for Path<'_> {
-    type Renderer = PathRenderer;
-    type Stored = StoredPath;
-
-    fn store(self, data: &mut Writer<'_>) -> StoredPath {
-        StoredPath {
-            points: data.extend(self.points.iter().copied()),
-            width: self.width,
-            color: self.color,
-        }
-    }
 }
 
 struct PreparedPath {
@@ -90,43 +62,40 @@ struct PreparedPath {
     color: Color,
 }
 
-impl<P: Pixel> Extension<P> for PathRenderer {
-    type Command = StoredPath;
-    type Prepared = PreparedPath;
-
-    fn prepare(&mut self, path: Path<'_>, cx: &mut PrepareContext<'_>) -> PreparedPath {
-        PreparedPath {
+impl<P: Pixel> Handler<Path<'_>, P> for Handlers {
+    fn paint(&mut self, path: Path<'_>, cx: &mut PaintContext<'_, Self, P>) {
+        let prepared = PreparedPath {
             segments: cx.data.extend(path.points.windows(2).map(|points| {
                 std::array::from_fn(|point| points[point].map(|coordinate| coordinate as f32 * cx.scale))
             })),
             radius: path.width as f32 * cx.scale * 0.5,
             color: path.color,
-        }
-    }
-    fn render(&mut self, path: &PreparedPath, cx: &mut DrawContext<'_, P>) {
-        cx.for_each_span(|span| {
-            let segments = span.data.slice(path.segments);
-            for (index, pixel) in span.pixels.iter_mut().enumerate() {
-                let point = [span.x as f32 + index as f32 + 0.5, span.y as f32 + 0.5];
-                let mut distance = f32::INFINITY;
-                for [a, b] in segments {
-                    let delta = [b[0] - a[0], b[1] - a[1]];
-                    let length = delta[0] * delta[0] + delta[1] * delta[1];
-                    let t = (((point[0] - a[0]) * delta[0] + (point[1] - a[1]) * delta[1])
-                        / length.max(f32::MIN_POSITIVE))
-                    .clamp(0.0, 1.0);
-                    let dx = point[0] - a[0] - t * delta[0];
-                    let dy = point[1] - a[1] - t * delta[1];
-                    distance = distance.min(dx * dx + dy * dy);
+        };
+        cx.draw(&path, prepared, |_, path, cx| {
+            cx.for_each_span(|span| {
+                let segments = span.data.slice(path.segments);
+                for (index, pixel) in span.pixels.iter_mut().enumerate() {
+                    let point = [span.x as f32 + index as f32 + 0.5, span.y as f32 + 0.5];
+                    let mut distance = f32::INFINITY;
+                    for [a, b] in segments {
+                        let delta = [b[0] - a[0], b[1] - a[1]];
+                        let length = delta[0] * delta[0] + delta[1] * delta[1];
+                        let t = (((point[0] - a[0]) * delta[0] + (point[1] - a[1]) * delta[1])
+                            / length.max(f32::MIN_POSITIVE))
+                        .clamp(0.0, 1.0);
+                        let dx = point[0] - a[0] - t * delta[0];
+                        let dy = point[1] - a[1] - t * delta[1];
+                        distance = distance.min(dx * dx + dy * dy);
+                    }
+                    let coverage = ((path.radius + 0.5 - distance.sqrt()).clamp(0.0, 1.0) * span.coverage as f32) as u8;
+                    pixel.blend(PremultipliedRgbaColor::new(path.color, coverage));
                 }
-                let coverage = ((path.radius + 0.5 - distance.sqrt()).clamp(0.0, 1.0) * span.coverage as f32) as u8;
-                pixel.blend(PremultipliedRgbaColor::new(path.color, coverage));
-            }
+            });
         });
     }
 }
 
-#[derive(PartialEq, Hash)]
+#[derive(Hash)]
 struct SoftShadow {
     blur: u16,
     color: Color,
@@ -136,22 +105,6 @@ struct SoftShadow {
 struct Stats {
     prepares: Cell<usize>,
     builds: Cell<usize>,
-    frames: Cell<usize>,
-}
-
-#[derive(Default)]
-struct ShadowRenderer {
-    masks: HashMap<[i32; 3], ImageHandle>,
-    stats: Rc<Stats>,
-}
-
-impl blit_cpu::extension::Command for SoftShadow {
-    type Renderer = ShadowRenderer;
-    type Stored = Self;
-
-    fn store(self, _: &mut Writer<'_>) -> Self {
-        self
-    }
 }
 
 struct PreparedShadow {
@@ -160,20 +113,8 @@ struct PreparedShadow {
     color: Color,
 }
 
-impl ShadowRenderer {
-    fn new(stats: Rc<Stats>) -> Self {
-        Self {
-            masks: HashMap::new(),
-            stats,
-        }
-    }
-}
-
-impl<P: Pixel> Extension<P> for ShadowRenderer {
-    type Command = SoftShadow;
-    type Prepared = PreparedShadow;
-
-    fn prepare(&mut self, shadow: &SoftShadow, cx: &mut PrepareContext<'_>) -> PreparedShadow {
+impl<P: Pixel> Handler<SoftShadow, P> for Handlers {
+    fn paint(&mut self, shadow: SoftShadow, cx: &mut PaintContext<'_, Self, P>) {
         self.stats.prepares.set(self.stats.prepares.get() + 1);
         let bounds = cx.bounds;
         let radius = (shadow.blur as f32 * cx.scale).round().max(1.0) as i32;
@@ -181,7 +122,6 @@ impl<P: Pixel> Extension<P> for ShadowRenderer {
         let image = if let Some(image) = self.masks.get(&key) {
             image.clone()
         } else {
-            // eviction during preparation also exercises earlier prepared resource lifetimes
             self.masks.clear();
             self.stats.builds.set(self.stats.builds.get() + 1);
             let mut alpha = vec![0; bounds.width as usize * bounds.height as usize];
@@ -202,106 +142,88 @@ impl<P: Pixel> Extension<P> for ShadowRenderer {
             self.masks.insert(key, image.clone());
             image
         };
-        PreparedShadow {
+        let prepared = PreparedShadow {
             image,
             bounds,
             color: shadow.color,
-        }
-    }
-
-    fn finish_frame(&mut self) {
-        self.stats.frames.set(self.stats.frames.get() + 1);
-    }
-    fn render(&mut self, shadow: &PreparedShadow, cx: &mut DrawContext<'_, P>) {
-        cx.for_each_span(|span| {
-            let image = span.image(&shadow.image).unwrap();
-            let start = (span.y - shadow.bounds.y) as usize * image.stride_bytes + (span.x - shadow.bounds.x) as usize;
-            for (pixel, alpha) in span.pixels.iter_mut().zip(&image.pixels.bytes()[start..]) {
-                pixel.blend(PremultipliedRgbaColor::new(
-                    shadow.color,
-                    (*alpha as u16 * span.coverage as u16 / 255) as u8,
-                ));
-            }
+        };
+        cx.draw(&shadow, prepared, |_, shadow, cx| {
+            cx.for_each_span(|span| {
+                let image = span.image(&shadow.image).unwrap();
+                let start =
+                    (span.y - shadow.bounds.y) as usize * image.stride_bytes + (span.x - shadow.bounds.x) as usize;
+                for (pixel, alpha) in span.pixels.iter_mut().zip(&image.pixels.bytes()[start..]) {
+                    pixel.blend(PremultipliedRgbaColor::new(
+                        shadow.color,
+                        (*alpha as u16 * span.coverage as u16 / 255) as u8,
+                    ));
+                }
+            });
         });
     }
 }
 
-#[derive(PartialEq, Hash)]
+#[derive(Hash)]
 struct BackdropBlur {
     radius: u16,
 }
 
-#[derive(Default)]
-struct BlurRenderer {
-    scratch: Vec<[u32; 3]>,
-    calls: Rc<Cell<usize>>,
-}
-
-impl blit_cpu::extension::Command for BackdropBlur {
-    type Renderer = BlurRenderer;
-    type Stored = Self;
-
-    fn store(self, _: &mut Writer<'_>) -> Self {
-        self
-    }
-}
-
-impl Extension<Xrgb8888> for BlurRenderer {
-    type Command = BackdropBlur;
-    type Prepared = usize;
-
-    fn prepare(&mut self, blur: &BackdropBlur, cx: &mut PrepareContext<'_>) -> usize {
-        (blur.radius as f32 * cx.scale).round() as usize
-    }
-    fn read_bounds(&self, blur: &BackdropBlur, output: PhysicalRect, scale: f32) -> Option<PhysicalRect> {
-        let radius = (blur.radius as f32 * scale).round() as i32;
-        Some(PhysicalRect::new(
-            output.x.saturating_sub(radius),
-            output.y.saturating_sub(radius),
-            output.width.saturating_add(radius.saturating_mul(2)),
-            output.height.saturating_add(radius.saturating_mul(2)),
-        ))
-    }
-
-    fn render(&mut self, radius: &usize, cx: &mut DrawContext<'_, Xrgb8888>) {
-        self.calls.set(self.calls.get() + 1);
-        let source = cx.source().unwrap();
-        let width = source.width();
-        let height = source.height();
-        self.scratch.resize(width * height, [0; 3]);
-        for bounds in cx.output_regions() {
-            for y in (bounds.y as usize).saturating_sub(*radius)
-                ..(bounds.y as usize + bounds.height as usize + radius).min(height)
-            {
-                for x in bounds.x as usize..(bounds.x + bounds.width) as usize {
-                    let start = x.saturating_sub(*radius);
-                    let end = (x + radius + 1).min(width);
-                    let mut channels = [0; 3];
-                    for pixel in source.row(y, start..end) {
-                        let pixel = pixel.raw();
-                        for (channel, shift) in channels.iter_mut().zip([16, 8, 0]) {
-                            *channel += (pixel >> shift) & 255;
+impl Handler<BackdropBlur, Xrgb8888> for Handlers {
+    fn paint(&mut self, blur: BackdropBlur, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+        let radius = (blur.radius as f32 * cx.scale).round() as usize;
+        cx.pass(
+            &blur,
+            radius,
+            |handler, radius, cx| {
+                handler.calls.set(handler.calls.get() + 1);
+                let source = cx.source().unwrap();
+                let width = source.width();
+                let height = source.height();
+                handler.scratch.resize(width * height, [0; 3]);
+                for bounds in cx.output_regions() {
+                    for y in (bounds.y as usize).saturating_sub(*radius)
+                        ..(bounds.y as usize + bounds.height as usize + radius).min(height)
+                    {
+                        for x in bounds.x as usize..(bounds.x + bounds.width) as usize {
+                            let start = x.saturating_sub(*radius);
+                            let end = (x + radius + 1).min(width);
+                            let mut channels = [0; 3];
+                            for pixel in source.row(y, start..end) {
+                                let pixel = pixel.raw();
+                                for (channel, shift) in channels.iter_mut().zip([16, 8, 0]) {
+                                    *channel += (pixel >> shift) & 255;
+                                }
+                            }
+                            handler.scratch[y * width + x] = channels.map(|channel| channel / (end - start) as u32);
                         }
                     }
-                    self.scratch[y * width + x] = channels.map(|channel| channel / (end - start) as u32);
                 }
-            }
-        }
-        cx.for_each_span(|span| {
-            let start = (span.y as usize).saturating_sub(*radius);
-            let end = (span.y as usize + radius + 1).min(height);
-            for (offset, pixel) in span.pixels.iter_mut().enumerate() {
-                let x = span.x as usize + offset;
-                let mut channels = [0; 3];
-                for y in start..end {
-                    for (channel, sample) in channels.iter_mut().zip(self.scratch[y * width + x]) {
-                        *channel += sample;
+                cx.for_each_span(|span| {
+                    let start = (span.y as usize).saturating_sub(*radius);
+                    let end = (span.y as usize + radius + 1).min(height);
+                    for (offset, pixel) in span.pixels.iter_mut().enumerate() {
+                        let x = span.x as usize + offset;
+                        let mut channels = [0; 3];
+                        for y in start..end {
+                            for (channel, sample) in channels.iter_mut().zip(handler.scratch[y * width + x]) {
+                                *channel += sample;
+                            }
+                        }
+                        let [red, green, blue] = channels.map(|channel| (channel / (end - start) as u32) as u8);
+                        pixel.blend(PremultipliedRgbaColor::new(Color::rgb(red, green, blue), span.coverage));
                     }
-                }
-                let [red, green, blue] = channels.map(|channel| (channel / (end - start) as u32) as u8);
-                pixel.blend(PremultipliedRgbaColor::new(Color::rgb(red, green, blue), span.coverage));
-            }
-        });
+                });
+            },
+            |_, radius, output| {
+                let radius = *radius as i32;
+                PhysicalRect::new(
+                    output.x.saturating_sub(radius),
+                    output.y.saturating_sub(radius),
+                    output.width.saturating_add(radius.saturating_mul(2)),
+                    output.height.saturating_add(radius.saturating_mul(2)),
+                )
+            },
+        );
     }
 }
 
@@ -346,12 +268,13 @@ where
     renderer.paint(overlay.area, overlay);
 }
 
-fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B> {
+fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B, Direct, TileDamage, Handlers> {
     Renderer::new(
         buffer,
         TextSystem::new(TextConfig::default(), blit_text_parley::Backend::without_system_fonts()).unwrap(),
         config,
     )
+    .handlers(Handlers::default())
 }
 
 #[cfg(test)]
@@ -495,18 +418,12 @@ mod tests {
             )
             .strategy(Scanline::default())
             .damage_tracker(damage);
-            incremental.register(BlurRenderer {
-                scratch: Vec::new(),
-                calls: calls.clone(),
-            });
+            incremental.handlers_mut().calls = calls.clone();
             let mut reference = new_renderer(
                 VecBuffer::<Xrgb8888>::new(DAMAGE_WIDTH, DAMAGE_HEIGHT),
                 RendererConfig::default(),
             );
-            reference.register(BlurRenderer {
-                scratch: Vec::new(),
-                calls: Rc::default(),
-            });
+            reference.handlers_mut().calls = Rc::default();
             for (step, frame) in [0, 0, 1, 1, 2, 2].into_iter().enumerate() {
                 damage_scene(&mut incremental, frame);
                 damage_scene(&mut reference, frame);
@@ -566,18 +483,12 @@ mod tests {
             )
             .strategy(S::default())
             .damage_tracker(damage);
-            renderer.register(BlurRenderer {
-                scratch: Vec::new(),
-                calls: Rc::default(),
-            });
+            renderer.handlers_mut().calls = Rc::default();
             let mut reference = new_renderer(
                 VecBuffer::<Xrgb8888>::new(DAMAGE_WIDTH, DAMAGE_HEIGHT),
                 RendererConfig::default(),
             );
-            reference.register(BlurRenderer {
-                scratch: Vec::new(),
-                calls: Rc::default(),
-            });
+            reference.handlers_mut().calls = Rc::default();
             let mut spare = VecBuffer::new(DAMAGE_WIDTH, DAMAGE_HEIGHT);
             for (index, frame) in [0, 0, 1, 1, 2, 3, 4, 5, 6, 7, 7, 1, 0].into_iter().enumerate() {
                 damage_scene(&mut renderer, frame);
@@ -608,27 +519,18 @@ mod tests {
     #[test]
     #[should_panic(expected = "outside its declared source footprint")]
     fn pass_reads_outside_declared_dependencies_are_rejected() {
-        #[derive(PartialEq, Hash)]
+        #[derive(Hash)]
         struct BadRead;
-        #[derive(Default)]
-        struct BadRenderer;
-        impl blit_cpu::extension::Command for BadRead {
-            type Renderer = BadRenderer;
-            type Stored = Self;
-
-            fn store(self, _: &mut Writer<'_>) -> Self {
-                self
-            }
-        }
-        impl Extension<Xrgb8888> for BadRenderer {
-            type Command = BadRead;
-            type Prepared = ();
-            fn prepare(&mut self, _: &BadRead, _: &mut PrepareContext<'_>) {}
-            fn read_bounds(&self, _: &BadRead, output: PhysicalRect, _: f32) -> Option<PhysicalRect> {
-                Some(output)
-            }
-            fn render(&mut self, _: &(), cx: &mut DrawContext<'_, Xrgb8888>) {
-                let _ = cx.source().unwrap().row(220, 340..341);
+        impl Handler<BadRead, Xrgb8888> for Handlers {
+            fn paint(&mut self, command: BadRead, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+                cx.pass(
+                    &command,
+                    (),
+                    |_, _, cx| {
+                        let _ = cx.source().unwrap().row(220, 340..341);
+                    },
+                    |_, _, output| output,
+                );
             }
         }
         let mut renderer = new_renderer(
@@ -638,55 +540,49 @@ mod tests {
                 ..RendererConfig::default()
             },
         );
-        renderer.register(BadRenderer);
         renderer.paint(LogicalRect::new(64.0, 64.0, 8.0, 8.0), BadRead);
         renderer.render(0);
     }
 
     #[test]
     fn nonlocal_pass_dependencies_rebuild_source_before_later_overlays() {
-        #[derive(Clone, Copy, PartialEq, Hash)]
+        #[derive(Clone, Copy, Hash)]
         struct CopyArea(bool);
-        #[derive(Default)]
-        struct CopyRenderer;
-        impl blit_cpu::extension::Command for CopyArea {
-            type Renderer = CopyRenderer;
-            type Stored = Self;
-
-            fn store(self, _: &mut Writer<'_>) -> Self {
-                self
-            }
-        }
-        impl Extension<Xrgb8888> for CopyRenderer {
-            type Command = CopyArea;
-            type Prepared = ();
-            fn prepare(&mut self, _: &CopyArea, _: &mut PrepareContext<'_>) {}
-            fn read_bounds(&self, command: &CopyArea, output: PhysicalRect, _: f32) -> Option<PhysicalRect> {
-                command.0.then_some(PhysicalRect::new(
-                    output.x - 140,
-                    output.y + 116,
-                    output.width,
-                    output.height,
-                ))
-            }
-            fn render(&mut self, _: &(), cx: &mut DrawContext<'_, Xrgb8888>) {
-                let Some(source) = cx.source() else {
-                    cx.for_each_span(|span| {
-                        Xrgb8888::blend_slice(span.pixels, PremultipliedRgbaColor::new(Color::WHITE, span.coverage));
-                    });
+        impl Handler<CopyArea, Xrgb8888> for Handlers {
+            fn paint(&mut self, command: CopyArea, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+                if !command.0 {
+                    cx.rectangle(
+                        Rectangle::new(cx.bounds.to_logical(blit::Scale2::uniform(cx.scale))).background(Color::WHITE),
+                    );
                     return;
-                };
-                cx.for_each_span(|span| {
-                    let x = (span.x - 140) as usize;
-                    let source = source.row((span.y + 116) as usize, x..x + span.pixels.len());
-                    for (pixel, source) in span.pixels.iter_mut().zip(source) {
-                        let source = source.raw();
-                        pixel.blend(PremultipliedRgbaColor::new(
-                            Color::rgb((source >> 16) as u8, (source >> 8) as u8, source as u8),
-                            span.coverage,
-                        ));
-                    }
-                });
+                }
+                cx.pass(
+                    &command,
+                    (),
+                    |_, _, cx| {
+                        let Some(source) = cx.source() else {
+                            cx.for_each_span(|span| {
+                                Xrgb8888::blend_slice(
+                                    span.pixels,
+                                    PremultipliedRgbaColor::new(Color::WHITE, span.coverage),
+                                );
+                            });
+                            return;
+                        };
+                        cx.for_each_span(|span| {
+                            let x = (span.x - 140) as usize;
+                            let source = source.row((span.y + 116) as usize, x..x + span.pixels.len());
+                            for (pixel, source) in span.pixels.iter_mut().zip(source) {
+                                let source = source.raw();
+                                pixel.blend(PremultipliedRgbaColor::new(
+                                    Color::rgb((source >> 16) as u8, (source >> 8) as u8, source as u8),
+                                    span.coverage,
+                                ));
+                            }
+                        });
+                    },
+                    |_, _, output| PhysicalRect::new(output.x - 140, output.y + 116, output.width, output.height),
+                );
             }
         }
         let mut renderer = new_renderer(
@@ -697,7 +593,6 @@ mod tests {
             },
         )
         .strategy(Scanline::default());
-        renderer.register(CopyRenderer);
         for (backdrop, color) in [
             (true, Color::rgb(255, 0, 0)),
             (true, Color::rgb(0, 255, 0)),
@@ -730,11 +625,9 @@ mod tests {
             let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT), RendererConfig::default())
                 .strategy(S::default())
                 .damage_tracker(damage);
-            renderer.register(PathRenderer);
-            renderer.register(ShadowRenderer::new(stats.clone()));
+            renderer.handlers_mut().stats = stats.clone();
             let mut reference = new_renderer(VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT), RendererConfig::default());
-            reference.register(PathRenderer);
-            reference.register(ShadowRenderer::new(Rc::default()));
+            reference.handlers_mut().stats = Rc::default();
             for frame in [0, 0, 1, 1, 0] {
                 scene(&mut renderer, frame, false);
                 scene(&mut reference, frame, false);
@@ -744,9 +637,8 @@ mod tests {
                 assert_eq!(renderer.buffer().pixels()[20 * WIDTH + 20].raw(), 0xffbe46);
                 assert_eq!(renderer.buffer().pixels()[20 * WIDTH + 36].raw(), 0xffffff);
             }
-            assert_eq!(stats.prepares.get(), 3);
+            assert_eq!(stats.prepares.get(), 5);
             assert_eq!(stats.builds.get(), 1);
-            assert_eq!(stats.frames.get(), 5);
         }
         check::<Direct, _>(TileDamage::new(8));
         check::<Scanline, _>(TileDamage::new(8));
@@ -761,12 +653,8 @@ mod tests {
             let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT), RendererConfig::default())
                 .strategy(S::default())
                 .damage_tracker(damage);
-            renderer.register(PathRenderer);
-            renderer.register(ShadowRenderer::new(Rc::default()));
-            renderer.register(BlurRenderer {
-                scratch: Vec::new(),
-                calls: calls.clone(),
-            });
+            renderer.handlers_mut().stats = Rc::default();
+            renderer.handlers_mut().calls = calls.clone();
             let mut previous = 0;
             for (index, frame) in [0, 0, 1, 1, 0].into_iter().enumerate() {
                 scene(&mut renderer, frame, true);
@@ -792,7 +680,7 @@ mod tests {
         let mut renderer =
             new_renderer(VecBuffer::<Xrgb8888>::new(20, 10), RendererConfig::default()).strategy(Scanline::default());
         let stats = Rc::<Stats>::default();
-        renderer.register(ShadowRenderer::new(stats.clone()));
+        renderer.handlers_mut().stats = stats.clone();
         renderer.paint(
             LogicalRect::new(0.0, 0.0, 10.0, 10.0),
             SoftShadow {
@@ -815,46 +703,32 @@ mod tests {
 
     #[test]
     fn pass_barriers_read_current_frame_and_respect_nested_clips() {
-        #[derive(PartialEq, Hash)]
+        #[derive(Hash)]
         struct Shift;
-        #[derive(Default)]
-        struct ShiftRenderer;
-        impl blit_cpu::extension::Command for Shift {
-            type Renderer = ShiftRenderer;
-            type Stored = Self;
-
-            fn store(self, _: &mut Writer<'_>) -> Self {
-                self
-            }
-        }
-        impl Extension<Xrgb8888> for ShiftRenderer {
-            type Command = Shift;
-            type Prepared = ();
-            fn prepare(&mut self, _: &Shift, _: &mut PrepareContext<'_>) {}
-            fn read_bounds(&self, _: &Shift, output: PhysicalRect, _: f32) -> Option<PhysicalRect> {
-                Some(PhysicalRect::new(
-                    output.x,
-                    output.y.saturating_sub(1).max(0),
-                    output.width,
-                    output.height,
-                ))
-            }
-
-            fn render(&mut self, _: &(), cx: &mut DrawContext<'_, Xrgb8888>) {
-                let source = cx.source().unwrap();
-                cx.for_each_span(|span| {
-                    for (offset, pixel) in span.pixels.iter_mut().enumerate() {
-                        let x = span.x as usize + offset;
-                        let sample = source.row(span.y.saturating_sub(1) as usize, x..x + 1)[0].raw();
-                        let color = Color::rgb((sample >> 16) as u8, (sample >> 8) as u8, sample as u8);
-                        pixel.blend(PremultipliedRgbaColor::new(color, span.coverage));
-                    }
-                });
+        impl Handler<Shift, Xrgb8888> for Handlers {
+            fn paint(&mut self, command: Shift, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+                cx.pass(
+                    &command,
+                    (),
+                    |_, _, cx| {
+                        let source = cx.source().unwrap();
+                        cx.for_each_span(|span| {
+                            for (offset, pixel) in span.pixels.iter_mut().enumerate() {
+                                let x = span.x as usize + offset;
+                                let sample = source.row(span.y.saturating_sub(1) as usize, x..x + 1)[0].raw();
+                                let color = Color::rgb((sample >> 16) as u8, (sample >> 8) as u8, sample as u8);
+                                pixel.blend(PremultipliedRgbaColor::new(color, span.coverage));
+                            }
+                        });
+                    },
+                    |_, _, output| {
+                        PhysicalRect::new(output.x, output.y.saturating_sub(1).max(0), output.width, output.height)
+                    },
+                );
             }
         }
         let mut renderer =
             new_renderer(VecBuffer::<Xrgb8888>::new(12, 10), RendererConfig::default()).strategy(Scanline::default());
-        renderer.register(ShiftRenderer);
         let mut spare = VecBuffer::<Xrgb8888>::new(12, 10);
         for (index, color) in [
             Color::rgb(255, 0, 0),

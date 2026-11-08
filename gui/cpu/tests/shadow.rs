@@ -4,7 +4,7 @@ use blit_cpu::{
     damage::command::CommandDiff,
 };
 use blit_gui::{
-    Context, TextConfig, TextSystem, color::Color, display_list::Rectangle, shadow::BoxShadow, style::BorderRadius,
+    Context, TextConfig, TextSystem, color::Color, paint::Rectangle, shadow::BoxShadow, style::BorderRadius,
 };
 
 #[test]
@@ -48,7 +48,7 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
                 )
                 .strategy(S::default())
                 .damage_tracker(damage());
-                renderer.register(blit_cpu::shadow::Renderer::new(capacity));
+                renderer.handlers_mut().shadow = blit_cpu::shadow::Renderer::new(capacity);
                 let mut spare = VecBuffer::new(128, 96);
                 renderer.set_scale(scale);
                 for (step, frame) in [0, 0, 1, 2, 3, 3, 0].into_iter().enumerate() {

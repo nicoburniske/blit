@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use blit::{PhysicalRect, Scale2};
-use blit_gui::display_list::Rectangle;
+use blit_gui::paint::Rectangle;
 
 use super::{
     fill::{Gradients, PreparedFill},
