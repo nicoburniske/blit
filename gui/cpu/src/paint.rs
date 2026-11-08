@@ -202,9 +202,42 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
     }
 
     /// records a raster callback with a key describing everything it draws
-    /// value may hold a OnceCell to prepare once on its first visible span
     pub fn draw<T: 'static>(&mut self, key: &impl Hash, value: T, draw: fn(&mut H, &T, &mut DrawContext<'_, P>)) {
-        self.record(key, value, draw, None);
+        self.record_draw(key, value, draw, None);
+    }
+
+    /// prepares once on the first visible span and reuses the result for the frame
+    pub fn draw_prepared<T: 'static, R: 'static>(
+        &mut self,
+        key: &impl Hash,
+        value: T,
+        prepare: fn(&mut H, &T, &mut DrawContext<'_, P>) -> R,
+        draw: fn(&mut H, &R, &mut DrawContext<'_, P>),
+    ) {
+        struct Input<H, T, R, P> {
+            value: T,
+            prepare: fn(&mut H, &T, &mut DrawContext<'_, P>) -> R,
+            draw: fn(&mut H, &R, &mut DrawContext<'_, P>),
+        }
+        let call = Callback {
+            handler: self.handler,
+            value: self.commands.data.push(Input { value, prepare, draw }).erase(),
+            prepare: Some(|handler, value, data, prepared, cx| {
+                let input = data.value::<Input<H, T, R, P>>(value).unwrap();
+                // safety: the context records the pointer selected for H
+                let value = (input.prepare)(unsafe { handler.cast::<H>().as_mut() }, &input.value, cx);
+                prepared
+                    .push(Call {
+                        value,
+                        draw: input.draw,
+                        reads: None,
+                    })
+                    .erase()
+            }),
+            draw: Call::<H, R, P>::draw,
+            reads: None,
+        };
+        self.record::<T>(key, call);
     }
 
     /// records a framebuffer effect with its source footprint for each output region
@@ -215,21 +248,33 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
         draw: fn(&mut H, &T, &mut DrawContext<'_, P>),
         reads: fn(&H, &T, PhysicalRect) -> PhysicalRect,
     ) {
-        self.record(key, value, draw, Some(reads));
+        self.record_draw(key, value, draw, Some(reads));
     }
 
-    fn record<T: 'static>(
+    fn record_draw<T: 'static>(
         &mut self,
         key: &impl Hash,
         value: T,
         draw: fn(&mut H, &T, &mut DrawContext<'_, P>),
         reads: Option<fn(&H, &T, PhysicalRect) -> PhysicalRect>,
     ) {
-        struct Call<H, T, P> {
-            value: T,
-            draw: fn(&mut H, &T, &mut DrawContext<'_, P>),
-            reads: Option<fn(&H, &T, PhysicalRect) -> PhysicalRect>,
-        }
+        let call = Callback {
+            handler: self.handler,
+            value: self.commands.prepared.push(Call { value, draw, reads }).erase(),
+            prepare: None,
+            draw: Call::<H, T, P>::draw,
+            reads: reads.map(|_| {
+                (|handler: NonNull<()>, value, data: &Arena, output| {
+                    let call = data.value::<Call<H, T, P>>(value).unwrap();
+                    // safety: the context records the pointer selected for H
+                    call.reads.unwrap()(unsafe { handler.cast::<H>().as_ref() }, &call.value, output)
+                }) as _
+            }),
+        };
+        self.record::<T>(key, call);
+    }
+
+    fn record<T: 'static>(&mut self, key: &impl Hash, call: Callback<P>) {
         let mut hash = FxHasher::default();
         TypeId::of::<H>().hash(&mut hash);
         TypeId::of::<T>().hash(&mut hash);
@@ -240,22 +285,6 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             clip: self.clip,
             fingerprint: hash.finish(),
         });
-        let call = Callback {
-            handler: self.handler,
-            value: self.commands.data.push(Call { value, draw, reads }).erase(),
-            draw: |handler, value, data, cx| {
-                let call = data.value::<Call<H, T, P>>(value).unwrap();
-                // safety: the context records the pointer selected for H
-                (call.draw)(unsafe { handler.cast::<H>().as_mut() }, &call.value, cx);
-            },
-            reads: reads.map(|_| {
-                (|handler: NonNull<()>, value, data: &Arena, output| {
-                    let call = data.value::<Call<H, T, P>>(value).unwrap();
-                    // safety: the context records the pointer selected for H
-                    call.reads.unwrap()(unsafe { handler.cast::<H>().as_ref() }, &call.value, output)
-                }) as _
-            }),
-        };
         self.commands.push_callback(call, self.bounds, self.clip);
     }
 
@@ -439,21 +468,42 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
 pub struct Callback<P> {
     handler: NonNull<()>,
     value: Value,
+    prepare: Option<unsafe fn(NonNull<()>, Value, &Arena, &mut Arena, &mut DrawContext<'_, P>) -> Value>,
     draw: unsafe fn(NonNull<()>, Value, &Arena, &mut DrawContext<'_, P>),
     pub reads: Option<unsafe fn(NonNull<()>, Value, &Arena, PhysicalRect) -> PhysicalRect>,
 }
 
 impl<P> Callback<P> {
-    pub fn draw(&self, data: &Arena, cx: &mut DrawContext<'_, P>) {
+    pub fn draw(&mut self, data: &Arena, prepared: &mut Arena, cx: &mut DrawContext<'_, P>) {
+        if let Some(prepare) = self.prepare {
+            // safety: recording pairs the handler pointer with its typed callback
+            let value = unsafe { prepare(self.handler, self.value, data, prepared, cx) };
+            self.value = value;
+            self.prepare = None;
+        }
         // safety: recording pairs the handler pointer with its typed callback
         // handlers cannot be replaced while commands are pending
-        unsafe { (self.draw)(self.handler, self.value, data, cx) };
+        unsafe { (self.draw)(self.handler, self.value, prepared, cx) };
     }
 
     pub fn reads(&self, data: &Arena, output: PhysicalRect) -> PhysicalRect {
         // safety: recording pairs the handler pointer with its typed callback
         // handlers cannot be replaced while commands are pending
         unsafe { (self.reads.unwrap())(self.handler, self.value, data, output) }
+    }
+}
+
+struct Call<H, T, P> {
+    value: T,
+    draw: fn(&mut H, &T, &mut DrawContext<'_, P>),
+    reads: Option<fn(&H, &T, PhysicalRect) -> PhysicalRect>,
+}
+
+impl<H: 'static, T: 'static, P: Pixel> Call<H, T, P> {
+    unsafe fn draw(handler: NonNull<()>, value: Value, data: &Arena, cx: &mut DrawContext<'_, P>) {
+        let call = data.value::<Self>(value).unwrap();
+        // safety: recording pairs the handler pointer with this typed callback
+        (call.draw)(unsafe { handler.cast::<H>().as_mut() }, &call.value, cx);
     }
 }
 
@@ -484,6 +534,12 @@ impl Drop for ErasedHandler {
 }
 
 impl<'a, P: Pixel> DrawContext<'a, P> {
+    pub fn data(&self) -> &Arena {
+        match &self.target {
+            DrawTarget::Span { data, .. } | DrawTarget::Pass { data, .. } => data,
+        }
+    }
+
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
         data.validate();
         let id = self

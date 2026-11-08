@@ -18,6 +18,7 @@ pub struct PassDamage {
 #[derive(Default)]
 pub struct PassNode {
     pub index: u32,
+    pub callback: u32,
     pub bounds: PhysicalRect,
     pub reads: Region,
 }
@@ -45,9 +46,10 @@ impl PassDamage {
         }
         let mut count = 0;
         for index in commands.offsets() {
-            let Payload::Callback(call) = commands.get(index) else {
+            let Payload::Callback(callback) = commands.get(index) else {
                 continue;
             };
+            let call = &commands.callbacks[callback as usize];
             if call.reads.is_none() {
                 continue;
             }
@@ -62,6 +64,7 @@ impl PassDamage {
             }
             let node = &mut self.passes[count];
             node.index = index;
+            node.callback = callback;
             node.bounds = bounds;
             node.reads.reset(screen, shift);
             count += 1;
@@ -83,15 +86,13 @@ impl PassDamage {
         }
         let size = 1i32 << shift;
         for node in &mut self.passes {
-            let Payload::Callback(call) = commands.get(node.index) else {
-                unreachable!()
-            };
+            let call = &commands.callbacks[node.callback as usize];
             let mut y = node.bounds.y & !(size - 1);
             while y < node.bounds.y + node.bounds.height {
                 let mut x = node.bounds.x & !(size - 1);
                 while x < node.bounds.x + node.bounds.width {
                     let output = PhysicalRect::new(x, y, size, size).intersection(node.bounds).unwrap();
-                    if self.present.intersects(call.reads(&commands.data, output)) {
+                    if self.present.intersects(call.reads(&commands.prepared, output)) {
                         node.reads.add(output);
                     }
                     x += size;
@@ -105,14 +106,12 @@ impl PassDamage {
         for index in (0..count).rev() {
             let node = &mut self.passes[index];
             node.reads.reset(screen, shift);
-            let Payload::Callback(call) = commands.get(node.index) else {
-                unreachable!()
-            };
+            let call = &commands.callbacks[node.callback as usize];
             for output in self.stages[index + 1]
                 .rects()
                 .filter_map(|bounds| bounds.intersection(node.bounds))
             {
-                node.reads.add(call.reads(&commands.data, output));
+                node.reads.add(call.reads(&commands.prepared, output));
             }
             let (before, after) = self.stages.split_at_mut(index + 1);
             before[index].clone_from(&after[0]);

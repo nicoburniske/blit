@@ -48,14 +48,13 @@ impl<P: Pixel> PixelBuffer for LineBuffer<'_, P> {
 }
 
 fn draw_commands<const CLIPPED: bool, P: Pixel>(
-    commands: &CommandList<P>,
+    commands: &mut CommandList<P>,
     active: &[CommandId],
     clip_ranges: &[Option<ClipLine>],
     images: &mut Arena<StoredImage>,
     text: &mut TextRenderer,
     buffer: &mut LineBuffer<'_, P>,
 ) {
-    let data = &commands.data;
     let line = buffer.line as i32;
     let range = buffer.x..buffer.x + buffer.pixels.len();
     for command in active {
@@ -77,7 +76,6 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
                     continue;
                 }
                 if start < clipped.full_start || end > clipped.full_end {
-                    let payload = commands.get(*command);
                     ClipSpan {
                         start,
                         end,
@@ -104,17 +102,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
                                 width: range.end - range.start,
                                 height: 1,
                             };
-                            raster::draw_line(
-                                &payload,
-                                line,
-                                commands.bounds(*command),
-                                clip,
-                                coverage,
-                                images,
-                                text,
-                                data,
-                                buffer,
-                            );
+                            raster::draw_line(commands, *command, line, clip, coverage, images, text, buffer);
                         },
                     );
                     continue;
@@ -127,17 +115,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
             width: end - start,
             height: 1,
         };
-        raster::draw_line(
-            &commands.get(*command),
-            line,
-            commands.bounds(*command),
-            clip,
-            255,
-            images,
-            text,
-            data,
-            buffer,
-        );
+        raster::draw_line(commands, *command, line, clip, 255, images, text, buffer);
     }
 }
 
@@ -146,7 +124,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         let width = context.buffer.width();
         let height = context.buffer.height();
         let screen = PhysicalRect::new(0, 0, width as i32, height as i32);
-        let commands = &context.commands;
+        let commands = &mut context.commands;
         let clips = &context.clips;
         let images = &mut context.images;
         let text = &mut context.text;
@@ -198,8 +176,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                 clips.line_ranges(line, &mut self.clip_ranges);
             }
 
-            let clip_span = |command: CommandId, mut span: Range<i32>| {
-                let clip = commands.clip(command);
+            let clip_span = |clip: u32, mut span: Range<i32>| {
                 if clip != 0 {
                     let clip = self.clip_ranges[clip as usize - 1].as_ref()?;
                     span.start = span.start.max(clip.full_start);
@@ -218,7 +195,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         commands.overwrites(**command)
                             && commands
                                 .overwrite_span(**command, line)
-                                .and_then(|span| clip_span(**command, span))
+                                .and_then(|span| clip_span(commands.clip(**command), span))
                                 .is_some_and(|span| span.start <= range.start as i32 && span.end >= range.end as i32)
                     })
                     .map(|(index, _)| index)
@@ -260,7 +237,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         } else {
                             None
                         }?;
-                        let span = clip_span(*command, span)?;
+                        let span = clip_span(commands.clip(*command), span)?;
                         let start = span.start.max(range.start as i32);
                         let end = span.end.min(range.end as i32);
                         (start < end).then_some((start as usize, end as usize, command_first))

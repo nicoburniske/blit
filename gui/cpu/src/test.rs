@@ -84,6 +84,71 @@ fn pending_commands_prevent_handler_replacement() {
 }
 
 #[test]
+fn prepared_draws_capture_data_and_drop_results_once() {
+    use std::{cell::Cell, rc::Rc};
+
+    #[derive(Default)]
+    struct Counts {
+        prepares: Cell<usize>,
+        drops: Cell<usize>,
+    }
+
+    struct Prepared([u8; 1024], Rc<Counts>);
+
+    impl Drop for Prepared {
+        fn drop(&mut self) {
+            self.1.drops.set(self.1.drops.get() + 1);
+        }
+    }
+
+    struct Samples<'a>(&'a [u8], Rc<Counts>);
+
+    impl Handler<Samples<'_>, Xrgb8888> for () {
+        fn handle(&mut self, samples: Samples<'_>, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+            let values = cx.data().extend(samples.0.iter().copied());
+            cx.draw_prepared(
+                &samples.0,
+                (values, samples.1),
+                |_, (values, counts), cx| {
+                    counts.prepares.set(counts.prepares.get() + 1);
+                    Prepared([cx.data().slice(*values)[0]; 1024], counts.clone())
+                },
+                |_, prepared, cx| {
+                    let value = prepared.0[0];
+                    cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(value, value, value)));
+                },
+            );
+        }
+    }
+
+    let counts = Rc::<Counts>::default();
+    let bounds = LogicalRect::new(0.0, 0.0, 8.0, 4.0);
+    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(8, 4), renderer_config()).strategy(Scanline::default());
+    for (covered, expected) in [(true, 0), (false, 1), (false, 1)] {
+        renderer.paint(bounds, Rectangle::new(bounds).background(Color::BLACK));
+        let mut values = [64];
+        renderer.handle::<(), _>(bounds, Samples(&values, counts.clone()));
+        values.fill(128);
+        assert_eq!(renderer.context.commands.prepared.used(), 0);
+        if covered {
+            renderer.paint(bounds, Rectangle::new(bounds).background(Color::WHITE));
+        }
+        renderer.render(1);
+        assert_eq!(counts.prepares.get(), expected);
+        assert_eq!(counts.drops.get(), expected);
+        assert_eq!(Rc::strong_count(&counts), 1);
+        let value = if covered { 255 } else { 64 };
+        assert!(
+            renderer
+                .buffer()
+                .pixels()
+                .iter()
+                .all(|pixel| *pixel == Xrgb8888::from_rgb(value, value, value))
+        );
+    }
+}
+
+#[test]
 fn shadow_resources_are_created_only_when_visible() {
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 20), text_system(), renderer_config())
         .strategy(Scanline::default());

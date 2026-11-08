@@ -1,9 +1,4 @@
-use std::{
-    cell::{Cell, OnceCell},
-    collections::HashMap,
-    io::Write,
-    rc::Rc,
-};
+use std::{cell::Cell, collections::HashMap, io::Write, rc::Rc};
 
 use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_cpu::{
@@ -132,46 +127,46 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<SoftShadow> f
 impl<P: Pixel> Handler<SoftShadow, P> for ShadowHandler {
     fn handle(&mut self, shadow: SoftShadow, cx: &mut PaintContext<'_, Self, P>) {
         let radius = (shadow.blur as f32 * cx.scale).round().max(1.0) as i32;
-        cx.draw(
+        cx.draw_prepared(
             &shadow,
-            (radius, shadow.color, OnceCell::new()),
-            |handler, (radius, color, prepared), cx| {
-                let shadow = prepared.get_or_init(|| {
-                    handler.stats.prepares.set(handler.stats.prepares.get() + 1);
-                    let bounds = cx.bounds;
-                    let radius = *radius;
-                    let key = [bounds.width, bounds.height, radius];
-                    let image = if let Some(image) = handler.masks.get(&key) {
-                        image.clone()
-                    } else {
-                        handler.masks.clear();
-                        handler.stats.builds.set(handler.stats.builds.get() + 1);
-                        let mut alpha = vec![0; bounds.width as usize * bounds.height as usize];
-                        for y in 0..bounds.height {
-                            for x in 0..bounds.width {
-                                let horizontal =
-                                    ((x + radius + 1).min(bounds.width - radius) - (x - radius).max(radius)).max(0);
-                                let vertical =
-                                    ((y + radius + 1).min(bounds.height - radius) - (y - radius).max(radius)).max(0);
-                                alpha[(y * bounds.width + x) as usize] =
-                                    (horizontal * vertical * 255 / (2 * radius + 1).pow(2)) as u8;
-                            }
+            (radius, shadow.color),
+            |handler, (radius, color), cx| {
+                handler.stats.prepares.set(handler.stats.prepares.get() + 1);
+                let bounds = cx.bounds;
+                let radius = *radius;
+                let key = [bounds.width, bounds.height, radius];
+                let image = if let Some(image) = handler.masks.get(&key) {
+                    image.clone()
+                } else {
+                    handler.masks.clear();
+                    handler.stats.builds.set(handler.stats.builds.get() + 1);
+                    let mut alpha = vec![0; bounds.width as usize * bounds.height as usize];
+                    for y in 0..bounds.height {
+                        for x in 0..bounds.width {
+                            let horizontal =
+                                ((x + radius + 1).min(bounds.width - radius) - (x - radius).max(radius)).max(0);
+                            let vertical =
+                                ((y + radius + 1).min(bounds.height - radius) - (y - radius).max(radius)).max(0);
+                            alpha[(y * bounds.width + x) as usize] =
+                                (horizontal * vertical * 255 / (2 * radius + 1).pow(2)) as u8;
                         }
-                        let image = cx.create_image(ImageData::new(
-                            ImagePixels::Owned(alpha.into_boxed_slice()),
-                            ImageFormat::Alpha8(Color::WHITE),
-                            bounds.width as usize,
-                            bounds.height as usize,
-                        ));
-                        handler.masks.insert(key, image.clone());
-                        image
-                    };
-                    PreparedShadow {
-                        image,
-                        bounds,
-                        color: *color,
                     }
-                });
+                    let image = cx.create_image(ImageData::new(
+                        ImagePixels::Owned(alpha.into_boxed_slice()),
+                        ImageFormat::Alpha8(Color::WHITE),
+                        bounds.width as usize,
+                        bounds.height as usize,
+                    ));
+                    handler.masks.insert(key, image.clone());
+                    image
+                };
+                PreparedShadow {
+                    image,
+                    bounds,
+                    color: *color,
+                }
+            },
+            |_, shadow, cx| {
                 cx.for_each_span(|span| {
                     let image = span.image(&shadow.image).unwrap();
                     let start =

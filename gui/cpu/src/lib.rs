@@ -25,10 +25,7 @@ use self::{
     paint::{DrawTarget, ErasedHandler},
     pixel::PixelSpan,
     render::image_patch::AlphaRows,
-    strategy::{
-        clip::ClipStack,
-        command::{CommandList, Payload},
-    },
+    strategy::{clip::ClipStack, command::CommandList},
     text::TextRenderer,
 };
 pub use self::{
@@ -171,9 +168,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                 self.strategy.render(context, &damage);
                 start = node.index + 1;
                 damage.region = Some(&plan.stages[stage + 1]);
-                let Payload::Callback(call) = context.commands.get(node.index) else {
-                    unreachable!()
-                };
                 let clip = context.commands.clip(node.index);
                 if damage.intersects(node.bounds, clip) {
                     let snapshot = &mut context.snapshot;
@@ -191,8 +185,9 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                                 .copy_from_slice(context.buffer.read_line(y as usize, range));
                         }
                     }
-                    call.draw(
+                    context.commands.callbacks[node.callback as usize].draw(
                         &context.commands.data,
+                        &mut context.commands.prepared,
                         &mut DrawContext {
                             bounds: node.bounds,
                             images: &mut context.images,

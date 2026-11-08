@@ -1,30 +1,33 @@
 use blit::geometry::PhysicalRect;
 use blit_arena::Arena;
 
-use super::command::Payload;
-use crate::{DrawContext, Pixel, PixelBuffer, PixelSpan, StoredImage, TextRenderer, arena, paint::DrawTarget};
+use super::command::{CommandId, CommandList, Payload};
+use crate::{DrawContext, Pixel, PixelBuffer, PixelSpan, StoredImage, TextRenderer, paint::DrawTarget};
 
 #[inline(always)]
 pub fn draw_line<B: PixelBuffer>(
-    payload: &Payload<'_, B::Pixel>,
+    commands: &mut CommandList<B::Pixel>,
+    command: CommandId,
     line: i32,
-    bounds: PhysicalRect,
     clip: PhysicalRect,
     coverage: u8,
     images: &mut Arena<StoredImage>,
     text: &mut TextRenderer,
-    data: &arena::Arena,
     buffer: &mut B,
 ) {
-    match payload {
-        Payload::Callback(call) => {
+    let bounds = commands.bounds(command);
+    match commands.get(command) {
+        Payload::Callback(index) => {
+            let call = &mut commands.callbacks[index as usize];
             if call.reads.is_some() {
                 return;
             }
             let start = (clip.x - buffer.x_offset() as i32) as usize;
             let pixels = &mut buffer.line_mut(line as usize)[start..start + clip.width as usize];
+            let data = &commands.data;
             call.draw(
                 data,
+                &mut commands.prepared,
                 &mut DrawContext {
                     bounds,
                     images,
@@ -73,10 +76,10 @@ pub fn draw_line<B: PixelBuffer>(
             if let Some(image) = images.get(request.image.into()) {
                 let covered;
                 let request = if coverage == 255 {
-                    *request
+                    request
                 } else {
                     covered = {
-                        let mut request = **request;
+                        let mut request = *request;
                         request.opacity = (request.opacity as u16 * coverage as u16 / 255) as u8;
                         request
                     };

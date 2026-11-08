@@ -18,11 +18,10 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
             width: context.buffer.width() as i32,
             height: context.buffer.height() as i32,
         };
-        let commands = &context.commands;
+        let commands = &mut context.commands;
         let clips = &context.clips;
         let images = &mut context.images;
         let text = &mut context.text;
-        let data = &commands.data;
         let buffer = &mut context.buffer;
 
         for offset in commands.offsets() {
@@ -33,7 +32,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
             if !damage.intersects(bounds, commands.clip(offset)) {
                 continue;
             }
-            let payload = commands.get(offset);
             let clip_id = commands.clip(offset);
             let mut line = bounds.y;
             while line < bounds.y + bounds.height {
@@ -42,18 +40,17 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                     for range in &self.ranges {
                         let clip = PhysicalRect::new(range.start as i32, line, (range.end - range.start) as i32, 1);
                         if clip_id == 0 {
-                            raster::draw_line(&payload, line, draw_bounds, clip, 255, images, text, data, buffer);
+                            raster::draw_line(commands, offset, line, clip, 255, images, text, buffer);
                         } else {
                             clips.for_each(clip_id, line, clip.x..clip.x + clip.width, |range, coverage| {
                                 raster::draw_line(
-                                    &payload,
+                                    commands,
+                                    offset,
                                     line,
-                                    draw_bounds,
                                     PhysicalRect::new(range.start, line, range.end - range.start, 1),
                                     coverage,
                                     images,
                                     text,
-                                    data,
                                     buffer,
                                 );
                             });

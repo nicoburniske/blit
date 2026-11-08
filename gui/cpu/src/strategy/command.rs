@@ -19,8 +19,10 @@ use crate::{
 pub type CommandId = u32;
 
 pub struct CommandList<P> {
-    commands: Vec<StoredCommand<P>>,
+    commands: Vec<StoredCommand>,
+    pub callbacks: Vec<Callback<P>>,
     pub data: Arena,
+    pub prepared: Arena,
     pub range: Option<Range<CommandId>>,
     pub gradients: Gradients,
     has_partial_opaque: bool,
@@ -31,7 +33,9 @@ impl<P> Default for CommandList<P> {
     fn default() -> Self {
         Self {
             commands: Vec::new(),
+            callbacks: Vec::new(),
             data: Arena::default(),
+            prepared: Arena::default(),
             range: None,
             gradients: Gradients::default(),
             has_partial_opaque: false,
@@ -40,14 +44,14 @@ impl<P> Default for CommandList<P> {
     }
 }
 
-pub enum Payload<'a, P> {
+pub enum Payload<'a> {
     Clear,
     Rectangle(&'a PreparedRectangle, &'a Gradients),
     SolidPair(&'a PreparedSolidPair),
     Image(&'a PreparedImage),
     Text(&'a PreparedText),
     Triangle(&'a PreparedTriangle),
-    Callback(&'a Callback<P>),
+    Callback(u32),
 }
 
 #[derive(Clone, Copy)]
@@ -66,7 +70,9 @@ impl<P> CommandList<P> {
     }
 
     pub fn push_callback(&mut self, call: Callback<P>, bounds: PhysicalRect, clip: ClipId) {
-        self.push(StoredPayload::Callback(call), bounds, clip, false, false);
+        let index = u32::try_from(self.callbacks.len()).expect("too many cpu callbacks in one frame");
+        self.callbacks.push(call);
+        self.push(StoredPayload::Callback(index), bounds, clip, false, false);
     }
 
     pub fn push_clear(&mut self, bounds: PhysicalRect) {
@@ -118,7 +124,7 @@ impl<P> CommandList<P> {
     }
 
     #[inline]
-    pub fn get(&self, id: CommandId) -> Payload<'_, P> {
+    pub fn get(&self, id: CommandId) -> Payload<'_> {
         match &self.commands[id as usize].payload {
             StoredPayload::Clear => Payload::Clear,
             StoredPayload::Rectangle(rectangle) => Payload::Rectangle(rectangle, &self.gradients),
@@ -126,7 +132,7 @@ impl<P> CommandList<P> {
             StoredPayload::Image(image) => Payload::Image(image),
             StoredPayload::Text(text) => Payload::Text(text),
             StoredPayload::Triangle(triangle) => Payload::Triangle(triangle),
-            StoredPayload::Callback(call) => Payload::Callback(call),
+            StoredPayload::Callback(index) => Payload::Callback(*index),
         }
     }
 
@@ -182,6 +188,8 @@ impl<P> CommandList<P> {
 
     pub fn clear(&mut self) {
         self.commands.clear();
+        self.callbacks.clear();
+        self.prepared.clear();
         self.data.clear();
         self.range = None;
         self.gradients.entries.clear();
@@ -194,7 +202,7 @@ impl<P> CommandList<P> {
 impl<P> CommandList<P> {
     fn push(
         &mut self,
-        payload: StoredPayload<P>,
+        payload: StoredPayload,
         bounds: PhysicalRect,
         clip: ClipId,
         overwrites: bool,
@@ -211,20 +219,20 @@ impl<P> CommandList<P> {
     }
 }
 
-struct StoredCommand<P> {
+struct StoredCommand {
     bounds: PhysicalRect,
     clip: ClipId,
     overwrites: bool,
     partial_opaque: bool,
-    payload: StoredPayload<P>,
+    payload: StoredPayload,
 }
 
-enum StoredPayload<P> {
+enum StoredPayload {
     Clear,
     Rectangle(PreparedRectangle),
     SolidPair(PreparedSolidPair),
     Image(PreparedImage),
     Text(PreparedText),
     Triangle(PreparedTriangle),
-    Callback(Callback<P>),
+    Callback(u32),
 }
