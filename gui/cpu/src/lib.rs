@@ -1,8 +1,6 @@
 pub mod damage;
 pub mod extension;
 mod glyph;
-#[cfg(feature = "paint")]
-pub mod paint;
 mod pixel;
 pub mod raster;
 mod render;
@@ -10,12 +8,16 @@ pub mod shadow;
 mod strategy;
 mod text;
 
-use blit::{PhysicalRect, Scale2};
+use std::any::TypeId;
+
+use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_arena::Arena;
 use blit_gui::{
-    RenderInput, TextSystem,
-    display_list::{Command, Rectangle},
+    ClipContext, PaintCustom, TextContext, TextSystem,
+    atom::Clear,
+    display_list::{ClipId, Command, DisplayList, Mesh, Rectangle, arena::Writer},
     image::{ImageData, ImageFormat, ImageHandle, ImageRequest},
+    style::BorderRadius,
     text::TextRequest,
 };
 
@@ -52,6 +54,10 @@ impl Default for RendererConfig {
 
 pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTracker = TileDamage> {
     context: RenderContext<B>,
+    display_list: DisplayList,
+    text_system: TextSystem,
+    paint_clip: ClipId,
+    paint_clips: Vec<ClipId>,
     strategy: S,
     damage: D,
     pass_damage: PassDamage,
@@ -59,7 +65,7 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTrac
 }
 
 impl<B: PixelBuffer> Renderer<B, Direct> {
-    pub fn new(buffer: B, config: RendererConfig) -> Self {
+    pub fn new(buffer: B, text: TextSystem, config: RendererConfig) -> Self {
         Self {
             context: RenderContext {
                 buffer,
@@ -70,6 +76,10 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
                 clips: ClipStack::default(),
                 extensions: Registry::new(),
             },
+            display_list: DisplayList::default(),
+            text_system: text,
+            paint_clip: ClipId::default(),
+            paint_clips: Vec::new(),
             strategy: Direct::default(),
             damage: TileDamage::new(config.damage_tile_size),
             pass_damage: PassDamage::default(),
@@ -87,6 +97,10 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
     pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T, D> {
         let Self {
             context,
+            display_list,
+            text_system,
+            paint_clip,
+            paint_clips,
             damage,
             pass_damage,
             pass_shift,
@@ -94,6 +108,10 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         } = self;
         Renderer {
             context,
+            display_list,
+            text_system,
+            paint_clip,
+            paint_clips,
             strategy,
             damage,
             pass_damage,
@@ -105,6 +123,10 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         damage.invalidate();
         Renderer {
             context: self.context,
+            display_list: self.display_list,
+            text_system: self.text_system,
+            paint_clip: self.paint_clip,
+            paint_clips: self.paint_clips,
             strategy: self.strategy,
             damage,
             pass_damage: self.pass_damage,
@@ -126,17 +148,24 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
     ///
     /// buffer age is the number of presentations since this buffer was last used
     /// zero means its contents are unknown and forces a full repaint
-    pub fn render(&mut self, input: RenderInput<'_>, buffer_age: u8) {
-        self.set_scale(input.scale);
-        self.damage
-            .update(input.display_list, self.screen(), input.scale.x, buffer_age);
+    pub fn render(&mut self, buffer_age: u8) {
+        assert!(self.paint_clips.is_empty(), "unbalanced paint clips");
+        self.draw(buffer_age);
+        self.display_list.clear();
+        self.paint_clip = ClipId::default();
+        self.text_system.finish_frame();
+    }
+
+    fn draw(&mut self, buffer_age: u8) {
+        let scale = self.context.scale_factor;
+        self.damage.update(&self.display_list, self.screen(), scale, buffer_age);
         let screen = self.screen();
         self.pass_damage.update(
-            input.display_list,
+            &self.display_list,
             &self.context.extensions,
             &self.damage,
             screen,
-            input.scale.x,
+            scale,
             self.pass_shift,
         );
         let plan = &self.pass_damage;
@@ -161,13 +190,13 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                     }
                 }
             }
-            for clip in input.display_list.clips() {
+            for clip in self.display_list.clips() {
                 context
                     .clips
                     .push_node(clip.parent.0, clip.area, clip.radius, context.scale_factor);
             }
             let mut stage = 0;
-            for (index, record) in input.display_list.iter().enumerate() {
+            for (index, record) in self.display_list.iter().enumerate() {
                 if let Some(node) = plan.passes.get(stage).filter(|node| node.index == index) {
                     self.strategy.render(context, &damage);
                     context.commands.clear();
@@ -209,7 +238,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                     }
                     Command::Image(image) => context.prepare_image(&image, record.bounds, record.clip.0),
                     Command::Text(request) => {
-                        context.prepare_text(input.text, &request, record.bounds, record.clip.0);
+                        context.prepare_text(&mut self.text_system, &request, record.bounds, record.clip.0);
                     }
                     Command::Mesh(mesh) => {
                         for indices in mesh.indices.as_chunks::<3>().0 {
@@ -254,9 +283,9 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         context.commands.clear();
         context.clips.clear();
         context.extensions.finish_frame();
-        context.text.finish_frame(input.text);
+        context.text.finish_frame(&mut self.text_system);
         context.images.retain(|image| !image.handle.is_uniquely_owned());
-        self.damage.finish_frame(input.display_list);
+        self.damage.finish_frame(&mut self.display_list);
     }
 
     pub fn screen(&self) -> PhysicalRect {
@@ -280,13 +309,108 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         self.damage.invalidate();
     }
 
-    fn set_scale(&mut self, scale: Scale2) {
-        assert_eq!(scale.x, scale.y, "CPU rendering requires uniform scale");
-        assert!(scale.x.is_finite() && scale.x > 0.0);
-        if self.context.scale_factor != scale.x {
-            self.context.scale_factor = scale.x;
+    pub fn set_scale(&mut self, scale: f32) {
+        assert!(scale.is_finite() && scale > 0.0);
+        if self.context.scale_factor != scale {
+            self.context.scale_factor = scale;
             self.invalidate_all();
         }
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> blit::Context for Renderer<B, S, D> {
+    type Scalar = f32;
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Rectangle<'_>> for Renderer<B, S, D> {
+    fn paint(&mut self, bounds: LogicalRect, command: Rectangle<'_>) {
+        self.display_list.push_rectangle(
+            command,
+            bounds.to_physical(Scale2::uniform(self.context.scale_factor)),
+            self.paint_clip,
+        );
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<ImageRequest> for Renderer<B, S, D> {
+    fn paint(&mut self, bounds: LogicalRect, command: ImageRequest) {
+        self.display_list.push_image(
+            command,
+            bounds.to_physical(Scale2::uniform(self.context.scale_factor)),
+            self.paint_clip,
+        );
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<TextRequest<'_>> for Renderer<B, S, D> {
+    fn paint(&mut self, bounds: LogicalRect, command: TextRequest<'_>) {
+        self.display_list.push_text(
+            command,
+            bounds.to_physical(Scale2::uniform(self.context.scale_factor)),
+            self.paint_clip,
+        );
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Mesh<'_>> for Renderer<B, S, D> {
+    fn paint(&mut self, _: LogicalRect, command: Mesh<'_>) {
+        self.display_list
+            .push_mesh(command, Scale2::uniform(self.context.scale_factor), self.paint_clip);
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Clear> for Renderer<B, S, D> {
+    fn paint(&mut self, bounds: LogicalRect, _: Clear) {
+        self.display_list
+            .push_clear(bounds.to_physical(Scale2::uniform(self.context.scale_factor)));
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, C: extension::Command> Paint<C> for Renderer<B, S, D>
+where
+    C::Renderer: extension::Extension<B::Pixel, Command = C>,
+{
+    fn paint(&mut self, bounds: LogicalRect, command: C) {
+        self.paint_with(bounds, |_| command);
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, C: extension::Command> PaintCustom<C> for Renderer<B, S, D>
+where
+    C::Renderer: extension::Extension<B::Pixel, Command = C>,
+{
+    fn paint_with(&mut self, bounds: LogicalRect, build: impl FnOnce(&mut Writer<'_>) -> C) {
+        if !self
+            .context
+            .extensions
+            .entries
+            .iter()
+            .any(|(kind, _)| *kind == TypeId::of::<C>())
+        {
+            self.register(C::Renderer::default());
+        }
+        self.display_list.push_custom(
+            bounds.to_physical(Scale2::uniform(self.context.scale_factor)),
+            self.paint_clip,
+            build,
+        );
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> TextContext for Renderer<B, S, D> {
+    fn text(&mut self) -> &mut TextSystem {
+        &mut self.text_system
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> ClipContext for Renderer<B, S, D> {
+    fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
+        self.paint_clips.push(self.paint_clip);
+        self.paint_clip = self.display_list.push_clip(self.paint_clip, area, radius);
+    }
+
+    fn pop_clip(&mut self) {
+        self.paint_clip = self.paint_clips.pop().expect("no paint clip to pop");
     }
 }
 

@@ -1,8 +1,8 @@
-use blit::{Widget, state};
+use blit::{Paint, Widget, state};
 
 use crate::{
-    atom,
-    text::{Span, TextOptions, TextSource, TextStyle},
+    TextContext, atom,
+    text::{Span, TextOptions, TextRequest, TextSource, TextStyle},
 };
 
 blit::builder! {
@@ -15,11 +15,11 @@ blit::builder! {
     }
 }
 
-impl<C: crate::Context> Widget<C, state::Node> for Text<'_> {
+impl<C: TextContext + for<'a> Paint<TextRequest<'a>>> Widget<C, state::Node> for Text<'_> {
     type Response = ();
 
     fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
-        let run = ui.context_mut().as_mut().text_run(self.text, self.style);
+        let run = ui.context_mut().text().text_run(self.text, self.style);
         let colors = ui.store_slice(std::iter::once(self.style.color));
         ui.insert(
             atom::Text::new(run, colors)
@@ -40,11 +40,11 @@ blit::builder! {
     }
 }
 
-impl<C: crate::Context> Widget<C, state::Node> for RichText<'_> {
+impl<C: TextContext + for<'a> Paint<TextRequest<'a>>> Widget<C, state::Node> for RichText<'_> {
     type Response = ();
 
     fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
-        let run = ui.context_mut().as_mut().rich_text(self.text, self.spans, self.style);
+        let run = ui.context_mut().text().rich_text(self.text, self.spans, self.style);
         // empty spans lay out as one span in the base color
         let colors = if self.spans.is_empty() {
             ui.store_slice(std::iter::once(self.style.color))

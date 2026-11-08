@@ -1,14 +1,10 @@
-use blit::{LogicalRect, Scale2};
+use blit::{LogicalRect, Paint};
 use blit_cpu::{
     DamageTracker, Direct, RenderStrategy, Renderer, RendererConfig, Scanline, TileDamage, VecBuffer, Xrgb8888,
     damage::command::CommandDiff,
 };
 use blit_gui::{
-    GuiContext, TextConfig, TextSystem,
-    color::Color,
-    display_list::{ClipId, Rectangle},
-    shadow::BoxShadow,
-    style::BorderRadius,
+    ClipContext, TextConfig, TextSystem, color::Color, display_list::Rectangle, shadow::BoxShadow, style::BorderRadius,
 };
 
 #[test]
@@ -45,29 +41,23 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
                     ],
                 ),
             ] {
-                let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(128, 96), RendererConfig::default())
-                    .strategy(S::default())
-                    .damage_tracker(damage());
+                let mut renderer = Renderer::new(
+                    VecBuffer::<Xrgb8888>::new(128, 96),
+                    TextSystem::new(TextConfig::default(), blit_text_parley::Backend::without_system_fonts()).unwrap(),
+                    RendererConfig::default(),
+                )
+                .strategy(S::default())
+                .damage_tracker(damage());
                 renderer.register(blit_cpu::shadow::Renderer::new(capacity));
                 let mut spare = VecBuffer::new(128, 96);
-                let mut gui = GuiContext::new(
-                    TextSystem::new(TextConfig::default(), blit_text_parley::Backend::without_system_fonts()).unwrap(),
-                );
-                gui.set_scale(scale);
+                renderer.set_scale(scale);
                 for (step, frame) in [0, 0, 1, 2, 3, 3, 0].into_iter().enumerate() {
-                    let list = gui.render_input().display_list;
-                    list.push_rectangle(
+                    renderer.paint(
+                        LogicalRect::new(0.0, 0.0, 128.0 / scale, 96.0 / scale),
                         Rectangle::new(LogicalRect::new(0.0, 0.0, 128.0, 96.0)).background(Color::rgb(30, 45, 60)),
-                        blit::PhysicalRect::new(0, 0, 128, 96),
-                        ClipId::default(),
                     );
-                    let outer = list.push_clip(
-                        ClipId::default(),
-                        LogicalRect::new(1.0, 2.0, 118.0, 88.0),
-                        BorderRadius::uniform(7.0),
-                    );
-                    let clip = list.push_clip(
-                        outer,
+                    renderer.push_clip(LogicalRect::new(1.0, 2.0, 118.0, 88.0), BorderRadius::uniform(7.0));
+                    renderer.push_clip(
                         LogicalRect::new(3.0, 1.0, if frame == 2 { 70.0 } else { 110.0 }, 90.0),
                         BorderRadius::uniform(11.0),
                     );
@@ -95,9 +85,11 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
                         .blur(if index % 3 == 0 { 0.0 } else { 3.25 })
                         .spread(if index == 6 { -20.0 } else { index as f32 - 2.0 })
                         .inset(index % 2 != 0);
-                        list.push_custom(shadow.bounds().to_physical(Scale2::uniform(scale)), clip, |_| shadow);
+                        renderer.paint(shadow.bounds(), shadow);
                     }
-                    renderer.render(gui.render_input(), if step < 2 { 0 } else { 2 });
+                    renderer.pop_clip();
+                    renderer.pop_clip();
+                    renderer.render(if step < 2 { 0 } else { 2 });
                     let hash = renderer
                         .buffer()
                         .pixels()
@@ -106,7 +98,6 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
                             (hash ^ pixel.raw() as u64).wrapping_mul(0x100000001b3)
                         });
                     assert_eq!(hash, expected[frame], "capacity {capacity} scale {scale} frame {frame}");
-                    gui.finish_frame();
                     std::mem::swap(renderer.buffer_mut(), &mut spare);
                 }
             }
@@ -116,16 +107,4 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
     check::<Scanline, _>(|| TileDamage::new(8));
     check::<Direct, _>(CommandDiff::default);
     check::<Scanline, _>(CommandDiff::default);
-}
-
-#[test]
-#[should_panic(expected = "no cpu extension registered")]
-fn shadows_require_a_registered_handler() {
-    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(8, 8), RendererConfig::default());
-    let mut gui = GuiContext::new(
-        TextSystem::new(TextConfig::default(), blit_text_parley::Backend::without_system_fonts()).unwrap(),
-    );
-    let shadow = BoxShadow::new(LogicalRect::new(1.0, 1.0, 4.0, 4.0), Color::BLACK);
-    gui.paint_custom(shadow.bounds(), |_| shadow);
-    renderer.render(gui.render_input(), 0);
 }

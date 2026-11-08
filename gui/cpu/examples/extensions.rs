@@ -1,12 +1,12 @@
 use std::{cell::Cell, collections::HashMap, io::Write, rc::Rc};
 
-use blit::{LogicalRect, PhysicalRect};
+use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_cpu::{
-    Pixel, PremultipliedRgbaColor, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888,
+    Pixel, PixelBuffer, PremultipliedRgbaColor, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888,
     extension::{DrawContext, Extension, PrepareContext},
 };
 use blit_gui::{
-    GuiContext, TextConfig, TextSystem,
+    PaintCustom, TextConfig, TextSystem,
     color::Color,
     display_list::{
         CustomCommand, Rectangle,
@@ -20,8 +20,7 @@ const WIDTH: usize = 160;
 const HEIGHT: usize = 100;
 
 fn main() -> std::io::Result<()> {
-    let mut gui = gui();
-    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT), RendererConfig::default())
+    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT), RendererConfig::default())
         .strategy(Scanline::default());
     renderer.register(PathRenderer);
     renderer.register(ShadowRenderer::new(Rc::default()));
@@ -29,8 +28,8 @@ fn main() -> std::io::Result<()> {
         scratch: Vec::new(),
         calls: Rc::default(),
     });
-    scene(&mut gui, 0, true);
-    renderer.render(gui.render_input(), 0);
+    scene(&mut renderer, 0, true);
+    renderer.render(0);
     let path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "/tmp/blit-render-extensions.ppm".into());
@@ -69,7 +68,12 @@ impl CustomCommand for Path {
     }
 }
 
+#[derive(Default)]
 struct PathRenderer;
+
+impl blit_cpu::extension::Command for Path {
+    type Renderer = PathRenderer;
+}
 
 struct PreparedPath {
     segments: Slice<[[f32; 2]; 2]>,
@@ -126,9 +130,14 @@ struct Stats {
     frames: Cell<usize>,
 }
 
+#[derive(Default)]
 struct ShadowRenderer {
     masks: HashMap<[i32; 3], ImageHandle>,
     stats: Rc<Stats>,
+}
+
+impl blit_cpu::extension::Command for SoftShadow {
+    type Renderer = ShadowRenderer;
 }
 
 struct PreparedShadow {
@@ -208,9 +217,14 @@ struct BackdropBlur {
     radius: u16,
 }
 
+#[derive(Default)]
 struct BlurRenderer {
     scratch: Vec<[u32; 3]>,
     calls: Rc<Cell<usize>>,
+}
+
+impl blit_cpu::extension::Command for BackdropBlur {
+    type Renderer = BlurRenderer;
 }
 
 impl Extension<Xrgb8888> for BlurRenderer {
@@ -272,114 +286,115 @@ impl Extension<Xrgb8888> for BlurRenderer {
     }
 }
 
-fn scene(gui: &mut GuiContext, frame: usize, pass: bool) {
-    gui.paint_rectangle(
-        Rectangle::new(LogicalRect::new(0.0, 0.0, WIDTH as f32, HEIGHT as f32)).background(Color::rgb(18, 22, 30)),
-    );
-    gui.paint_custom(LogicalRect::new(12.0, 10.0, 76.0, 48.0), |_| SoftShadow {
+fn scene<C>(renderer: &mut C, frame: usize, pass: bool)
+where
+    C: for<'a> Paint<Rectangle<'a>, Scalar = f32>
+        + PaintCustom<SoftShadow>
+        + PaintCustom<Path>
+        + PaintCustom<BackdropBlur>,
+{
+    let background =
+        Rectangle::new(LogicalRect::new(0.0, 0.0, WIDTH as f32, HEIGHT as f32)).background(Color::rgb(18, 22, 30));
+    renderer.paint(background.area, background);
+    renderer.paint_with(LogicalRect::new(12.0, 10.0, 76.0, 48.0), |_| SoftShadow {
         blur: 7,
         color: Color::rgba(0, 180, 255, 190),
     });
-    gui.paint_rectangle(
-        Rectangle::new(LogicalRect::new(22.0, 20.0, 56.0, 28.0))
-            .background(Color::rgb(35, 45, 65))
-            .radius(BorderRadius::uniform(6.0)),
-    );
-    gui.paint_custom(LogicalRect::new(6.0, 5.0, 144.0, 60.0), |data| Path {
+    let panel = Rectangle::new(LogicalRect::new(22.0, 20.0, 56.0, 28.0))
+        .background(Color::rgb(35, 45, 65))
+        .radius(BorderRadius::uniform(6.0));
+    renderer.paint(panel.area, panel);
+    renderer.paint_with(LogicalRect::new(6.0, 5.0, 144.0, 60.0), |data| Path {
         points: data.extend([[12, 20], [65, 20], [100, 53], [145, if frame == 0 { 15 } else { 22 }]].into_iter()),
         width: 3,
         color: Color::rgb(255, 190, 70),
     });
     for x in (0..WIDTH).step_by(8) {
-        gui.paint_rectangle(Rectangle::new(LogicalRect::new(x as f32, 67.0, 4.0, 28.0)).background(
-            if x == 16 && frame != 0 {
-                Color::WHITE
-            } else {
-                Color::rgb((x * 7) as u8, 80, 150)
-            },
-        ));
+        let stripe = Rectangle::new(LogicalRect::new(x as f32, 67.0, 4.0, 28.0)).background(if x == 16 && frame != 0 {
+            Color::WHITE
+        } else {
+            Color::rgb((x * 7) as u8, 80, 150)
+        });
+        renderer.paint(stripe.area, stripe);
     }
     if pass {
-        gui.paint_custom(LogicalRect::new(20.0, 65.0, 120.0, 28.0), |_| BackdropBlur {
+        renderer.paint_with(LogicalRect::new(20.0, 65.0, 120.0, 28.0), |_| BackdropBlur {
             radius: 4,
         });
     }
-    gui.paint_rectangle(Rectangle::new(LogicalRect::new(34.0, 18.0, 8.0, 8.0)).background(Color::WHITE));
+    let overlay = Rectangle::new(LogicalRect::new(34.0, 18.0, 8.0, 8.0)).background(Color::WHITE);
+    renderer.paint(overlay.area, overlay);
 }
 
-fn gui() -> GuiContext {
-    GuiContext::new(TextSystem::new(TextConfig::default(), blit_text_parley::Backend::without_system_fonts()).unwrap())
+fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B> {
+    Renderer::new(
+        buffer,
+        TextSystem::new(TextConfig::default(), blit_text_parley::Backend::without_system_fonts()).unwrap(),
+        config,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use blit_cpu::{DamageTracker, Direct, PixelBuffer, RenderStrategy, TileDamage, damage::command::CommandDiff};
-    use blit_gui::display_list::ClipId;
+    use blit_gui::ClipContext;
 
     use super::*;
 
     const DAMAGE_WIDTH: usize = 384;
     const DAMAGE_HEIGHT: usize = 256;
 
-    fn damage_scene(gui: &mut GuiContext, frame: usize) {
-        gui.paint_rectangle(
-            Rectangle::new(LogicalRect::new(0.0, 0.0, DAMAGE_WIDTH as f32, DAMAGE_HEIGHT as f32))
-                .background(Color::rgb(18, 30, 50)),
-        );
-        gui.paint_rectangle(
-            Rectangle::new(LogicalRect::new(60.0, 80.0, 2.0, 2.0)).background(if frame == 0 {
-                Color::rgb(240, 20, 10)
-            } else {
-                Color::WHITE
-            }),
-        );
+    fn damage_scene<C>(renderer: &mut C, frame: usize)
+    where
+        C: for<'a> Paint<Rectangle<'a>, Scalar = f32> + PaintCustom<BackdropBlur> + ClipContext,
+    {
+        let background = Rectangle::new(LogicalRect::new(0.0, 0.0, DAMAGE_WIDTH as f32, DAMAGE_HEIGHT as f32))
+            .background(Color::rgb(18, 30, 50));
+        renderer.paint(background.area, background);
+        let edit = Rectangle::new(LogicalRect::new(60.0, 80.0, 2.0, 2.0)).background(if frame == 0 {
+            Color::rgb(240, 20, 10)
+        } else {
+            Color::WHITE
+        });
+        renderer.paint(edit.area, edit);
         if frame != 4 {
             let offset = if frame >= 5 { 12 } else { 0 };
-            let bounds = PhysicalRect::new(64 + offset, 48, 192, 128);
-            let list = gui.render_input().display_list;
-            let outer = list.push_clip(
-                ClipId::default(),
-                LogicalRect::new(
-                    (64 + offset) as f32,
-                    48.0,
-                    if frame >= 6 { 150.0 } else { 192.0 },
-                    128.0,
-                ),
-                BorderRadius::uniform(12.0),
+            let bounds = LogicalRect::new((64 + offset) as f32, 48.0, 192.0, 128.0);
+            let outer = LogicalRect::new(
+                (64 + offset) as f32,
+                48.0,
+                if frame >= 6 { 150.0 } else { 192.0 },
+                128.0,
             );
-            list.push_custom(bounds, outer, |_| BackdropBlur {
+            renderer.push_clip(outer, BorderRadius::uniform(12.0));
+            renderer.paint_with(bounds, |_| BackdropBlur {
                 radius: if frame == 3 { 6 } else { 4 },
             });
-            list.push_rectangle(
-                Rectangle::new(LogicalRect::new(67.0, 80.0, 2.0, 2.0)).background(Color::rgba(100, 220, 40, 170)),
-                PhysicalRect::new(67, 80, 2, 2),
-                ClipId::default(),
-            );
-            let inner = list.push_clip(
-                outer,
-                bounds.to_logical(blit::Scale2::IDENTITY),
-                BorderRadius::default(),
-            );
-            list.push_custom(bounds, inner, |_| BackdropBlur { radius: 3 });
+            renderer.pop_clip();
+            let overlay =
+                Rectangle::new(LogicalRect::new(67.0, 80.0, 2.0, 2.0)).background(Color::rgba(100, 220, 40, 170));
+            renderer.paint(overlay.area, overlay);
+            renderer.push_clip(outer, BorderRadius::uniform(12.0));
+            renderer.push_clip(bounds, BorderRadius::default());
+            renderer.paint_with(bounds, |_| BackdropBlur { radius: 3 });
+            renderer.pop_clip();
+            renderer.pop_clip();
         }
-        gui.paint_rectangle(
-            Rectangle::new(LogicalRect::new(68.0, 80.0, 1.0, 1.0)).background(Color::rgba(
-                255,
-                180,
-                0,
-                if frame >= 7 { 128 } else { 255 },
-            )),
-        );
-        gui.paint_rectangle(
-            Rectangle::new(LogicalRect::new(340.0, 220.0, 2.0, 2.0)).background(if frame >= 2 {
-                Color::rgb(50, 100, 255)
-            } else {
-                Color::rgb(10, 200, 30)
-            }),
-        );
-        gui.paint_rectangle(
-            Rectangle::new(LogicalRect::new(84.0, 80.0, 2.0, 2.0)).background(Color::rgba(255, 0, 255, 200)),
-        );
+        let overlay = Rectangle::new(LogicalRect::new(68.0, 80.0, 1.0, 1.0)).background(Color::rgba(
+            255,
+            180,
+            0,
+            if frame >= 7 { 128 } else { 255 },
+        ));
+        renderer.paint(overlay.area, overlay);
+        let unrelated = Rectangle::new(LogicalRect::new(340.0, 220.0, 2.0, 2.0)).background(if frame >= 2 {
+            Color::rgb(50, 100, 255)
+        } else {
+            Color::rgb(10, 200, 30)
+        });
+        renderer.paint(unrelated.area, unrelated);
+        let overlay = Rectangle::new(LogicalRect::new(84.0, 80.0, 2.0, 2.0)).background(Color::rgba(255, 0, 255, 200));
+        renderer.paint(overlay.area, overlay);
     }
 
     struct TrackedBuffer {
@@ -416,7 +431,7 @@ mod tests {
     fn pass_damage_keeps_small_edits_local_and_skips_unrelated_passes() {
         fn check<D: DamageTracker>(damage: D) {
             let calls = Rc::<Cell<usize>>::default();
-            let mut incremental = Renderer::new(
+            let mut incremental = new_renderer(
                 TrackedBuffer {
                     buffer: VecBuffer::new(DAMAGE_WIDTH, DAMAGE_HEIGHT),
                     reads: Cell::new(0),
@@ -434,7 +449,7 @@ mod tests {
                 scratch: Vec::new(),
                 calls: calls.clone(),
             });
-            let mut reference = Renderer::new(
+            let mut reference = new_renderer(
                 VecBuffer::<Xrgb8888>::new(DAMAGE_WIDTH, DAMAGE_HEIGHT),
                 RendererConfig::default(),
             );
@@ -442,17 +457,15 @@ mod tests {
                 scratch: Vec::new(),
                 calls: Rc::default(),
             });
-            let mut gui = gui();
-            let mut reference_gui = super::gui();
             for (step, frame) in [0, 0, 1, 1, 2, 2].into_iter().enumerate() {
-                damage_scene(&mut gui, frame);
-                damage_scene(&mut reference_gui, frame);
+                damage_scene(&mut incremental, frame);
+                damage_scene(&mut reference, frame);
                 incremental.buffer_mut().reads.set(0);
                 incremental.buffer_mut().writes = 0;
                 incremental.buffer_mut().touched.fill(false);
                 let before_calls = calls.get();
-                incremental.render(gui.render_input(), if step == 0 { 0 } else { 1 });
-                reference.render(reference_gui.render_input(), 0);
+                incremental.render(if step == 0 { 0 } else { 1 });
+                reference.render(0);
                 assert_eq!(
                     incremental
                         .buffer()
@@ -485,8 +498,6 @@ mod tests {
                     assert_eq!(reads, 0);
                     assert_eq!(calls.get(), before_calls);
                 }
-                gui.finish_frame();
-                reference_gui.finish_frame();
             }
         }
         check(TileDamage::new(8));
@@ -496,7 +507,7 @@ mod tests {
     #[test]
     fn regional_passes_match_full_rendering_across_buffer_ages_and_scene_changes() {
         fn check<S: RenderStrategy<VecBuffer<Xrgb8888>> + Default, D: DamageTracker>(damage: D) {
-            let mut renderer = Renderer::new(
+            let mut renderer = new_renderer(
                 VecBuffer::<Xrgb8888>::new(DAMAGE_WIDTH, DAMAGE_HEIGHT),
                 RendererConfig {
                     damage_tile_size: 8,
@@ -509,7 +520,7 @@ mod tests {
                 scratch: Vec::new(),
                 calls: Rc::default(),
             });
-            let mut reference = Renderer::new(
+            let mut reference = new_renderer(
                 VecBuffer::<Xrgb8888>::new(DAMAGE_WIDTH, DAMAGE_HEIGHT),
                 RendererConfig::default(),
             );
@@ -518,13 +529,11 @@ mod tests {
                 calls: Rc::default(),
             });
             let mut spare = VecBuffer::new(DAMAGE_WIDTH, DAMAGE_HEIGHT);
-            let mut gui = gui();
-            let mut reference_gui = super::gui();
             for (index, frame) in [0, 0, 1, 1, 2, 3, 4, 5, 6, 7, 7, 1, 0].into_iter().enumerate() {
-                damage_scene(&mut gui, frame);
-                damage_scene(&mut reference_gui, frame);
-                renderer.render(gui.render_input(), if index < 2 { 0 } else { 2 });
-                reference.render(reference_gui.render_input(), 0);
+                damage_scene(&mut renderer, frame);
+                damage_scene(&mut reference, frame);
+                renderer.render(if index < 2 { 0 } else { 2 });
+                reference.render(0);
                 assert_eq!(
                     renderer
                         .buffer()
@@ -536,8 +545,7 @@ mod tests {
                     None,
                     "frame {index}"
                 );
-                gui.finish_frame();
-                reference_gui.finish_frame();
+
                 std::mem::swap(renderer.buffer_mut(), &mut spare);
             }
         }
@@ -552,7 +560,11 @@ mod tests {
     fn pass_reads_outside_declared_dependencies_are_rejected() {
         #[derive(PartialEq, Hash)]
         struct BadRead;
+        #[derive(Default)]
         struct BadRenderer;
+        impl blit_cpu::extension::Command for BadRead {
+            type Renderer = BadRenderer;
+        }
         impl Extension<Xrgb8888> for BadRenderer {
             type Command = BadRead;
             type Prepared = ();
@@ -564,7 +576,7 @@ mod tests {
                 let _ = cx.source().unwrap().row(220, 340..341);
             }
         }
-        let mut renderer = Renderer::new(
+        let mut renderer = new_renderer(
             VecBuffer::<Xrgb8888>::new(DAMAGE_WIDTH, DAMAGE_HEIGHT),
             RendererConfig {
                 damage_tile_size: 8,
@@ -572,16 +584,19 @@ mod tests {
             },
         );
         renderer.register(BadRenderer);
-        let mut gui = gui();
-        gui.paint_custom(LogicalRect::new(64.0, 64.0, 8.0, 8.0), |_| BadRead);
-        renderer.render(gui.render_input(), 0);
+        renderer.paint_with(LogicalRect::new(64.0, 64.0, 8.0, 8.0), |_| BadRead);
+        renderer.render(0);
     }
 
     #[test]
     fn nonlocal_pass_dependencies_rebuild_source_before_later_overlays() {
         #[derive(Clone, Copy, PartialEq, Hash)]
         struct CopyArea(bool);
+        #[derive(Default)]
         struct CopyRenderer;
+        impl blit_cpu::extension::Command for CopyArea {
+            type Renderer = CopyRenderer;
+        }
         impl Extension<Xrgb8888> for CopyRenderer {
             type Command = CopyArea;
             type Prepared = ();
@@ -614,7 +629,7 @@ mod tests {
                 });
             }
         }
-        let mut renderer = Renderer::new(
+        let mut renderer = new_renderer(
             VecBuffer::<Xrgb8888>::new(DAMAGE_WIDTH, DAMAGE_HEIGHT),
             RendererConfig {
                 damage_tile_size: 8,
@@ -623,7 +638,6 @@ mod tests {
         )
         .strategy(Scanline::default());
         renderer.register(CopyRenderer);
-        let mut gui = gui();
         for (backdrop, color) in [
             (true, Color::rgb(255, 0, 0)),
             (true, Color::rgb(0, 255, 0)),
@@ -631,21 +645,21 @@ mod tests {
             (false, Color::rgb(0, 0, 255)),
             (true, Color::rgb(0, 0, 255)),
         ] {
-            gui.paint_rectangle(
-                Rectangle::new(LogicalRect::new(0.0, 0.0, DAMAGE_WIDTH as f32, DAMAGE_HEIGHT as f32))
-                    .background(Color::BLACK),
-            );
-            gui.paint_rectangle(Rectangle::new(LogicalRect::new(20.0, 180.0, 2.0, 2.0)).background(color));
-            gui.paint_custom(LogicalRect::new(160.0, 64.0, 16.0, 16.0), |_| CopyArea(backdrop));
-            gui.paint_rectangle(Rectangle::new(LogicalRect::new(20.0, 180.0, 2.0, 2.0)).background(Color::WHITE));
-            renderer.render(gui.render_input(), 1);
+            let background = Rectangle::new(LogicalRect::new(0.0, 0.0, DAMAGE_WIDTH as f32, DAMAGE_HEIGHT as f32))
+                .background(Color::BLACK);
+            renderer.paint(background.area, background);
+            let source = Rectangle::new(LogicalRect::new(20.0, 180.0, 2.0, 2.0)).background(color);
+            renderer.paint(source.area, source);
+            renderer.paint_with(LogicalRect::new(160.0, 64.0, 16.0, 16.0), |_| CopyArea(backdrop));
+            let overlay = Rectangle::new(LogicalRect::new(20.0, 180.0, 2.0, 2.0)).background(Color::WHITE);
+            renderer.paint(overlay.area, overlay);
+            renderer.render(1);
             let expected = if backdrop { color } else { Color::WHITE };
             assert_eq!(
                 renderer.buffer().pixels()[64 * DAMAGE_WIDTH + 160],
                 Xrgb8888::from_rgb(expected.red, expected.green, expected.blue)
             );
             assert_eq!(renderer.buffer().pixels()[180 * DAMAGE_WIDTH + 20].raw(), 0xffffff);
-            gui.finish_frame();
         }
     }
 
@@ -653,26 +667,22 @@ mod tests {
     fn native_rasters_cache_and_incremental_damage_match_full_rendering() {
         fn check<S: RenderStrategy<VecBuffer<Xrgb8888>> + Default, D: DamageTracker>(damage: D) {
             let stats = Rc::<Stats>::default();
-            let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT), RendererConfig::default())
+            let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT), RendererConfig::default())
                 .strategy(S::default())
                 .damage_tracker(damage);
             renderer.register(PathRenderer);
             renderer.register(ShadowRenderer::new(stats.clone()));
-            let mut reference = Renderer::new(VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT), RendererConfig::default());
+            let mut reference = new_renderer(VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT), RendererConfig::default());
             reference.register(PathRenderer);
             reference.register(ShadowRenderer::new(Rc::default()));
-            let mut gui = gui();
-            let mut reference_gui = super::gui();
             for frame in [0, 0, 1, 1, 0] {
-                scene(&mut gui, frame, false);
-                scene(&mut reference_gui, frame, false);
-                renderer.render(gui.render_input(), 1);
-                reference.render(reference_gui.render_input(), 0);
+                scene(&mut renderer, frame, false);
+                scene(&mut reference, frame, false);
+                renderer.render(1);
+                reference.render(0);
                 assert_eq!(renderer.buffer().pixels(), reference.buffer().pixels());
                 assert_eq!(renderer.buffer().pixels()[20 * WIDTH + 20].raw(), 0xffbe46);
                 assert_eq!(renderer.buffer().pixels()[20 * WIDTH + 36].raw(), 0xffffff);
-                gui.finish_frame();
-                reference_gui.finish_frame();
             }
             assert_eq!(stats.prepares.get(), 3);
             assert_eq!(stats.builds.get(), 1);
@@ -688,7 +698,7 @@ mod tests {
     fn framebuffer_passes_observe_prefix_and_repaint_external_dependencies() {
         fn check<S: RenderStrategy<VecBuffer<Xrgb8888>> + Default, D: DamageTracker>(damage: D) {
             let calls = Rc::<Cell<usize>>::default();
-            let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT), RendererConfig::default())
+            let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT), RendererConfig::default())
                 .strategy(S::default())
                 .damage_tracker(damage);
             renderer.register(PathRenderer);
@@ -697,24 +707,19 @@ mod tests {
                 scratch: Vec::new(),
                 calls: calls.clone(),
             });
-            let mut gui = gui();
             let mut previous = 0;
             for (index, frame) in [0, 0, 1, 1, 0].into_iter().enumerate() {
-                scene(&mut gui, frame, true);
-                let input = gui.render_input();
-                input
-                    .display_list
-                    .push_custom(PhysicalRect::new(100, 65, 40, 28), ClipId::default(), |_| {
-                        BackdropBlur { radius: 2 }
-                    });
-                renderer.render(input, 1);
+                scene(&mut renderer, frame, true);
+                renderer.paint_with(LogicalRect::new(100.0, 65.0, 40.0, 28.0), |_| BackdropBlur {
+                    radius: 2,
+                });
+                renderer.render(1);
                 let sample = renderer.buffer().pixels()[75 * WIDTH + 20].raw();
                 if index == 2 {
                     assert_ne!(sample, previous);
                 }
                 previous = sample;
                 assert_eq!(renderer.buffer().pixels()[20 * WIDTH + 36].raw(), 0xffffff);
-                gui.finish_frame();
             }
             assert_eq!(calls.get(), 6);
         }
@@ -727,19 +732,18 @@ mod tests {
     #[test]
     fn cached_resources_survive_eviction_before_rasterization() {
         let mut renderer =
-            Renderer::new(VecBuffer::<Xrgb8888>::new(20, 10), RendererConfig::default()).strategy(Scanline::default());
+            new_renderer(VecBuffer::<Xrgb8888>::new(20, 10), RendererConfig::default()).strategy(Scanline::default());
         let stats = Rc::<Stats>::default();
         renderer.register(ShadowRenderer::new(stats.clone()));
-        let mut gui = gui();
-        gui.paint_custom(LogicalRect::new(0.0, 0.0, 10.0, 10.0), |_| SoftShadow {
+        renderer.paint_with(LogicalRect::new(0.0, 0.0, 10.0, 10.0), |_| SoftShadow {
             blur: 1,
             color: Color::WHITE,
         });
-        gui.paint_custom(LogicalRect::new(10.0, 0.0, 10.0, 10.0), |_| SoftShadow {
+        renderer.paint_with(LogicalRect::new(10.0, 0.0, 10.0, 10.0), |_| SoftShadow {
             blur: 2,
             color: Color::WHITE,
         });
-        renderer.render(gui.render_input(), 0);
+        renderer.render(0);
         assert_eq!(stats.builds.get(), 2);
         assert_eq!(renderer.buffer().pixels()[5 * 20 + 5].raw(), 0xffffff);
         assert_eq!(renderer.buffer().pixels()[5 * 20 + 15].raw(), 0xffffff);
@@ -749,7 +753,11 @@ mod tests {
     fn pass_barriers_read_current_frame_and_respect_nested_clips() {
         #[derive(PartialEq, Hash)]
         struct Shift;
+        #[derive(Default)]
         struct ShiftRenderer;
+        impl blit_cpu::extension::Command for Shift {
+            type Renderer = ShiftRenderer;
+        }
         impl Extension<Xrgb8888> for ShiftRenderer {
             type Command = Shift;
             type Prepared = ();
@@ -776,9 +784,8 @@ mod tests {
             }
         }
         let mut renderer =
-            Renderer::new(VecBuffer::<Xrgb8888>::new(12, 10), RendererConfig::default()).strategy(Scanline::default());
+            new_renderer(VecBuffer::<Xrgb8888>::new(12, 10), RendererConfig::default()).strategy(Scanline::default());
         renderer.register(ShiftRenderer);
-        let mut gui = gui();
         let mut spare = VecBuffer::<Xrgb8888>::new(12, 10);
         for (index, color) in [
             Color::rgb(255, 0, 0),
@@ -790,26 +797,20 @@ mod tests {
         .into_iter()
         .enumerate()
         {
-            let list = gui.render_input().display_list;
-            list.push_rectangle(
-                Rectangle::new(LogicalRect::new(0.0, 0.0, 12.0, 1.0)).background(color),
-                PhysicalRect::new(0, 0, 12, 1),
-                ClipId::default(),
-            );
-            list.push_custom(PhysicalRect::new(0, 1, 12, 1), ClipId::default(), |_| Shift);
-            let outer = list.push_clip(
-                ClipId::default(),
-                LogicalRect::new(1.0, 0.0, 9.0, 8.0),
-                BorderRadius::uniform(3.0),
-            );
-            let inner = list.push_clip(outer, LogicalRect::new(2.0, 0.0, 6.0, 8.0), BorderRadius::default());
-            list.push_custom(PhysicalRect::new(0, 2, 12, 1), inner, |_| Shift);
-            renderer.render(gui.render_input(), if index < 2 { 0 } else { 2 });
+            let source = Rectangle::new(LogicalRect::new(0.0, 0.0, 12.0, 1.0)).background(color);
+            renderer.paint(source.area, source);
+            renderer.paint_with(LogicalRect::new(0.0, 1.0, 12.0, 1.0), |_| Shift);
+            renderer.push_clip(LogicalRect::new(1.0, 0.0, 9.0, 8.0), BorderRadius::uniform(3.0));
+            renderer.push_clip(LogicalRect::new(2.0, 0.0, 6.0, 8.0), BorderRadius::default());
+            renderer.paint_with(LogicalRect::new(0.0, 2.0, 12.0, 1.0), |_| Shift);
+            renderer.pop_clip();
+            renderer.pop_clip();
+            renderer.render(if index < 2 { 0 } else { 2 });
             let expected = (u32::from(color.red) << 16) | (u32::from(color.green) << 8);
             assert_eq!(renderer.buffer().pixels()[2 * 12 + 5].raw(), expected);
             assert_eq!(renderer.buffer().pixels()[2 * 12].raw(), 0);
             assert_eq!(renderer.buffer().pixels()[2 * 12 + 9].raw(), 0);
-            gui.finish_frame();
+
             std::mem::swap(renderer.buffer_mut(), &mut spare);
         }
     }

@@ -159,7 +159,6 @@ dependencies = [
  "blit-gui",
  "blit-text",
  "blit-text-parley",
- "divan",
  "fearless_simd",
 ]
 

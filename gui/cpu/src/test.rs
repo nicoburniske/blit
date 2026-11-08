@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 use blit_gui::{
-    FontData, FontStack, GuiContext, TextConfig, TextSystem,
+    FontData, FontStack, TextConfig, TextSystem,
     color::Color,
     display_list::{ClipId, DisplayList, Mesh, MeshVertex, Rectangle},
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
@@ -21,6 +21,36 @@ use blit_text::{
 use super::*;
 
 const SCALE: Scale2 = Scale2::IDENTITY;
+
+#[test]
+fn atoms_record_into_the_renderer_context() {
+    use std::time::Duration;
+
+    use blit::{Frame, FrameInfo, Input, LogicalSize};
+    use blit_gui::{BoundsClip, atom, widget};
+
+    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(64, 48), text_system(), renderer_config());
+    let mut frame = Frame::default();
+    for _ in 0..2 {
+        frame.build(
+            &mut renderer,
+            FrameInfo::new(LogicalSize::new(64.0, 48.0)),
+            Duration::ZERO,
+            Input::None,
+            |ui: blit::Ui<'_, _>| {
+                let mut panel = ui.layout(()).clip(BoundsClip);
+                panel.insert(atom::Rectangle::new().background(Color::WHITE));
+                panel.insert(atom::Shadow::new(Color::BLACK).blur(4.0).inset(true));
+                panel.insert(widget::Text::new("paint"));
+            },
+        );
+        frame.layout(&mut renderer);
+        frame.paint(&mut renderer);
+        renderer.render(1);
+        assert!(renderer.display_list.is_empty());
+        assert!(renderer.buffer().pixels().iter().any(|pixel| pixel.raw() != 0xffffff));
+    }
+}
 
 #[test]
 fn oversized_borders_fill_rectangle() {
@@ -67,7 +97,7 @@ fn scattered_tiles_stay_local_across_command_reorders() {
     .strategy(Scanline::default());
     for frame in 0..3 {
         renderer.render.buffer_mut().ranges.clear();
-        let list = renderer.gui.render_input().display_list;
+        let list = &mut renderer.render.display_list;
         list.push_clear(PhysicalRect::new(0, 0, 643, 53));
         let clip = list.push_clip(
             ClipId::default(),
@@ -83,8 +113,8 @@ fn scattered_tiles_stay_local_across_command_reorders() {
                 clip,
             );
         }
-        renderer.render.render(renderer.gui.render_input(), 1);
-        renderer.gui.finish_frame();
+        renderer.render.render(1);
+
         let touched: usize = renderer.render.buffer().ranges.iter().map(Range::len).sum();
         assert_eq!(touched, [643 * 53, 40 * 8 * 8, 0][frame]);
     }
@@ -109,7 +139,7 @@ fn dirty_tiles_preserve_gaps_and_blend_once() {
         )
         .strategy(S::default());
         for frame in 0..2 {
-            let list = renderer.gui.render_input().display_list;
+            let list = &mut renderer.render.display_list;
             list.push_rectangle(
                 Rectangle::new(screen.to_logical(SCALE)).background(Color::rgba(255, 0, 0, 128)),
                 screen,
@@ -127,10 +157,10 @@ fn dirty_tiles_preserve_gaps_and_blend_once() {
             if frame == 0 {
                 // seed tracking without drawing to isolate partial rasterization
                 renderer.render.damage.update(list, screen, 1.0, 1);
+                renderer.render.display_list.clear();
             } else {
-                renderer.render.render(renderer.gui.render_input(), 1);
+                renderer.render.render(1);
             }
-            renderer.gui.finish_frame();
         }
         let red = 0x800000;
         let white = 0xffffff;
@@ -155,7 +185,9 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
         let screen = PhysicalRect::new(0, 0, 16, 16);
         let area = screen.to_logical(SCALE);
         let mut list = DisplayList::default();
-        let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config()).gui;
+        let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config())
+            .render
+            .text_system;
         for case in ["fill", "border", "text color", "image", "shadow", "mesh", "clip"] {
             for (frame, color) in [Color::BLACK, Color::WHITE, Color::WHITE].into_iter().enumerate() {
                 list.clear();
@@ -245,7 +277,6 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
         .strategy(Scanline::default());
         let mut renderer = TestRenderer {
             render: renderer.render.damage_tracker(damage),
-            gui: renderer.gui,
         };
         let mut buffers: [_; COUNT] = std::array::from_fn(|_| VecBuffer::<Argb8888>::new(37, 21));
         let mut presented = [None; COUNT];
@@ -262,7 +293,7 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
                 .unwrap_or(0);
             std::mem::swap(renderer.render.buffer_mut(), &mut buffers[index]);
             let left = frame.min(19) % 5 * 7;
-            let list = renderer.gui.render_input().display_list;
+            let list = &mut renderer.render.display_list;
             list.push_clear(PhysicalRect::new(0, 0, 37, 21));
             let area = LogicalRect::new(left as f32, 2.0, 6.0, 16.0);
             list.push_rectangle(
@@ -270,7 +301,7 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
                 area.to_physical(SCALE),
                 ClipId::default(),
             );
-            renderer.render.render(renderer.gui.render_input(), age);
+            renderer.render.render(age);
             let mut expected = [Argb8888::default(); 37 * 21];
             for row in 2..18 {
                 expected[row * 37 + left..row * 37 + left + 6].fill(Argb8888::from_raw(u32::MAX));
@@ -280,7 +311,7 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
                 expected,
                 "buffers {COUNT} stale {stale} frame {frame} age {age}"
             );
-            renderer.gui.finish_frame();
+
             std::mem::swap(renderer.render.buffer_mut(), &mut buffers[index]);
             presented[index] = Some(frame);
         }
@@ -357,15 +388,14 @@ fn renderer_config() -> RendererConfig {
 
 struct TestRenderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTracker = TileDamage> {
     render: Renderer<B, S, D>,
-    gui: GuiContext,
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> TestRenderer<B, S, D> {
     fn render(&mut self, display_list: &mut DisplayList) {
-        let mut input = self.gui.render_input();
-        input.display_list = display_list;
-        self.render.render(input, 0);
-        self.gui.finish_frame();
+        std::mem::swap(&mut self.render.display_list, display_list);
+        self.render.draw(0);
+        std::mem::swap(&mut self.render.display_list, display_list);
+        self.render.text_system.finish_frame();
     }
 }
 
@@ -373,33 +403,31 @@ impl<B: PixelBuffer> TestRenderer<B> {
     fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> TestRenderer<B, T> {
         TestRenderer {
             render: self.render.strategy(strategy),
-            gui: self.gui,
         }
     }
 }
 
 fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> TestRenderer<B> {
-    let mut render = Renderer::new(buffer, config);
+    let mut render = Renderer::new(buffer, text_system(), config);
     render.register(shadow::Renderer::new(1024 * 1024));
-    TestRenderer {
-        render,
-        gui: GuiContext::new(
-            TextSystem::new(
-                TextConfig {
-                    fonts: vec![FontStack {
-                        id: FontId::default(),
-                        families: vec![blit_gui::Family::embedded([FontData::Static(include_bytes!(env!(
-                            "BLIT_TEST_FONT"
-                        )))])],
-                    }],
-                    text_cache_capacity: 1024 * 1024,
-                    layout_cache_capacity: 1024 * 1024,
-                },
-                blit_text_parley::Backend::without_system_fonts(),
-            )
-            .unwrap(),
-        ),
-    }
+    TestRenderer { render }
+}
+
+fn text_system() -> TextSystem {
+    TextSystem::new(
+        TextConfig {
+            fonts: vec![FontStack {
+                id: FontId::default(),
+                families: vec![blit_gui::Family::embedded([FontData::Static(include_bytes!(env!(
+                    "BLIT_TEST_FONT"
+                )))])],
+            }],
+            text_cache_capacity: 1024 * 1024,
+            layout_cache_capacity: 1024 * 1024,
+        },
+        blit_text_parley::Backend::without_system_fonts(),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -422,31 +450,35 @@ fn renderer_supports_custom_pixel_layouts() {
         }
     );
 
-    let text = renderer
-        .gui
-        .rich_text("M M", &[Span::new(0..2), Span::new(2..3)], TextStyle::new().size(20.0));
+    let text =
+        renderer
+            .render
+            .text_system
+            .rich_text("M M", &[Span::new(0..2), Span::new(2..3)], TextStyle::new().size(20.0));
     for (x, mut colors) in [
         (0.0, [Color::WHITE, Color::rgb(255, 0, 0)]),
         (32.0, [Color::rgb(255, 0, 0), Color::WHITE]),
     ] {
-        renderer.gui.paint_text(TextRequest {
+        let request = TextRequest {
             text,
             colors: &colors,
             area: LogicalRect::new(x, 0.0, 32.0, 24.0),
             offset_x: 0.0,
             options: TextOptions::default(),
-        });
+        };
+        renderer.render.paint(request.area, request);
         colors.fill(Color::TRANSPARENT);
     }
-    renderer.gui.paint_text(TextRequest {
+    let request = TextRequest {
         text,
         colors: &[Color::WHITE],
         area: LogicalRect::new(64.0, 0.0, 32.0, 24.0),
         offset_x: 0.0,
         options: TextOptions::default(),
-    });
-    renderer.render.render(renderer.gui.render_input(), 0);
-    renderer.gui.finish_frame();
+    };
+    renderer.render.paint(request.area, request);
+    renderer.render.render(0);
+
     let pixels = renderer.render.buffer().pixels();
     for (column, white) in [true, false, false, true, true, true].into_iter().enumerate() {
         assert!(pixels.chunks_exact(96).any(|row| {
@@ -512,7 +544,7 @@ fn mesh_interpolates_colors_without_shared_edge_overdraw() {
 }
 
 #[test]
-fn render_input_tracks_damage_and_invalidation() {
+fn recorded_commands_track_damage_and_invalidation() {
     let mut renderer = new_renderer(
         TrackingBuffer {
             pixels: vec![Xrgb8888::default(); 16],
@@ -527,13 +559,11 @@ fn render_input_tracks_damage_and_invalidation() {
     let rectangle = Rectangle::new(LogicalRect::new(0.0, 0.0, 2.0, 2.0)).background(Color::WHITE);
     let render = |renderer: &mut TestRenderer<TrackingBuffer, Scanline>| {
         renderer.render.buffer_mut().lines.clear();
-        let input = renderer.gui.render_input();
-        input.display_list.clear();
-        input
+        renderer
+            .render
             .display_list
             .push_rectangle(rectangle, PhysicalRect::new(0, 0, 4, 4), ClipId::default());
-        renderer.render.render(input, 1);
-        renderer.gui.finish_frame();
+        renderer.render.render(1);
     };
 
     render(&mut renderer);
@@ -546,7 +576,7 @@ fn render_input_tracks_damage_and_invalidation() {
     render(&mut renderer);
     assert!(!renderer.render.buffer().lines.is_empty());
 
-    renderer.gui.set_scale(2.0);
+    renderer.render.set_scale(2.0);
     render(&mut renderer);
     assert!(!renderer.render.buffer().lines.is_empty());
 
@@ -561,25 +591,35 @@ fn render_input_tracks_damage_and_invalidation() {
 fn text_placement_tracks_physical_clip_size() {
     let config = renderer_config();
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(16, 24), config);
-    let text = renderer
-        .gui
-        .rich_text("MM", &[Span::new(0..1), Span::new(1..2)], TextStyle::new().size(20.0));
     for (x, y) in [(0.0, 0.0), (0.5, 0.0), (0.0, 0.5)] {
-        let screen = renderer.render.screen();
-        renderer.gui.render_input().display_list.push_clear(screen);
-        renderer.gui.paint_text(TextRequest {
-            text,
-            colors: &[Color::rgb(255, 0, 0), Color::WHITE],
-            area: LogicalRect::new(x, y, 8.0, 8.0),
-            offset_x: 12.0,
-            options: TextOptions::default(),
-        });
-        let mut fresh = Renderer::new(VecBuffer::<Xrgb8888>::new(16, 24), config);
-        renderer.render.render(renderer.gui.render_input(), 0);
-        fresh.render(renderer.gui.render_input(), 0);
-        assert_eq!(renderer.render.buffer().pixels(), fresh.buffer().pixels());
-        assert!(fresh.buffer().pixels().iter().any(|pixel| pixel.raw() & 0xff00 != 0));
-        renderer.gui.finish_frame();
+        let mut fresh = new_renderer(VecBuffer::<Xrgb8888>::new(16, 24), config);
+        for renderer in [&mut renderer, &mut fresh] {
+            let text = renderer.render.text_system.rich_text(
+                "MM",
+                &[Span::new(0..1), Span::new(1..2)],
+                TextStyle::new().size(20.0),
+            );
+            let request = TextRequest {
+                text,
+                colors: &[Color::rgb(255, 0, 0), Color::WHITE],
+                area: LogicalRect::new(x, y, 8.0, 8.0),
+                offset_x: 12.0,
+                options: TextOptions::default(),
+            };
+            let screen = renderer.render.screen();
+            renderer.render.display_list.push_clear(screen);
+            renderer.render.paint(request.area, request);
+            renderer.render.render(0);
+        }
+        assert_eq!(renderer.render.buffer().pixels(), fresh.render.buffer().pixels());
+        assert!(
+            fresh
+                .render
+                .buffer()
+                .pixels()
+                .iter()
+                .any(|pixel| pixel.raw() & 0xff00 != 0)
+        );
     }
 }
 
@@ -603,14 +643,14 @@ fn text_cache_stages_are_independent() {
         )
         .unwrap();
         let mut request = TextLayoutRequest {
-            text: text.text_run("cached".into(), TextStyle::default()),
+            text: text.text_run("cached", TextStyle::default()),
             wrap: TextWrap::None,
             max_width: None,
             max_lines: None,
         };
 
         text.measure(&request);
-        let white = text.text_run("cached".into(), TextStyle::new().color(Color::WHITE));
+        let white = text.text_run("cached", TextStyle::new().color(Color::WHITE));
         text.measure(&TextLayoutRequest { text: white, ..request });
 
         let mut paint = TextRequest {
@@ -632,7 +672,7 @@ fn text_cache_stages_are_independent() {
         assert_eq!(counts.carets.get(), 1);
 
         text.finish_frame();
-        request.text = text.text_run("cached".into(), TextStyle::default());
+        request.text = text.text_run("cached", TextStyle::default());
         assert_eq!(request.text == paint.text, !source_evicted);
         text.measure(&request);
         let shapes = if source_evicted { 2 } else { 1 };
@@ -735,24 +775,26 @@ fn text_cache_stages_are_independent() {
 
 #[test]
 fn text_measurement_and_carets_follow_layout() {
-    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config()).gui;
+    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config())
+        .render
+        .text_system;
     let request = TextLayoutRequest {
         text: gui.text_run("hello world", TextStyle::default()),
         wrap: TextWrap::None,
         max_width: None,
         max_lines: None,
     };
-    let unwrapped = gui.measure_text(&request);
+    let unwrapped = gui.measure(&request);
     let spans = [
         Span::new(0..6).style(SpanStyle::new().size(16.0)),
         Span::new(6..11).style(SpanStyle::new().size(32.0)),
     ];
     let mixed = gui.rich_text("hello world", &spans, TextStyle::default());
-    let mixed_size = gui.measure_text(&TextLayoutRequest { text: mixed, ..request });
+    let mixed_size = gui.measure(&TextLayoutRequest { text: mixed, ..request });
     assert!(mixed_size.height > unwrapped.height);
     let larger_base = gui.rich_text("hello world", &spans, TextStyle::new().size(48.0));
     assert_ne!(mixed, larger_base);
-    let larger_size = gui.measure_text(&TextLayoutRequest {
+    let larger_size = gui.measure(&TextLayoutRequest {
         text: larger_base,
         ..request
     });
@@ -763,11 +805,11 @@ fn text_measurement_and_carets_follow_layout() {
         max_width: Some(unwrapped.width / 2.0),
         ..request
     };
-    let wrapped = gui.measure_text(&wrapped_request);
+    let wrapped = gui.measure(&wrapped_request);
     assert!(wrapped.width < unwrapped.width);
     assert!(wrapped.height > unwrapped.height);
     assert_eq!(
-        gui.measure_text(&TextLayoutRequest {
+        gui.measure(&TextLayoutRequest {
             max_lines: Some(1),
             ..wrapped_request
         })
@@ -775,7 +817,6 @@ fn text_measurement_and_carets_follow_layout() {
         unwrapped.height
     );
 
-    gui.set_scale(2.0);
     let mut paint = TextRequest {
         text: request.text,
         colors: &[Color::BLACK],
@@ -783,24 +824,24 @@ fn text_measurement_and_carets_follow_layout() {
         offset_x: 0.0,
         options: TextOptions::default(),
     };
-    let start = gui.text_cursor_rect(&paint, 0);
+    let start = gui.cursor_rect(&paint, 0, 0.5);
     assert_eq!(start.width, 0.5);
     assert_eq!(
-        gui.text_offset_at_position(&paint, LogicalPoint::new(1000.0, 20.0)),
+        gui.offset_at_position(&paint, LogicalPoint::new(1000.0, 20.0)),
         "hello world".len()
     );
     paint.offset_x = 4.0;
-    assert_eq!(gui.text_cursor_rect(&paint, 0).x, start.x - 4.0);
+    assert_eq!(gui.cursor_rect(&paint, 0, 0.5).x, start.x - 4.0);
     paint.area.width += 0.5;
     paint.area.height += 0.25;
     paint.options.horizontal_align = HorizontalAlign::Center;
     paint.options.vertical_align = VerticalAlign::Bottom;
-    let placed = gui.text_cursor_rect(&paint, 0);
+    let placed = gui.cursor_rect(&paint, 0, 0.5);
     assert!((placed.x - (start.x - 4.0 + (paint.area.width - unwrapped.width) / 2.0)).abs() < 0.001);
     assert!((placed.y - (start.y + paint.area.height - unwrapped.height)).abs() < 0.001);
-    let end = gui.text_cursor_rect(&paint, "hello world".len());
+    let end = gui.cursor_rect(&paint, "hello world".len(), 0.5);
     assert_eq!(
-        gui.text_offset_at_position(&paint, LogicalPoint::new(end.x, end.y)),
+        gui.offset_at_position(&paint, LogicalPoint::new(end.x, end.y)),
         "hello world".len()
     );
 }
@@ -902,10 +943,8 @@ fn commands_outside_damage_are_not_prepared() {
         damaged.to_physical(SCALE),
         ClipId::default(),
     );
-    let mut input = renderer.gui.render_input();
-    input.display_list = &mut paint;
-    renderer.render.render(input, 1);
-    renderer.gui.finish_frame();
+    std::mem::swap(&mut renderer.render.display_list, &mut paint);
+    renderer.render.render(1);
 
     assert_eq!(
         renderer.render.buffer().pixels(),
@@ -1374,7 +1413,7 @@ fn scanline_skips_commands_behind_opaque_content() {
 fn box_shadows_match_between_strategies_and_cache_sizes() {
     fn render<S: RenderStrategy<VecBuffer<Xrgb8888>>>(strategy: S) -> TestRenderer<VecBuffer<Xrgb8888>, S> {
         let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(128, 96), renderer_config()).strategy(strategy);
-        renderer.gui.set_scale(2.0);
+        renderer.render.set_scale(2.0);
         let screen = renderer.render.screen();
         let image = renderer.render.create_image(ImageData::new(
             ImagePixels::Static(&[255, 0, 0, 255]),
@@ -1534,7 +1573,7 @@ fn rounded_clips_match_between_strategies() {
         let image = renderer
             .render
             .create_image(ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgb8, 1, 1));
-        let string = renderer.gui.text_run("M", TextStyle::new());
+        let string = renderer.render.text_system.text_run("M", TextStyle::new());
         let screen = renderer.render.screen();
         let area = LogicalRect {
             width: 16.0,
@@ -1662,7 +1701,9 @@ fn dropped_image_remains_valid_until_frame_end() {
 
 #[test]
 fn text_runs_are_keyed_by_content_and_style() {
-    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config()).gui;
+    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config())
+        .render
+        .text_system;
     let style = TextStyle::default();
     let text = gui.text_run("same", style);
     let white = gui.text_run("same", style.color(Color::WHITE));
@@ -1736,13 +1777,11 @@ fn damage_trackers_preserve_overlapping_reorders() {
             new_renderer(VecBuffer::<Xrgb8888>::new(16, 16), renderer_config()).strategy(Scanline::default());
         let mut incremental = TestRenderer {
             render: incremental.render.damage_tracker(make_damage()),
-            gui: incremental.gui,
         };
         let reference =
             new_renderer(VecBuffer::<Xrgb8888>::new(16, 16), renderer_config()).strategy(Scanline::default());
         let mut reference = TestRenderer {
             render: reference.render.damage_tracker(make_damage()),
-            gui: reference.gui,
         };
         let frames: &[&[u8]] = &[
             &[0, 1, 2],
@@ -1757,18 +1796,17 @@ fn damage_trackers_preserve_overlapping_reorders() {
         for frame in frames {
             reference.render.invalidate_all();
             for renderer in [&mut incremental, &mut reference] {
-                let input = renderer.gui.render_input();
-                input.display_list.clear();
-                input.display_list.push_clear(PhysicalRect::new(0, 0, 16, 16));
+                renderer.render.display_list.push_clear(PhysicalRect::new(0, 0, 16, 16));
                 for &index in *frame {
                     let rectangle = Rectangle::new(LogicalRect::new(index as f32, index as f32, 10.0, 10.0))
                         .background(Color::rgba(index * 50, 100, 200, 128));
-                    input
-                        .display_list
-                        .push_rectangle(rectangle, rectangle.area.to_physical(SCALE), ClipId::default());
+                    renderer.render.display_list.push_rectangle(
+                        rectangle,
+                        rectangle.area.to_physical(SCALE),
+                        ClipId::default(),
+                    );
                 }
-                renderer.render.render(input, 1);
-                renderer.gui.finish_frame();
+                renderer.render.render(1);
             }
             assert_eq!(
                 incremental.render.buffer().pixels(),

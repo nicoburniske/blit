@@ -1,8 +1,6 @@
 use blit_gui::{
     GuiContext,
-    display_list::Rectangle,
     image::{ImageData, ImageHandle},
-    shadow::BoxShadow,
 };
 use blit_widgets::FrameProfiler;
 
@@ -30,18 +28,6 @@ impl DesktopContext {
 
 impl blit::Context for DesktopContext {
     type Scalar = f32;
-}
-
-impl blit::Paint<Rectangle<'_>> for DesktopContext {
-    fn paint(&mut self, bounds: blit::LogicalRect, command: Rectangle<'_>) {
-        self.gui.paint(bounds, command);
-    }
-}
-
-impl blit::Paint<BoxShadow> for DesktopContext {
-    fn paint(&mut self, bounds: blit::LogicalRect, command: BoxShadow) {
-        self.gui.paint(bounds, command);
-    }
 }
 
 impl blit_widgets::Context for DesktopContext {

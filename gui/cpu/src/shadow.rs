@@ -29,6 +29,10 @@ pub enum Prepared {
     Image(Handle<Image>),
 }
 
+impl crate::extension::Command for BoxShadow {
+    type Renderer = Renderer;
+}
+
 impl Renderer {
     /// capacity is the maximum retained mask data in bytes
     pub fn new(capacity: usize) -> Self {
@@ -331,6 +335,3 @@ fn mask_rounded(alpha: &mut [u8], stride: usize, area: PhysicalRect, radii: Radi
     }
     alpha[(area.y + area.height) as usize * stride..].fill(0);
 }
-
-#[cfg(test)]
-mod benchmark;

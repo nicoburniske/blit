@@ -419,8 +419,8 @@ impl TextSystem {
     }
 
     /// registers geometry using the font attributes in style
-    pub fn text_run(&mut self, source: TextSource<'_>, style: TextStyle) -> TextRun {
-        let arguments = match source {
+    pub fn text_run<'a>(&mut self, source: impl Into<TextSource<'a>>, style: TextStyle) -> TextRun {
+        let arguments = match source.into() {
             TextSource::Borrowed(text) => return self.rich_text(text, &[], style),
             TextSource::Formatted(arguments) => arguments,
         };

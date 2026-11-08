@@ -10,6 +10,36 @@ use blit_gui::{
 
 use crate::{Pixel, PixelBuffer, StoredImage, damage::region::Region, strategy::clip::ClipStack};
 
+/// selects the cpu handler for a custom command
+///
+/// unsupported commands cannot be recorded
+///
+/// ```compile_fail
+/// use blit::{LogicalRect, Paint};
+/// use blit_cpu::{Renderer, VecBuffer, Xrgb8888};
+/// #[derive(PartialEq, Hash)]
+/// struct Unsupported;
+/// fn draw(renderer: &mut Renderer<VecBuffer<Xrgb8888>>) {
+///     renderer.paint(LogicalRect::default(), Unsupported);
+/// }
+/// ```
+///
+/// arena builders require the same handler
+///
+/// ```compile_fail
+/// use blit::LogicalRect;
+/// use blit_cpu::{Renderer, VecBuffer, Xrgb8888};
+/// use blit_gui::PaintCustom;
+/// #[derive(PartialEq, Hash)]
+/// struct Unsupported;
+/// fn draw(renderer: &mut Renderer<VecBuffer<Xrgb8888>>) {
+///     renderer.paint_with(LogicalRect::default(), |_| Unsupported);
+/// }
+/// ```
+pub trait Command: CustomCommand {
+    type Renderer: Default;
+}
+
 /// renders one command type with persistent state owned by the handler
 pub trait Extension<P: Pixel>: 'static {
     type Command: CustomCommand;

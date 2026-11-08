@@ -1,7 +1,7 @@
-use blit::{Clip, ClipShape, Paint, PhysicalRect};
+use blit::{Clip, ClipShape, PhysicalRect};
 use blit_widgets::FrameProfiler;
 
-use crate::{RendererConfig, TuiRenderer, atom::Tint, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
+use crate::{RendererConfig, TuiRenderer, cell::CellBuffer, image::ImagePlacement, text::TextRequest};
 
 /// rendering resources independent of terminal io and event loop ownership
 pub struct TuiContext {
@@ -20,22 +20,6 @@ impl Default for TuiContext {
 
 impl blit::Context for TuiContext {
     type Scalar = i32;
-}
-
-impl Paint<Tint> for TuiContext {
-    fn paint(&mut self, bounds: PhysicalRect, tint: Tint) {
-        self.cells(bounds).tint(tint.color, tint.opacity);
-    }
-}
-
-impl blit::Context for TuiRenderer {
-    type Scalar = i32;
-}
-
-impl Paint<Tint> for TuiRenderer {
-    fn paint(&mut self, bounds: PhysicalRect, tint: Tint) {
-        self.cells(bounds, bounds).tint(tint.color, tint.opacity);
-    }
 }
 
 impl blit_widgets::Context for TuiContext {

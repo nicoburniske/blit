@@ -1,7 +1,7 @@
 use blit::{Atom, AtomCx, Constraints, FrameSlice, LogicalRect, Paint, Size};
 
 use crate::{
-    Context,
+    TextContext,
     color::Color,
     display_list::Rectangle as DrawRectangle,
     image::{ImageFit, ImageId, ImageRequest, ImageSampling, ImageTiling, NineSlice},
@@ -53,9 +53,9 @@ blit::builder! {
     }
 }
 
-impl<C: Context> Atom<C> for Text {
+impl<C: TextContext + for<'a> Paint<TextRequest<'a>>> Atom<C> for Text {
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
-        let measured = cx.context_mut().as_mut().measure_text(&TextLayoutRequest {
+        let measured = cx.context_mut().text().measure(&TextLayoutRequest {
             text: self.text,
             wrap: self.options.wrap,
             max_width: (self.options.wrap != TextWrap::None && constraints.max.width.is_finite())
@@ -67,13 +67,16 @@ impl<C: Context> Atom<C> for Text {
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
         let colors = cx.slice(self.colors);
-        cx.context_mut().as_mut().paint_text(TextRequest {
-            text: self.text,
-            colors,
+        cx.context_mut().paint(
             area,
-            offset_x: self.offset_x,
-            options: self.options,
-        });
+            TextRequest {
+                text: self.text,
+                colors,
+                area,
+                offset_x: self.offset_x,
+                options: self.options,
+            },
+        );
     }
 }
 
@@ -90,7 +93,7 @@ pub struct Image {
     pub vertical_tiling: ImageTiling,
 }
 
-impl<C: Context> Atom<C> for Image {
+impl<C: Paint<ImageRequest, Scalar = f32>> Atom<C> for Image {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(self.intrinsic)
     }
@@ -107,7 +110,7 @@ impl<C: Context> Atom<C> for Image {
             horizontal_tiling: self.horizontal_tiling,
             vertical_tiling: self.vertical_tiling,
         };
-        cx.context_mut().as_mut().paint_image(request);
+        cx.context_mut().paint(area, request);
     }
 }
 
@@ -161,13 +164,12 @@ impl<C: Paint<BoxShadow, Scalar = f32>> Atom<C> for Shadow {
 #[derive(Clone, Copy, Default)]
 pub struct Clear;
 
-impl<C: Context> Atom<C> for Clear {
+impl<C: Paint<Clear, Scalar = f32>> Atom<C> for Clear {
     fn measure(&self, _: &mut AtomCx<'_, C>, bounds: Constraints<f32>) -> Size<f32> {
         bounds.constrain(Size::ZERO)
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        let input = cx.context_mut().as_mut().render_input();
-        input.display_list.push_clear(area.to_physical(input.scale));
+        cx.context_mut().paint(area, *self);
     }
 }

@@ -1,172 +1,38 @@
-use blit::{Clip, ClipShape, LogicalPoint, LogicalRect, LogicalSize, Paint, Scale2};
+use blit::{Clip, ClipShape, LogicalRect};
 
 use crate::{
-    Context, TextSystem,
-    display_list::{ClipId, CustomCommand, DisplayList, Mesh, Rectangle, arena::Writer},
-    image::ImageRequest,
-    shadow::BoxShadow,
-    text::{Span, TextLayoutRequest, TextRequest, TextRun, TextSource, TextStyle},
+    TextSystem,
+    display_list::{CustomCommand, arena::Writer},
+    style::BorderRadius,
 };
-
-pub struct GuiContext {
-    text: TextSystem,
-    scale: Scale2,
-    display_list: DisplayList,
-    clip: ClipId,
-    clips: Vec<ClipId>,
-}
 
 /// records custom command data built in the frame arena
 pub trait PaintCustom<T: CustomCommand>: blit::Context<Scalar = f32> {
     fn paint_with(&mut self, bounds: LogicalRect, build: impl FnOnce(&mut Writer<'_>) -> T);
 }
 
-impl AsMut<GuiContext> for GuiContext {
-    fn as_mut(&mut self) -> &mut GuiContext {
-        self
-    }
+pub trait TextContext: blit::Context<Scalar = f32> {
+    fn text(&mut self) -> &mut TextSystem;
 }
 
-impl blit::Context for GuiContext {
-    type Scalar = f32;
-}
-
-/// data needed to render one frame
-///
-/// renderers may assume drawing data and scale have been validated by the producer
-#[non_exhaustive]
-pub struct RenderInput<'a> {
-    pub display_list: &'a mut DisplayList,
-    pub text: &'a mut TextSystem,
-    /// finite positive uniform scale
-    pub scale: Scale2,
-}
-
-impl<'a> RenderInput<'a> {
-    pub fn new(display_list: &'a mut DisplayList, text: &'a mut TextSystem, scale: f32) -> Self {
-        assert!(scale.is_finite() && scale > 0.0);
-        Self {
-            display_list,
-            text,
-            scale: Scale2::uniform(scale),
-        }
-    }
-}
-
-impl Paint<Rectangle<'_>> for GuiContext {
-    fn paint(&mut self, bounds: LogicalRect, command: Rectangle<'_>) {
-        self.display_list
-            .push_rectangle(command, bounds.to_physical(self.scale), self.clip);
-    }
-}
-
-impl Paint<BoxShadow> for GuiContext {
-    fn paint(&mut self, bounds: LogicalRect, command: BoxShadow) {
-        self.paint_custom(bounds, |_| command);
-    }
-}
-
-impl<T: CustomCommand> PaintCustom<T> for GuiContext {
-    fn paint_with(&mut self, bounds: LogicalRect, build: impl FnOnce(&mut Writer<'_>) -> T) {
-        self.paint_custom(bounds, build);
-    }
-}
-
-impl GuiContext {
-    /// records a command at the current drawing position and clip
-    /// bounds must include every pixel the command can draw
-    pub fn paint_custom<T: CustomCommand>(&mut self, bounds: LogicalRect, build: impl FnOnce(&mut Writer<'_>) -> T) {
-        self.display_list
-            .push_custom(bounds.to_physical(self.scale), self.clip, build);
-    }
-
-    pub fn new(text: TextSystem) -> Self {
-        Self {
-            text,
-            scale: Scale2::IDENTITY,
-            display_list: DisplayList::default(),
-            clip: ClipId::default(),
-            clips: Vec::new(),
-        }
-    }
-
-    pub fn text_run<'a>(&mut self, text: impl Into<TextSource<'a>>, style: TextStyle) -> TextRun {
-        self.text.text_run(text.into(), style)
-    }
-
-    pub fn rich_text(&mut self, text: &str, spans: &[Span], style: TextStyle) -> TextRun {
-        self.text.rich_text(text, spans, style)
-    }
-
-    pub fn measure_text(&mut self, request: &TextLayoutRequest) -> LogicalSize {
-        self.text.measure(request)
-    }
-
-    pub fn text_offset_at_position(&mut self, request: &TextRequest<'_>, position: LogicalPoint) -> usize {
-        self.text.offset_at_position(request, position)
-    }
-
-    pub fn text_cursor_rect(&mut self, request: &TextRequest<'_>, offset: usize) -> LogicalRect {
-        self.text.cursor_rect(request, offset, self.scale.x.recip())
-    }
-
-    pub fn paint_rectangle(&mut self, rectangle: Rectangle<'_>) {
-        let bounds = rectangle.area.to_physical(self.scale);
-        self.display_list.push_rectangle(rectangle, bounds, self.clip);
-    }
-
-    pub fn paint_text(&mut self, text: TextRequest<'_>) {
-        let bounds = text.area.to_physical(self.scale);
-        self.display_list.push_text(text, bounds, self.clip);
-    }
-
-    pub fn paint_image(&mut self, image: ImageRequest) {
-        let bounds = image.area.to_physical(self.scale);
-        self.display_list.push_image(image, bounds, self.clip);
-    }
-
-    pub fn paint_mesh(&mut self, mesh: Mesh<'_>) {
-        self.display_list.push_mesh(mesh, self.scale, self.clip);
-    }
-
-    pub fn set_scale(&mut self, scale: f32) {
-        assert!(scale.is_finite() && scale > 0.0);
-        self.scale = Scale2::uniform(scale);
-    }
-
-    pub fn render_input(&mut self) -> RenderInput<'_> {
-        RenderInput {
-            display_list: &mut self.display_list,
-            text: &mut self.text,
-            scale: self.scale,
-        }
-    }
-
-    pub fn finish_frame(&mut self) {
-        self.display_list.clear();
-        self.clip = ClipId::default();
-        self.clips.clear();
-        self.text.finish_frame();
-    }
+pub trait ClipContext: blit::Context<Scalar = f32> {
+    fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius);
+    fn pop_clip(&mut self);
 }
 
 #[derive(Clone, Copy)]
 pub struct BoundsClip;
 
-impl<C: Context> Clip<C> for BoundsClip {
+impl<C: ClipContext> Clip<C> for BoundsClip {
     fn shape(&self, area: LogicalRect) -> ClipShape<f32> {
         ClipShape::Rect(area)
     }
 
     fn push(&self, context: &mut C, area: LogicalRect) {
-        let gui = context.as_mut();
-        let previous = gui.clip;
-        gui.clip = gui.display_list.push_clip(previous, area, Default::default());
-        gui.clips.push(previous);
+        context.push_clip(area, BorderRadius::default());
     }
 
     fn pop(&self, context: &mut C) {
-        let gui = context.as_mut();
-        gui.clip = gui.clips.pop().unwrap();
+        context.pop_clip();
     }
 }

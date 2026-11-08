@@ -31,9 +31,9 @@ pub use self::{
 
 pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TuiContext, S>;
 
-pub trait Context: blit_widgets::Context<Scalar = i32> + AsMut<TuiContext> + blit::Paint<atom::Tint> {}
+pub trait Context: blit_widgets::Context<Scalar = i32> + AsMut<TuiContext> {}
 
-impl<C: blit_widgets::Context<Scalar = i32> + AsMut<TuiContext> + blit::Paint<atom::Tint>> Context for C {}
+impl<C: blit_widgets::Context<Scalar = i32> + AsMut<TuiContext>> Context for C {}
 
 use std::{
     io,
