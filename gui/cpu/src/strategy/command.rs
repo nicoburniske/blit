@@ -5,6 +5,8 @@ use blit_gui::color::Color;
 
 use super::clip::ClipId;
 use crate::{
+    arena::Arena,
+    paint::Callback,
     render::{
         fill::Gradients,
         image_patch::Prepared as PreparedImage,
@@ -16,24 +18,36 @@ use crate::{
 
 pub type CommandId = u32;
 
-#[derive(Default)]
-pub struct CommandList {
-    commands: Vec<StoredCommand>,
+pub struct CommandList<H, P> {
+    commands: Vec<StoredCommand<H, P>>,
+    pub data: Arena,
     pub range: Option<Range<CommandId>>,
     pub gradients: Gradients,
     has_partial_opaque: bool,
     pub has_clips: bool,
 }
 
-pub enum Payload<'a> {
+impl<H, P> Default for CommandList<H, P> {
+    fn default() -> Self {
+        Self {
+            commands: Vec::new(),
+            data: Arena::default(),
+            range: None,
+            gradients: Gradients::default(),
+            has_partial_opaque: false,
+            has_clips: false,
+        }
+    }
+}
+
+pub enum Payload<'a, H, P> {
     Clear,
     Rectangle(&'a PreparedRectangle, &'a Gradients),
     SolidPair(&'a PreparedSolidPair),
     Image(&'a PreparedImage),
     Text(&'a PreparedText),
     Triangle(&'a PreparedTriangle),
-    Custom(u32),
-    Pass(u32),
+    Callback(&'a Callback<H, P>),
 }
 
 #[derive(Clone, Copy)]
@@ -46,17 +60,13 @@ pub struct PreparedText {
     pub color: Color,
 }
 
-impl CommandList {
-    pub fn push_pass(&mut self, id: u32, bounds: PhysicalRect, clip: ClipId) {
-        self.push(StoredPayload::Pass(id), bounds, clip, false, false);
-    }
-
+impl<H, P> CommandList<H, P> {
     pub fn len(&self) -> CommandId {
         CommandId::try_from(self.commands.len()).expect("too many cpu commands in one frame")
     }
 
-    pub fn push_custom(&mut self, id: u32, bounds: PhysicalRect, clip: ClipId) {
-        self.push(StoredPayload::Custom(id), bounds, clip, false, false);
+    pub fn push_callback(&mut self, call: Callback<H, P>, bounds: PhysicalRect, clip: ClipId) {
+        self.push(StoredPayload::Callback(call), bounds, clip, false, false);
     }
 
     pub fn push_clear(&mut self, bounds: PhysicalRect) {
@@ -108,7 +118,7 @@ impl CommandList {
     }
 
     #[inline]
-    pub fn get(&self, id: CommandId) -> Payload<'_> {
+    pub fn get(&self, id: CommandId) -> Payload<'_, H, P> {
         match &self.commands[id as usize].payload {
             StoredPayload::Clear => Payload::Clear,
             StoredPayload::Rectangle(rectangle) => Payload::Rectangle(rectangle, &self.gradients),
@@ -116,8 +126,7 @@ impl CommandList {
             StoredPayload::Image(image) => Payload::Image(image),
             StoredPayload::Text(text) => Payload::Text(text),
             StoredPayload::Triangle(triangle) => Payload::Triangle(triangle),
-            StoredPayload::Custom(id) => Payload::Custom(*id),
-            StoredPayload::Pass(id) => Payload::Pass(*id),
+            StoredPayload::Callback(call) => Payload::Callback(call),
         }
     }
 
@@ -158,7 +167,7 @@ impl CommandList {
             Payload::Rectangle(rectangle, _) => rectangle.overwrite_span(line)?,
             Payload::SolidPair(_) => bounds.clone(),
             Payload::Image(_) => bounds.clone(),
-            Payload::Text(_) | Payload::Triangle(_) | Payload::Custom(_) | Payload::Pass(_) => {
+            Payload::Text(_) | Payload::Triangle(_) | Payload::Callback(_) => {
                 return None;
             }
         };
@@ -173,6 +182,7 @@ impl CommandList {
 
     pub fn clear(&mut self) {
         self.commands.clear();
+        self.data.clear();
         self.range = None;
         self.gradients.entries.clear();
         self.gradients.stops.clear();
@@ -181,10 +191,10 @@ impl CommandList {
     }
 }
 
-impl CommandList {
+impl<H, P> CommandList<H, P> {
     fn push(
         &mut self,
-        payload: StoredPayload,
+        payload: StoredPayload<H, P>,
         bounds: PhysicalRect,
         clip: ClipId,
         overwrites: bool,
@@ -201,21 +211,20 @@ impl CommandList {
     }
 }
 
-struct StoredCommand {
+struct StoredCommand<H, P> {
     bounds: PhysicalRect,
     clip: ClipId,
     overwrites: bool,
     partial_opaque: bool,
-    payload: StoredPayload,
+    payload: StoredPayload<H, P>,
 }
 
-enum StoredPayload {
+enum StoredPayload<H, P> {
     Clear,
     Rectangle(PreparedRectangle),
     SolidPair(PreparedSolidPair),
     Image(PreparedImage),
     Text(PreparedText),
     Triangle(PreparedTriangle),
-    Custom(u32),
-    Pass(u32),
+    Callback(Callback<H, P>),
 }

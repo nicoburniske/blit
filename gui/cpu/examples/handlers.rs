@@ -2,8 +2,8 @@ use std::{cell::Cell, collections::HashMap, io::Write, rc::Rc};
 
 use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_cpu::{
-    Builtins, Direct, Handler, PaintContext, Pixel, PixelBuffer, PremultipliedRgbaColor, Renderer, RendererConfig,
-    Scanline, TileDamage, VecBuffer, Xrgb8888, arena::Slice,
+    Direct, Handler, PaintContext, Pixel, PixelBuffer, PremultipliedRgbaColor, Renderer, RendererConfig, Scanline,
+    TileDamage, VecBuffer, Xrgb8888, arena::Slice,
 };
 use blit_gui::{
     TextConfig, TextSystem,
@@ -36,17 +36,10 @@ fn main() -> std::io::Result<()> {
 
 #[derive(Default)]
 struct Handlers {
-    builtins: Builtins,
     masks: HashMap<[i32; 3], ImageHandle>,
     stats: Rc<Stats>,
     scratch: Vec<[u32; 3]>,
     calls: Rc<Cell<usize>>,
-}
-
-impl AsMut<Builtins> for Handlers {
-    fn as_mut(&mut self) -> &mut Builtins {
-        &mut self.builtins
-    }
 }
 
 #[derive(Hash)]
@@ -63,14 +56,16 @@ struct PreparedPath {
 }
 
 impl<P: Pixel> Handler<Path<'_>, P> for Handlers {
-    fn paint(&mut self, path: Path<'_>, cx: &mut PaintContext<'_, Self, P>) {
-        let prepared = PreparedPath {
-            segments: cx.data.extend(path.points.windows(2).map(|points| {
-                std::array::from_fn(|point| points[point].map(|coordinate| coordinate as f32 * cx.scale))
-            })),
-            radius: path.width as f32 * cx.scale * 0.5,
-            color: path.color,
-        };
+    fn handle(&mut self, path: Path<'_>, cx: &mut PaintContext<'_, Self, P>) {
+        let scale = cx.scale;
+        let prepared =
+            PreparedPath {
+                segments: cx.data().extend(path.points.windows(2).map(|points| {
+                    std::array::from_fn(|point| points[point].map(|coordinate| coordinate as f32 * scale))
+                })),
+                radius: path.width as f32 * cx.scale * 0.5,
+                color: path.color,
+            };
         cx.draw(&path, prepared, |_, path, cx| {
             cx.for_each_span(|span| {
                 let segments = span.data.slice(path.segments);
@@ -114,7 +109,7 @@ struct PreparedShadow {
 }
 
 impl<P: Pixel> Handler<SoftShadow, P> for Handlers {
-    fn paint(&mut self, shadow: SoftShadow, cx: &mut PaintContext<'_, Self, P>) {
+    fn handle(&mut self, shadow: SoftShadow, cx: &mut PaintContext<'_, Self, P>) {
         self.stats.prepares.set(self.stats.prepares.get() + 1);
         let bounds = cx.bounds;
         let radius = (shadow.blur as f32 * cx.scale).round().max(1.0) as i32;
@@ -169,7 +164,7 @@ struct BackdropBlur {
 }
 
 impl Handler<BackdropBlur, Xrgb8888> for Handlers {
-    fn paint(&mut self, blur: BackdropBlur, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+    fn handle(&mut self, blur: BackdropBlur, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
         let radius = (blur.radius as f32 * cx.scale).round() as usize;
         cx.pass(
             &blur,
@@ -522,7 +517,7 @@ mod tests {
         #[derive(Hash)]
         struct BadRead;
         impl Handler<BadRead, Xrgb8888> for Handlers {
-            fn paint(&mut self, command: BadRead, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+            fn handle(&mut self, command: BadRead, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
                 cx.pass(
                     &command,
                     (),
@@ -549,7 +544,7 @@ mod tests {
         #[derive(Clone, Copy, Hash)]
         struct CopyArea(bool);
         impl Handler<CopyArea, Xrgb8888> for Handlers {
-            fn paint(&mut self, command: CopyArea, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+            fn handle(&mut self, command: CopyArea, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
                 if !command.0 {
                     cx.rectangle(
                         Rectangle::new(cx.bounds.to_logical(blit::Scale2::uniform(cx.scale))).background(Color::WHITE),
@@ -706,7 +701,7 @@ mod tests {
         #[derive(Hash)]
         struct Shift;
         impl Handler<Shift, Xrgb8888> for Handlers {
-            fn paint(&mut self, command: Shift, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+            fn handle(&mut self, command: Shift, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
                 cx.pass(
                     &command,
                     (),

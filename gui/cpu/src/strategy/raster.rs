@@ -2,26 +2,44 @@ use blit::geometry::PhysicalRect;
 use blit_arena::Arena;
 
 use super::command::Payload;
-use crate::{Pixel, PixelBuffer, PixelSpan, StoredImage, TextRenderer};
+use crate::{DrawContext, Pixel, PixelBuffer, PixelSpan, Span, StoredImage, TextRenderer, arena, paint::DrawTarget};
 
 #[inline(always)]
-pub fn draw_line<B: PixelBuffer>(
-    payload: &Payload<'_>,
+pub fn draw_line<B: PixelBuffer, H>(
+    payload: &Payload<'_, H, B::Pixel>,
     line: i32,
     clip: PhysicalRect,
     coverage: u8,
     images: &Arena<StoredImage>,
     text: &mut TextRenderer,
-    draws: &mut crate::paint::Draws<B::Pixel>,
+    data: &arena::Arena,
+    handlers: &mut H,
     buffer: &mut B,
 ) {
     match payload {
-        Payload::Custom(id) => {
+        Payload::Callback(call) => {
+            if call.reads.is_some() {
+                return;
+            }
             let start = (clip.x - buffer.x_offset() as i32) as usize;
             let pixels = &mut buffer.line_mut(line as usize)[start..start + clip.width as usize];
-            draws.raster(*id, clip.x, line, pixels, coverage, images);
+            (call.draw)(
+                handlers,
+                call.value,
+                data,
+                &mut DrawContext {
+                    source: None,
+                    target: DrawTarget::Span(Span {
+                        x: clip.x,
+                        y: line,
+                        pixels,
+                        coverage,
+                        data,
+                        images,
+                    }),
+                },
+            );
         }
-        Payload::Pass(_) => {}
         Payload::Clear => {
             let x = buffer.x_offset() as i32;
             let start = (clip.x - x) as usize;

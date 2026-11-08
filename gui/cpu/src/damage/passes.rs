@@ -3,11 +3,7 @@ use std::ops::Range;
 use blit::{PhysicalRect, Scale2};
 
 use super::{DamageInput, DamageTracker, region::Region};
-use crate::{
-    Pixel,
-    paint::Draws,
-    strategy::command::{CommandList, Payload},
-};
+use crate::{PixelBuffer, RenderContext, strategy::command::Payload};
 
 #[derive(Default)]
 pub struct PassDamage {
@@ -27,16 +23,16 @@ pub struct PassNode {
 }
 
 impl PassDamage {
-    pub fn update<P: Pixel>(
+    pub fn update<B: PixelBuffer, H>(
         &mut self,
         input: &DamageInput,
-        commands: &CommandList,
-        draws: &Draws<P>,
+        context: &RenderContext<B, H>,
         tracker: &impl DamageTracker,
         screen: PhysicalRect,
-        scale: f32,
         shift: u32,
     ) {
+        let commands = &context.commands;
+        let scale = context.scale_factor;
         self.clips.clear();
         self.clips.push(screen);
         for clip in &input.clips {
@@ -49,9 +45,12 @@ impl PassDamage {
         }
         let mut count = 0;
         for index in commands.offsets() {
-            let Payload::Pass(_) = commands.get(index) else {
+            let Payload::Callback(call) = commands.get(index) else {
                 continue;
             };
+            if call.reads.is_none() {
+                continue;
+            }
             let Some(bounds) = commands
                 .bounds(index)
                 .intersection(self.clips[commands.clip(index) as usize])
@@ -84,7 +83,7 @@ impl PassDamage {
         }
         let size = 1i32 << shift;
         for node in &mut self.passes {
-            let Payload::Pass(id) = commands.get(node.index) else {
+            let Payload::Callback(call) = commands.get(node.index) else {
                 unreachable!()
             };
             let mut y = node.bounds.y & !(size - 1);
@@ -92,7 +91,12 @@ impl PassDamage {
                 let mut x = node.bounds.x & !(size - 1);
                 while x < node.bounds.x + node.bounds.width {
                     let output = PhysicalRect::new(x, y, size, size).intersection(node.bounds).unwrap();
-                    if self.present.intersects(draws.read_bounds(id, output)) {
+                    if self.present.intersects(call.reads.unwrap()(
+                        &context.handlers,
+                        call.value,
+                        &commands.data,
+                        output,
+                    )) {
                         node.reads.add(output);
                     }
                     x += size;
@@ -106,14 +110,19 @@ impl PassDamage {
         for index in (0..count).rev() {
             let node = &mut self.passes[index];
             node.reads.reset(screen, shift);
-            let Payload::Pass(id) = commands.get(node.index) else {
+            let Payload::Callback(call) = commands.get(node.index) else {
                 unreachable!()
             };
             for output in self.stages[index + 1]
                 .rects()
                 .filter_map(|bounds| bounds.intersection(node.bounds))
             {
-                node.reads.add(draws.read_bounds(id, output));
+                node.reads.add(call.reads.unwrap()(
+                    &context.handlers,
+                    call.value,
+                    &commands.data,
+                    output,
+                ));
             }
             let (before, after) = self.stages.split_at_mut(index + 1);
             before[index].clone_from(&after[0]);

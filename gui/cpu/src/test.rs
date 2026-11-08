@@ -285,13 +285,12 @@ fn renderer_config() -> RendererConfig {
     RendererConfig {
         damage_tile_size: 32,
         glyph_cache_capacity: 1024 * 1024,
+        shadow_cache_capacity: 1024 * 1024,
     }
 }
 
 fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B> {
-    Renderer::new(buffer, text_system(), config).handlers(Builtins {
-        shadow: shadow::Renderer::new(1024 * 1024),
-    })
+    Renderer::new(buffer, text_system(), config)
 }
 
 fn text_system() -> TextSystem {

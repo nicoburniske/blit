@@ -44,11 +44,13 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
                 let mut renderer = Renderer::new(
                     VecBuffer::<Xrgb8888>::new(128, 96),
                     TextSystem::new(TextConfig::default(), blit_text_parley::Backend::without_system_fonts()).unwrap(),
-                    RendererConfig::default(),
+                    RendererConfig {
+                        shadow_cache_capacity: capacity,
+                        ..RendererConfig::default()
+                    },
                 )
                 .strategy(S::default())
                 .damage_tracker(damage());
-                renderer.handlers_mut().shadow = blit_cpu::shadow::Renderer::new(capacity);
                 let mut spare = VecBuffer::new(128, 96);
                 renderer.set_scale(scale);
                 for (step, frame) in [0, 0, 1, 2, 3, 3, 0].into_iter().enumerate() {

@@ -1,5 +1,5 @@
 use std::{
-    any::{Any, TypeId},
+    any::TypeId,
     hash::{Hash, Hasher},
 };
 
@@ -13,7 +13,7 @@ use blit_gui::{
 };
 
 use crate::{
-    Builtins, PaintContext, Pixel, PixelBuffer, Span, StoredImage,
+    DrawContext, PaintContext, Pixel, PixelBuffer, Span, StoredImage, Surface,
     arena::{Arena, Value},
     damage::{Record, region::Region},
     strategy::clip::ClipStack,
@@ -29,7 +29,7 @@ use crate::{
 /// struct Painter;
 ///
 /// impl Handler<Swatch, Xrgb8888> for Painter {
-///     fn paint(&mut self, swatch: Swatch, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+///     fn handle(&mut self, swatch: Swatch, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
 ///         let area = cx.bounds.to_logical(blit::Scale2::uniform(cx.scale));
 ///         cx.rectangle(Rectangle::new(area).background(swatch.0));
 ///     }
@@ -45,40 +45,44 @@ use crate::{
 /// }
 /// ```
 pub trait Handler<T, P: Pixel>: Sized + 'static {
-    fn paint(&mut self, command: T, cx: &mut PaintContext<'_, Self, P>);
+    fn handle(&mut self, command: T, cx: &mut PaintContext<'_, Self, P>);
 }
 
-impl<P: Pixel, H: AsMut<Builtins> + 'static> Handler<Rectangle<'_>, P> for H {
-    fn paint(&mut self, command: Rectangle<'_>, cx: &mut PaintContext<'_, Self, P>) {
+impl<P: Pixel, H: 'static> Handler<Rectangle<'_>, P> for H {
+    fn handle(&mut self, command: Rectangle<'_>, cx: &mut PaintContext<'_, Self, P>) {
         cx.rectangle(command);
     }
 }
 
-impl<P: Pixel, H: AsMut<Builtins> + 'static> Handler<ImageRequest, P> for H {
-    fn paint(&mut self, command: ImageRequest, cx: &mut PaintContext<'_, Self, P>) {
+impl<P: Pixel, H: 'static> Handler<ImageRequest, P> for H {
+    fn handle(&mut self, command: ImageRequest, cx: &mut PaintContext<'_, Self, P>) {
         cx.image(command);
     }
 }
 
-impl<P: Pixel, H: AsMut<Builtins> + 'static> Handler<TextRequest<'_>, P> for H {
-    fn paint(&mut self, command: TextRequest<'_>, cx: &mut PaintContext<'_, Self, P>) {
+impl<P: Pixel, H: 'static> Handler<TextRequest<'_>, P> for H {
+    fn handle(&mut self, command: TextRequest<'_>, cx: &mut PaintContext<'_, Self, P>) {
         cx.text(command);
     }
 }
 
-impl<P: Pixel, H: AsMut<Builtins> + 'static> Handler<Mesh<'_>, P> for H {
-    fn paint(&mut self, command: Mesh<'_>, cx: &mut PaintContext<'_, Self, P>) {
+impl<P: Pixel, H: 'static> Handler<Mesh<'_>, P> for H {
+    fn handle(&mut self, command: Mesh<'_>, cx: &mut PaintContext<'_, Self, P>) {
         cx.mesh(command);
     }
 }
 
-impl<P: Pixel, H: AsMut<Builtins> + 'static> Handler<blit_gui::atom::Clear, P> for H {
-    fn paint(&mut self, _: blit_gui::atom::Clear, cx: &mut PaintContext<'_, Self, P>) {
+impl<P: Pixel, H: 'static> Handler<blit_gui::atom::Clear, P> for H {
+    fn handle(&mut self, _: blit_gui::atom::Clear, cx: &mut PaintContext<'_, Self, P>) {
         cx.clear();
     }
 }
 
 impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
+    pub fn data(&mut self) -> crate::arena::Writer<'_> {
+        self.commands.data.writer()
+    }
+
     /// records a raster callback with a key describing everything it draws
     pub fn draw<T: 'static>(&mut self, key: &impl Hash, value: T, draw: fn(&mut H, &T, &mut DrawContext<'_, P>)) {
         self.record(key, value, draw, None);
@@ -117,25 +121,20 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             clip: self.clip,
             fingerprint: hash.finish(),
         });
-        let id = u32::try_from(self.prepared.len()).expect("too many raster callbacks");
-        self.prepared.push(Prepared {
-            value: self.data.push(Call { value, draw, reads }).erase(),
+        let call = Callback {
+            value: self.commands.data.push(Call { value, draw, reads }).erase(),
             draw: |handlers, value, data, cx| {
                 let call = data.value::<Call<H, T, P>>(value).unwrap();
-                (call.draw)(handlers.downcast_mut::<H>().unwrap(), &call.value, cx);
+                (call.draw)(handlers, &call.value, cx);
             },
             reads: reads.map(|_| {
-                (|handlers: &dyn Any, value, data: &Arena, output| {
+                (|handlers: &H, value, data: &Arena, output| {
                     let call = data.value::<Call<H, T, P>>(value).unwrap();
-                    call.reads.unwrap()(handlers.downcast_ref::<H>().unwrap(), &call.value, output)
+                    call.reads.unwrap()(handlers, &call.value, output)
                 }) as _
             }),
-        });
-        if reads.is_some() {
-            self.commands.push_pass(id, self.bounds, self.clip);
-        } else {
-            self.commands.push_custom(id, self.bounds, self.clip);
-        }
+        };
+        self.commands.push_callback(call, self.bounds, self.clip);
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
@@ -315,168 +314,10 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
     }
 }
 
-pub enum ReadRequest<'a> {
-    Snapshot(&'a Region),
-    Preserve(&'a Region),
-}
-
-pub struct Draws<P: Pixel> {
-    pub handlers: Box<dyn Any>,
-    pub data: Arena,
-    pub prepared: Vec<Prepared<P>>,
-    snapshot: Surface<P>,
-    preserved: Vec<P>,
-}
-
-pub struct Prepared<P> {
-    value: Value,
-    draw: fn(&mut dyn Any, Value, &Arena, &mut DrawContext<'_, P>),
-    reads: Option<fn(&dyn Any, Value, &Arena, PhysicalRect) -> PhysicalRect>,
-}
-
-impl<P: Pixel> Draws<P> {
-    pub fn read<B: PixelBuffer<Pixel = P>>(&mut self, buffer: &mut B, request: ReadRequest<'_>) {
-        assert_eq!(buffer.x_offset(), 0, "source reads require a complete framebuffer");
-        match request {
-            ReadRequest::Snapshot(region) => {
-                self.snapshot.width = buffer.width();
-                self.snapshot.height = buffer.height();
-                self.snapshot
-                    .pixels
-                    .resize(buffer.width() * buffer.height(), P::background());
-                self.snapshot.valid.clone_from(region);
-                for bounds in region.rects() {
-                    for y in bounds.y..bounds.y + bounds.height {
-                        let range = bounds.x as usize..(bounds.x + bounds.width) as usize;
-                        let start = y as usize * buffer.width() + range.start;
-                        self.snapshot.pixels[start..start + range.len()]
-                            .copy_from_slice(buffer.read_line(y as usize, range));
-                    }
-                }
-            }
-            ReadRequest::Preserve(region) => {
-                self.preserved.clear();
-                for bounds in region.rects() {
-                    for y in bounds.y..bounds.y + bounds.height {
-                        self.preserved.extend_from_slice(
-                            buffer.read_line(y as usize, bounds.x as usize..(bounds.x + bounds.width) as usize),
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn restore<B: PixelBuffer<Pixel = P>>(&self, buffer: &mut B, region: &Region) {
-        let mut offset = 0;
-        for bounds in region.rects() {
-            for y in bounds.y..bounds.y + bounds.height {
-                buffer.process_line(
-                    y as usize,
-                    bounds.x as usize..(bounds.x + bounds.width) as usize,
-                    |pixels| {
-                        pixels.copy_from_slice(&self.preserved[offset..offset + pixels.len()]);
-                        offset += pixels.len();
-                    },
-                );
-            }
-        }
-    }
-
-    pub fn pass<B: PixelBuffer<Pixel = P>>(
-        &mut self,
-        id: u32,
-        buffer: &mut B,
-        clips: &ClipStack,
-        bounds: PhysicalRect,
-        clip: u32,
-        images: &ImageArena<StoredImage>,
-        output: &Region,
-    ) {
-        let call = &self.prepared[id as usize];
-        (call.draw)(
-            self.handlers.as_mut(),
-            call.value,
-            &self.data,
-            &mut DrawContext {
-                source: Some(&self.snapshot),
-                target: DrawTarget::Pass {
-                    target: buffer,
-                    clips,
-                    bounds,
-                    clip,
-                    data: &self.data,
-                    images,
-                    output,
-                },
-            },
-        );
-    }
-
-    pub fn new(handlers: impl Any) -> Self {
-        Self {
-            handlers: Box::new(handlers),
-            data: Arena::default(),
-            prepared: Vec::new(),
-            snapshot: Surface {
-                width: 0,
-                height: 0,
-                pixels: Vec::new(),
-                valid: Region::default(),
-            },
-            preserved: Vec::new(),
-        }
-    }
-
-    pub fn read_bounds(&self, id: u32, output: PhysicalRect) -> PhysicalRect {
-        let call = &self.prepared[id as usize];
-        call.reads.unwrap()(self.handlers.as_ref(), call.value, &self.data, output)
-    }
-
-    pub fn raster(
-        &mut self,
-        id: u32,
-        x: i32,
-        y: i32,
-        pixels: &mut [P],
-        coverage: u8,
-        images: &ImageArena<StoredImage>,
-    ) {
-        let call = &self.prepared[id as usize];
-        (call.draw)(
-            self.handlers.as_mut(),
-            call.value,
-            &self.data,
-            &mut DrawContext {
-                source: None,
-                target: DrawTarget::Span(Span {
-                    x,
-                    y,
-                    pixels,
-                    coverage,
-                    data: &self.data,
-                    images,
-                }),
-            },
-        );
-    }
-
-    pub fn clear(&mut self) {
-        self.prepared.clear();
-        self.data.clear();
-    }
-}
-
-pub struct DrawContext<'a, P> {
-    source: Option<&'a Surface<P>>,
-    target: DrawTarget<'a, P>,
-}
-
-pub struct Surface<P> {
-    width: usize,
-    height: usize,
-    pixels: Vec<P>,
-    valid: Region,
+pub struct Callback<H, P> {
+    pub value: Value,
+    pub draw: fn(&mut H, Value, &Arena, &mut DrawContext<'_, P>),
+    pub reads: Option<fn(&H, Value, &Arena, PhysicalRect) -> PhysicalRect>,
 }
 
 impl<'a, P: Pixel> DrawContext<'a, P> {
@@ -562,7 +403,7 @@ impl<P> Surface<P> {
     }
 }
 
-enum DrawTarget<'a, P> {
+pub enum DrawTarget<'a, P> {
     Span(Span<'a, P>),
     Pass {
         target: &'a mut dyn Target<P>,
@@ -575,7 +416,7 @@ enum DrawTarget<'a, P> {
     },
 }
 
-trait Target<P> {
+pub trait Target<P> {
     fn process_line(&mut self, y: usize, range: std::ops::Range<usize>, draw: &mut dyn FnMut(&mut [P]));
 }
 

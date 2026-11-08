@@ -47,15 +47,16 @@ impl<P: Pixel> PixelBuffer for LineBuffer<'_, P> {
     }
 }
 
-fn draw_commands<const CLIPPED: bool, P: Pixel>(
-    commands: &CommandList,
+fn draw_commands<const CLIPPED: bool, H, P: Pixel>(
+    commands: &CommandList<H, P>,
     active: &[CommandId],
     clip_ranges: &[Option<ClipLine>],
     images: &Arena<StoredImage>,
     text: &mut TextRenderer,
-    draws: &mut crate::paint::Draws<P>,
+    handlers: &mut H,
     buffer: &mut LineBuffer<'_, P>,
 ) {
+    let data = &commands.data;
     let line = buffer.line as i32;
     let range = buffer.x..buffer.x + buffer.pixels.len();
     for command in active {
@@ -104,7 +105,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
                                 width: range.end - range.start,
                                 height: 1,
                             };
-                            raster::draw_line(&payload, line, clip, coverage, images, text, draws, buffer);
+                            raster::draw_line(&payload, line, clip, coverage, images, text, data, handlers, buffer);
                         },
                     );
                     continue;
@@ -117,12 +118,22 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
             width: end - start,
             height: 1,
         };
-        raster::draw_line(&commands.get(*command), line, clip, 255, images, text, draws, buffer);
+        raster::draw_line(
+            &commands.get(*command),
+            line,
+            clip,
+            255,
+            images,
+            text,
+            data,
+            handlers,
+            buffer,
+        );
     }
 }
 
 impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
-    fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker) {
+    fn render<H>(&mut self, context: &mut RenderContext<B, H>, damage: &impl DamageTracker) {
         let width = context.buffer.width();
         let height = context.buffer.height();
         let screen = PhysicalRect::new(0, 0, width as i32, height as i32);
@@ -130,7 +141,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         let clips = &context.clips;
         let images = &context.images;
         let text = &mut context.text;
-        let draws = &mut context.draws;
+        let handlers = &mut context.handlers;
         let buffer = &mut context.buffer;
         let clipped = commands.has_clips;
 
@@ -216,23 +227,23 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                             line: line as usize,
                         };
                         if clipped {
-                            draw_commands::<true, _>(
+                            draw_commands::<true, _, _>(
                                 commands,
                                 active,
                                 &self.clip_ranges,
                                 images,
                                 text,
-                                draws,
+                                handlers,
                                 &mut buffer,
                             );
                         } else {
-                            draw_commands::<false, _>(
+                            draw_commands::<false, _, _>(
                                 commands,
                                 active,
                                 &self.clip_ranges,
                                 images,
                                 text,
-                                draws,
+                                handlers,
                                 &mut buffer,
                             );
                         }
@@ -275,23 +286,23 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                             line: line as usize,
                         };
                         if clipped {
-                            draw_commands::<true, _>(
+                            draw_commands::<true, _, _>(
                                 commands,
                                 &self.active[first..],
                                 &self.clip_ranges,
                                 images,
                                 text,
-                                draws,
+                                handlers,
                                 &mut buffer,
                             );
                         } else {
-                            draw_commands::<false, _>(
+                            draw_commands::<false, _, _>(
                                 commands,
                                 &self.active[first..],
                                 &self.clip_ranges,
                                 images,
                                 text,
-                                draws,
+                                handlers,
                                 &mut buffer,
                             );
                         }

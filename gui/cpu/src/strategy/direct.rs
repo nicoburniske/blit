@@ -11,7 +11,7 @@ pub struct Direct {
 }
 
 impl<B: PixelBuffer> RenderStrategy<B> for Direct {
-    fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker) {
+    fn render<H>(&mut self, context: &mut RenderContext<B, H>, damage: &impl DamageTracker) {
         let screen = PhysicalRect {
             x: context.buffer.x_offset() as i32,
             y: 0,
@@ -22,7 +22,8 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
         let clips = &context.clips;
         let images = &context.images;
         let text = &mut context.text;
-        let draws = &mut context.draws;
+        let data = &commands.data;
+        let handlers = &mut context.handlers;
         let buffer = &mut context.buffer;
 
         for offset in commands.offsets() {
@@ -41,7 +42,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                     for range in &self.ranges {
                         let clip = PhysicalRect::new(range.start as i32, line, (range.end - range.start) as i32, 1);
                         if clip_id == 0 {
-                            raster::draw_line(&payload, line, clip, 255, images, text, draws, buffer);
+                            raster::draw_line(&payload, line, clip, 255, images, text, data, handlers, buffer);
                         } else {
                             clips.for_each(clip_id, line, clip.x..clip.x + clip.width, |range, coverage| {
                                 raster::draw_line(
@@ -51,7 +52,8 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                                     coverage,
                                     images,
                                     text,
-                                    draws,
+                                    data,
+                                    handlers,
                                     buffer,
                                 );
                             });

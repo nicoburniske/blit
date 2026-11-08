@@ -10,7 +10,7 @@ use blit_gui::{
 };
 
 use crate::{
-    Builtins, Handler, PaintContext, Pixel,
+    Handler, PaintContext, Pixel,
     arena::Handle,
     raster::{
         Image, SolidRect, blur,
@@ -18,8 +18,8 @@ use crate::{
     },
 };
 
-/// renders box shadows and owns their mask cache
-pub struct Renderer {
+/// retained box shadow masks
+pub struct Cache {
     entries: DeferredCache<KeyData, CachedShadow, ShadowScale>,
 }
 
@@ -28,7 +28,7 @@ enum Prepared {
     Image(Handle<Image>),
 }
 
-impl Renderer {
+impl Cache {
     /// capacity is the maximum retained mask data in bytes
     pub fn new(capacity: usize) -> Self {
         Self {
@@ -37,19 +37,9 @@ impl Renderer {
     }
 }
 
-impl Default for Renderer {
-    fn default() -> Self {
-        Self::new(512 * 1024)
-    }
-}
-
-impl<P: Pixel, H: AsMut<Builtins> + 'static> Handler<BoxShadow, P> for H {
-    fn paint(&mut self, shadow: BoxShadow, cx: &mut PaintContext<'_, Self, P>) {
-        fn prepare<H: 'static, P: Pixel>(
-            renderer: &mut Renderer,
-            shadow: &BoxShadow,
-            cx: &mut PaintContext<'_, H, P>,
-        ) -> Option<Prepared> {
+impl<P: Pixel, H: 'static> Handler<BoxShadow, P> for H {
+    fn handle(&mut self, shadow: BoxShadow, cx: &mut PaintContext<'_, Self, P>) {
+        fn prepare<H: 'static, P: Pixel>(shadow: &BoxShadow, cx: &mut PaintContext<'_, H, P>) -> Option<Prepared> {
             let scale_factor = cx.scale;
             if shadow.color.alpha == 0 {
                 return None;
@@ -121,7 +111,7 @@ impl<P: Pixel, H: AsMut<Builtins> + 'static> Handler<BoxShadow, P> for H {
                     },
                 )
             };
-            let (image, nine_slice) = if let Some((cached, _)) = renderer.entries.get(&key) {
+            let (image, nine_slice) = if let Some((cached, _)) = cx.shadow.entries.get(&key) {
                 (cached.image.id(), cached.nine_slice)
             } else {
                 let width = bounds.width as usize;
@@ -247,7 +237,7 @@ impl<P: Pixel, H: AsMut<Builtins> + 'static> Handler<BoxShadow, P> for H {
                     bytes,
                     nine_slice,
                 };
-                let (cached, _) = renderer.entries.get_or_insert(key, |key| (key, cached));
+                let (cached, _) = cx.shadow.entries.get_or_insert(key, |key| (key, cached));
                 (cached.image.id(), cached.nine_slice)
             };
             cx.prepare_image(
@@ -264,10 +254,9 @@ impl<P: Pixel, H: AsMut<Builtins> + 'static> Handler<BoxShadow, P> for H {
                 },
                 1.0,
             )
-            .map(|image| Prepared::Image(cx.data.push(image)))
+            .map(|image| Prepared::Image(cx.data().push(image)))
         }
-        let renderer = &mut self.as_mut().shadow;
-        let prepared = prepare(renderer, &shadow, cx);
+        let prepared = prepare(&shadow, cx);
         cx.draw(&shadow, prepared, |_, prepared, cx| {
             let Some(prepared) = prepared else {
                 return;
@@ -277,7 +266,7 @@ impl<P: Pixel, H: AsMut<Builtins> + 'static> Handler<BoxShadow, P> for H {
                 Prepared::Image(image) => span.data.get(*image).draw(&mut span),
             });
         });
-        renderer.entries.trim_to_weight();
+        cx.shadow.entries.trim_to_weight();
     }
 }
 

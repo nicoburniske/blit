@@ -5,11 +5,9 @@ mod paint;
 mod pixel;
 pub mod raster;
 mod render;
-pub mod shadow;
+mod shadow;
 mod strategy;
 mod text;
-
-use std::marker::PhantomData;
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_arena::Arena;
@@ -24,7 +22,7 @@ use self::{
         DamageInput,
         passes::{PassDamage, StageDamage},
     },
-    paint::{Draws, ReadRequest},
+    paint::DrawTarget,
     pixel::PixelSpan,
     render::image_patch::AlphaRows,
     strategy::{
@@ -35,14 +33,13 @@ use self::{
 };
 pub use self::{
     damage::{DamageTracker, tile::TileDamage},
-    paint::{DrawContext, Handler, Surface},
+    paint::Handler,
     pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888},
     strategy::{Direct, RenderStrategy, Scanline},
 };
 
-pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTracker = TileDamage, H: 'static = Builtins>
-{
-    context: RenderContext<B>,
+pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTracker = TileDamage, H: 'static = ()> {
+    context: RenderContext<B, H>,
     damage_input: DamageInput,
     text_system: TextSystem,
     paint_clip: u32,
@@ -51,7 +48,6 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTrac
     damage: D,
     pass_damage: PassDamage,
     pass_shift: u32,
-    handlers: PhantomData<fn() -> H>,
 }
 
 impl<B: PixelBuffer> Renderer<B> {
@@ -64,7 +60,15 @@ impl<B: PixelBuffer> Renderer<B> {
                 text: TextRenderer::new(&config),
                 commands: CommandList::default(),
                 clips: ClipStack::default(),
-                draws: Draws::new(Builtins::default()),
+                handlers: (),
+                shadow: shadow::Cache::new(config.shadow_cache_capacity),
+                snapshot: Surface {
+                    width: 0,
+                    height: 0,
+                    pixels: Vec::new(),
+                    valid: damage::region::Region::default(),
+                },
+                preserved: Vec::new(),
             },
             damage_input: DamageInput::default(),
             text_system: text,
@@ -74,7 +78,6 @@ impl<B: PixelBuffer> Renderer<B> {
             damage: TileDamage::new(config.damage_tile_size),
             pass_damage: PassDamage::default(),
             pass_shift: config.damage_tile_size.trailing_zeros(),
-            handlers: PhantomData,
         }
     }
 }
@@ -86,10 +89,32 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
             self.damage_input.records.is_empty(),
             "cannot replace handlers during a frame"
         );
-        self.context.draws.handlers = Box::new(handlers);
+        let RenderContext {
+            buffer,
+            scale_factor,
+            images,
+            text,
+            clips,
+            shadow,
+            snapshot,
+            preserved,
+            ..
+        } = self.context;
+        let context = RenderContext {
+            buffer,
+            scale_factor,
+            images,
+            text,
+            clips,
+            shadow,
+            snapshot,
+            preserved,
+            commands: CommandList::default(),
+            handlers,
+        };
         self.damage.invalidate();
         Renderer {
-            context: self.context,
+            context,
             damage_input: self.damage_input,
             text_system: self.text_system,
             paint_clip: self.paint_clip,
@@ -98,13 +123,12 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
             damage: self.damage,
             pass_damage: self.pass_damage,
             pass_shift: self.pass_shift,
-            handlers: PhantomData,
         }
     }
 
     pub fn handlers_mut(&mut self) -> &mut H {
         self.damage.invalidate();
-        self.context.draws.handlers.downcast_mut().unwrap()
+        &mut self.context.handlers
     }
 
     pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T, D, H> {
@@ -118,7 +142,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
             damage: self.damage,
             pass_damage: self.pass_damage,
             pass_shift: self.pass_shift,
-            handlers: PhantomData,
         }
     }
 
@@ -134,7 +157,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
             damage,
             pass_damage: self.pass_damage,
             pass_shift: self.pass_shift,
-            handlers: PhantomData,
         }
     }
 
@@ -154,15 +176,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
         let screen = self.screen();
         let scale = self.context.scale_factor;
         self.damage.update(&self.damage_input, screen, scale, buffer_age);
-        self.pass_damage.update(
-            &self.damage_input,
-            &self.context.commands,
-            &self.context.draws,
-            &self.damage,
-            screen,
-            scale,
-            self.pass_shift,
-        );
+        self.pass_damage
+            .update(&self.damage_input, &self.context, &self.damage, screen, self.pass_shift);
         let plan = &self.pass_damage;
         let mut damage = StageDamage {
             tracker: &mut self.damage,
@@ -171,9 +186,21 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
         let context = &mut self.context;
         if !damage.is_empty() {
             if let Some(region) = plan.stages.first() {
-                context
-                    .draws
-                    .read(&mut context.buffer, ReadRequest::Preserve(&plan.preserve));
+                assert_eq!(
+                    context.buffer.x_offset(),
+                    0,
+                    "source reads require a complete framebuffer"
+                );
+                context.preserved.clear();
+                for bounds in plan.preserve.rects() {
+                    for y in bounds.y..bounds.y + bounds.height {
+                        context.preserved.extend_from_slice(
+                            context
+                                .buffer
+                                .read_line(y as usize, bounds.x as usize..(bounds.x + bounds.width) as usize),
+                        );
+                    }
+                }
                 for bounds in region.rects() {
                     for y in bounds.y..bounds.y + bounds.height {
                         context.buffer.process_line(
@@ -190,33 +217,65 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
                 self.strategy.render(context, &damage);
                 start = node.index + 1;
                 damage.region = Some(&plan.stages[stage + 1]);
-                let Payload::Pass(id) = context.commands.get(node.index) else {
+                let Payload::Callback(call) = context.commands.get(node.index) else {
                     unreachable!()
                 };
-                if damage.intersects(node.bounds, context.commands.clip(node.index)) {
-                    context
-                        .draws
-                        .read(&mut context.buffer, ReadRequest::Snapshot(&node.reads));
-                    context.draws.pass(
-                        id,
-                        &mut context.buffer,
-                        &context.clips,
-                        node.bounds,
-                        context.commands.clip(node.index),
-                        &context.images,
-                        &plan.stages[stage + 1],
+                let clip = context.commands.clip(node.index);
+                if damage.intersects(node.bounds, clip) {
+                    let snapshot = &mut context.snapshot;
+                    snapshot.width = context.buffer.width();
+                    snapshot.height = context.buffer.height();
+                    snapshot
+                        .pixels
+                        .resize(snapshot.width * snapshot.height, B::Pixel::background());
+                    snapshot.valid.clone_from(&node.reads);
+                    for bounds in node.reads.rects() {
+                        for y in bounds.y..bounds.y + bounds.height {
+                            let range = bounds.x as usize..(bounds.x + bounds.width) as usize;
+                            let start = y as usize * snapshot.width + range.start;
+                            snapshot.pixels[start..start + range.len()]
+                                .copy_from_slice(context.buffer.read_line(y as usize, range));
+                        }
+                    }
+                    (call.draw)(
+                        &mut context.handlers,
+                        call.value,
+                        &context.commands.data,
+                        &mut DrawContext {
+                            source: Some(snapshot),
+                            target: DrawTarget::Pass {
+                                target: &mut context.buffer,
+                                clips: &context.clips,
+                                bounds: node.bounds,
+                                clip,
+                                data: &context.commands.data,
+                                images: &context.images,
+                                output: &plan.stages[stage + 1],
+                            },
+                        },
                     );
                 }
             }
             context.commands.range = Some(start..context.commands.len());
             self.strategy.render(context, &damage);
             if !plan.passes.is_empty() {
-                context.draws.restore(&mut context.buffer, &plan.preserve);
+                let mut offset = 0;
+                for bounds in plan.preserve.rects() {
+                    for y in bounds.y..bounds.y + bounds.height {
+                        context.buffer.process_line(
+                            y as usize,
+                            bounds.x as usize..(bounds.x + bounds.width) as usize,
+                            |pixels| {
+                                pixels.copy_from_slice(&context.preserved[offset..offset + pixels.len()]);
+                                offset += pixels.len();
+                            },
+                        );
+                    }
+                }
             }
         }
         context.commands.clear();
         context.clips.clear();
-        context.draws.clear();
         context.text.finish_frame(&mut self.text_system);
         context.images.retain(|image| !image.handle.is_uniquely_owned());
         self.damage.finish_frame(&mut self.damage_input);
@@ -266,21 +325,18 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: Handler<T, B::Pi
 {
     fn paint(&mut self, bounds: LogicalRect, command: T) {
         let context = &mut self.context;
-        let handlers = context.draws.handlers.downcast_mut::<H>().unwrap();
-        handlers.paint(
+        context.handlers.handle(
             command,
             &mut PaintContext {
                 scale: context.scale_factor,
                 bounds: bounds.to_physical(Scale2::uniform(context.scale_factor)),
                 clip: self.paint_clip,
                 damage_input: &mut self.damage_input,
-                data: context.draws.data.writer(),
-                prepared: &mut context.draws.prepared,
                 commands: &mut context.commands,
                 images: &mut context.images,
                 text: &mut context.text,
                 text_system: &mut self.text_system,
-                handlers: PhantomData,
+                shadow: &mut context.shadow,
             },
         );
     }
@@ -312,15 +368,13 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Context
 pub struct PaintContext<'a, H, P: Pixel> {
     pub scale: f32,
     pub bounds: PhysicalRect,
-    pub data: arena::Writer<'a>,
     clip: u32,
     damage_input: &'a mut DamageInput,
-    prepared: &'a mut Vec<paint::Prepared<P>>,
-    commands: &'a mut CommandList,
+    commands: &'a mut CommandList<H, P>,
     images: &'a mut Arena<StoredImage>,
     text: &'a mut TextRenderer,
     text_system: &'a mut TextSystem,
-    handlers: PhantomData<fn() -> H>,
+    shadow: &'a mut shadow::Cache,
 }
 
 pub struct Span<'a, P> {
@@ -333,15 +387,16 @@ pub struct Span<'a, P> {
     images: &'a Arena<StoredImage>,
 }
 
-#[derive(Default)]
-pub struct Builtins {
-    pub shadow: shadow::Renderer,
+pub struct DrawContext<'a, P> {
+    source: Option<&'a Surface<P>>,
+    target: DrawTarget<'a, P>,
 }
 
-impl AsMut<Builtins> for Builtins {
-    fn as_mut(&mut self) -> &mut Self {
-        self
-    }
+pub struct Surface<P> {
+    width: usize,
+    height: usize,
+    pixels: Vec<P>,
+    valid: damage::region::Region,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -350,6 +405,8 @@ pub struct RendererConfig {
     pub damage_tile_size: u16,
     /// maximum retained rasterized glyph data in bytes
     pub glyph_cache_capacity: usize,
+    /// maximum retained shadow mask data in bytes
+    pub shadow_cache_capacity: usize,
 }
 
 impl Default for RendererConfig {
@@ -357,19 +414,23 @@ impl Default for RendererConfig {
         Self {
             damage_tile_size: 32,
             glyph_cache_capacity: 1024 * 1024,
+            shadow_cache_capacity: 512 * 1024,
         }
     }
 }
 
 #[doc(hidden)]
-pub struct RenderContext<B: PixelBuffer> {
+pub struct RenderContext<B: PixelBuffer, H> {
     buffer: B,
     scale_factor: f32,
     images: Arena<StoredImage>,
     text: TextRenderer,
-    commands: CommandList,
+    commands: CommandList<H, B::Pixel>,
     clips: ClipStack,
-    draws: Draws<B::Pixel>,
+    handlers: H,
+    shadow: shadow::Cache,
+    snapshot: Surface<B::Pixel>,
+    preserved: Vec<B::Pixel>,
 }
 
 struct StoredImage {
