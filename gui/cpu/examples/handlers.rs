@@ -7,8 +7,8 @@ use std::{
 
 use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_cpu::{
-    Direct, Handler, PaintContext, Pixel, PixelBuffer, PremultipliedRgbaColor, Renderer, RendererConfig, Scanline,
-    TileDamage, VecBuffer, Xrgb8888, arena::Slice,
+    DamageTracker, Handler, PaintContext, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderStrategy, Renderer,
+    RendererConfig, Scanline, VecBuffer, Xrgb8888, arena::Slice,
 };
 use blit_gui::{
     TextConfig, TextSystem,
@@ -40,9 +40,13 @@ fn main() -> std::io::Result<()> {
 }
 
 #[derive(Default)]
-struct Handlers {
+struct ShadowHandler {
     masks: HashMap<[i32; 3], ImageHandle>,
     stats: Rc<Stats>,
+}
+
+#[derive(Default)]
+struct BlurHandler {
     scratch: Vec<[u32; 3]>,
     calls: Rc<Cell<usize>>,
 }
@@ -60,7 +64,13 @@ struct PreparedPath {
     color: Color,
 }
 
-impl<P: Pixel> Handler<Path<'_>, P> for Handlers {
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Path<'_>> for Renderer<B, S, D> {
+    fn paint(&mut self, bounds: LogicalRect, path: Path<'_>) {
+        self.handle::<(), _>(bounds, path);
+    }
+}
+
+impl<P: Pixel> Handler<Path<'_>, P> for () {
     fn handle(&mut self, path: Path<'_>, cx: &mut PaintContext<'_, Self, P>) {
         let scale = cx.scale;
         let prepared =
@@ -113,7 +123,13 @@ struct PreparedShadow {
     color: Color,
 }
 
-impl<P: Pixel> Handler<SoftShadow, P> for Handlers {
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<SoftShadow> for Renderer<B, S, D> {
+    fn paint(&mut self, bounds: LogicalRect, shadow: SoftShadow) {
+        self.handle::<ShadowHandler, _>(bounds, shadow);
+    }
+}
+
+impl<P: Pixel> Handler<SoftShadow, P> for ShadowHandler {
     fn handle(&mut self, shadow: SoftShadow, cx: &mut PaintContext<'_, Self, P>) {
         let radius = (shadow.blur as f32 * cx.scale).round().max(1.0) as i32;
         cx.draw(
@@ -177,7 +193,15 @@ struct BackdropBlur {
     radius: u16,
 }
 
-impl Handler<BackdropBlur, Xrgb8888> for Handlers {
+impl<B: PixelBuffer<Pixel = Xrgb8888>, S: RenderStrategy<B>, D: DamageTracker> Paint<BackdropBlur>
+    for Renderer<B, S, D>
+{
+    fn paint(&mut self, bounds: LogicalRect, blur: BackdropBlur) {
+        self.handle::<BlurHandler, _>(bounds, blur);
+    }
+}
+
+impl Handler<BackdropBlur, Xrgb8888> for BlurHandler {
     fn handle(&mut self, blur: BackdropBlur, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
         let radius = (blur.radius as f32 * cx.scale).round() as usize;
         cx.pass(
@@ -277,13 +301,12 @@ where
     renderer.paint(overlay.area, overlay);
 }
 
-fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B, Direct, TileDamage, Handlers> {
+fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B> {
     Renderer::new(
         buffer,
         TextSystem::new(TextConfig::default(), blit_text_parley::Backend::without_system_fonts()).unwrap(),
         config,
     )
-    .handlers(Handlers::default())
 }
 
 #[cfg(test)]
@@ -427,12 +450,12 @@ mod tests {
             )
             .strategy(Scanline::default())
             .damage_tracker(damage);
-            incremental.handlers_mut().calls = calls.clone();
+            incremental.handler_mut::<BlurHandler>().calls = calls.clone();
             let mut reference = new_renderer(
                 VecBuffer::<Xrgb8888>::new(DAMAGE_WIDTH, DAMAGE_HEIGHT),
                 RendererConfig::default(),
             );
-            reference.handlers_mut().calls = Rc::default();
+            reference.handler_mut::<BlurHandler>().calls = Rc::default();
             for (step, frame) in [0, 0, 1, 1, 2, 2].into_iter().enumerate() {
                 damage_scene(&mut incremental, frame);
                 damage_scene(&mut reference, frame);
@@ -492,12 +515,12 @@ mod tests {
             )
             .strategy(S::default())
             .damage_tracker(damage);
-            renderer.handlers_mut().calls = Rc::default();
+            renderer.handler_mut::<BlurHandler>().calls = Rc::default();
             let mut reference = new_renderer(
                 VecBuffer::<Xrgb8888>::new(DAMAGE_WIDTH, DAMAGE_HEIGHT),
                 RendererConfig::default(),
             );
-            reference.handlers_mut().calls = Rc::default();
+            reference.handler_mut::<BlurHandler>().calls = Rc::default();
             let mut spare = VecBuffer::new(DAMAGE_WIDTH, DAMAGE_HEIGHT);
             for (index, frame) in [0, 0, 1, 1, 2, 3, 4, 5, 6, 7, 7, 1, 0].into_iter().enumerate() {
                 damage_scene(&mut renderer, frame);
@@ -530,7 +553,7 @@ mod tests {
     fn pass_reads_outside_declared_dependencies_are_rejected() {
         #[derive(Hash)]
         struct BadRead;
-        impl Handler<BadRead, Xrgb8888> for Handlers {
+        impl Handler<BadRead, Xrgb8888> for () {
             fn handle(&mut self, command: BadRead, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
                 cx.pass(
                     &command,
@@ -549,7 +572,7 @@ mod tests {
                 ..RendererConfig::default()
             },
         );
-        renderer.paint(LogicalRect::new(64.0, 64.0, 8.0, 8.0), BadRead);
+        renderer.handle::<(), _>(LogicalRect::new(64.0, 64.0, 8.0, 8.0), BadRead);
         renderer.render(0);
     }
 
@@ -557,7 +580,7 @@ mod tests {
     fn nonlocal_pass_dependencies_rebuild_source_before_later_overlays() {
         #[derive(Clone, Copy, Hash)]
         struct CopyArea(bool);
-        impl Handler<CopyArea, Xrgb8888> for Handlers {
+        impl Handler<CopyArea, Xrgb8888> for () {
             fn handle(&mut self, command: CopyArea, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
                 if !command.0 {
                     cx.rectangle(
@@ -614,7 +637,7 @@ mod tests {
             renderer.paint(background.area, background);
             let source = Rectangle::new(LogicalRect::new(20.0, 180.0, 2.0, 2.0)).background(color);
             renderer.paint(source.area, source);
-            renderer.paint(LogicalRect::new(160.0, 64.0, 16.0, 16.0), CopyArea(backdrop));
+            renderer.handle::<(), _>(LogicalRect::new(160.0, 64.0, 16.0, 16.0), CopyArea(backdrop));
             let overlay = Rectangle::new(LogicalRect::new(20.0, 180.0, 2.0, 2.0)).background(Color::WHITE);
             renderer.paint(overlay.area, overlay);
             renderer.render(1);
@@ -634,9 +657,9 @@ mod tests {
             let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT), RendererConfig::default())
                 .strategy(S::default())
                 .damage_tracker(damage);
-            renderer.handlers_mut().stats = stats.clone();
+            renderer.handler_mut::<ShadowHandler>().stats = stats.clone();
             let mut reference = new_renderer(VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT), RendererConfig::default());
-            reference.handlers_mut().stats = Rc::default();
+            reference.handler_mut::<ShadowHandler>().stats = Rc::default();
             for frame in [0, 0, 1, 1, 0] {
                 scene(&mut renderer, frame, false);
                 scene(&mut reference, frame, false);
@@ -659,7 +682,7 @@ mod tests {
     fn shadow_preparation_follows_damage_clipping_and_occlusion() {
         fn check<S: RenderStrategy<VecBuffer<Xrgb8888>> + Default>(covered: usize) {
             let mut renderer = new_renderer(VecBuffer::new(20, 10), RendererConfig::default()).strategy(S::default());
-            let stats = renderer.handlers_mut().stats.clone();
+            let stats = renderer.handler_mut::<ShadowHandler>().stats.clone();
             let bounds = LogicalRect::new(0.0, 0.0, 20.0, 10.0);
             for (case, expected) in [(0, 1), (0, 1), (1, covered), (2, covered), (0, covered + 1)] {
                 let previous = stats.prepares.get();
@@ -711,8 +734,8 @@ mod tests {
             let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(WIDTH, HEIGHT), RendererConfig::default())
                 .strategy(S::default())
                 .damage_tracker(damage);
-            renderer.handlers_mut().stats = Rc::default();
-            renderer.handlers_mut().calls = calls.clone();
+            renderer.handler_mut::<ShadowHandler>().stats = Rc::default();
+            renderer.handler_mut::<BlurHandler>().calls = calls.clone();
             let mut previous = 0;
             for (index, frame) in [0, 0, 1, 1, 0].into_iter().enumerate() {
                 scene(&mut renderer, frame, true);
@@ -738,7 +761,7 @@ mod tests {
         let mut renderer =
             new_renderer(VecBuffer::<Xrgb8888>::new(20, 10), RendererConfig::default()).strategy(Scanline::default());
         let stats = Rc::<Stats>::default();
-        renderer.handlers_mut().stats = stats.clone();
+        renderer.handler_mut::<ShadowHandler>().stats = stats.clone();
         renderer.paint(
             LogicalRect::new(0.0, 0.0, 10.0, 10.0),
             SoftShadow {
@@ -763,7 +786,7 @@ mod tests {
     fn pass_barriers_read_current_frame_and_respect_nested_clips() {
         #[derive(Hash)]
         struct Shift;
-        impl Handler<Shift, Xrgb8888> for Handlers {
+        impl Handler<Shift, Xrgb8888> for () {
             fn handle(&mut self, command: Shift, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
                 cx.pass(
                     &command,
@@ -800,10 +823,10 @@ mod tests {
         {
             let source = Rectangle::new(LogicalRect::new(0.0, 0.0, 12.0, 1.0)).background(color);
             renderer.paint(source.area, source);
-            renderer.paint(LogicalRect::new(0.0, 1.0, 12.0, 1.0), Shift);
+            renderer.handle::<(), _>(LogicalRect::new(0.0, 1.0, 12.0, 1.0), Shift);
             renderer.push_clip(LogicalRect::new(1.0, 0.0, 9.0, 8.0), BorderRadius::uniform(3.0));
             renderer.push_clip(LogicalRect::new(2.0, 0.0, 6.0, 8.0), BorderRadius::default());
-            renderer.paint(LogicalRect::new(0.0, 2.0, 12.0, 1.0), Shift);
+            renderer.handle::<(), _>(LogicalRect::new(0.0, 2.0, 12.0, 1.0), Shift);
             renderer.pop_clip();
             renderer.pop_clip();
             renderer.render(if index < 2 { 0 } else { 2 });

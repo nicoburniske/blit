@@ -1,6 +1,8 @@
 use std::{
     any::TypeId,
     hash::{Hash, Hasher},
+    marker::PhantomData,
+    ptr::NonNull,
 };
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2, internal::hash::FxHasher};
@@ -23,16 +25,24 @@ use crate::{
 /// consumes drawing data and records cpu work before its borrows expire
 ///
 /// ```
-/// use blit_cpu::{Handler, PaintContext, Xrgb8888};
+/// use blit::{LogicalRect, Paint};
+/// use blit_cpu::{DamageTracker, Handler, PaintContext, Pixel, PixelBuffer, Renderer, RenderStrategy};
 /// use blit_gui::{color::Color, paint::Rectangle};
 ///
 /// struct Swatch(Color);
+/// #[derive(Default)]
 /// struct Painter;
 ///
-/// impl Handler<Swatch, Xrgb8888> for Painter {
-///     fn handle(&mut self, swatch: Swatch, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+/// impl<P: Pixel> Handler<Swatch, P> for Painter {
+///     fn handle(&mut self, swatch: Swatch, cx: &mut PaintContext<'_, Self, P>) {
 ///         let area = cx.bounds.to_logical(blit::Scale2::uniform(cx.scale));
 ///         cx.rectangle(Rectangle::new(area).background(swatch.0));
+///     }
+/// }
+///
+/// impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Swatch> for Renderer<B, S, D> {
+///     fn paint(&mut self, bounds: LogicalRect, swatch: Swatch) {
+///         self.handle::<Painter, _>(bounds, swatch);
 ///     }
 /// }
 /// ```
@@ -53,24 +63,58 @@ pub struct PaintContext<'a, H, P: Pixel> {
     pub scale: f32,
     pub bounds: PhysicalRect,
     clip: u32,
+    handler: NonNull<()>,
+    marker: PhantomData<fn(H) -> H>,
     damage_input: &'a mut DamageInput,
-    commands: &'a mut CommandList<H, P>,
+    commands: &'a mut CommandList<P>,
     pub(crate) images: &'a mut blit_arena::Arena<StoredImage>,
     text: &'a mut TextRenderer,
     text_system: &'a mut TextSystem,
 }
 
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: Handler<T, B::Pixel>, T> Paint<T>
-    for Renderer<B, S, D, H>
-{
-    fn paint(&mut self, bounds: LogicalRect, command: T) {
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
+    /// configures one handler before recording begins
+    pub fn handler<H: 'static>(mut self, handler: H) -> Self {
+        assert!(
+            self.damage_input.records.is_empty(),
+            "cannot replace a handler during a frame"
+        );
+        let kind = TypeId::of::<H>();
+        if let Some(value) = self.handlers.iter_mut().find(|value| value.kind == kind) {
+            *value = ErasedHandler::new(handler);
+        } else {
+            self.handlers.push(ErasedHandler::new(handler));
+        }
+        self.damage.invalidate();
+        self
+    }
+
+    /// returns a handler and invalidates retained pixels
+    pub fn handler_mut<H: Default + 'static>(&mut self) -> &mut H {
+        assert!(
+            self.damage_input.records.is_empty(),
+            "cannot configure a handler during a frame"
+        );
+        self.damage.invalidate();
+        let index = self.handler_index::<H>();
+        // safety: the lookup selects the entry created for H
+        unsafe { self.handlers[index].value.cast::<H>().as_mut() }
+    }
+
+    /// dispatches drawing data to its handler and creates its default on first use
+    pub fn handle<H: Handler<T, B::Pixel> + Default, T>(&mut self, bounds: LogicalRect, command: T) {
+        let index = self.handler_index::<H>();
+        let handler = self.handlers[index].value;
         let context = &mut self.context;
-        context.handlers.handle(
+        // safety: the lookup selects the entry created for H
+        unsafe { handler.cast::<H>().as_mut() }.handle(
             command,
             &mut PaintContext {
                 scale: context.scale_factor,
                 bounds: bounds.to_physical(Scale2::uniform(context.scale_factor)),
                 clip: self.paint_clip,
+                handler,
+                marker: PhantomData,
                 damage_input: &mut self.damage_input,
                 commands: &mut context.commands,
                 images: &mut context.images,
@@ -79,33 +123,74 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: Handler<T, B::Pi
             },
         );
     }
+
+    fn handler_index<H: Default + 'static>(&mut self) -> usize {
+        let kind = TypeId::of::<H>();
+        if let Some(index) = self.handlers.iter().position(|value| value.kind == kind) {
+            index
+        } else {
+            let index = self.handlers.len();
+            self.handlers.push(ErasedHandler::new(H::default()));
+            index
+        }
+    }
 }
 
-impl<P: Pixel, H: 'static> Handler<Rectangle<'_>, P> for H {
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Rectangle<'_>> for Renderer<B, S, D> {
+    fn paint(&mut self, bounds: LogicalRect, command: Rectangle<'_>) {
+        self.handle::<(), _>(bounds, command);
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<ImageRequest> for Renderer<B, S, D> {
+    fn paint(&mut self, bounds: LogicalRect, command: ImageRequest) {
+        self.handle::<(), _>(bounds, command);
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<TextRequest<'_>> for Renderer<B, S, D> {
+    fn paint(&mut self, bounds: LogicalRect, command: TextRequest<'_>) {
+        self.handle::<(), _>(bounds, command);
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Mesh<'_>> for Renderer<B, S, D> {
+    fn paint(&mut self, bounds: LogicalRect, command: Mesh<'_>) {
+        self.handle::<(), _>(bounds, command);
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<blit_gui::atom::Clear> for Renderer<B, S, D> {
+    fn paint(&mut self, bounds: LogicalRect, command: blit_gui::atom::Clear) {
+        self.handle::<(), _>(bounds, command);
+    }
+}
+
+impl<P: Pixel> Handler<Rectangle<'_>, P> for () {
     fn handle(&mut self, command: Rectangle<'_>, cx: &mut PaintContext<'_, Self, P>) {
         cx.rectangle(command);
     }
 }
 
-impl<P: Pixel, H: 'static> Handler<ImageRequest, P> for H {
+impl<P: Pixel> Handler<ImageRequest, P> for () {
     fn handle(&mut self, command: ImageRequest, cx: &mut PaintContext<'_, Self, P>) {
         cx.image(command);
     }
 }
 
-impl<P: Pixel, H: 'static> Handler<TextRequest<'_>, P> for H {
+impl<P: Pixel> Handler<TextRequest<'_>, P> for () {
     fn handle(&mut self, command: TextRequest<'_>, cx: &mut PaintContext<'_, Self, P>) {
         cx.text(command);
     }
 }
 
-impl<P: Pixel, H: 'static> Handler<Mesh<'_>, P> for H {
+impl<P: Pixel> Handler<Mesh<'_>, P> for () {
     fn handle(&mut self, command: Mesh<'_>, cx: &mut PaintContext<'_, Self, P>) {
         cx.mesh(command);
     }
 }
 
-impl<P: Pixel, H: 'static> Handler<blit_gui::atom::Clear, P> for H {
+impl<P: Pixel> Handler<blit_gui::atom::Clear, P> for () {
     fn handle(&mut self, _: blit_gui::atom::Clear, cx: &mut PaintContext<'_, Self, P>) {
         cx.clear();
     }
@@ -156,15 +241,18 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             fingerprint: hash.finish(),
         });
         let call = Callback {
+            handler: self.handler,
             value: self.commands.data.push(Call { value, draw, reads }).erase(),
-            draw: |handlers, value, data, cx| {
+            draw: |handler, value, data, cx| {
                 let call = data.value::<Call<H, T, P>>(value).unwrap();
-                (call.draw)(handlers, &call.value, cx);
+                // safety: the context records the pointer selected for H
+                (call.draw)(unsafe { handler.cast::<H>().as_mut() }, &call.value, cx);
             },
             reads: reads.map(|_| {
-                (|handlers: &H, value, data: &Arena, output| {
+                (|handler: NonNull<()>, value, data: &Arena, output| {
                     let call = data.value::<Call<H, T, P>>(value).unwrap();
-                    call.reads.unwrap()(handlers, &call.value, output)
+                    // safety: the context records the pointer selected for H
+                    call.reads.unwrap()(unsafe { handler.cast::<H>().as_ref() }, &call.value, output)
                 }) as _
             }),
         };
@@ -348,10 +436,51 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
     }
 }
 
-pub struct Callback<H, P> {
-    pub value: Value,
-    pub draw: fn(&mut H, Value, &Arena, &mut DrawContext<'_, P>),
-    pub reads: Option<fn(&H, Value, &Arena, PhysicalRect) -> PhysicalRect>,
+pub struct Callback<P> {
+    handler: NonNull<()>,
+    value: Value,
+    draw: unsafe fn(NonNull<()>, Value, &Arena, &mut DrawContext<'_, P>),
+    pub reads: Option<unsafe fn(NonNull<()>, Value, &Arena, PhysicalRect) -> PhysicalRect>,
+}
+
+impl<P> Callback<P> {
+    pub fn draw(&self, data: &Arena, cx: &mut DrawContext<'_, P>) {
+        // safety: recording pairs the handler pointer with its typed callback
+        // handlers cannot be replaced while commands are pending
+        unsafe { (self.draw)(self.handler, self.value, data, cx) };
+    }
+
+    pub fn reads(&self, data: &Arena, output: PhysicalRect) -> PhysicalRect {
+        // safety: recording pairs the handler pointer with its typed callback
+        // handlers cannot be replaced while commands are pending
+        unsafe { (self.reads.unwrap())(self.handler, self.value, data, output) }
+    }
+}
+
+pub struct ErasedHandler {
+    kind: TypeId,
+    value: NonNull<()>,
+    drop: unsafe fn(NonNull<()>),
+}
+
+impl ErasedHandler {
+    fn new<H: 'static>(handler: H) -> Self {
+        Self {
+            kind: TypeId::of::<H>(),
+            value: NonNull::from(Box::leak(Box::new(handler))).cast(),
+            drop: |value| {
+                // safety: new transfers ownership of one boxed H to this entry
+                unsafe { drop(Box::from_raw(value.cast::<H>().as_ptr())) };
+            },
+        }
+    }
+}
+
+impl Drop for ErasedHandler {
+    fn drop(&mut self) {
+        // safety: new pairs the allocation with its destructor and entries are never copied
+        unsafe { (self.drop)(self.value) };
+    }
 }
 
 impl<'a, P: Pixel> DrawContext<'a, P> {

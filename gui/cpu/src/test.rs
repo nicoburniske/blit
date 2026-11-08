@@ -22,9 +22,70 @@ use super::*;
 const SCALE: Scale2 = Scale2::IDENTITY;
 
 #[test]
+fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
+    use std::{cell::Cell, rc::Rc};
+
+    struct Fill<const VALUE: u8>(u8, usize, Rc<Cell<usize>>);
+
+    impl<const VALUE: u8> Default for Fill<VALUE> {
+        fn default() -> Self {
+            Self(VALUE, 0, Rc::default())
+        }
+    }
+
+    impl<const VALUE: u8> Drop for Fill<VALUE> {
+        fn drop(&mut self) {
+            self.2.set(self.2.get() + 1);
+        }
+    }
+
+    impl<const VALUE: u8> Handler<(), Xrgb8888> for Fill<VALUE> {
+        fn handle(&mut self, _: (), cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+            cx.draw(&(), (), |handler, _, cx| {
+                handler.1 += 1;
+                cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(handler.0, 0, 0)));
+            });
+        }
+    }
+
+    let drops = Rc::<Cell<usize>>::default();
+    let mut renderer = new_renderer(VecBuffer::new(2, 1), renderer_config()).handler(Fill::<0>(32, 0, drops.clone()));
+    for (frame, red) in [32, 64, 96, 96].into_iter().enumerate() {
+        if frame == 1 {
+            renderer.handler_mut::<Fill<0>>().0 = red;
+        } else if frame == 2 {
+            renderer = renderer.handler(Fill::<0>(red, 0, drops.clone()));
+        }
+        renderer.handle::<Fill<0>, _>(LogicalRect::new(0.0, 0.0, 1.0, 1.0), ());
+        renderer.handle::<Fill<1>, _>(LogicalRect::default(), ());
+        renderer.handle::<Fill<2>, _>(LogicalRect::default(), ());
+        renderer.handle::<Fill<3>, _>(LogicalRect::default(), ());
+        renderer.handle::<Fill<4>, _>(LogicalRect::default(), ());
+        renderer.handle::<Fill<16>, _>(LogicalRect::new(1.0, 0.0, 1.0, 1.0), ());
+        renderer.render(1);
+        assert_eq!(
+            renderer.buffer().pixels(),
+            [Xrgb8888::from_rgb(red, 0, 0), Xrgb8888::from_rgb(16, 0, 0)]
+        );
+    }
+    assert_eq!(renderer.handler_mut::<Fill<16>>().1, 3);
+    assert_eq!(drops.get(), 1);
+    drop(renderer);
+    assert_eq!(drops.get(), 2);
+}
+
+#[test]
+#[should_panic(expected = "cannot replace a handler during a frame")]
+fn pending_commands_prevent_handler_replacement() {
+    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
+    let shadow = blit_gui::shadow::BoxShadow::new(LogicalRect::new(0.0, 0.0, 8.0, 8.0), Color::BLACK);
+    renderer.paint(shadow.bounds(), shadow);
+    let _ = renderer.handler(shadow::Handler::default());
+}
+
+#[test]
 fn shadow_resources_are_created_only_when_visible() {
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 20), text_system(), renderer_config())
-        .handlers(shadow::Handler::default())
         .strategy(Scanline::default());
     let bounds = LogicalRect::new(0.0, 0.0, 32.0, 20.0);
     let shadow = blit_gui::shadow::BoxShadow::new(LogicalRect::new(8.0, 6.0, 8.0, 6.0), Color::WHITE).blur(2.0);
@@ -47,8 +108,7 @@ fn atoms_record_into_the_renderer_context() {
     use blit::{Frame, FrameInfo, Input, LogicalSize};
     use blit_gui::{BoundsClip, atom, widget};
 
-    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(64, 48), text_system(), renderer_config())
-        .handlers(shadow::Handler::default());
+    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(64, 48), text_system(), renderer_config());
     let mut frame = Frame::default();
     for _ in 0..2 {
         frame.build(
@@ -501,8 +561,7 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
                 renderer_config(),
             )
             .strategy(Scanline::default())
-            .damage_tracker(damage())
-            .handlers(shadow::Handler::default());
+            .damage_tracker(damage());
             let image = renderer.create_image(ImageData::new(
                 ImagePixels::Static(&[255, 255, 255]),
                 ImageFormat::Rgb8,

@@ -54,7 +54,7 @@ pub fn run() {
     )
     .unwrap();
     #[cfg(not(feature = "gpu"))]
-    let graphics = cpu::Backend::new(text, cpu::Config::default()).handlers(cpu::shadow::Handler::default());
+    let graphics = cpu::Backend::new(text, cpu::Config::default());
     #[cfg(feature = "gpu")]
     let graphics = gpu::Backend::new(text, gpu::Config::default());
     blit_desktop::run::<App>(Config {
@@ -67,7 +67,7 @@ pub fn run() {
 }
 
 #[cfg(not(feature = "gpu"))]
-type DesktopContext = blit_desktop::DesktopContext<cpu::Backend<cpu::shadow::Handler>>;
+type DesktopContext = blit_desktop::DesktopContext<cpu::Backend>;
 #[cfg(feature = "gpu")]
 type DesktopContext = blit_desktop::DesktopContext<gpu::Backend>;
 type Ui<'a> = blit::Ui<'a, DesktopContext>;
@@ -119,7 +119,7 @@ impl Default for App {
 impl Application for App {
     type Input = ();
     #[cfg(not(feature = "gpu"))]
-    type Graphics = cpu::Backend<cpu::shadow::Handler>;
+    type Graphics = cpu::Backend;
     #[cfg(feature = "gpu")]
     type Graphics = gpu::Backend;
 

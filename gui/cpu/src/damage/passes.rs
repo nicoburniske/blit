@@ -23,10 +23,10 @@ pub struct PassNode {
 }
 
 impl PassDamage {
-    pub fn update<B: PixelBuffer, H>(
+    pub fn update<B: PixelBuffer>(
         &mut self,
         input: &DamageInput,
-        context: &RenderContext<B, H>,
+        context: &RenderContext<B>,
         tracker: &impl DamageTracker,
         screen: PhysicalRect,
         shift: u32,
@@ -91,12 +91,7 @@ impl PassDamage {
                 let mut x = node.bounds.x & !(size - 1);
                 while x < node.bounds.x + node.bounds.width {
                     let output = PhysicalRect::new(x, y, size, size).intersection(node.bounds).unwrap();
-                    if self.present.intersects(call.reads.unwrap()(
-                        &context.handlers,
-                        call.value,
-                        &commands.data,
-                        output,
-                    )) {
+                    if self.present.intersects(call.reads(&commands.data, output)) {
                         node.reads.add(output);
                     }
                     x += size;
@@ -117,12 +112,7 @@ impl PassDamage {
                 .rects()
                 .filter_map(|bounds| bounds.intersection(node.bounds))
             {
-                node.reads.add(call.reads.unwrap()(
-                    &context.handlers,
-                    call.value,
-                    &commands.data,
-                    output,
-                ));
+                node.reads.add(call.reads(&commands.data, output));
             }
             let (before, after) = self.stages.split_at_mut(index + 1);
             before[index].clone_from(&after[0]);

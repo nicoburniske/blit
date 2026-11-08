@@ -9,5 +9,5 @@ use crate::{DamageTracker, PixelBuffer, RenderContext};
 
 pub trait RenderStrategy<B: PixelBuffer> {
     /// render each dirty pixel once in drawing order
-    fn render<H>(&mut self, context: &mut RenderContext<B, H>, damage: &impl DamageTracker);
+    fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker);
 }

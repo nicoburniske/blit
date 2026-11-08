@@ -9,14 +9,6 @@ use blit_gui::{
 
 #[test]
 fn shadows_match_reference_pixels_and_incremental_damage() {
-    struct Handlers(shadow::Handler);
-
-    impl AsMut<shadow::Handler> for Handlers {
-        fn as_mut(&mut self) -> &mut shadow::Handler {
-            &mut self.0
-        }
-    }
-
     fn check<S: RenderStrategy<VecBuffer<Xrgb8888>> + Default, D: DamageTracker>(damage: impl Fn() -> D) {
         for capacity in [0, 512 * 1024] {
             // reference pixels from the shadow mask path
@@ -54,7 +46,7 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
                     TextSystem::new(TextConfig::default(), blit_text_parley::Backend::without_system_fonts()).unwrap(),
                     RendererConfig::default(),
                 )
-                .handlers(Handlers(shadow::Handler::new(capacity)))
+                .handler(shadow::Handler::new(capacity))
                 .strategy(S::default())
                 .damage_tracker(damage());
                 let mut spare = VecBuffer::new(128, 96);

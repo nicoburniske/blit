@@ -5,8 +5,8 @@ use super::command::Payload;
 use crate::{DrawContext, Pixel, PixelBuffer, PixelSpan, StoredImage, TextRenderer, arena, paint::DrawTarget};
 
 #[inline(always)]
-pub fn draw_line<B: PixelBuffer, H>(
-    payload: &Payload<'_, H, B::Pixel>,
+pub fn draw_line<B: PixelBuffer>(
+    payload: &Payload<'_, B::Pixel>,
     line: i32,
     bounds: PhysicalRect,
     clip: PhysicalRect,
@@ -14,7 +14,6 @@ pub fn draw_line<B: PixelBuffer, H>(
     images: &mut Arena<StoredImage>,
     text: &mut TextRenderer,
     data: &arena::Arena,
-    handlers: &mut H,
     buffer: &mut B,
 ) {
     match payload {
@@ -24,9 +23,7 @@ pub fn draw_line<B: PixelBuffer, H>(
             }
             let start = (clip.x - buffer.x_offset() as i32) as usize;
             let pixels = &mut buffer.line_mut(line as usize)[start..start + clip.width as usize];
-            (call.draw)(
-                handlers,
-                call.value,
+            call.draw(
                 data,
                 &mut DrawContext {
                     bounds,

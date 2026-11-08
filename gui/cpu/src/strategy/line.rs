@@ -47,13 +47,12 @@ impl<P: Pixel> PixelBuffer for LineBuffer<'_, P> {
     }
 }
 
-fn draw_commands<const CLIPPED: bool, H, P: Pixel>(
-    commands: &CommandList<H, P>,
+fn draw_commands<const CLIPPED: bool, P: Pixel>(
+    commands: &CommandList<P>,
     active: &[CommandId],
     clip_ranges: &[Option<ClipLine>],
     images: &mut Arena<StoredImage>,
     text: &mut TextRenderer,
-    handlers: &mut H,
     buffer: &mut LineBuffer<'_, P>,
 ) {
     let data = &commands.data;
@@ -114,7 +113,6 @@ fn draw_commands<const CLIPPED: bool, H, P: Pixel>(
                                 images,
                                 text,
                                 data,
-                                handlers,
                                 buffer,
                             );
                         },
@@ -138,14 +136,13 @@ fn draw_commands<const CLIPPED: bool, H, P: Pixel>(
             images,
             text,
             data,
-            handlers,
             buffer,
         );
     }
 }
 
 impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
-    fn render<H>(&mut self, context: &mut RenderContext<B, H>, damage: &impl DamageTracker) {
+    fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker) {
         let width = context.buffer.width();
         let height = context.buffer.height();
         let screen = PhysicalRect::new(0, 0, width as i32, height as i32);
@@ -153,7 +150,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         let clips = &context.clips;
         let images = &mut context.images;
         let text = &mut context.text;
-        let handlers = &mut context.handlers;
         let buffer = &mut context.buffer;
         let clipped = commands.has_clips;
 
@@ -239,25 +235,9 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                             line: line as usize,
                         };
                         if clipped {
-                            draw_commands::<true, _, _>(
-                                commands,
-                                active,
-                                &self.clip_ranges,
-                                images,
-                                text,
-                                handlers,
-                                &mut buffer,
-                            );
+                            draw_commands::<true, _>(commands, active, &self.clip_ranges, images, text, &mut buffer);
                         } else {
-                            draw_commands::<false, _, _>(
-                                commands,
-                                active,
-                                &self.clip_ranges,
-                                images,
-                                text,
-                                handlers,
-                                &mut buffer,
-                            );
+                            draw_commands::<false, _>(commands, active, &self.clip_ranges, images, text, &mut buffer);
                         }
                     });
                     continue;
@@ -298,23 +278,21 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                             line: line as usize,
                         };
                         if clipped {
-                            draw_commands::<true, _, _>(
+                            draw_commands::<true, _>(
                                 commands,
                                 &self.active[first..],
                                 &self.clip_ranges,
                                 images,
                                 text,
-                                handlers,
                                 &mut buffer,
                             );
                         } else {
-                            draw_commands::<false, _, _>(
+                            draw_commands::<false, _>(
                                 commands,
                                 &self.active[first..],
                                 &self.clip_ranges,
                                 images,
                                 text,
-                                handlers,
                                 &mut buffer,
                             );
                         }

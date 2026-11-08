@@ -1,7 +1,7 @@
 use std::{num::NonZeroU32, ptr::NonNull, sync::Arc};
 
 use blit::{LogicalRect, Paint};
-use blit_cpu::{Handler, PixelBuffer, Renderer, Scanline, TileDamage, Xrgb8888};
+use blit_cpu::{PixelBuffer, Renderer, Scanline, Xrgb8888};
 pub use blit_cpu::{RendererConfig as Config, shadow};
 use blit_gui::{
     TextSystem,
@@ -13,9 +13,9 @@ use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::{GraphicsBackend, GraphicsError};
 
-pub struct Backend<H: 'static = ()> {
+pub struct Backend {
     active: Option<Active>,
-    renderer: Renderer<DesktopBuffer, Scanline, TileDamage, H>,
+    renderer: Renderer<DesktopBuffer, Scanline>,
 }
 
 impl Backend {
@@ -23,31 +23,27 @@ impl Backend {
         let renderer = Renderer::new(DesktopBuffer::new(1, 1), text, config).strategy(Scanline::default());
         Self { active: None, renderer }
     }
-}
 
-impl<H: 'static> Backend<H> {
-    pub fn handlers<T: 'static>(self, handlers: T) -> Backend<T> {
-        Backend {
-            active: self.active,
-            renderer: self.renderer.handlers(handlers),
-        }
+    pub fn handler<H: 'static>(mut self, handler: H) -> Self {
+        self.renderer = self.renderer.handler(handler);
+        self
     }
 }
 
-impl<H: 'static> blit::Context for Backend<H> {
+impl blit::Context for Backend {
     type Scalar = f32;
 }
 
-impl<H, T> Paint<T> for Backend<H>
+impl<T> Paint<T> for Backend
 where
-    H: Handler<T, Xrgb8888>,
+    Renderer<DesktopBuffer, Scanline>: Paint<T>,
 {
     fn paint(&mut self, bounds: LogicalRect, command: T) {
         self.renderer.paint(bounds, command);
     }
 }
 
-impl<H: 'static> blit_gui::Context for Backend<H> {
+impl blit_gui::Context for Backend {
     fn text(&mut self) -> &mut TextSystem {
         self.renderer.text()
     }
@@ -61,7 +57,7 @@ impl<H: 'static> blit_gui::Context for Backend<H> {
     }
 }
 
-impl<H: 'static> GraphicsBackend for Backend<H> {
+impl GraphicsBackend for Backend {
     fn create_image(&mut self, data: ImageData) -> Result<ImageHandle, GraphicsError> {
         Ok(self.renderer.create_image(data))
     }

@@ -22,7 +22,7 @@ use self::{
         DamageInput,
         passes::{PassDamage, StageDamage},
     },
-    paint::DrawTarget,
+    paint::{DrawTarget, ErasedHandler},
     pixel::PixelSpan,
     render::image_patch::AlphaRows,
     strategy::{
@@ -38,8 +38,9 @@ pub use self::{
     strategy::{Direct, RenderStrategy, Scanline},
 };
 
-pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTracker = TileDamage, H: 'static = ()> {
-    context: RenderContext<B, H>,
+pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTracker = TileDamage> {
+    context: RenderContext<B>,
+    handlers: Vec<ErasedHandler>,
     damage_input: DamageInput,
     text_system: TextSystem,
     paint_clip: u32,
@@ -60,7 +61,6 @@ impl<B: PixelBuffer> Renderer<B> {
                 text: TextRenderer::new(&config),
                 commands: CommandList::default(),
                 clips: ClipStack::default(),
-                handlers: (),
                 snapshot: Surface {
                     width: 0,
                     height: 0,
@@ -69,6 +69,7 @@ impl<B: PixelBuffer> Renderer<B> {
                 },
                 preserved: Vec::new(),
             },
+            handlers: Vec::new(),
             damage_input: DamageInput::default(),
             text_system: text,
             paint_clip: 0,
@@ -81,56 +82,11 @@ impl<B: PixelBuffer> Renderer<B> {
     }
 }
 
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Renderer<B, S, D, H> {
-    /// selects the handlers available through the paint trait
-    pub fn handlers<T: 'static>(mut self, handlers: T) -> Renderer<B, S, D, T> {
-        assert!(
-            self.damage_input.records.is_empty(),
-            "cannot replace handlers during a frame"
-        );
-        let RenderContext {
-            buffer,
-            scale_factor,
-            images,
-            text,
-            clips,
-            snapshot,
-            preserved,
-            ..
-        } = self.context;
-        let context = RenderContext {
-            buffer,
-            scale_factor,
-            images,
-            text,
-            clips,
-            snapshot,
-            preserved,
-            commands: CommandList::default(),
-            handlers,
-        };
-        self.damage.invalidate();
-        Renderer {
-            context,
-            damage_input: self.damage_input,
-            text_system: self.text_system,
-            paint_clip: self.paint_clip,
-            paint_clips: self.paint_clips,
-            strategy: self.strategy,
-            damage: self.damage,
-            pass_damage: self.pass_damage,
-            pass_shift: self.pass_shift,
-        }
-    }
-
-    pub fn handlers_mut(&mut self) -> &mut H {
-        self.damage.invalidate();
-        &mut self.context.handlers
-    }
-
-    pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T, D, H> {
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
+    pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T, D> {
         Renderer {
             context: self.context,
+            handlers: self.handlers,
             damage_input: self.damage_input,
             text_system: self.text_system,
             paint_clip: self.paint_clip,
@@ -142,10 +98,11 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
         }
     }
 
-    pub fn damage_tracker<T: DamageTracker>(self, mut damage: T) -> Renderer<B, S, T, H> {
+    pub fn damage_tracker<T: DamageTracker>(self, mut damage: T) -> Renderer<B, S, T> {
         damage.invalidate();
         Renderer {
             context: self.context,
+            handlers: self.handlers,
             damage_input: self.damage_input,
             text_system: self.text_system,
             paint_clip: self.paint_clip,
@@ -234,9 +191,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
                                 .copy_from_slice(context.buffer.read_line(y as usize, range));
                         }
                     }
-                    (call.draw)(
-                        &mut context.handlers,
-                        call.value,
+                    call.draw(
                         &context.commands.data,
                         &mut DrawContext {
                             bounds: node.bounds,
@@ -313,11 +268,11 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
     }
 }
 
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> blit::Context for Renderer<B, S, D, H> {
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> blit::Context for Renderer<B, S, D> {
     type Scalar = f32;
 }
 
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Context for Renderer<B, S, D, H> {
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Context for Renderer<B, S, D> {
     fn text(&mut self) -> &mut TextSystem {
         &mut self.text_system
     }
@@ -383,14 +338,13 @@ impl Default for RendererConfig {
 }
 
 #[doc(hidden)]
-pub struct RenderContext<B: PixelBuffer, H> {
+pub struct RenderContext<B: PixelBuffer> {
     buffer: B,
     scale_factor: f32,
     images: Arena<StoredImage>,
     text: TextRenderer,
-    commands: CommandList<H, B::Pixel>,
+    commands: CommandList<B::Pixel>,
     clips: ClipStack,
-    handlers: H,
     snapshot: Surface<B::Pixel>,
     preserved: Vec<B::Pixel>,
 }

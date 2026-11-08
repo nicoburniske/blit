@@ -18,8 +18,8 @@ use crate::{
 
 pub type CommandId = u32;
 
-pub struct CommandList<H, P> {
-    commands: Vec<StoredCommand<H, P>>,
+pub struct CommandList<P> {
+    commands: Vec<StoredCommand<P>>,
     pub data: Arena,
     pub range: Option<Range<CommandId>>,
     pub gradients: Gradients,
@@ -27,7 +27,7 @@ pub struct CommandList<H, P> {
     pub has_clips: bool,
 }
 
-impl<H, P> Default for CommandList<H, P> {
+impl<P> Default for CommandList<P> {
     fn default() -> Self {
         Self {
             commands: Vec::new(),
@@ -40,14 +40,14 @@ impl<H, P> Default for CommandList<H, P> {
     }
 }
 
-pub enum Payload<'a, H, P> {
+pub enum Payload<'a, P> {
     Clear,
     Rectangle(&'a PreparedRectangle, &'a Gradients),
     SolidPair(&'a PreparedSolidPair),
     Image(&'a PreparedImage),
     Text(&'a PreparedText),
     Triangle(&'a PreparedTriangle),
-    Callback(&'a Callback<H, P>),
+    Callback(&'a Callback<P>),
 }
 
 #[derive(Clone, Copy)]
@@ -60,12 +60,12 @@ pub struct PreparedText {
     pub color: Color,
 }
 
-impl<H, P> CommandList<H, P> {
+impl<P> CommandList<P> {
     pub fn len(&self) -> CommandId {
         CommandId::try_from(self.commands.len()).expect("too many cpu commands in one frame")
     }
 
-    pub fn push_callback(&mut self, call: Callback<H, P>, bounds: PhysicalRect, clip: ClipId) {
+    pub fn push_callback(&mut self, call: Callback<P>, bounds: PhysicalRect, clip: ClipId) {
         self.push(StoredPayload::Callback(call), bounds, clip, false, false);
     }
 
@@ -118,7 +118,7 @@ impl<H, P> CommandList<H, P> {
     }
 
     #[inline]
-    pub fn get(&self, id: CommandId) -> Payload<'_, H, P> {
+    pub fn get(&self, id: CommandId) -> Payload<'_, P> {
         match &self.commands[id as usize].payload {
             StoredPayload::Clear => Payload::Clear,
             StoredPayload::Rectangle(rectangle) => Payload::Rectangle(rectangle, &self.gradients),
@@ -191,10 +191,10 @@ impl<H, P> CommandList<H, P> {
     }
 }
 
-impl<H, P> CommandList<H, P> {
+impl<P> CommandList<P> {
     fn push(
         &mut self,
-        payload: StoredPayload<H, P>,
+        payload: StoredPayload<P>,
         bounds: PhysicalRect,
         clip: ClipId,
         overwrites: bool,
@@ -211,20 +211,20 @@ impl<H, P> CommandList<H, P> {
     }
 }
 
-struct StoredCommand<H, P> {
+struct StoredCommand<P> {
     bounds: PhysicalRect,
     clip: ClipId,
     overwrites: bool,
     partial_opaque: bool,
-    payload: StoredPayload<H, P>,
+    payload: StoredPayload<P>,
 }
 
-enum StoredPayload<H, P> {
+enum StoredPayload<P> {
     Clear,
     Rectangle(PreparedRectangle),
     SolidPair(PreparedSolidPair),
     Image(PreparedImage),
     Text(PreparedText),
     Triangle(PreparedTriangle),
-    Callback(Callback<H, P>),
+    Callback(Callback<P>),
 }
