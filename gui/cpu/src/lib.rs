@@ -242,14 +242,15 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
                         call.value,
                         &context.commands.data,
                         &mut DrawContext {
+                            bounds: node.bounds,
+                            images: &mut context.images,
+                            shadow: &mut context.shadow,
                             source: Some(snapshot),
                             target: DrawTarget::Pass {
                                 target: &mut context.buffer,
                                 clips: &context.clips,
-                                bounds: node.bounds,
                                 clip,
                                 data: &context.commands.data,
-                                images: &context.images,
                                 output: &plan.stages[stage + 1],
                             },
                         },
@@ -354,6 +355,10 @@ pub struct Span<'a, P> {
 }
 
 pub struct DrawContext<'a, P> {
+    /// physical drawing bounds independent of the current span
+    pub bounds: PhysicalRect,
+    images: &'a mut Arena<StoredImage>,
+    shadow: &'a mut shadow::Cache,
     source: Option<&'a Surface<P>>,
     target: DrawTarget<'a, P>,
 }

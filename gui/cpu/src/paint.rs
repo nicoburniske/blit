@@ -16,7 +16,6 @@ use crate::{
     DamageTracker, DrawContext, Pixel, PixelBuffer, RenderStrategy, Renderer, Span, StoredImage, Surface,
     arena::{Arena, Value},
     damage::{DamageInput, Record, region::Region},
-    shadow,
     strategy::{clip::ClipStack, command::CommandList},
     text::TextRenderer,
 };
@@ -59,7 +58,6 @@ pub struct PaintContext<'a, H, P: Pixel> {
     pub(crate) images: &'a mut blit_arena::Arena<StoredImage>,
     text: &'a mut TextRenderer,
     text_system: &'a mut TextSystem,
-    pub(crate) shadow: &'a mut shadow::Cache,
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: Handler<T, B::Pixel>, T> Paint<T>
@@ -78,7 +76,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: Handler<T, B::Pi
                 images: &mut context.images,
                 text: &mut context.text,
                 text_system: &mut self.text_system,
-                shadow: &mut context.shadow,
             },
         );
     }
@@ -120,6 +117,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
     }
 
     /// records a raster callback with a key describing everything it draws
+    /// value may hold a OnceCell to prepare once on its first visible span
     pub fn draw<T: 'static>(&mut self, key: &impl Hash, value: T, draw: fn(&mut H, &T, &mut DrawContext<'_, P>)) {
         self.record(key, value, draw, None);
     }
@@ -357,17 +355,22 @@ pub struct Callback<H, P> {
 }
 
 impl<'a, P: Pixel> DrawContext<'a, P> {
+    pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
+        data.validate();
+        let id = self
+            .images
+            .insert_with(|id| StoredImage::new(ImageHandle::new(id.into(), data.size), data));
+        self.images.get(id).unwrap().handle.clone()
+    }
+
     pub fn source(&self) -> Option<&'a Surface<P>> {
         self.source
     }
 
     pub fn output_regions(&self) -> impl Iterator<Item = PhysicalRect> + '_ {
         let (span, pass) = match &self.target {
-            DrawTarget::Span(span) => (
-                Some(PhysicalRect::new(span.x, span.y, span.pixels.len() as i32, 1)),
-                None,
-            ),
-            DrawTarget::Pass { output, bounds, .. } => (None, Some((*output, *bounds))),
+            DrawTarget::Span { x, y, pixels, .. } => (Some(PhysicalRect::new(*x, *y, pixels.len() as i32, 1)), None),
+            DrawTarget::Pass { output, .. } => (None, Some((*output, self.bounds))),
         };
         span.into_iter().chain(
             pass.into_iter()
@@ -377,24 +380,28 @@ impl<'a, P: Pixel> DrawContext<'a, P> {
 
     pub fn for_each_span(&mut self, mut draw: impl FnMut(Span<'_, P>)) {
         match &mut self.target {
-            DrawTarget::Span(span) => draw(Span {
-                x: span.x,
-                y: span.y,
-                pixels: span.pixels,
-                coverage: span.coverage,
-                data: span.data,
-                images: span.images,
+            DrawTarget::Span {
+                x,
+                y,
+                pixels,
+                coverage,
+                data,
+            } => draw(Span {
+                x: *x,
+                y: *y,
+                pixels,
+                coverage: *coverage,
+                data,
+                images: self.images,
             }),
             DrawTarget::Pass {
                 target,
                 clips,
-                bounds,
                 clip,
                 data,
-                images,
                 output,
             } => {
-                for bounds in output.rects().filter_map(|region| region.intersection(*bounds)) {
+                for bounds in output.rects().filter_map(|region| region.intersection(self.bounds)) {
                     for y in bounds.y..bounds.y + bounds.height {
                         clips.for_each(*clip, y, bounds.x..bounds.x + bounds.width, |range, coverage| {
                             target.process_line(y as usize, range.start as usize..range.end as usize, &mut |pixels| {
@@ -403,7 +410,7 @@ impl<'a, P: Pixel> DrawContext<'a, P> {
                                     y,
                                     coverage,
                                     data,
-                                    images,
+                                    images: self.images,
                                     pixels,
                                 })
                             });
@@ -440,14 +447,18 @@ impl<P> Surface<P> {
 }
 
 pub enum DrawTarget<'a, P> {
-    Span(Span<'a, P>),
+    Span {
+        x: i32,
+        y: i32,
+        pixels: &'a mut [P],
+        coverage: u8,
+        data: &'a Arena,
+    },
     Pass {
         target: &'a mut dyn Target<P>,
         clips: &'a ClipStack,
-        bounds: PhysicalRect,
         clip: u32,
         data: &'a Arena,
-        images: &'a blit_arena::Arena<StoredImage>,
         output: &'a Region,
     },
 }

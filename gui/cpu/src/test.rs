@@ -22,6 +22,24 @@ use super::*;
 const SCALE: Scale2 = Scale2::IDENTITY;
 
 #[test]
+fn shadow_resources_are_created_only_when_visible() {
+    let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 20), text_system(), renderer_config())
+        .strategy(Scanline::default());
+    let bounds = LogicalRect::new(0.0, 0.0, 32.0, 20.0);
+    let shadow = blit_gui::shadow::BoxShadow::new(LogicalRect::new(8.0, 6.0, 8.0, 6.0), Color::WHITE).blur(2.0);
+    for covered in [true, false] {
+        renderer.paint(bounds, Rectangle::new(bounds).background(Color::BLACK));
+        renderer.paint(shadow.bounds(), shadow);
+        assert!(renderer.context.images.is_empty());
+        if covered {
+            renderer.paint(bounds, Rectangle::new(bounds).background(Color::WHITE));
+        }
+        renderer.render(1);
+        assert_eq!(renderer.context.images.is_empty(), covered);
+    }
+}
+
+#[test]
 fn atoms_record_into_the_renderer_context() {
     use std::time::Duration;
 

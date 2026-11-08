@@ -1,4 +1,9 @@
-use std::{cell::Cell, collections::HashMap, io::Write, rc::Rc};
+use std::{
+    cell::{Cell, OnceCell},
+    collections::HashMap,
+    io::Write,
+    rc::Rc,
+};
 
 use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_cpu::{
@@ -110,51 +115,60 @@ struct PreparedShadow {
 
 impl<P: Pixel> Handler<SoftShadow, P> for Handlers {
     fn handle(&mut self, shadow: SoftShadow, cx: &mut PaintContext<'_, Self, P>) {
-        self.stats.prepares.set(self.stats.prepares.get() + 1);
-        let bounds = cx.bounds;
         let radius = (shadow.blur as f32 * cx.scale).round().max(1.0) as i32;
-        let key = [bounds.width, bounds.height, radius];
-        let image = if let Some(image) = self.masks.get(&key) {
-            image.clone()
-        } else {
-            self.masks.clear();
-            self.stats.builds.set(self.stats.builds.get() + 1);
-            let mut alpha = vec![0; bounds.width as usize * bounds.height as usize];
-            for y in 0..bounds.height {
-                for x in 0..bounds.width {
-                    let horizontal = ((x + radius + 1).min(bounds.width - radius) - (x - radius).max(radius)).max(0);
-                    let vertical = ((y + radius + 1).min(bounds.height - radius) - (y - radius).max(radius)).max(0);
-                    alpha[(y * bounds.width + x) as usize] =
-                        (horizontal * vertical * 255 / (2 * radius + 1).pow(2)) as u8;
-                }
-            }
-            let image = cx.create_image(ImageData::new(
-                ImagePixels::Owned(alpha.into_boxed_slice()),
-                ImageFormat::Alpha8(Color::WHITE),
-                bounds.width as usize,
-                bounds.height as usize,
-            ));
-            self.masks.insert(key, image.clone());
-            image
-        };
-        let prepared = PreparedShadow {
-            image,
-            bounds,
-            color: shadow.color,
-        };
-        cx.draw(&shadow, prepared, |_, shadow, cx| {
-            cx.for_each_span(|span| {
-                let image = span.image(&shadow.image).unwrap();
-                let start =
-                    (span.y - shadow.bounds.y) as usize * image.stride_bytes + (span.x - shadow.bounds.x) as usize;
-                for (pixel, alpha) in span.pixels.iter_mut().zip(&image.pixels.bytes()[start..]) {
-                    pixel.blend(PremultipliedRgbaColor::new(
-                        shadow.color,
-                        (*alpha as u16 * span.coverage as u16 / 255) as u8,
-                    ));
-                }
-            });
-        });
+        cx.draw(
+            &shadow,
+            (radius, shadow.color, OnceCell::new()),
+            |handler, (radius, color, prepared), cx| {
+                let shadow = prepared.get_or_init(|| {
+                    handler.stats.prepares.set(handler.stats.prepares.get() + 1);
+                    let bounds = cx.bounds;
+                    let radius = *radius;
+                    let key = [bounds.width, bounds.height, radius];
+                    let image = if let Some(image) = handler.masks.get(&key) {
+                        image.clone()
+                    } else {
+                        handler.masks.clear();
+                        handler.stats.builds.set(handler.stats.builds.get() + 1);
+                        let mut alpha = vec![0; bounds.width as usize * bounds.height as usize];
+                        for y in 0..bounds.height {
+                            for x in 0..bounds.width {
+                                let horizontal =
+                                    ((x + radius + 1).min(bounds.width - radius) - (x - radius).max(radius)).max(0);
+                                let vertical =
+                                    ((y + radius + 1).min(bounds.height - radius) - (y - radius).max(radius)).max(0);
+                                alpha[(y * bounds.width + x) as usize] =
+                                    (horizontal * vertical * 255 / (2 * radius + 1).pow(2)) as u8;
+                            }
+                        }
+                        let image = cx.create_image(ImageData::new(
+                            ImagePixels::Owned(alpha.into_boxed_slice()),
+                            ImageFormat::Alpha8(Color::WHITE),
+                            bounds.width as usize,
+                            bounds.height as usize,
+                        ));
+                        handler.masks.insert(key, image.clone());
+                        image
+                    };
+                    PreparedShadow {
+                        image,
+                        bounds,
+                        color: *color,
+                    }
+                });
+                cx.for_each_span(|span| {
+                    let image = span.image(&shadow.image).unwrap();
+                    let start =
+                        (span.y - shadow.bounds.y) as usize * image.stride_bytes + (span.x - shadow.bounds.x) as usize;
+                    for (pixel, alpha) in span.pixels.iter_mut().zip(&image.pixels.bytes()[start..]) {
+                        pixel.blend(PremultipliedRgbaColor::new(
+                            shadow.color,
+                            (*alpha as u16 * span.coverage as u16 / 255) as u8,
+                        ));
+                    }
+                });
+            },
+        );
     }
 }
 
@@ -632,13 +646,62 @@ mod tests {
                 assert_eq!(renderer.buffer().pixels()[20 * WIDTH + 20].raw(), 0xffbe46);
                 assert_eq!(renderer.buffer().pixels()[20 * WIDTH + 36].raw(), 0xffffff);
             }
-            assert_eq!(stats.prepares.get(), 5);
+            assert_eq!(stats.prepares.get(), 3);
             assert_eq!(stats.builds.get(), 1);
         }
         check::<Direct, _>(TileDamage::new(8));
         check::<Scanline, _>(TileDamage::new(8));
         check::<Direct, _>(CommandDiff::default());
         check::<Scanline, _>(CommandDiff::default());
+    }
+
+    #[test]
+    fn shadow_preparation_follows_damage_clipping_and_occlusion() {
+        fn check<S: RenderStrategy<VecBuffer<Xrgb8888>> + Default>(covered: usize) {
+            let mut renderer = new_renderer(VecBuffer::new(20, 10), RendererConfig::default()).strategy(S::default());
+            let stats = renderer.handlers_mut().stats.clone();
+            let bounds = LogicalRect::new(0.0, 0.0, 20.0, 10.0);
+            for (case, expected) in [(0, 1), (0, 1), (1, covered), (2, covered), (0, covered + 1)] {
+                let previous = stats.prepares.get();
+                renderer.paint(bounds, Rectangle::new(bounds).background(Color::BLACK));
+                if case == 2 {
+                    renderer.push_clip(LogicalRect::new(30.0, 30.0, 1.0, 1.0), BorderRadius::default());
+                }
+                renderer.paint(
+                    LogicalRect::new(-1.0, 1.0, 20.0, 8.0),
+                    SoftShadow {
+                        blur: 1,
+                        color: Color::WHITE,
+                    },
+                );
+                if case == 2 {
+                    renderer.pop_clip();
+                }
+                if case == 1 {
+                    renderer.paint(bounds, Rectangle::new(bounds).background(Color::WHITE));
+                }
+                assert_eq!(stats.prepares.get(), previous);
+                renderer.render(1);
+                assert_eq!(
+                    stats.prepares.get(),
+                    expected,
+                    "{} case {case}",
+                    std::any::type_name::<S>()
+                );
+                assert!(stats.prepares.get() - previous <= 1);
+                assert_eq!(
+                    renderer.buffer().pixels()[5 * 20].raw(),
+                    match case {
+                        0 => 0xaaaaaa,
+                        1 => 0xffffff,
+                        _ => 0,
+                    }
+                );
+            }
+            assert_eq!(stats.builds.get(), 1);
+        }
+        check::<Direct>(2);
+        check::<Scanline>(1);
     }
 
     #[test]

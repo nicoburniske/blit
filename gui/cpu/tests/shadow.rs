@@ -11,32 +11,32 @@ use blit_gui::{
 fn shadows_match_reference_pixels_and_incremental_damage() {
     fn check<S: RenderStrategy<VecBuffer<Xrgb8888>> + Default, D: DamageTracker>(damage: impl Fn() -> D) {
         for capacity in [0, 512 * 1024] {
-            // reference pixels from the builtin shadow renderer
+            // reference pixels from the shadow mask path
             for (scale, expected) in [
                 (
                     1.0,
                     [
-                        0x3cc8ce64bc2ef27f,
-                        0x585c220b3b9621f3,
-                        0x5c899d7e364b05f0,
+                        0xcdad6a98810983ab,
+                        0xf81307921dac8f87,
+                        0xa76adcaea35edd0c,
                         0x667beaedce43f43d,
                     ],
                 ),
                 (
                     1.5,
                     [
-                        0x8ec1a46a6a1b47b1,
-                        0x4d3a7028585958e6,
-                        0x8acccd060192db1a,
+                        0x1dbe81214cb462ff,
+                        0xa816dfda8b38f31c,
+                        0x9efb2de3e9cb3a8c,
                         0x28570af67a8e7b79,
                     ],
                 ),
                 (
                     2.0,
                     [
-                        0x85675ba3eee0aaa8,
-                        0xdad3c0a0307b40d1,
-                        0x0bb572a925bf6c31,
+                        0x8240d8cfd3f20d19,
+                        0x584d94dba5834684,
+                        0x7d189c040bc033cc,
                         0x66aa5382073e021b,
                     ],
                 ),

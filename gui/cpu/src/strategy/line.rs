@@ -9,7 +9,7 @@ use super::{
     command::{CommandId, CommandList, Payload},
     raster,
 };
-use crate::{DamageTracker, Pixel, PixelBuffer, RenderContext, StoredImage, TextRenderer};
+use crate::{DamageTracker, Pixel, PixelBuffer, RenderContext, StoredImage, TextRenderer, shadow};
 
 #[derive(Default)]
 pub struct Scanline {
@@ -51,7 +51,8 @@ fn draw_commands<const CLIPPED: bool, H, P: Pixel>(
     commands: &CommandList<H, P>,
     active: &[CommandId],
     clip_ranges: &[Option<ClipLine>],
-    images: &Arena<StoredImage>,
+    images: &mut Arena<StoredImage>,
+    shadow: &mut shadow::Cache,
     text: &mut TextRenderer,
     handlers: &mut H,
     buffer: &mut LineBuffer<'_, P>,
@@ -105,7 +106,19 @@ fn draw_commands<const CLIPPED: bool, H, P: Pixel>(
                                 width: range.end - range.start,
                                 height: 1,
                             };
-                            raster::draw_line(&payload, line, clip, coverage, images, text, data, handlers, buffer);
+                            raster::draw_line(
+                                &payload,
+                                line,
+                                commands.bounds(*command),
+                                clip,
+                                coverage,
+                                images,
+                                shadow,
+                                text,
+                                data,
+                                handlers,
+                                buffer,
+                            );
                         },
                     );
                     continue;
@@ -121,9 +134,11 @@ fn draw_commands<const CLIPPED: bool, H, P: Pixel>(
         raster::draw_line(
             &commands.get(*command),
             line,
+            commands.bounds(*command),
             clip,
             255,
             images,
+            shadow,
             text,
             data,
             handlers,
@@ -139,7 +154,8 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         let screen = PhysicalRect::new(0, 0, width as i32, height as i32);
         let commands = &context.commands;
         let clips = &context.clips;
-        let images = &context.images;
+        let images = &mut context.images;
+        let shadow = &mut context.shadow;
         let text = &mut context.text;
         let handlers = &mut context.handlers;
         let buffer = &mut context.buffer;
@@ -232,6 +248,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 active,
                                 &self.clip_ranges,
                                 images,
+                                shadow,
                                 text,
                                 handlers,
                                 &mut buffer,
@@ -242,6 +259,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 active,
                                 &self.clip_ranges,
                                 images,
+                                shadow,
                                 text,
                                 handlers,
                                 &mut buffer,
@@ -291,6 +309,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 &self.active[first..],
                                 &self.clip_ranges,
                                 images,
+                                shadow,
                                 text,
                                 handlers,
                                 &mut buffer,
@@ -301,6 +320,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 &self.active[first..],
                                 &self.clip_ranges,
                                 images,
+                                shadow,
                                 text,
                                 handlers,
                                 &mut buffer,

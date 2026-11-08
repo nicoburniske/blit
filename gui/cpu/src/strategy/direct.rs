@@ -20,14 +20,16 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
         };
         let commands = &context.commands;
         let clips = &context.clips;
-        let images = &context.images;
+        let images = &mut context.images;
+        let shadow = &mut context.shadow;
         let text = &mut context.text;
         let data = &commands.data;
         let handlers = &mut context.handlers;
         let buffer = &mut context.buffer;
 
         for offset in commands.offsets() {
-            let Some(bounds) = commands.bounds(offset).intersection(screen) else {
+            let draw_bounds = commands.bounds(offset);
+            let Some(bounds) = draw_bounds.intersection(screen) else {
                 continue;
             };
             if !damage.intersects(bounds, commands.clip(offset)) {
@@ -42,15 +44,29 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                     for range in &self.ranges {
                         let clip = PhysicalRect::new(range.start as i32, line, (range.end - range.start) as i32, 1);
                         if clip_id == 0 {
-                            raster::draw_line(&payload, line, clip, 255, images, text, data, handlers, buffer);
+                            raster::draw_line(
+                                &payload,
+                                line,
+                                draw_bounds,
+                                clip,
+                                255,
+                                images,
+                                shadow,
+                                text,
+                                data,
+                                handlers,
+                                buffer,
+                            );
                         } else {
                             clips.for_each(clip_id, line, clip.x..clip.x + clip.width, |range, coverage| {
                                 raster::draw_line(
                                     &payload,
                                     line,
+                                    draw_bounds,
                                     PhysicalRect::new(range.start, line, range.end - range.start, 1),
                                     coverage,
                                     images,
+                                    shadow,
                                     text,
                                     data,
                                     handlers,
