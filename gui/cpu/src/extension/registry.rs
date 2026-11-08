@@ -1,3 +1,5 @@
+use std::any::TypeId;
+
 use super::*;
 
 pub enum ReadRequest<'a> {
@@ -6,14 +8,14 @@ pub enum ReadRequest<'a> {
 }
 
 pub struct Registry<P: Pixel> {
-    entries: Vec<(TypeId, Box<dyn Erased<P>>)>,
+    pub entries: Vec<(TypeId, Box<dyn Erased<P>>)>,
     data: Arena,
     prepared: Vec<(usize, Value)>,
     snapshot: Surface<P>,
     preserved: Vec<P>,
 }
 
-impl<P: Pixel + 'static> Registry<P> {
+impl<P: Pixel> Registry<P> {
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
@@ -38,28 +40,22 @@ impl<P: Pixel + 'static> Registry<P> {
             .push((TypeId::of::<E::Command>(), Box::new(Adapter { extension })));
     }
 
-    pub fn read_bounds(&self, command: Custom<'_>, output: PhysicalRect, scale: f32) -> Option<PhysicalRect> {
+    pub fn index(&self, command: Custom<'_>) -> usize {
         self.entries
             .iter()
-            .find(|(kind, _)| *kind == command.type_id())
+            .position(|(kind, _)| *kind == command.type_id())
             .unwrap_or_else(|| panic!("no cpu extension registered for {}", command.type_name()))
-            .1
-            .read_bounds(command, output, scale)
     }
 
     pub fn prepare(
         &mut self,
+        handler: usize,
         command: Custom<'_>,
         scale: f32,
         bounds: PhysicalRect,
         images: &mut ImageArena<StoredImage>,
     ) -> u32 {
-        let index = self
-            .entries
-            .iter()
-            .position(|(kind, _)| *kind == command.type_id())
-            .unwrap();
-        let value = self.entries[index].1.prepare(
+        let value = self.entries[handler].1.prepare(
             command,
             &mut PrepareContext {
                 scale,
@@ -69,7 +65,7 @@ impl<P: Pixel + 'static> Registry<P> {
             },
         );
         let id = u32::try_from(self.prepared.len()).expect("too many custom primitives");
-        self.prepared.push((index, value));
+        self.prepared.push((handler, value));
         id
     }
 
@@ -82,8 +78,8 @@ impl<P: Pixel + 'static> Registry<P> {
         coverage: u8,
         images: &ImageArena<StoredImage>,
     ) {
-        let (entry, value) = self.prepared[id as usize];
-        self.entries[entry].1.render(
+        let (handler, value) = self.prepared[id as usize];
+        self.entries[handler].1.render(
             value,
             &self.data,
             &mut DrawContext {
@@ -158,8 +154,8 @@ impl<P: Pixel + 'static> Registry<P> {
         images: &ImageArena<StoredImage>,
         output: &Region,
     ) {
-        let (entry, value) = self.prepared[id as usize];
-        self.entries[entry].1.render(
+        let (handler, value) = self.prepared[id as usize];
+        self.entries[handler].1.render(
             value,
             &self.data,
             &mut DrawContext {
@@ -186,7 +182,7 @@ impl<P: Pixel + 'static> Registry<P> {
     }
 }
 
-trait Erased<P> {
+pub trait Erased<P> {
     fn read_bounds(&self, command: Custom<'_>, output: PhysicalRect, scale: f32) -> Option<PhysicalRect>;
     fn prepare(&mut self, command: Custom<'_>, cx: &mut PrepareContext<'_>) -> Value;
     fn render(&mut self, prepared: Value, data: &Arena, cx: &mut DrawContext<'_, P>);

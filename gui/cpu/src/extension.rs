@@ -1,5 +1,3 @@
-use std::any::TypeId;
-
 use blit::PhysicalRect;
 use blit_arena::Arena as ImageArena;
 use blit_gui::{
@@ -12,6 +10,7 @@ use blit_gui::{
 
 use crate::{Pixel, PixelBuffer, StoredImage, damage::region::Region, strategy::clip::ClipStack};
 
+/// renders one command type with persistent state owned by the handler
 pub trait Extension<P: Pixel>: 'static {
     type Command: CustomCommand;
     type Prepared: 'static;
@@ -25,6 +24,7 @@ pub trait Extension<P: Pixel>: 'static {
     /// without source reads callbacks may cover individual spans in any order
     fn render(&mut self, prepared: &Self::Prepared, cx: &mut DrawContext<'_, P>);
 
+    /// returns the source pixels needed for an output region in physical pixels
     /// returning a footprint enables source reads and propagates damage
     fn read_bounds(
         &self,
@@ -49,6 +49,7 @@ pub struct Span<'a, P> {
     pub x: i32,
     pub y: i32,
     pub pixels: &'a mut [P],
+    /// clip coverage to apply when blending pixels
     pub coverage: u8,
     pub data: &'a Arena,
     images: &'a ImageArena<StoredImage>,
@@ -159,8 +160,10 @@ impl<P> Surface<P> {
     }
 }
 
-mod registry;
-pub(crate) use registry::{ReadRequest, Registry};
+pub(crate) mod registry;
+
+#[cfg(test)]
+mod benchmark;
 
 enum DrawTarget<'a, P> {
     Span(Span<'a, P>),

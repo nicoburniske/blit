@@ -1,3 +1,5 @@
+//! compares custom and builtin shadows using the same cached raster kernels
+
 use std::{
     hash::{Hash, Hasher},
     hint::black_box,
@@ -19,7 +21,7 @@ use crate::{
 };
 
 #[test]
-#[ignore]
+#[ignore = "run in release mode with --ignored --nocapture"]
 fn shadow_extension_cost() {
     compare::<Direct>("direct");
     compare::<Scanline>("scanline");
@@ -50,8 +52,8 @@ fn compare<S: RenderStrategy<VecBuffer<Xrgb8888>> + Default>(strategy: &str) {
                 }
             }
             assert_eq!(native.buffer().pixels(), custom.buffer().pixels());
-            let mut samples = [[0.0; 9]; 2];
-            for sample in 0..9 {
+            let mut samples = [[0.0; 2]; 9];
+            for (sample, times) in samples.iter_mut().enumerate() {
                 for route in if sample % 2 == 0 { [0, 1] } else { [1, 0] } {
                     let (renderer, gui) = if route == 0 {
                         (&mut native, &mut native_gui)
@@ -65,19 +67,20 @@ fn compare<S: RenderStrategy<VecBuffer<Xrgb8888>> + Default>(strategy: &str) {
                         black_box(renderer.buffer().pixels());
                         gui.finish_frame();
                     }
-                    samples[route][sample] = start.elapsed().as_secs_f64() * 1_000_000.0 / 100.0;
+                    times[route] = start.elapsed().as_secs_f64() * 1_000_000.0 / 100.0;
                 }
                 assert_eq!(native.buffer().pixels(), custom.buffer().pixels());
             }
-            for samples in &mut samples {
-                samples.sort_by(f64::total_cmp);
-            }
+            let mut native = samples.map(|times| times[0]);
+            let mut custom = samples.map(|times| times[1]);
+            native.sort_by(f64::total_cmp);
+            custom.sort_by(f64::total_cmp);
             let label = ["full", "unchanged", "one_changed"][case];
             println!(
                 "{strategy} {count} shadows {label}: native {:.3} us custom {:.3} us ratio {:.3}",
-                samples[0][4],
-                samples[1][4],
-                samples[1][4] / samples[0][4]
+                native[4],
+                custom[4],
+                custom[4] / native[4]
             );
         }
     }

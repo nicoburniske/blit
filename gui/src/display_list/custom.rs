@@ -8,6 +8,8 @@ use blit::internal::bump::Offset;
 
 use super::arena::Arena;
 
+/// command data used for content hashing and damage comparison
+/// views must resolve arena handles so contents compare equally across frames
 pub trait CustomCommand: 'static {
     type View<'a>: PartialEq + Hash;
 

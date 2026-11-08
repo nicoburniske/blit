@@ -81,7 +81,9 @@ impl Arena {
     }
 
     pub fn get<T: 'static>(&self, handle: Handle<T>) -> &T {
-        self.value(handle.erase()).expect("arena value has the wrong type")
+        assert_eq!(handle.owner, self.owner, "arena value belongs to another frame");
+        // safety: private handles preserve the inserted type and are checked against this arena epoch
+        unsafe { self.bump.get(Offset::new(handle.offset)) }
     }
 
     pub fn value<T: 'static>(&self, value: Value) -> Option<&T> {

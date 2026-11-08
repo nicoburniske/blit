@@ -53,7 +53,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
     clip_ranges: &[Option<ClipLine>],
     images: &Arena<StoredImage>,
     text: &mut TextRenderer,
-    extensions: &mut crate::extension::Registry<P>,
+    extensions: &mut crate::extension::registry::Registry<P>,
     buffer: &mut LineBuffer<'_, P>,
 ) {
     let line = buffer.line as i32;

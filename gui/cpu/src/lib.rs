@@ -21,6 +21,8 @@ pub use self::{
     strategy::{Direct, RenderStrategy, Scanline},
 };
 use self::{
+    damage::{frame::FrameDamage, passes::PassDamage},
+    extension::registry::{ReadRequest, Registry},
     pixel::PixelSpan,
     render::{image as render_image, image_patch::AlphaRows, rectangle, shadow, triangle},
     strategy::{clip::ClipStack, command::CommandList},
@@ -51,7 +53,7 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTrac
     context: RenderContext<B>,
     strategy: S,
     damage: D,
-    pass_damage: damage::PassDamage,
+    pass_damage: PassDamage,
     pass_shift: u32,
 }
 
@@ -66,11 +68,11 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
                 text: TextRenderer::new(&config),
                 commands: CommandList::default(),
                 clips: ClipStack::default(),
-                extensions: extension::Registry::new(),
+                extensions: Registry::new(),
             },
             strategy: Direct::default(),
             damage: TileDamage::new(config.damage_tile_size),
-            pass_damage: damage::PassDamage::default(),
+            pass_damage: PassDamage::default(),
             pass_shift: config.damage_tile_size.trailing_zeros(),
         }
     }
@@ -138,7 +140,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             self.pass_shift,
         );
         let plan = &self.pass_damage;
-        let mut damage = damage::FrameDamage {
+        let mut damage = FrameDamage {
             tracker: &mut self.damage,
             region: plan.stages.first(),
         };
@@ -148,7 +150,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             if let Some(region) = plan.stages.first() {
                 context
                     .extensions
-                    .read(&mut context.buffer, extension::ReadRequest::Preserve(&plan.preserve));
+                    .read(&mut context.buffer, ReadRequest::Preserve(&plan.preserve));
                 for bounds in region.rects() {
                     for y in bounds.y..bounds.y + bounds.height {
                         context.buffer.process_line(
@@ -176,6 +178,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                             unreachable!()
                         };
                         let id = context.extensions.prepare(
+                            node.handler,
                             command,
                             context.scale_factor,
                             record.bounds,
@@ -183,7 +186,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                         );
                         context
                             .extensions
-                            .read(&mut context.buffer, extension::ReadRequest::Snapshot(&node.reads));
+                            .read(&mut context.buffer, ReadRequest::Snapshot(&node.reads));
                         context.extensions.pass(
                             id,
                             &mut context.buffer,
@@ -224,14 +227,16 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                         }
                     }
                     Command::Custom(command) => {
-                        if context
-                            .extensions
+                        let handler = context.extensions.index(command);
+                        if context.extensions.entries[handler]
+                            .1
                             .read_bounds(command, record.bounds, context.scale_factor)
                             .is_some()
                         {
                             continue;
                         }
                         let id = context.extensions.prepare(
+                            handler,
                             command,
                             context.scale_factor,
                             record.bounds,
@@ -296,7 +301,7 @@ pub struct RenderContext<B: PixelBuffer> {
     text: TextRenderer,
     commands: CommandList,
     clips: ClipStack,
-    extensions: extension::Registry<B::Pixel>,
+    extensions: Registry<B::Pixel>,
 }
 
 struct StoredImage {

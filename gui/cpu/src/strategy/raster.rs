@@ -12,7 +12,7 @@ pub fn draw_line<B: PixelBuffer>(
     coverage: u8,
     images: &Arena<StoredImage>,
     text: &mut TextRenderer,
-    extensions: &mut crate::extension::Registry<B::Pixel>,
+    extensions: &mut crate::extension::registry::Registry<B::Pixel>,
     buffer: &mut B,
 ) {
     match payload {

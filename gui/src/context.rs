@@ -37,6 +37,8 @@ pub struct RenderInput<'a> {
 }
 
 impl GuiContext {
+    /// records a command at the current drawing position and clip
+    /// bounds must include every pixel the command can draw
     pub fn paint_custom<T: CustomCommand>(&mut self, bounds: LogicalRect, build: impl FnOnce(&mut Writer<'_>) -> T) {
         self.display_list
             .push_custom(bounds.to_physical(self.scale), self.clip, build);

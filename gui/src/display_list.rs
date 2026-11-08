@@ -22,6 +22,7 @@ pub struct DisplayList {
     commands: Vec<StoredCommand>,
     data: arena::Arena,
     clips: Vec<ClipNode>,
+    has_custom: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -140,6 +141,11 @@ impl DisplayList {
             value,
         });
         self.push(bounds, clip, CommandKind::Custom(Offset::new(stored.offset)));
+        self.has_custom = true;
+    }
+
+    pub fn has_custom_commands(&self) -> bool {
+        self.has_custom
     }
 
     pub fn len(&self) -> usize {
@@ -287,6 +293,7 @@ impl DisplayList {
 
     pub fn clear(&mut self) {
         self.commands.clear();
+        self.has_custom = false;
         self.data.clear();
         self.clips.clear();
     }
