@@ -1,7 +1,7 @@
 use blit::{Atom, AtomCx, Constraints, FrameSlice, LogicalRect, Paint, Size};
 
 use crate::{
-    TextContext,
+    Context,
     color::Color,
     display_list::Rectangle as DrawRectangle,
     image::{ImageFit, ImageId, ImageRequest, ImageSampling, ImageTiling, NineSlice},
@@ -53,7 +53,7 @@ blit::builder! {
     }
 }
 
-impl<C: TextContext + for<'a> Paint<TextRequest<'a>>> Atom<C> for Text {
+impl<C: Context + for<'a> Paint<TextRequest<'a>>> Atom<C> for Text {
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         let measured = cx.context_mut().text().measure(&TextLayoutRequest {
             text: self.text,

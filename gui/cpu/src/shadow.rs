@@ -2,7 +2,7 @@ use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
 use blit_gui::{
     color::Color,
-    display_list::arena::Handle,
+    display_list::arena::{Handle, Writer},
     image::{
         ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageRequest, ImageSampling, ImageTiling, NineSlice,
     },
@@ -31,6 +31,11 @@ pub enum Prepared {
 
 impl crate::extension::Command for BoxShadow {
     type Renderer = Renderer;
+    type Stored = Self;
+
+    fn store(self, _: &mut Writer<'_>) -> Self {
+        self
+    }
 }
 
 impl Renderer {

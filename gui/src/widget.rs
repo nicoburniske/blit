@@ -1,7 +1,7 @@
 use blit::{Paint, Widget, state};
 
 use crate::{
-    TextContext, atom,
+    Context, atom,
     text::{Span, TextOptions, TextRequest, TextSource, TextStyle},
 };
 
@@ -15,7 +15,7 @@ blit::builder! {
     }
 }
 
-impl<C: TextContext + for<'a> Paint<TextRequest<'a>>> Widget<C, state::Node> for Text<'_> {
+impl<C: Context + for<'a> Paint<TextRequest<'a>>> Widget<C, state::Node> for Text<'_> {
     type Response = ();
 
     fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
@@ -40,7 +40,7 @@ blit::builder! {
     }
 }
 
-impl<C: TextContext + for<'a> Paint<TextRequest<'a>>> Widget<C, state::Node> for RichText<'_> {
+impl<C: Context + for<'a> Paint<TextRequest<'a>>> Widget<C, state::Node> for RichText<'_> {
     type Response = ();
 
     fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {

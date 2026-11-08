@@ -6,11 +6,11 @@ use blit_cpu::{
     extension::{DrawContext, Extension, PrepareContext},
 };
 use blit_gui::{
-    PaintCustom, TextConfig, TextSystem,
+    TextConfig, TextSystem,
     color::Color,
     display_list::{
         CustomCommand, Rectangle,
-        arena::{Arena, Slice},
+        arena::{Arena, Slice, Writer},
     },
     image::{ImageData, ImageFormat, ImageHandle, ImagePixels},
     style::BorderRadius,
@@ -43,24 +43,24 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-struct Path {
-    points: Slice<[i16; 2]>,
-    width: u16,
-    color: Color,
-}
-
 #[derive(PartialEq, Hash)]
-struct PathView<'a> {
+struct Path<'a> {
     points: &'a [[i16; 2]],
     width: u16,
     color: Color,
 }
 
-impl CustomCommand for Path {
-    type View<'a> = PathView<'a>;
+struct StoredPath {
+    points: Slice<[i16; 2]>,
+    width: u16,
+    color: Color,
+}
 
-    fn view<'a>(&'a self, arena: &'a Arena) -> PathView<'a> {
-        PathView {
+impl CustomCommand for StoredPath {
+    type View<'a> = Path<'a>;
+
+    fn view<'a>(&'a self, arena: &'a Arena) -> Path<'a> {
+        Path {
             points: arena.slice(self.points),
             width: self.width,
             color: self.color,
@@ -71,8 +71,17 @@ impl CustomCommand for Path {
 #[derive(Default)]
 struct PathRenderer;
 
-impl blit_cpu::extension::Command for Path {
+impl blit_cpu::extension::Command for Path<'_> {
     type Renderer = PathRenderer;
+    type Stored = StoredPath;
+
+    fn store(self, data: &mut Writer<'_>) -> StoredPath {
+        StoredPath {
+            points: data.extend(self.points.iter().copied()),
+            width: self.width,
+            color: self.color,
+        }
+    }
 }
 
 struct PreparedPath {
@@ -82,10 +91,10 @@ struct PreparedPath {
 }
 
 impl<P: Pixel> Extension<P> for PathRenderer {
-    type Command = Path;
+    type Command = StoredPath;
     type Prepared = PreparedPath;
 
-    fn prepare(&mut self, path: PathView<'_>, cx: &mut PrepareContext<'_>) -> PreparedPath {
+    fn prepare(&mut self, path: Path<'_>, cx: &mut PrepareContext<'_>) -> PreparedPath {
         PreparedPath {
             segments: cx.data.extend(path.points.windows(2).map(|points| {
                 std::array::from_fn(|point| points[point].map(|coordinate| coordinate as f32 * cx.scale))
@@ -138,6 +147,11 @@ struct ShadowRenderer {
 
 impl blit_cpu::extension::Command for SoftShadow {
     type Renderer = ShadowRenderer;
+    type Stored = Self;
+
+    fn store(self, _: &mut Writer<'_>) -> Self {
+        self
+    }
 }
 
 struct PreparedShadow {
@@ -225,6 +239,11 @@ struct BlurRenderer {
 
 impl blit_cpu::extension::Command for BackdropBlur {
     type Renderer = BlurRenderer;
+    type Stored = Self;
+
+    fn store(self, _: &mut Writer<'_>) -> Self {
+        self
+    }
 }
 
 impl Extension<Xrgb8888> for BlurRenderer {
@@ -288,27 +307,30 @@ impl Extension<Xrgb8888> for BlurRenderer {
 
 fn scene<C>(renderer: &mut C, frame: usize, pass: bool)
 where
-    C: for<'a> Paint<Rectangle<'a>, Scalar = f32>
-        + PaintCustom<SoftShadow>
-        + PaintCustom<Path>
-        + PaintCustom<BackdropBlur>,
+    C: for<'a> Paint<Rectangle<'a>, Scalar = f32> + Paint<SoftShadow> + for<'a> Paint<Path<'a>> + Paint<BackdropBlur>,
 {
     let background =
         Rectangle::new(LogicalRect::new(0.0, 0.0, WIDTH as f32, HEIGHT as f32)).background(Color::rgb(18, 22, 30));
     renderer.paint(background.area, background);
-    renderer.paint_with(LogicalRect::new(12.0, 10.0, 76.0, 48.0), |_| SoftShadow {
-        blur: 7,
-        color: Color::rgba(0, 180, 255, 190),
-    });
+    renderer.paint(
+        LogicalRect::new(12.0, 10.0, 76.0, 48.0),
+        SoftShadow {
+            blur: 7,
+            color: Color::rgba(0, 180, 255, 190),
+        },
+    );
     let panel = Rectangle::new(LogicalRect::new(22.0, 20.0, 56.0, 28.0))
         .background(Color::rgb(35, 45, 65))
         .radius(BorderRadius::uniform(6.0));
     renderer.paint(panel.area, panel);
-    renderer.paint_with(LogicalRect::new(6.0, 5.0, 144.0, 60.0), |data| Path {
-        points: data.extend([[12, 20], [65, 20], [100, 53], [145, if frame == 0 { 15 } else { 22 }]].into_iter()),
-        width: 3,
-        color: Color::rgb(255, 190, 70),
-    });
+    renderer.paint(
+        LogicalRect::new(6.0, 5.0, 144.0, 60.0),
+        Path {
+            points: &[[12, 20], [65, 20], [100, 53], [145, if frame == 0 { 15 } else { 22 }]],
+            width: 3,
+            color: Color::rgb(255, 190, 70),
+        },
+    );
     for x in (0..WIDTH).step_by(8) {
         let stripe = Rectangle::new(LogicalRect::new(x as f32, 67.0, 4.0, 28.0)).background(if x == 16 && frame != 0 {
             Color::WHITE
@@ -318,9 +340,7 @@ where
         renderer.paint(stripe.area, stripe);
     }
     if pass {
-        renderer.paint_with(LogicalRect::new(20.0, 65.0, 120.0, 28.0), |_| BackdropBlur {
-            radius: 4,
-        });
+        renderer.paint(LogicalRect::new(20.0, 65.0, 120.0, 28.0), BackdropBlur { radius: 4 });
     }
     let overlay = Rectangle::new(LogicalRect::new(34.0, 18.0, 8.0, 8.0)).background(Color::WHITE);
     renderer.paint(overlay.area, overlay);
@@ -337,16 +357,43 @@ fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B
 #[cfg(test)]
 mod tests {
     use blit_cpu::{DamageTracker, Direct, PixelBuffer, RenderStrategy, TileDamage, damage::command::CommandDiff};
-    use blit_gui::ClipContext;
+    use blit_gui::Context;
 
     use super::*;
 
     const DAMAGE_WIDTH: usize = 384;
     const DAMAGE_HEIGHT: usize = 256;
 
+    #[test]
+    fn borrowed_paths_are_stored_before_source_changes() {
+        fn check<S: RenderStrategy<VecBuffer<Xrgb8888>> + Default>() {
+            let mut renderer = new_renderer(VecBuffer::new(20, 12), RendererConfig::default()).strategy(S::default());
+            let bounds = LogicalRect::new(0.0, 0.0, 20.0, 12.0);
+            for y in [4, 4, 8] {
+                renderer.paint(bounds, Rectangle::new(bounds).background(Color::BLACK));
+                let mut points = [[2, y], [18, y]];
+                renderer.paint(
+                    bounds,
+                    Path {
+                        points: &points,
+                        width: 2,
+                        color: Color::WHITE,
+                    },
+                );
+                points.fill([0, 0]);
+                renderer.render(1);
+                assert_eq!(renderer.buffer().pixels()[y as usize * 20 + 10].raw(), 0xffffff);
+                let previous = if y == 4 { 8 } else { 4 };
+                assert_eq!(renderer.buffer().pixels()[previous * 20 + 10].raw(), 0);
+            }
+        }
+        check::<Direct>();
+        check::<Scanline>();
+    }
+
     fn damage_scene<C>(renderer: &mut C, frame: usize)
     where
-        C: for<'a> Paint<Rectangle<'a>, Scalar = f32> + PaintCustom<BackdropBlur> + ClipContext,
+        C: for<'a> Paint<Rectangle<'a>, Scalar = f32> + Paint<BackdropBlur> + Context,
     {
         let background = Rectangle::new(LogicalRect::new(0.0, 0.0, DAMAGE_WIDTH as f32, DAMAGE_HEIGHT as f32))
             .background(Color::rgb(18, 30, 50));
@@ -367,16 +414,19 @@ mod tests {
                 128.0,
             );
             renderer.push_clip(outer, BorderRadius::uniform(12.0));
-            renderer.paint_with(bounds, |_| BackdropBlur {
-                radius: if frame == 3 { 6 } else { 4 },
-            });
+            renderer.paint(
+                bounds,
+                BackdropBlur {
+                    radius: if frame == 3 { 6 } else { 4 },
+                },
+            );
             renderer.pop_clip();
             let overlay =
                 Rectangle::new(LogicalRect::new(67.0, 80.0, 2.0, 2.0)).background(Color::rgba(100, 220, 40, 170));
             renderer.paint(overlay.area, overlay);
             renderer.push_clip(outer, BorderRadius::uniform(12.0));
             renderer.push_clip(bounds, BorderRadius::default());
-            renderer.paint_with(bounds, |_| BackdropBlur { radius: 3 });
+            renderer.paint(bounds, BackdropBlur { radius: 3 });
             renderer.pop_clip();
             renderer.pop_clip();
         }
@@ -564,6 +614,11 @@ mod tests {
         struct BadRenderer;
         impl blit_cpu::extension::Command for BadRead {
             type Renderer = BadRenderer;
+            type Stored = Self;
+
+            fn store(self, _: &mut Writer<'_>) -> Self {
+                self
+            }
         }
         impl Extension<Xrgb8888> for BadRenderer {
             type Command = BadRead;
@@ -584,7 +639,7 @@ mod tests {
             },
         );
         renderer.register(BadRenderer);
-        renderer.paint_with(LogicalRect::new(64.0, 64.0, 8.0, 8.0), |_| BadRead);
+        renderer.paint(LogicalRect::new(64.0, 64.0, 8.0, 8.0), BadRead);
         renderer.render(0);
     }
 
@@ -596,6 +651,11 @@ mod tests {
         struct CopyRenderer;
         impl blit_cpu::extension::Command for CopyArea {
             type Renderer = CopyRenderer;
+            type Stored = Self;
+
+            fn store(self, _: &mut Writer<'_>) -> Self {
+                self
+            }
         }
         impl Extension<Xrgb8888> for CopyRenderer {
             type Command = CopyArea;
@@ -650,7 +710,7 @@ mod tests {
             renderer.paint(background.area, background);
             let source = Rectangle::new(LogicalRect::new(20.0, 180.0, 2.0, 2.0)).background(color);
             renderer.paint(source.area, source);
-            renderer.paint_with(LogicalRect::new(160.0, 64.0, 16.0, 16.0), |_| CopyArea(backdrop));
+            renderer.paint(LogicalRect::new(160.0, 64.0, 16.0, 16.0), CopyArea(backdrop));
             let overlay = Rectangle::new(LogicalRect::new(20.0, 180.0, 2.0, 2.0)).background(Color::WHITE);
             renderer.paint(overlay.area, overlay);
             renderer.render(1);
@@ -710,9 +770,7 @@ mod tests {
             let mut previous = 0;
             for (index, frame) in [0, 0, 1, 1, 0].into_iter().enumerate() {
                 scene(&mut renderer, frame, true);
-                renderer.paint_with(LogicalRect::new(100.0, 65.0, 40.0, 28.0), |_| BackdropBlur {
-                    radius: 2,
-                });
+                renderer.paint(LogicalRect::new(100.0, 65.0, 40.0, 28.0), BackdropBlur { radius: 2 });
                 renderer.render(1);
                 let sample = renderer.buffer().pixels()[75 * WIDTH + 20].raw();
                 if index == 2 {
@@ -735,14 +793,20 @@ mod tests {
             new_renderer(VecBuffer::<Xrgb8888>::new(20, 10), RendererConfig::default()).strategy(Scanline::default());
         let stats = Rc::<Stats>::default();
         renderer.register(ShadowRenderer::new(stats.clone()));
-        renderer.paint_with(LogicalRect::new(0.0, 0.0, 10.0, 10.0), |_| SoftShadow {
-            blur: 1,
-            color: Color::WHITE,
-        });
-        renderer.paint_with(LogicalRect::new(10.0, 0.0, 10.0, 10.0), |_| SoftShadow {
-            blur: 2,
-            color: Color::WHITE,
-        });
+        renderer.paint(
+            LogicalRect::new(0.0, 0.0, 10.0, 10.0),
+            SoftShadow {
+                blur: 1,
+                color: Color::WHITE,
+            },
+        );
+        renderer.paint(
+            LogicalRect::new(10.0, 0.0, 10.0, 10.0),
+            SoftShadow {
+                blur: 2,
+                color: Color::WHITE,
+            },
+        );
         renderer.render(0);
         assert_eq!(stats.builds.get(), 2);
         assert_eq!(renderer.buffer().pixels()[5 * 20 + 5].raw(), 0xffffff);
@@ -757,6 +821,11 @@ mod tests {
         struct ShiftRenderer;
         impl blit_cpu::extension::Command for Shift {
             type Renderer = ShiftRenderer;
+            type Stored = Self;
+
+            fn store(self, _: &mut Writer<'_>) -> Self {
+                self
+            }
         }
         impl Extension<Xrgb8888> for ShiftRenderer {
             type Command = Shift;
@@ -799,10 +868,10 @@ mod tests {
         {
             let source = Rectangle::new(LogicalRect::new(0.0, 0.0, 12.0, 1.0)).background(color);
             renderer.paint(source.area, source);
-            renderer.paint_with(LogicalRect::new(0.0, 1.0, 12.0, 1.0), |_| Shift);
+            renderer.paint(LogicalRect::new(0.0, 1.0, 12.0, 1.0), Shift);
             renderer.push_clip(LogicalRect::new(1.0, 0.0, 9.0, 8.0), BorderRadius::uniform(3.0));
             renderer.push_clip(LogicalRect::new(2.0, 0.0, 6.0, 8.0), BorderRadius::default());
-            renderer.paint_with(LogicalRect::new(0.0, 2.0, 12.0, 1.0), |_| Shift);
+            renderer.paint(LogicalRect::new(0.0, 2.0, 12.0, 1.0), Shift);
             renderer.pop_clip();
             renderer.pop_clip();
             renderer.render(if index < 2 { 0 } else { 2 });

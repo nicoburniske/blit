@@ -4,7 +4,7 @@ use blit_cpu::{
     damage::command::CommandDiff,
 };
 use blit_gui::{
-    ClipContext, TextConfig, TextSystem, color::Color, display_list::Rectangle, shadow::BoxShadow, style::BorderRadius,
+    Context, TextConfig, TextSystem, color::Color, display_list::Rectangle, shadow::BoxShadow, style::BorderRadius,
 };
 
 #[test]

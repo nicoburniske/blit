@@ -13,9 +13,9 @@ use std::any::TypeId;
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_arena::Arena;
 use blit_gui::{
-    ClipContext, PaintCustom, TextContext, TextSystem,
+    Context, TextSystem,
     atom::Clear,
-    display_list::{ClipId, Command, DisplayList, Mesh, Rectangle, arena::Writer},
+    display_list::{ClipId, Command, DisplayList, Mesh, Rectangle},
     image::{ImageData, ImageFormat, ImageHandle, ImageRequest},
     style::BorderRadius,
     text::TextRequest,
@@ -368,42 +368,30 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Clear> for Re
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, C: extension::Command> Paint<C> for Renderer<B, S, D>
 where
-    C::Renderer: extension::Extension<B::Pixel, Command = C>,
+    C::Renderer: extension::Extension<B::Pixel, Command = C::Stored>,
 {
     fn paint(&mut self, bounds: LogicalRect, command: C) {
-        self.paint_with(bounds, |_| command);
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, C: extension::Command> PaintCustom<C> for Renderer<B, S, D>
-where
-    C::Renderer: extension::Extension<B::Pixel, Command = C>,
-{
-    fn paint_with(&mut self, bounds: LogicalRect, build: impl FnOnce(&mut Writer<'_>) -> C) {
         if !self
             .context
             .extensions
             .entries
             .iter()
-            .any(|(kind, _)| *kind == TypeId::of::<C>())
+            .any(|(kind, _)| *kind == TypeId::of::<C::Stored>())
         {
             self.register(C::Renderer::default());
         }
         self.display_list.push_custom(
             bounds.to_physical(Scale2::uniform(self.context.scale_factor)),
             self.paint_clip,
-            build,
+            |data| command.store(data),
         );
     }
 }
 
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> TextContext for Renderer<B, S, D> {
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Context for Renderer<B, S, D> {
     fn text(&mut self) -> &mut TextSystem {
         &mut self.text_system
     }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> ClipContext for Renderer<B, S, D> {
     fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
         self.paint_clips.push(self.paint_clip);
         self.paint_clip = self.display_list.push_clip(self.paint_clip, area, radius);

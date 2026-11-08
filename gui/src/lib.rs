@@ -13,6 +13,6 @@ pub use blit::Ui;
 pub use blit_text::{Family, FontData, FontError, TextLayoutEngine};
 
 pub use self::{
-    context::{BoundsClip, ClipContext, PaintCustom, TextContext},
+    context::{BoundsClip, Context},
     text_system::{FontStack, GlyphImageId, ResolvedTextLayout, TextConfig, TextSystem},
 };

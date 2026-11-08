@@ -23,21 +23,12 @@ use crate::{Pixel, PixelBuffer, StoredImage, damage::region::Region, strategy::c
 ///     renderer.paint(LogicalRect::default(), Unsupported);
 /// }
 /// ```
-///
-/// arena builders require the same handler
-///
-/// ```compile_fail
-/// use blit::LogicalRect;
-/// use blit_cpu::{Renderer, VecBuffer, Xrgb8888};
-/// use blit_gui::PaintCustom;
-/// #[derive(PartialEq, Hash)]
-/// struct Unsupported;
-/// fn draw(renderer: &mut Renderer<VecBuffer<Xrgb8888>>) {
-///     renderer.paint_with(LogicalRect::default(), |_| Unsupported);
-/// }
-/// ```
-pub trait Command: CustomCommand {
+pub trait Command: Sized {
     type Renderer: Default;
+    type Stored: CustomCommand;
+
+    /// copies borrowed inputs into frame storage
+    fn store(self, data: &mut Writer<'_>) -> Self::Stored;
 }
 
 /// renders one command type with persistent state owned by the handler
