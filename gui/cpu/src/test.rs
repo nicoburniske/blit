@@ -46,7 +46,7 @@ fn atoms_record_into_the_renderer_context() {
         frame.layout(&mut renderer);
         frame.paint(&mut renderer);
         renderer.render(1);
-        assert!(renderer.frame.records.is_empty());
+        assert!(renderer.damage_input.records.is_empty());
         assert!(renderer.buffer().pixels().iter().any(|pixel| pixel.raw() != 0xffffff));
     }
 }
@@ -145,8 +145,8 @@ fn dirty_tiles_preserve_gaps_and_blend_once() {
             }
             if frame == 0 {
                 // seed tracking without drawing to isolate partial rasterization
-                renderer.damage.update(&renderer.frame, screen, 1.0, 1);
-                renderer.frame.clear();
+                renderer.damage.update(&renderer.damage_input, screen, 1.0, 1);
+                renderer.damage_input.clear();
                 renderer.context.commands.clear();
             } else {
                 renderer.render(1);

@@ -19,14 +19,11 @@ use blit_gui::{
     style::BorderRadius,
 };
 
-pub use self::{
-    damage::{DamageTracker, tile::TileDamage},
-    paint::{DrawContext, Handler, Surface},
-    pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888},
-    strategy::{Direct, RenderStrategy, Scanline},
-};
 use self::{
-    damage::{Frame, FrameDamage, passes::PassDamage},
+    damage::{
+        DamageInput,
+        passes::{PassDamage, StageDamage},
+    },
     paint::{Draws, ReadRequest},
     pixel::PixelSpan,
     render::image_patch::AlphaRows,
@@ -36,11 +33,17 @@ use self::{
     },
     text::TextRenderer,
 };
+pub use self::{
+    damage::{DamageTracker, tile::TileDamage},
+    paint::{DrawContext, Handler, Surface},
+    pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888},
+    strategy::{Direct, RenderStrategy, Scanline},
+};
 
 pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTracker = TileDamage, H: 'static = Builtins>
 {
     context: RenderContext<B>,
-    frame: Frame,
+    damage_input: DamageInput,
     text_system: TextSystem,
     paint_clip: u32,
     paint_clips: Vec<u32>,
@@ -63,7 +66,7 @@ impl<B: PixelBuffer> Renderer<B> {
                 clips: ClipStack::default(),
                 draws: Draws::new(Builtins::default()),
             },
-            frame: Frame::default(),
+            damage_input: DamageInput::default(),
             text_system: text,
             paint_clip: 0,
             paint_clips: Vec::new(),
@@ -79,12 +82,15 @@ impl<B: PixelBuffer> Renderer<B> {
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Renderer<B, S, D, H> {
     /// selects the handlers available through the paint trait
     pub fn handlers<T: 'static>(mut self, handlers: T) -> Renderer<B, S, D, T> {
-        assert!(self.frame.records.is_empty(), "cannot replace handlers during a frame");
+        assert!(
+            self.damage_input.records.is_empty(),
+            "cannot replace handlers during a frame"
+        );
         self.context.draws.handlers = Box::new(handlers);
         self.damage.invalidate();
         Renderer {
             context: self.context,
-            frame: self.frame,
+            damage_input: self.damage_input,
             text_system: self.text_system,
             paint_clip: self.paint_clip,
             paint_clips: self.paint_clips,
@@ -104,7 +110,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
     pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T, D, H> {
         Renderer {
             context: self.context,
-            frame: self.frame,
+            damage_input: self.damage_input,
             text_system: self.text_system,
             paint_clip: self.paint_clip,
             paint_clips: self.paint_clips,
@@ -120,7 +126,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
         damage.invalidate();
         Renderer {
             context: self.context,
-            frame: self.frame,
+            damage_input: self.damage_input,
             text_system: self.text_system,
             paint_clip: self.paint_clip,
             paint_clips: self.paint_clips,
@@ -147,9 +153,9 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
         assert!(self.paint_clips.is_empty(), "unbalanced paint clips");
         let screen = self.screen();
         let scale = self.context.scale_factor;
-        self.damage.update(&self.frame, screen, scale, buffer_age);
+        self.damage.update(&self.damage_input, screen, scale, buffer_age);
         self.pass_damage.update(
-            &self.frame,
+            &self.damage_input,
             &self.context.commands,
             &self.context.draws,
             &self.damage,
@@ -158,7 +164,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
             self.pass_shift,
         );
         let plan = &self.pass_damage;
-        let mut damage = FrameDamage {
+        let mut damage = StageDamage {
             tracker: &mut self.damage,
             region: plan.stages.first(),
         };
@@ -213,8 +219,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
         context.draws.clear();
         context.text.finish_frame(&mut self.text_system);
         context.images.retain(|image| !image.handle.is_uniquely_owned());
-        self.damage.finish_frame(&mut self.frame);
-        self.frame.clear();
+        self.damage.finish_frame(&mut self.damage_input);
+        self.damage_input.clear();
         self.paint_clip = 0;
         self.text_system.finish_frame();
     }
@@ -240,7 +246,10 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Rendere
 
     pub fn set_scale(&mut self, scale: f32) {
         assert!(scale.is_finite() && scale > 0.0);
-        assert!(self.frame.records.is_empty(), "cannot change scale during a frame");
+        assert!(
+            self.damage_input.records.is_empty(),
+            "cannot change scale during a frame"
+        );
         if self.context.scale_factor != scale {
             self.context.scale_factor = scale;
             self.invalidate_all();
@@ -264,7 +273,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: Handler<T, B::Pi
                 scale: context.scale_factor,
                 bounds: bounds.to_physical(Scale2::uniform(context.scale_factor)),
                 clip: self.paint_clip,
-                frame: &mut self.frame,
+                damage_input: &mut self.damage_input,
                 data: context.draws.data.writer(),
                 prepared: &mut context.draws.prepared,
                 commands: &mut context.commands,
@@ -284,7 +293,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Context
 
     fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
         self.paint_clips.push(self.paint_clip);
-        self.frame.clips.push(damage::Clip {
+        self.damage_input.clips.push(damage::Clip {
             parent: self.paint_clip,
             area,
             radius,
@@ -292,7 +301,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker, H: 'static> Context
         self.context
             .clips
             .push_node(self.paint_clip, area, radius, self.context.scale_factor);
-        self.paint_clip = u32::try_from(self.frame.clips.len()).expect("too many paint clips");
+        self.paint_clip = u32::try_from(self.damage_input.clips.len()).expect("too many paint clips");
     }
 
     fn pop_clip(&mut self) {
@@ -305,7 +314,7 @@ pub struct PaintContext<'a, H, P: Pixel> {
     pub bounds: PhysicalRect,
     pub data: arena::Writer<'a>,
     clip: u32,
-    frame: &'a mut Frame,
+    damage_input: &'a mut DamageInput,
     prepared: &'a mut Vec<paint::Prepared<P>>,
     commands: &'a mut CommandList,
     images: &'a mut Arena<StoredImage>,

@@ -1,6 +1,6 @@
 //! tile damage tracking inspired by [rxi's cached software rendering](https://rxi.github.io/cached_software_rendering.html)
 //!
-//! each frame hashes command contents and relevant clips in drawing order into the
+//! each render hashes command contents and relevant clips in drawing order into the
 //! physical tiles they intersect. comparing tile hashes detects changes without
 //! retaining the previous command data
 //!
@@ -14,7 +14,7 @@ use std::{hash::Hash, ops::Range};
 
 use blit::{PhysicalRect, Scale2, internal::hash::FxHasher};
 
-use super::{DamageTracker, Frame};
+use super::{DamageInput, DamageTracker};
 
 pub struct TileDamage {
     shift: u32,
@@ -55,7 +55,7 @@ impl TileDamage {
 }
 
 impl DamageTracker for TileDamage {
-    fn update(&mut self, frame: &Frame, screen: PhysicalRect, scale: f32, buffer_age: u8) {
+    fn update(&mut self, input: &DamageInput, screen: PhysicalRect, scale: f32, buffer_age: u8) {
         let tile_size = 1usize << self.shift;
         if self.screen != screen {
             self.screen = screen;
@@ -80,7 +80,7 @@ impl DamageTracker for TileDamage {
             bounds: screen,
             inner: screen,
         });
-        for clip in &frame.clips {
+        for clip in &input.clips {
             let parent = &self.clips[clip.parent as usize];
             let area = clip.area.to_physical(Scale2::uniform(scale));
             let radius = [
@@ -118,7 +118,7 @@ impl DamageTracker for TileDamage {
                 inner: inner.intersection(parent.inner).unwrap_or_default(),
             });
         }
-        for record in &frame.records {
+        for record in &input.records {
             let clip = &self.clips[record.clip as usize];
             let Some(bounds) = record.bounds.intersection(clip.bounds) else {
                 continue;
@@ -171,7 +171,7 @@ impl DamageTracker for TileDamage {
         self.sums.last() == Some(&0)
     }
 
-    /// conservatively tests bounds against damage and their frame clip
+    /// conservatively tests bounds against damage and their command clip
     fn intersects(&self, bounds: PhysicalRect, clip: u32) -> bool {
         let Some(bounds) = bounds.intersection(self.clips[clip as usize].bounds) else {
             return false;

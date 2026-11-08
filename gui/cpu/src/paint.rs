@@ -112,7 +112,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
         TypeId::of::<T>().hash(&mut hash);
         std::any::type_name_of_val(key).hash(&mut hash);
         key.hash(&mut hash);
-        self.frame.records.push(Record {
+        self.damage_input.records.push(Record {
             bounds: self.bounds,
             clip: self.clip,
             fingerprint: hash.finish(),
@@ -190,7 +190,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                 }
             }
         }
-        self.frame.records.push(Record {
+        self.damage_input.records.push(Record {
             bounds: self.bounds,
             clip: self.clip,
             fingerprint: hash.finish(),
@@ -225,7 +225,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             .nine_slice
             .map(|slice| [slice.top, slice.right, slice.bottom, slice.left])
             .hash(&mut hash);
-        self.frame.records.push(Record {
+        self.damage_input.records.push(Record {
             bounds: self.bounds,
             clip: self.clip,
             fingerprint: hash.finish(),
@@ -262,7 +262,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
         request.options.horizontal_align.hash(&mut hash);
         request.options.vertical_align.hash(&mut hash);
         request.options.max_lines.hash(&mut hash);
-        self.frame.records.push(Record {
+        self.damage_input.records.push(Record {
             bounds: self.bounds,
             clip: self.clip,
             fingerprint: hash.finish(),
@@ -290,7 +290,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             vertex.color.hash(&mut hash);
         }
         mesh.indices.hash(&mut hash);
-        self.frame.records.push(Record {
+        self.damage_input.records.push(Record {
             bounds: self.bounds,
             clip: self.clip,
             fingerprint: hash.finish(),
@@ -306,7 +306,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
     }
 
     pub fn clear(&mut self) {
-        self.frame.records.push(Record {
+        self.damage_input.records.push(Record {
             bounds: self.bounds,
             clip: 0,
             fingerprint: u64::MAX,
