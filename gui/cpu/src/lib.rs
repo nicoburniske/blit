@@ -1,6 +1,8 @@
 pub mod damage;
 pub mod extension;
 mod glyph;
+#[cfg(feature = "paint")]
+pub mod paint;
 mod pixel;
 pub mod raster;
 mod render;

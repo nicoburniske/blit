@@ -1,4 +1,4 @@
-use blit::{Atom, AtomCx, Constraints, FrameSlice, LogicalRect, Size};
+use blit::{Atom, AtomCx, Constraints, FrameSlice, LogicalRect, Paint, Size};
 
 use crate::{
     Context,
@@ -22,20 +22,23 @@ blit::builder! {
     }
 }
 
-impl<C: Context> Atom<C> for Rectangle {
+impl<C: for<'a> Paint<DrawRectangle<'a>, Scalar = f32>> Atom<C> for Rectangle {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
         if self.background != Fill::Solid(Color::TRANSPARENT) || self.border.width > 0.0 {
-            cx.context_mut().as_mut().paint_rectangle(DrawRectangle {
+            cx.context_mut().paint(
                 area,
-                background: self.background,
-                border: self.border,
-                radius: self.radius,
-                opacity: self.opacity,
-            });
+                DrawRectangle {
+                    area,
+                    background: self.background,
+                    border: self.border,
+                    radius: self.radius,
+                    opacity: self.opacity,
+                },
+            );
         }
     }
 }
@@ -140,14 +143,14 @@ impl Shadow {
     }
 }
 
-impl<C: Context> Atom<C> for Shadow {
+impl<C: Paint<BoxShadow, Scalar = f32>> Atom<C> for Shadow {
     fn measure(&self, _: &mut AtomCx<'_, C>, _: Constraints<f32>) -> Size<f32> {
         Size::ZERO
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
         let command = self.command(area);
-        cx.context_mut().as_mut().paint_custom(command.bounds(), |_| command);
+        cx.context_mut().paint(command.bounds(), command);
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {

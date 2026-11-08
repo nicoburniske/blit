@@ -1,9 +1,10 @@
-use blit::{Clip, ClipShape, LogicalPoint, LogicalRect, LogicalSize, Scale2};
+use blit::{Clip, ClipShape, LogicalPoint, LogicalRect, LogicalSize, Paint, Scale2};
 
 use crate::{
     Context, TextSystem,
     display_list::{ClipId, CustomCommand, DisplayList, Mesh, Rectangle, arena::Writer},
     image::ImageRequest,
+    shadow::BoxShadow,
     text::{Span, TextLayoutRequest, TextRequest, TextRun, TextSource, TextStyle},
 };
 
@@ -13,6 +14,11 @@ pub struct GuiContext {
     display_list: DisplayList,
     clip: ClipId,
     clips: Vec<ClipId>,
+}
+
+/// records custom command data built in the frame arena
+pub trait PaintCustom<T: CustomCommand>: blit::Context<Scalar = f32> {
+    fn paint_with(&mut self, bounds: LogicalRect, build: impl FnOnce(&mut Writer<'_>) -> T);
 }
 
 impl AsMut<GuiContext> for GuiContext {
@@ -34,6 +40,36 @@ pub struct RenderInput<'a> {
     pub text: &'a mut TextSystem,
     /// finite positive uniform scale
     pub scale: Scale2,
+}
+
+impl<'a> RenderInput<'a> {
+    pub fn new(display_list: &'a mut DisplayList, text: &'a mut TextSystem, scale: f32) -> Self {
+        assert!(scale.is_finite() && scale > 0.0);
+        Self {
+            display_list,
+            text,
+            scale: Scale2::uniform(scale),
+        }
+    }
+}
+
+impl Paint<Rectangle<'_>> for GuiContext {
+    fn paint(&mut self, bounds: LogicalRect, command: Rectangle<'_>) {
+        self.display_list
+            .push_rectangle(command, bounds.to_physical(self.scale), self.clip);
+    }
+}
+
+impl Paint<BoxShadow> for GuiContext {
+    fn paint(&mut self, bounds: LogicalRect, command: BoxShadow) {
+        self.paint_custom(bounds, |_| command);
+    }
+}
+
+impl<T: CustomCommand> PaintCustom<T> for GuiContext {
+    fn paint_with(&mut self, bounds: LogicalRect, build: impl FnOnce(&mut Writer<'_>) -> T) {
+        self.paint_custom(bounds, build);
+    }
 }
 
 impl GuiContext {

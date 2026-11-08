@@ -5,6 +5,9 @@ edition = "2024"
 license.workspace = true
 publish = false
 
+[features]
+paint = []
+
 [dependencies]
 blit = { workspace = true }
 blit-gui.workspace = true
@@ -28,6 +31,10 @@ harness = false
 [[bench]]
 name = "text"
 harness = false
+
+[[example]]
+name = "paint"
+required-features = ["paint"]
 
 [lints]
 workspace = true

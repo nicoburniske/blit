@@ -74,6 +74,12 @@ impl Context for () {
     type Scalar = f32;
 }
 
+/// accepts one kind of drawing operation in frame coordinates
+pub trait Paint<T>: Context {
+    /// bounds must include every pixel the operation can draw
+    fn paint(&mut self, bounds: Rect<Self::Scalar>, command: T);
+}
+
 builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct FrameInfo<T> {
