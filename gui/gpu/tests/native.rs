@@ -7,8 +7,9 @@ use blit_gpu::{Renderer, RendererConfig};
 use blit_gui::{
     BoundsClip, FontData, FontStack, GuiContext, TextConfig, TextSystem,
     color::Color,
-    display_list::{BoxShadow, ClipId, Mesh, MeshVertex, Rectangle},
+    display_list::{ClipId, Mesh, MeshVertex, Rectangle},
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
+    shadow::BoxShadow,
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::{FontId, TextOptions, TextRequest, TextStyle},
 };
@@ -169,7 +170,8 @@ fn renders_primitives_and_rebuilds_frames() {
         sampling: ImageSampling::Bilinear,
         ..partial_request
     });
-    gui.paint_shadow(BoxShadow::new(LogicalRect::new(14.0, 9.0, 1.0, 1.0), Color::rgb(255, 0, 0)).blur(1.0));
+    let shadow = BoxShadow::new(LogicalRect::new(14.0, 9.0, 1.0, 1.0), Color::rgb(255, 0, 0)).blur(1.0);
+    gui.paint_custom(shadow.bounds(), |_| shadow);
     let text = gui.text_run("M", TextStyle::new());
     gui.paint_text(TextRequest {
         text,

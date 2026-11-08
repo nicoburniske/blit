@@ -2,7 +2,9 @@ pub mod damage;
 pub mod extension;
 mod glyph;
 mod pixel;
+pub mod raster;
 mod render;
+pub mod shadow;
 mod strategy;
 mod text;
 
@@ -10,7 +12,7 @@ use blit::{PhysicalRect, Scale2};
 use blit_arena::Arena;
 use blit_gui::{
     RenderInput, TextSystem,
-    display_list::{BoxShadow, Command, Rectangle},
+    display_list::{Command, Rectangle},
     image::{ImageData, ImageFormat, ImageHandle, ImageRequest},
     text::TextRequest,
 };
@@ -24,7 +26,7 @@ use self::{
     damage::{frame::FrameDamage, passes::PassDamage},
     extension::registry::{ReadRequest, Registry},
     pixel::PixelSpan,
-    render::{image as render_image, image_patch::AlphaRows, rectangle, shadow, triangle},
+    render::{image as render_image, image_patch::AlphaRows, rectangle, triangle},
     strategy::{clip::ClipStack, command::CommandList},
     text::TextRenderer,
 };
@@ -35,8 +37,6 @@ pub struct RendererConfig {
     pub damage_tile_size: u16,
     /// maximum retained rasterized glyph data in bytes
     pub glyph_cache_capacity: usize,
-    /// maximum retained shadow masks in bytes
-    pub shadow_cache_capacity: usize,
 }
 
 impl Default for RendererConfig {
@@ -44,7 +44,6 @@ impl Default for RendererConfig {
         Self {
             damage_tile_size: 32,
             glyph_cache_capacity: 1024 * 1024,
-            shadow_cache_capacity: 512 * 1024,
         }
     }
 }
@@ -64,7 +63,6 @@ impl<B: PixelBuffer> Renderer<B, Direct> {
                 buffer,
                 scale_factor: 1.0,
                 images: Arena::new(),
-                shadows: shadow::Cache::new(config.shadow_cache_capacity),
                 text: TextRenderer::new(&config),
                 commands: CommandList::default(),
                 clips: ClipStack::default(),
@@ -211,7 +209,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                     Command::Text(request) => {
                         context.prepare_text(input.text, &request, record.bounds, record.clip.0);
                     }
-                    Command::BoxShadow(shadow) => context.prepare_box_shadow(&shadow, record.bounds, record.clip.0),
                     Command::Mesh(mesh) => {
                         for indices in mesh.indices.as_chunks::<3>().0 {
                             let vertices = indices.map(|index| mesh.vertices[index as usize]);
@@ -255,7 +252,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         context.commands.clear();
         context.clips.clear();
         context.extensions.finish_frame();
-        context.shadows.finish_frame();
         context.text.finish_frame(input.text);
         context.images.retain(|image| !image.handle.is_uniquely_owned());
         self.damage.finish_frame(input.display_list);
@@ -297,7 +293,6 @@ pub struct RenderContext<B: PixelBuffer> {
     buffer: B,
     scale_factor: f32,
     images: Arena<StoredImage>,
-    shadows: shadow::Cache,
     text: TextRenderer,
     commands: CommandList,
     clips: ClipStack,
@@ -408,28 +403,6 @@ impl<B: PixelBuffer> RenderContext<B> {
             && let Some(bounds) = rectangle.geometry.intersection(bounds)
         {
             self.commands.push_rectangle(rectangle, bounds, clip);
-        }
-    }
-
-    fn prepare_box_shadow(&mut self, shadow: &BoxShadow, bounds: PhysicalRect, clip: u32) {
-        let Some(request) = self.shadows.prepare(&mut self.images, shadow, self.scale_factor) else {
-            return;
-        };
-        match request {
-            shadow::Prepared::Rectangle(rectangle) => self.prepare_rectangle(&rectangle, bounds, clip),
-            shadow::Prepared::Image(request) => {
-                if let Some(texture) = self.images.get(request.image.into()) {
-                    render_image::prepare(&request, &texture.data, bounds, 1.0, |image, bounds| {
-                        self.commands.push_image(
-                            image,
-                            bounds,
-                            clip,
-                            image.is_opaque(&texture.data, texture.opaque),
-                            image.has_opaque_spans(&texture.data, texture.has_opaque_spans),
-                        )
-                    });
-                }
-            }
         }
     }
 

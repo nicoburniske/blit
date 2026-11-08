@@ -18,10 +18,9 @@ pub struct Backend {
 
 impl Backend {
     pub fn new(config: Config) -> Self {
-        Self {
-            active: None,
-            renderer: Renderer::new(DesktopBuffer::new(1, 1), config).strategy(Scanline::default()),
-        }
+        let mut renderer = Renderer::new(DesktopBuffer::new(1, 1), config).strategy(Scanline::default());
+        renderer.register(blit_cpu::shadow::Renderer::default());
+        Self { active: None, renderer }
     }
 }
 

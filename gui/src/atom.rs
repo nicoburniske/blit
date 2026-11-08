@@ -3,8 +3,9 @@ use blit::{Atom, AtomCx, Constraints, FrameSlice, LogicalRect, Size};
 use crate::{
     Context,
     color::Color,
-    display_list::{BoxShadow, Rectangle as DrawRectangle},
+    display_list::Rectangle as DrawRectangle,
     image::{ImageFit, ImageId, ImageRequest, ImageSampling, ImageTiling, NineSlice},
+    shadow::BoxShadow,
     style::{Border, BorderRadius, Fill},
     text::{TextLayoutRequest, TextOptions, TextRequest, TextRun, TextWrap},
 };
@@ -145,7 +146,8 @@ impl<C: Context> Atom<C> for Shadow {
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        cx.context_mut().as_mut().paint_shadow(self.command(area));
+        let command = self.command(area);
+        cx.context_mut().as_mut().paint_custom(command.bounds(), |_| command);
     }
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {

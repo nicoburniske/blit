@@ -4,8 +4,9 @@ use blit::{LogicalPoint, LogicalRect, PhysicalRect, Scale2};
 use blit_gui::{
     FontData, FontStack, GuiContext, TextConfig, TextSystem,
     color::Color,
-    display_list::{BoxShadow, ClipId, DisplayList, Mesh, MeshVertex, Rectangle},
+    display_list::{ClipId, DisplayList, Mesh, MeshVertex, Rectangle},
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
+    shadow::BoxShadow,
     style::{Border, BorderRadius, Fill, GradientStop, LinearGradient},
     text::{
         FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextRequest, TextRun, TextStyle,
@@ -198,7 +199,7 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
                         screen,
                         ClipId::default(),
                     ),
-                    "shadow" => list.push_box_shadow(BoxShadow::new(area, color).blur(2.0), screen, ClipId::default()),
+                    "shadow" => list.push_custom(screen, ClipId::default(), |_| BoxShadow::new(area, color).blur(2.0)),
                     "mesh" => list.push_mesh(
                         Mesh {
                             vertices: &[
@@ -351,7 +352,6 @@ fn renderer_config() -> RendererConfig {
     RendererConfig {
         damage_tile_size: 32,
         glyph_cache_capacity: 1024 * 1024,
-        shadow_cache_capacity: 1024 * 1024,
     }
 }
 
@@ -379,8 +379,10 @@ impl<B: PixelBuffer> TestRenderer<B> {
 }
 
 fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> TestRenderer<B> {
+    let mut render = Renderer::new(buffer, config);
+    render.register(shadow::Renderer::new(1024 * 1024));
     TestRenderer {
-        render: Renderer::new(buffer, config),
+        render,
         gui: GuiContext::new(
             TextSystem::new(
                 TextConfig {
@@ -1420,21 +1422,17 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
             ..first
         };
         let mut paint = DisplayList::default();
-        paint.push_box_shadow(first, screen, ClipId::default());
-        paint.push_box_shadow(second, screen, ClipId::default());
+        paint.push_custom(screen, ClipId::default(), |_| first);
+        paint.push_custom(screen, ClipId::default(), |_| second);
         paint.push_image(request, screen, ClipId::default());
         renderer.render(&mut paint);
         assert_eq!(renderer.render.context.images.len(), 3);
         assert!(renderer.render.context.images.get(image.id().into()).is_some());
         paint.clear();
-        paint.push_box_shadow(
-            BoxShadow {
-                area: LogicalRect { x: 20.0, ..first.area },
-                ..first
-            },
-            screen,
-            ClipId::default(),
-        );
+        paint.push_custom(screen, ClipId::default(), |_| BoxShadow {
+            area: LogicalRect { x: 20.0, ..first.area },
+            ..first
+        });
         paint.push_rectangle(
             Rectangle::new(first.area).background(Color::WHITE).radius(first.radius),
             screen,
@@ -1449,7 +1447,7 @@ fn box_shadows_match_between_strategies_and_cache_sizes() {
             inset: true,
             ..first
         };
-        paint.push_box_shadow(inset, screen, ClipId::default());
+        paint.push_custom(screen, ClipId::default(), |_| inset);
         paint.push_image(request, screen, ClipId::default());
         renderer.render(&mut paint);
         assert_eq!(renderer.render.context.images.len(), 4);

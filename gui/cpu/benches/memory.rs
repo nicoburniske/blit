@@ -39,7 +39,6 @@ fn main() {
         RendererConfig {
             damage_tile_size: 32,
             glyph_cache_capacity: 1,
-            shadow_cache_capacity: 0,
         },
     )
     .strategy(Scanline::default());

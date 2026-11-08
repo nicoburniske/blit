@@ -207,26 +207,6 @@ impl DamageTracker for TileDamage {
                         .map(|slice| [slice.top, slice.right, slice.bottom, slice.left])
                         .hash(&mut hash);
                 }
-                Command::BoxShadow(shadow) => {
-                    [
-                        shadow.area.x,
-                        shadow.area.y,
-                        shadow.area.width,
-                        shadow.area.height,
-                        shadow.radius.top_left,
-                        shadow.radius.top_right,
-                        shadow.radius.bottom_right,
-                        shadow.radius.bottom_left,
-                        shadow.offset_x,
-                        shadow.offset_y,
-                        shadow.blur,
-                        shadow.spread,
-                    ]
-                    .map(f32::to_bits)
-                    .hash(&mut hash);
-                    shadow.color.hash(&mut hash);
-                    shadow.inset.hash(&mut hash);
-                }
                 Command::Mesh(mesh) => {
                     mesh.vertices.len().hash(&mut hash);
                     for vertex in mesh.vertices {

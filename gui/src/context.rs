@@ -2,7 +2,7 @@ use blit::{Clip, ClipShape, LogicalPoint, LogicalRect, LogicalSize, Scale2};
 
 use crate::{
     Context, TextSystem,
-    display_list::{BoxShadow, ClipId, CustomCommand, DisplayList, Mesh, Rectangle, arena::Writer},
+    display_list::{ClipId, CustomCommand, DisplayList, Mesh, Rectangle, arena::Writer},
     image::ImageRequest,
     text::{Span, TextLayoutRequest, TextRequest, TextRun, TextSource, TextStyle},
 };
@@ -87,11 +87,6 @@ impl GuiContext {
     pub fn paint_image(&mut self, image: ImageRequest) {
         let bounds = image.area.to_physical(self.scale);
         self.display_list.push_image(image, bounds, self.clip);
-    }
-
-    pub fn paint_shadow(&mut self, shadow: BoxShadow) {
-        let bounds = shadow.bounds().to_physical(self.scale);
-        self.display_list.push_box_shadow(shadow, bounds, self.clip);
     }
 
     pub fn paint_mesh(&mut self, mesh: Mesh<'_>) {

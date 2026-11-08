@@ -1,69 +1,55 @@
 use blit::{LogicalRect, PhysicalRect, Scale2};
-use blit_arena::Arena;
 use blit_cache::{DeferredCache, Scale};
 use blit_gui::{
     color::Color,
-    display_list::{BoxShadow, Rectangle},
+    display_list::arena::Handle,
     image::{
         ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageRequest, ImageSampling, ImageTiling, NineSlice,
     },
+    shadow::BoxShadow,
     style::BorderRadius,
 };
 
-use super::{
-    blur,
-    rounded::{Radii, RoundedLine},
+use crate::{
+    Pixel,
+    extension::{DrawContext, Extension, PrepareContext},
+    raster::{
+        Image, SolidRect, blur,
+        rounded::{Radii, RoundedLine},
+    },
 };
-use crate::StoredImage;
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
-struct KeyData {
-    width: i32,
-    height: i32,
-    blur: i32,
-    radii: Radii,
-    offset_x: i32,
-    offset_y: i32,
-    spread: i32,
-    inset: bool,
-}
-
-struct CachedShadow {
-    image: ImageHandle,
-    bytes: usize,
-    nine_slice: NineSlice,
-}
-
-struct ShadowScale;
-
-impl Scale<KeyData, CachedShadow> for ShadowScale {
-    fn weight(&self, _key: &KeyData, shadow: &CachedShadow) -> usize {
-        shadow.bytes
-    }
-}
-
-pub struct Cache {
+/// renders box shadows and owns their mask cache
+pub struct Renderer {
     entries: DeferredCache<KeyData, CachedShadow, ShadowScale>,
 }
 
 pub enum Prepared {
-    Rectangle(Rectangle<'static>),
-    Image(ImageRequest),
+    Rectangle(SolidRect),
+    Image(Handle<Image>),
 }
 
-impl Cache {
+impl Renderer {
+    /// capacity is the maximum retained mask data in bytes
     pub fn new(capacity: usize) -> Self {
         Self {
             entries: DeferredCache::new(ShadowScale, capacity),
         }
     }
+}
 
-    pub fn prepare(
-        &mut self,
-        images: &mut Arena<StoredImage>,
-        shadow: &BoxShadow,
-        scale_factor: f32,
-    ) -> Option<Prepared> {
+impl Default for Renderer {
+    fn default() -> Self {
+        Self::new(512 * 1024)
+    }
+}
+
+impl<P: Pixel> Extension<P> for Renderer {
+    type Command = BoxShadow;
+    type Prepared = Option<Prepared>;
+
+    fn prepare(&mut self, shadow: &BoxShadow, cx: &mut PrepareContext<'_>) -> Self::Prepared {
+        let scale_factor = cx.scale;
         if shadow.color.alpha == 0 {
             return None;
         }
@@ -102,9 +88,12 @@ impl Cache {
                 bottom_left: (shadow.radius.bottom_left + shadow.spread).max(0.0),
             };
             if shadow.blur <= 0.0 {
-                return Some(Prepared::Rectangle(
-                    Rectangle::new(area).background(shadow.color).radius(radius),
-                ));
+                return Some(Prepared::Rectangle(SolidRect::new(
+                    area,
+                    radius,
+                    shadow.color,
+                    scale_factor,
+                )?));
             }
             let shape = area.to_physical(Scale2::uniform(scale_factor));
             if shape.width <= 0 || shape.height <= 0 {
@@ -249,30 +238,70 @@ impl Cache {
                 image_width,
                 image_height,
             );
-            let image = images.insert_with(|id| StoredImage::new(ImageHandle::new(id.into(), data.size), data));
+            let image = cx.create_image(data);
             let cached = CachedShadow {
-                image: images.get(image).unwrap().handle.clone(),
+                image,
                 bytes,
                 nine_slice,
             };
             let (cached, _) = self.entries.get_or_insert(key, |key| (key, cached));
             (cached.image.id(), cached.nine_slice)
         };
-        Some(Prepared::Image(ImageRequest {
-            image,
-            area: bounds.to_logical(Scale2::IDENTITY),
-            fit: ImageFit::Fill,
-            sampling: ImageSampling::Nearest,
-            opacity: 1.0,
-            colorize: Some(shadow.color),
-            nine_slice: Some(nine_slice),
-            horizontal_tiling: ImageTiling::None,
-            vertical_tiling: ImageTiling::None,
-        }))
+        cx.prepare_image(
+            &ImageRequest {
+                image,
+                area: bounds.to_logical(Scale2::IDENTITY),
+                fit: ImageFit::Fill,
+                sampling: ImageSampling::Nearest,
+                opacity: 1.0,
+                colorize: Some(shadow.color),
+                nine_slice: Some(nine_slice),
+                horizontal_tiling: ImageTiling::None,
+                vertical_tiling: ImageTiling::None,
+            },
+            1.0,
+        )
+        .map(|image| Prepared::Image(cx.data.push(image)))
     }
 
-    pub fn finish_frame(&mut self) {
+    fn render(&mut self, prepared: &Self::Prepared, cx: &mut DrawContext<'_, P>) {
+        let Some(prepared) = prepared else {
+            return;
+        };
+        cx.for_each_span(|mut span| match prepared {
+            Prepared::Rectangle(rectangle) => rectangle.draw(&mut span),
+            Prepared::Image(image) => span.data.get(*image).draw(&mut span),
+        });
+    }
+
+    fn finish_frame(&mut self) {
         self.entries.trim_to_weight();
+    }
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+struct KeyData {
+    width: i32,
+    height: i32,
+    blur: i32,
+    radii: Radii,
+    offset_x: i32,
+    offset_y: i32,
+    spread: i32,
+    inset: bool,
+}
+
+struct CachedShadow {
+    image: ImageHandle,
+    bytes: usize,
+    nine_slice: NineSlice,
+}
+
+struct ShadowScale;
+
+impl Scale<KeyData, CachedShadow> for ShadowScale {
+    fn weight(&self, _key: &KeyData, shadow: &CachedShadow) -> usize {
+        shadow.bytes
     }
 }
 
@@ -302,3 +331,6 @@ fn mask_rounded(alpha: &mut [u8], stride: usize, area: PhysicalRect, radii: Radi
     }
     alpha[(area.y + area.height) as usize * stride..].fill(0);
 }
+
+#[cfg(test)]
+mod benchmark;

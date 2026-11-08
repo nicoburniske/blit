@@ -7,8 +7,9 @@ use blit_cpu::{
 use blit_gui::{
     FontData, FontStack, GuiContext, TextConfig, TextSystem,
     color::Color,
-    display_list::{BoxShadow, ClipId, DisplayList, Mesh, MeshVertex, Rectangle},
+    display_list::{ClipId, DisplayList, Mesh, MeshVertex, Rectangle},
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
+    shadow::BoxShadow,
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::{FontId, TextOptions, TextRequest, TextStyle, TextWrap},
 };
@@ -272,7 +273,7 @@ fn shadow(bencher: divan::Bencher, cached: bool) {
         .radius(BorderRadius::uniform(24.0))
         .blur(16.0);
     let mut display_list = DisplayList::default();
-    display_list.push_box_shadow(shadow, shadow.bounds().to_physical(SCALE), ClipId::default());
+    display_list.push_custom(shadow.bounds().to_physical(SCALE), ClipId::default(), |_| shadow);
     let mut renderer =
         renderer_with_shadow_cache(WIDTH, HEIGHT, Scanline::default(), if cached { 512 * 1024 } else { 0 });
     renderer.render(&mut display_list);
@@ -622,15 +623,15 @@ fn renderer_with_shadow_cache<S>(
 where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
 {
-    let render = Renderer::new(
+    let mut render = Renderer::new(
         VecBuffer::new(width, height),
         RendererConfig {
             damage_tile_size: 32,
             glyph_cache_capacity: 512 * 1024,
-            shadow_cache_capacity,
         },
     )
     .strategy(strategy);
+    render.register(blit_cpu::shadow::Renderer::new(shadow_cache_capacity));
     let gui = GuiContext::new(
         TextSystem::new(
             TextConfig {

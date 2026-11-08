@@ -42,7 +42,7 @@ pub struct PrepareContext<'a> {
     pub scale: f32,
     pub bounds: PhysicalRect,
     pub data: Writer<'a>,
-    images: &'a mut ImageArena<StoredImage>,
+    pub(crate) images: &'a mut ImageArena<StoredImage>,
 }
 
 pub struct Span<'a, P> {
@@ -52,7 +52,7 @@ pub struct Span<'a, P> {
     /// clip coverage to apply when blending pixels
     pub coverage: u8,
     pub data: &'a Arena,
-    images: &'a ImageArena<StoredImage>,
+    pub(crate) images: &'a ImageArena<StoredImage>,
 }
 
 pub struct DrawContext<'a, P> {
@@ -161,9 +161,6 @@ impl<P> Surface<P> {
 }
 
 pub(crate) mod registry;
-
-#[cfg(test)]
-mod benchmark;
 
 enum DrawTarget<'a, P> {
     Span(Span<'a, P>),

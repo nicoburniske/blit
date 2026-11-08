@@ -40,7 +40,6 @@ pub enum Command<'a> {
     Rectangle(Rectangle<'a>),
     Image(ImageRequest),
     Text(TextRequest<'a>),
-    BoxShadow(BoxShadow),
     Mesh(Mesh<'a>),
     Custom(Custom<'a>),
 }
@@ -75,41 +74,6 @@ blit::builder! {
         border: Border<'a> = Border::default(),
         radius: BorderRadius = BorderRadius::new(),
         opacity: f32 = 1.0,
-    }
-}
-
-blit::builder! {
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct BoxShadow {
-        new(area: LogicalRect, color: Color),
-        radius: BorderRadius = BorderRadius::new(),
-        offset_x: f32 = 0.0,
-        offset_y: f32 = 0.0,
-        blur: f32 = 0.0,
-        spread: f32 = 0.0,
-        inset: bool = false,
-    }
-}
-
-impl BoxShadow {
-    pub fn offset(mut self, x: f32, y: f32) -> Self {
-        self.offset_x = x;
-        self.offset_y = y;
-        self
-    }
-
-    pub fn bounds(self) -> LogicalRect {
-        if self.inset {
-            return self.area;
-        }
-        let blur = self.blur.max(0.0);
-        let outset = self.spread + blur;
-        LogicalRect {
-            x: self.area.x + self.offset_x - outset,
-            y: self.area.y + self.offset_y - outset,
-            width: self.area.width + outset * 2.0,
-            height: self.area.height + outset * 2.0,
-        }
     }
 }
 
@@ -202,11 +166,6 @@ impl DisplayList {
         self.push(bounds, clip, CommandKind::Text(text))
     }
 
-    pub fn push_box_shadow(&mut self, shadow: BoxShadow, bounds: PhysicalRect, clip: ClipId) {
-        let shadow = self.data.bump.push(shadow);
-        self.push(bounds, clip, CommandKind::BoxShadow(shadow))
-    }
-
     pub fn push_mesh(&mut self, mesh: Mesh<'_>, scale: Scale2, clip: ClipId) {
         assert_eq!(mesh.indices.len() % 3, 0, "mesh index count must be divisible by three");
         if mesh.indices.is_empty() {
@@ -265,7 +224,6 @@ impl DisplayList {
                         options: text.options,
                     })
                 }
-                CommandKind::BoxShadow(shadow) => Command::BoxShadow(*self.data.bump.get(shadow)),
                 CommandKind::Mesh(mesh) => {
                     let mesh = self.data.bump.get(mesh);
                     Command::Mesh(Mesh {
@@ -388,7 +346,6 @@ enum CommandKind {
     Rectangle(Offset<StoredRectangle>),
     Image(Offset<ImageRequest>),
     Text(Offset<StoredText>),
-    BoxShadow(Offset<BoxShadow>),
     Mesh(Offset<StoredMesh>),
     Custom(Offset<Header>),
 }

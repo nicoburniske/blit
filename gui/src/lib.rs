@@ -3,6 +3,7 @@ pub mod color;
 mod context;
 pub mod display_list;
 pub mod image;
+pub mod shadow;
 pub mod style;
 pub mod text;
 mod text_system;

@@ -8,6 +8,7 @@ use blit_gui::{
     color::Color,
     display_list::Command,
     image::{ImageData, ImageFormat, ImageHandle, ImageId, ImageSampling, ImageTiling, prepare_image_patches},
+    shadow::BoxShadow,
     style::{BorderRadius, Fill},
 };
 use bytemuck::{Pod, Zeroable};
@@ -519,7 +520,10 @@ impl Renderer {
                     });
                     Pipeline::Content(None)
                 }
-                Command::BoxShadow(shadow) => {
+                Command::Custom(command) => {
+                    let Some(shadow) = command.get::<BoxShadow>() else {
+                        panic!("no gpu extension registered for {}", command.type_name());
+                    };
                     if shadow.color.alpha == 0 {
                         continue;
                     }
@@ -776,7 +780,6 @@ impl Renderer {
                     }
                     continue;
                 }
-                Command::Custom(command) => panic!("no gpu extension registered for {}", command.type_name()),
                 _ => continue,
             };
             let end = self.instances.len() as u32;
