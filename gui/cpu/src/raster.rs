@@ -1,11 +1,5 @@
-use std::{any::TypeId, ptr::NonNull};
-
-use blit::{PhysicalRect, internal::hash::FxHasher};
-use blit_gui::{
-    arena::Arena,
-    display_list::{Command, Ops},
-    image::{ImageHandle, ImageRequest},
-};
+use blit::PhysicalRect;
+use blit_gui::image::{ImageHandle, ImageRequest};
 
 pub use crate::render::{blur, rounded};
 use crate::{
@@ -18,19 +12,6 @@ pub(crate) struct PrepareContext<'a, P: Pixel> {
     pub scale: f32,
     pub images: &'a blit_arena::Arena<StoredImage>,
     pub commands: &'a mut RasterCommands<P>,
-}
-
-pub(crate) const fn ops<T: 'static>(
-    equal: unsafe fn(&Arena, u32, &Arena, u32) -> bool,
-    hash: unsafe fn(&Arena, u32, &mut FxHasher),
-    dispatch: unsafe fn(&Command, &Arena, NonNull<()>),
-) -> Ops {
-    Ops {
-        kind: TypeId::of::<T>(),
-        equal,
-        hash,
-        dispatch,
-    }
 }
 
 /// prepared image patches that retain their source image

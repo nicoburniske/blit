@@ -2,11 +2,14 @@ use std::{any::TypeId, hash::Hash, marker::PhantomData, mem::offset_of, ptr::Non
 
 use blit::{
     LogicalRect, Paint, PhysicalRect, Scale2,
-    internal::bump::{Bump, Offset},
+    internal::{
+        bump::{Bump, Offset},
+        hash::FxHasher,
+    },
 };
 use blit_gui::{
     arena::{Arena, Slice},
-    display_list::{Command, DisplayList},
+    display_list::{Command, DisplayList, Ops},
     image::{ImageData, ImageHandle, ImageRequest, prepare_image_patches},
     paint::{Mesh, MeshVertex, Rectangle},
     style::{Border, Fill, GradientStop, LinearGradient},
@@ -343,146 +346,111 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             },
             stops,
         };
-        let ops = const {
-            &crate::raster::ops::<StoredRectangle>(
-                |left, a, right, b| {
-                    // safety: insertion pairs this table with StoredRectangle
-                    let a = unsafe { left.load::<StoredRectangle>(a) };
-                    let b = unsafe { right.load::<StoredRectangle>(b) };
-                    a.view(left) == b.view(right)
-                },
-                |data, offset, state| {
-                    // safety: insertion pairs this table with StoredRectangle
-                    let value = unsafe { data.load::<StoredRectangle>(offset) };
-                    value.view(data).hash(state);
-                },
-                |record, data, context| {
-                    // safety: recording pairs this operation with its input and pixel type
-                    let input = unsafe { data.load::<StoredRectangle>(record.offset()) };
-                    let context = unsafe { context.cast::<PrepareContext<'_, P>>().as_mut() };
-                    let scale = context.scale;
-                    let target = &mut *context.commands;
-                    let rectangle = input.rectangle;
-                    let Some(bounds) = rectangle
-                        .area
-                        .to_physical(Scale2::uniform(scale))
-                        .intersection(record.bounds)
-                    else {
-                        return;
-                    };
-                    if rectangle.opacity <= 0.0 || rectangle.opacity.is_nan() {
-                        return;
-                    }
-                    let coverage = match rectangle.background {
-                        Fill::Solid(color)
-                            if PremultipliedRgbaColor::with_opacity(color, rectangle.opacity).alpha == 255 =>
-                        {
-                            if rectangle.radius == Default::default() {
-                                Coverage::Full
-                            } else {
-                                Coverage::Rounded
-                            }
-                        }
-                        _ => Coverage::None,
-                    };
-                    if record.clip == 0
-                        && coverage == Coverage::Full
-                        && let Some(previous) = target.metadata.last()
-                        && previous.clip == 0
-                        && previous.bounds == bounds
+        self.record_input(
+            self.bounds,
+            self.clip,
+            value,
+            |a, left, b, right| a.view(left) == b.view(right),
+            |value, data, state| value.view(data).hash(state),
+            |input, offset, record, _, context| {
+                let scale = context.scale;
+                let target = &mut *context.commands;
+                let rectangle = input.rectangle;
+                let Some(bounds) = rectangle
+                    .area
+                    .to_physical(Scale2::uniform(scale))
+                    .intersection(record.bounds)
+                else {
+                    return;
+                };
+                if rectangle.opacity <= 0.0 || rectangle.opacity.is_nan() {
+                    return;
+                }
+                let coverage = match rectangle.background {
+                    Fill::Solid(color)
+                        if PremultipliedRgbaColor::with_opacity(color, rectangle.opacity).alpha == 255 =>
                     {
-                        target.metadata.pop();
-                        target.entries.pop();
-                        let removed = target.len();
-                        for indices in [&mut target.meshes, &mut target.passes] {
-                            if indices.last() == Some(&removed) {
-                                indices.pop();
-                            }
+                        if rectangle.radius == Default::default() {
+                            Coverage::Full
+                        } else {
+                            Coverage::Rounded
                         }
                     }
-                    target
-                        .record(
-                            bounds,
-                            record.clip,
-                            (scale, record.offset()),
-                            |_, (scale, value), cx| {
-                                // safety: recording stores this offset as StoredRectangle
-                                let input = unsafe { cx.data.load::<StoredRectangle>(*value) };
-                                crate::render::rectangle::Prepared::new(&input.view(cx.data), *scale, cx.gradients)
-                                    .map(Payload::Rectangle)
-                                    .unwrap_or(Payload::Empty)
-                            },
-                        )
-                        .coverage = coverage;
-                },
-            )
-        };
-        // safety: the table matches the stored input and this renderer's pixel type
-        unsafe {
-            self.list.push(self.bounds, self.clip, value, ops);
-        }
+                    _ => Coverage::None,
+                };
+                if record.clip == 0
+                    && coverage == Coverage::Full
+                    && let Some(previous) = target.metadata.last()
+                    && previous.clip == 0
+                    && previous.bounds == bounds
+                {
+                    target.metadata.pop();
+                    target.entries.pop();
+                    let removed = target.len();
+                    for indices in [&mut target.meshes, &mut target.passes] {
+                        if indices.last() == Some(&removed) {
+                            indices.pop();
+                        }
+                    }
+                }
+                target
+                    .record(bounds, record.clip, (scale, offset), |_, (scale, value), cx| {
+                        // safety: recording stores this offset as StoredRectangle
+                        let input = unsafe { cx.data.load::<StoredRectangle>(*value) };
+                        crate::render::rectangle::Prepared::new(&input.view(cx.data), *scale, cx.gradients)
+                            .map(Payload::Rectangle)
+                            .unwrap_or(Payload::Empty)
+                    })
+                    .coverage = coverage;
+            },
+        );
     }
 
     pub fn image(&mut self, request: ImageRequest) {
-        let ops = const {
-            &crate::raster::ops::<ImageRequest>(
-                |left, a, right, b| {
-                    // safety: insertion pairs this table with ImageRequest
-                    let a = unsafe { left.load::<ImageRequest>(a) };
-                    let b = unsafe { right.load::<ImageRequest>(b) };
-                    a == b
-                },
-                |data, offset, state| {
-                    // safety: insertion pairs this table with ImageRequest
-                    let value = unsafe { data.load::<ImageRequest>(offset) };
-                    value.hash(state);
-                },
-                |record, data, context| {
-                    // safety: recording pairs this operation with its input and pixel type
-                    let request = unsafe { data.load::<ImageRequest>(record.offset()) };
-                    let context = unsafe { context.cast::<PrepareContext<'_, P>>().as_mut() };
-                    let scale = context.scale;
-                    let target = &mut *context.commands;
-                    if let Some(texture) = context.images.get(request.image.into()) {
-                        prepare_image_patches(request, texture.data.size, scale, |patch| {
-                            if let Some(bounds) = patch.bounds.intersection(record.bounds) {
-                                let (opaque, partial) = crate::render::image::coverage(
-                                    request,
-                                    patch,
-                                    &texture.data,
-                                    texture.opaque,
-                                    texture.has_opaque_spans,
-                                );
-                                target
-                                    .record(
-                                        bounds,
-                                        record.clip,
-                                        (scale, record.offset(), patch),
-                                        |_, (scale, value, patch), cx| {
-                                            // safety: recording stores this offset as ImageRequest
-                                            let request = unsafe { cx.data.load::<ImageRequest>(*value) };
-                                            crate::render::image_patch::Prepared::new(request, *patch, *scale)
-                                                .map(Payload::Image)
-                                                .unwrap_or(Payload::Empty)
-                                        },
-                                    )
-                                    .coverage = if opaque {
-                                    Coverage::Full
-                                } else if partial {
-                                    Coverage::PartialImage
-                                } else {
-                                    Coverage::None
-                                };
-                            }
-                        });
-                    }
-                },
-            )
-        };
-        // safety: the table matches the stored input and this renderer's pixel type
-        unsafe {
-            self.list.push(self.bounds, self.clip, request, ops);
-        }
+        self.record_input(
+            self.bounds,
+            self.clip,
+            request,
+            |a, _, b, _| a == b,
+            |value, _, state| value.hash(state),
+            |request, offset, record, _, context| {
+                let scale = context.scale;
+                let target = &mut *context.commands;
+                if let Some(texture) = context.images.get(request.image.into()) {
+                    prepare_image_patches(request, texture.data.size, scale, |patch| {
+                        if let Some(bounds) = patch.bounds.intersection(record.bounds) {
+                            let (opaque, partial) = crate::render::image::coverage(
+                                request,
+                                patch,
+                                &texture.data,
+                                texture.opaque,
+                                texture.has_opaque_spans,
+                            );
+                            target
+                                .record(
+                                    bounds,
+                                    record.clip,
+                                    (scale, offset, patch),
+                                    |_, (scale, value, patch), cx| {
+                                        // safety: recording stores this offset as ImageRequest
+                                        let request = unsafe { cx.data.load::<ImageRequest>(*value) };
+                                        crate::render::image_patch::Prepared::new(request, *patch, *scale)
+                                            .map(Payload::Image)
+                                            .unwrap_or(Payload::Empty)
+                                    },
+                                )
+                                .coverage = if opaque {
+                                Coverage::Full
+                            } else if partial {
+                                Coverage::PartialImage
+                            } else {
+                                Coverage::None
+                            };
+                        }
+                    });
+                }
+            },
+        );
     }
 
     pub fn text(&mut self, request: TextRequest<'_>) {
@@ -491,46 +459,26 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             request: TextRequest { colors: &[], ..request },
             colors,
         };
-        let ops = const {
-            &crate::raster::ops::<StoredText>(
-                |left, a, right, b| {
-                    // safety: insertion pairs this table with StoredText
-                    let a = unsafe { left.load::<StoredText>(a) };
-                    let b = unsafe { right.load::<StoredText>(b) };
-                    a.view(left) == b.view(right)
-                },
-                |data, offset, state| {
-                    // safety: insertion pairs this table with StoredText
-                    let value = unsafe { data.load::<StoredText>(offset) };
-                    value.view(data).hash(state);
-                },
-                |record, data, context| {
-                    // safety: recording pairs this operation with its input and pixel type
-                    let input = unsafe { data.load::<StoredText>(record.offset()) };
-                    let context = unsafe { context.cast::<PrepareContext<'_, P>>().as_mut() };
-                    let scale = context.scale;
-                    let target = &mut *context.commands;
-                    let area = input.request.area.to_physical(Scale2::uniform(scale));
-                    if let Some(bounds) = area.intersection(record.bounds) {
-                        target.record(
-                            bounds,
-                            record.clip,
-                            (scale, record.offset()),
-                            |_, (scale, value), cx| {
-                                // safety: recording stores this offset as StoredText
-                                let input = unsafe { cx.data.load::<StoredText>(*value) };
-                                let (text, bounds) = cx.text.prepare(&input.view(cx.data), *scale);
-                                Payload::Text(text, bounds)
-                            },
-                        );
-                    }
-                },
-            )
-        };
-        // safety: the table matches the stored input and this renderer's pixel type
-        unsafe {
-            self.list.push(self.bounds, self.clip, value, ops);
-        }
+        self.record_input(
+            self.bounds,
+            self.clip,
+            value,
+            |a, left, b, right| a.view(left) == b.view(right),
+            |value, data, state| value.view(data).hash(state),
+            |input, offset, record, _, context| {
+                let scale = context.scale;
+                let target = &mut *context.commands;
+                let area = input.request.area.to_physical(Scale2::uniform(scale));
+                if let Some(bounds) = area.intersection(record.bounds) {
+                    target.record(bounds, record.clip, (scale, offset), |_, (scale, value), cx| {
+                        // safety: recording stores this offset as StoredText
+                        let input = unsafe { cx.data.load::<StoredText>(*value) };
+                        let (text, bounds) = cx.text.prepare(&input.view(cx.data), *scale);
+                        Payload::Text(text, bounds)
+                    });
+                }
+            },
+        );
     }
 
     pub fn mesh(&mut self, mesh: Mesh<'_>) {
@@ -551,40 +499,25 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
         let vertices = self.list.store_slice(mesh.vertices.iter().copied());
         let indices = self.list.store_slice(mesh.indices.iter().copied());
         let value = StoredMesh { vertices, indices };
-        let ops = const {
-            &crate::raster::ops::<StoredMesh>(
-                |left, a, right, b| {
-                    // safety: insertion pairs this table with StoredMesh
-                    let a = unsafe { left.load::<StoredMesh>(a) };
-                    let b = unsafe { right.load::<StoredMesh>(b) };
-                    a.view(left) == b.view(right)
-                },
-                |data, offset, state| {
-                    // safety: insertion pairs this table with StoredMesh
-                    let value = unsafe { data.load::<StoredMesh>(offset) };
-                    value.view(data).hash(state);
-                },
-                |record, data, context| {
-                    // safety: recording pairs this operation with its input and pixel type
-                    let input = unsafe { data.load::<StoredMesh>(record.offset()) };
-                    let context = unsafe { context.cast::<PrepareContext<'_, P>>().as_mut() };
-                    let scale = context.scale;
-                    let target = &mut *context.commands;
-                    let call = ErasedCommand::ready(
-                        NonNull::<()>::dangling(),
-                        &mut target.prepared,
-                        Payload::Mesh(input.vertices, input.indices, scale),
-                    );
-                    let index = target.len();
-                    target.push(call, record.bounds, record.clip);
-                    target.meshes.push(index);
-                },
-            )
-        };
-        // safety: the table matches the stored input and this renderer's pixel type
-        unsafe {
-            self.list.push(self.bounds, self.clip, value, ops);
-        }
+        self.record_input(
+            self.bounds,
+            self.clip,
+            value,
+            |a, left, b, right| a.view(left) == b.view(right),
+            |value, data, state| value.view(data).hash(state),
+            |input, _, record, _, context| {
+                let scale = context.scale;
+                let target = &mut *context.commands;
+                let call = ErasedCommand::ready(
+                    NonNull::<()>::dangling(),
+                    &mut target.prepared,
+                    Payload::Mesh(input.vertices, input.indices, scale),
+                );
+                let index = target.len();
+                target.push(call, record.bounds, record.clip);
+                target.meshes.push(index);
+            },
+        );
     }
 
     pub fn clear(&mut self) {
@@ -604,34 +537,65 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
     ) where
         F: Fn(&T, u32, &Command, &Arena, f32, &blit_arena::Arena<StoredImage>, &mut RasterCommands<P>) + 'static,
     {
+        self.record_input(
+            bounds,
+            clip,
+            (key, value, prepare),
+            |(a, _, _), _, (b, _, _), _| a == b,
+            |(key, _, _), _, state| key.hash(state),
+            |(_, value, prepare), offset, command, data, context| {
+                let offset = offset + offset_of!((K, T, F), 1) as u32;
+                prepare(
+                    value,
+                    offset,
+                    command,
+                    data,
+                    context.scale,
+                    context.images,
+                    context.commands,
+                );
+            },
+        );
+    }
+
+    fn record_input<T: 'static, E, K, F>(
+        &mut self,
+        bounds: PhysicalRect,
+        clip: u32,
+        value: T,
+        equal: E,
+        hash: K,
+        prepare: F,
+    ) where
+        E: Fn(&T, &Arena, &T, &Arena) -> bool + 'static,
+        K: Fn(&T, &Arena, &mut FxHasher) + 'static,
+        F: Fn(&T, u32, &Command, &Arena, &mut PrepareContext<'_, P>) + 'static,
+    {
         let ops = const {
-            &crate::raster::ops::<(K, T, F)>(
-                |left, a, right, b| {
-                    // safety: insertion pairs this table with (K, T, F)
-                    let a = unsafe { left.load::<(K, T, F)>(a) };
-                    let b = unsafe { right.load::<(K, T, F)>(b) };
-                    a.0 == b.0
+            &Ops {
+                kind: TypeId::of::<(T, E, K, F)>(),
+                equal: |left, a, right, b| {
+                    // safety: insertion pairs this table with the stored tuple
+                    let (a, equal, _, _) = unsafe { left.load::<(T, E, K, F)>(a) };
+                    let (b, _, _, _) = unsafe { right.load::<(T, E, K, F)>(b) };
+                    equal(a, left, b, right)
                 },
-                |data, offset, state| {
-                    // safety: insertion pairs this table with (K, T, F)
-                    let value = unsafe { data.load::<(K, T, F)>(offset) };
-                    value.0.hash(state);
+                hash: |data, offset, state| {
+                    // safety: insertion pairs this table with the stored tuple
+                    let (value, _, hash, _) = unsafe { data.load::<(T, E, K, F)>(offset) };
+                    hash(value, data, state);
                 },
-                |command, data, context| {
-                    // safety: recording pairs this operation with its input and pixel type
-                    let (_, value, prepare) = unsafe { data.load::<(K, T, F)>(command.offset()) };
-                    let offset = command.offset() + offset_of!((K, T, F), 1) as u32;
+                dispatch: |command, data, context| {
+                    // safety: recording pairs this table with its input and pixel type
+                    let (value, _, _, prepare) = unsafe { data.load::<(T, E, K, F)>(command.offset()) };
+                    let offset = command.offset() + offset_of!((T, E, K, F), 0) as u32;
                     let context = unsafe { context.cast::<PrepareContext<'_, P>>().as_mut() };
-                    let scale = context.scale;
-                    let target = &mut *context.commands;
-                    prepare(value, offset, command, data, scale, context.images, target);
+                    prepare(value, offset, command, data, context);
                 },
-            )
+            }
         };
-        // safety: the table matches the stored input and this renderer's pixel type
-        unsafe {
-            self.list.push(bounds, clip, (key, value, prepare), ops);
-        }
+        // safety: the table matches the stored tuple and this renderer's pixel type
+        unsafe { self.list.push(bounds, clip, (value, equal, hash, prepare), ops) };
     }
 }
 
