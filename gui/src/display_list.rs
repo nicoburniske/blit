@@ -1,13 +1,17 @@
 use std::{
     any::TypeId,
     hash::Hash,
+    mem::offset_of,
     ptr::NonNull,
     sync::atomic::{AtomicU32, Ordering},
 };
 
 use blit::{
     LogicalRect, PhysicalRect,
-    internal::{bump::Bump, hash::FxHasher},
+    internal::{
+        bump::{Bump, Offset},
+        hash::FxHasher,
+    },
 };
 
 use crate::style::BorderRadius;
@@ -68,6 +72,54 @@ impl DisplayList {
             value: self.data.push(value).byte(),
             ops,
         });
+    }
+
+    /// records owned inputs with typed comparison and backend dispatch
+    ///
+    /// # Safety
+    /// commands must be dispatched with a context matching C
+    /// all referenced storage must belong to this list
+    pub unsafe fn record<T, E, H, F, C>(
+        &mut self,
+        bounds: PhysicalRect,
+        clip: u32,
+        value: T,
+        equal: E,
+        hash: H,
+        prepare: F,
+    ) where
+        T: 'static,
+        E: Fn(&T, &DisplayList, &T, &DisplayList) -> bool + 'static,
+        H: Fn(&T, &DisplayList, &mut FxHasher) + 'static,
+        F: Fn(&T, u32, &Command, &DisplayList, &mut C) + 'static,
+    {
+        let ops = const {
+            &Ops {
+                kind: TypeId::of::<(T, E, H, F)>(),
+                equal: |left, a, right, b| {
+                    // safety: insertion pairs this table with the stored tuple
+                    let (a, equal, _, _) = unsafe { left.data.get(Offset::<(T, E, H, F)>::new(a)) };
+                    let (b, _, _, _) = unsafe { right.data.get(Offset::<(T, E, H, F)>::new(b)) };
+                    equal(a, left, b, right)
+                },
+                hash: |list, offset, state| {
+                    // safety: insertion pairs this table with the stored tuple
+                    let (value, _, hash, _) = unsafe { list.data.get(Offset::<(T, E, H, F)>::new(offset)) };
+                    hash(value, list, state);
+                },
+                dispatch: |command, list, context| {
+                    // safety: dispatch receives the tuple and backend context paired with this table
+                    let (value, _, _, prepare) = unsafe { list.data.get(Offset::<(T, E, H, F)>::new(command.value)) };
+                    let offset = command.value + offset_of!((T, E, H, F), 0) as u32;
+                    let context = unsafe { context.cast::<C>().as_mut() };
+                    prepare(value, offset, command, list, context);
+                },
+            }
+        };
+        // safety: the table matches this tuple and the caller guarantees the backend context
+        unsafe {
+            self.push(bounds, clip, (value, equal, hash, prepare), ops);
+        }
     }
 
     pub fn push_clip(&mut self, clip: Clip) -> u32 {

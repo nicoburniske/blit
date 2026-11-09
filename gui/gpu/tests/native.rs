@@ -2,16 +2,15 @@
 
 use std::{sync::mpsc, time::Duration};
 
-use blit::{Clip, LogicalRect, PhysicalRect, PhysicalSize};
+use blit::{Clip, LogicalRect, Paint, PhysicalRect, PhysicalSize};
 use blit_gpu::{Renderer, RendererConfig};
 use blit_gui::{
-    BoundsClip, FontData, FontStack, GuiContext, TextConfig, TextSystem,
+    BoundsClip, Context, FontData, FontStack, TextConfig, TextSystem,
     color::Color,
-    display_list::{ClipId, Mesh, MeshVertex, Rectangle},
-    image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
-    shadow::BoxShadow,
+    image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageSampling, ImageTiling},
+    paint::{BoxShadow, ImageRequest, Mesh, MeshVertex, Rectangle, TextRequest},
     style::{Border, BorderRadius, GradientStop, LinearGradient},
-    text::{FontId, TextOptions, TextRequest, TextStyle},
+    text::{FontId, TextOptions, TextStyle},
 };
 
 #[test]
@@ -49,47 +48,47 @@ fn renders_primitives_and_rebuilds_frames() {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
+    let text = TextSystem::new(
+        TextConfig {
+            fonts: vec![FontStack {
+                id: FontId::default(),
+                families: vec![blit_gui::Family::embedded([FontData::Static(include_bytes!(env!(
+                    "BLIT_TEST_FONT"
+                )))])],
+            }],
+            text_cache_capacity: 1024,
+            layout_cache_capacity: 1024,
+        },
+        blit_text_parley::Backend::without_system_fonts(),
+    )
+    .unwrap();
     let mut renderer = Renderer::new(
         device.clone(),
         queue.clone(),
         wgpu::TextureFormat::Rgba8Unorm,
+        text,
         RendererConfig::default(),
     );
-    let mut gui = GuiContext::new(
-        TextSystem::new(
-            TextConfig {
-                fonts: vec![FontStack {
-                    id: FontId::default(),
-                    families: vec![blit_gui::Family::embedded([FontData::Static(include_bytes!(env!(
-                        "BLIT_TEST_FONT"
-                    )))])],
-                }],
-                text_cache_capacity: 1024,
-                layout_cache_capacity: 1024,
-            },
-            blit_text_parley::Backend::without_system_fonts(),
-        )
-        .unwrap(),
+    let bounds = LogicalRect::new(0.0, 0.0, 64.0, 64.0);
+    renderer.push_clip(LogicalRect::new(0.0, 0.0, 1.0, 1.0), BorderRadius::default());
+    renderer.paint(bounds, Rectangle::new(bounds).background(Color::rgb(255, 255, 255)));
+    renderer.discard_frame();
+    renderer.set_scale(2.0);
+    renderer.paint(
+        bounds,
+        Rectangle::new(LogicalRect::new(0.5, 8.0, 0.5, 0.5)).background(Color::rgb(255, 255, 255)),
     );
-    gui.set_scale(2.0);
-    gui.paint_rectangle(Rectangle::new(LogicalRect::new(0.5, 8.0, 0.5, 0.5)).background(Color::rgb(255, 255, 255)));
-    renderer.render(&target, gui.render_input());
+    renderer.render(&target);
 
-    gui.finish_frame();
-    gui.paint_rectangle(
+    renderer.paint(
+        bounds,
         Rectangle::new(LogicalRect::new(0.0, 0.0, 7.0, 7.0))
             .background(Color::rgb(255, 0, 0))
             .radius(BorderRadius::uniform(3.0)),
     );
-    gui.render_input().display_list.push_rectangle(
+    renderer.paint(
+        LogicalRect::new(0.0, 0.0, 7.0, 7.0),
         Rectangle::new(LogicalRect::new(2.0, 2.0, 2.0, 2.0)).background(Color::rgba(0, 0, 255, 128)),
-        PhysicalRect {
-            x: 0,
-            y: 0,
-            width: 14,
-            height: 14,
-        },
-        ClipId::default(),
     );
     let image = renderer.create_image(ImageData::new(
         ImagePixels::Static(&[255, 255, 0, 255, 0, 255, 255, 255, 255, 0, 255, 255, 255, 255, 255, 255]),
@@ -135,28 +134,37 @@ fn renders_primitives_and_rebuilds_frames() {
     partial.size.width = 3;
     partial.texture_rect.x = 1;
     let partial = renderer.create_image(partial);
-    gui.paint_image(ImageRequest {
-        area: LogicalRect::new(8.0, 0.0, 4.0, 4.0),
-        sampling: ImageSampling::Bilinear,
-        horizontal_tiling: ImageTiling::None,
-        vertical_tiling: ImageTiling::None,
-        ..nearest
-    });
-    gui.paint_image(nearest);
-    gui.paint_image(ImageRequest {
-        image: sparse.id(),
-        area: LogicalRect::new(-0.5, 8.0, 1.5, 0.5),
-        horizontal_tiling: ImageTiling::None,
-        vertical_tiling: ImageTiling::None,
-        ..nearest
-    });
-    gui.paint_image(ImageRequest {
-        image: sparse.id(),
-        area: LogicalRect::new(-0.5, 8.5, 1.5, 0.5),
-        horizontal_tiling: ImageTiling::Round,
-        vertical_tiling: ImageTiling::None,
-        ..nearest
-    });
+    renderer.paint(
+        bounds,
+        ImageRequest {
+            area: LogicalRect::new(8.0, 0.0, 4.0, 4.0),
+            sampling: ImageSampling::Bilinear,
+            horizontal_tiling: ImageTiling::None,
+            vertical_tiling: ImageTiling::None,
+            ..nearest
+        },
+    );
+    renderer.paint(bounds, nearest);
+    renderer.paint(
+        bounds,
+        ImageRequest {
+            image: sparse.id(),
+            area: LogicalRect::new(-0.5, 8.0, 1.5, 0.5),
+            horizontal_tiling: ImageTiling::None,
+            vertical_tiling: ImageTiling::None,
+            ..nearest
+        },
+    );
+    renderer.paint(
+        bounds,
+        ImageRequest {
+            image: sparse.id(),
+            area: LogicalRect::new(-0.5, 8.5, 1.5, 0.5),
+            horizontal_tiling: ImageTiling::Round,
+            vertical_tiling: ImageTiling::None,
+            ..nearest
+        },
+    );
     let partial_request = ImageRequest {
         image: partial.id(),
         area: LogicalRect::new(20.0, 0.0, 3.0, 1.0),
@@ -164,23 +172,30 @@ fn renders_primitives_and_rebuilds_frames() {
         vertical_tiling: ImageTiling::None,
         ..nearest
     };
-    gui.paint_image(partial_request);
-    gui.paint_image(ImageRequest {
-        area: LogicalRect::new(20.0, 1.0, 3.0, 1.0),
-        sampling: ImageSampling::Bilinear,
-        ..partial_request
-    });
+    renderer.paint(bounds, partial_request);
+    renderer.paint(
+        bounds,
+        ImageRequest {
+            area: LogicalRect::new(20.0, 1.0, 3.0, 1.0),
+            sampling: ImageSampling::Bilinear,
+            ..partial_request
+        },
+    );
     let shadow = BoxShadow::new(LogicalRect::new(14.0, 9.0, 1.0, 1.0), Color::rgb(255, 0, 0)).blur(1.0);
-    gui.paint_custom(shadow.bounds(), |_| shadow);
-    let text = gui.text_run("M", TextStyle::new());
-    gui.paint_text(TextRequest {
-        text,
-        colors: &[Color::rgb(255, 0, 0)],
-        area: LogicalRect::new(1.0, 20.0, 12.0, 20.0),
-        offset_x: 0.0,
-        options: TextOptions::default(),
-    });
-    gui.paint_rectangle(
+    renderer.paint(shadow.bounds(), shadow);
+    let text = renderer.text().text_run("M", TextStyle::new());
+    renderer.paint(
+        bounds,
+        TextRequest {
+            text,
+            colors: &[Color::rgb(255, 0, 0)],
+            area: LogicalRect::new(1.0, 20.0, 12.0, 20.0),
+            offset_x: 0.0,
+            options: TextOptions::default(),
+        },
+    );
+    renderer.paint(
+        bounds,
         Rectangle::new(LogicalRect::new(14.0, 14.0, 50.0, 50.0))
             .background(Color::rgb(0, 255, 0))
             .radius(BorderRadius {
@@ -194,19 +209,26 @@ fn renders_primitives_and_rebuilds_frames() {
         MeshVertex::new(60.0, 40.0, Color::rgb(255, 0, 0)),
         MeshVertex::new(40.0, 60.0, Color::rgb(255, 0, 0)),
     ];
-    BoundsClip.push(&mut gui, LogicalRect::new(40.0, 40.0, 10.0, 20.0));
-    gui.paint_mesh(Mesh {
-        vertices: &mesh_vertices,
-        indices: &[0, 1, 2],
-    });
-    BoundsClip.pop(&mut gui);
+    BoundsClip.push(&mut renderer, LogicalRect::new(40.0, 40.0, 10.0, 20.0));
+    renderer.paint(
+        bounds,
+        Mesh {
+            vertices: &mesh_vertices,
+            indices: &[0, 1, 2],
+        },
+    );
+    BoundsClip.pop(&mut renderer);
 
     let stops = [
         GradientStop::new(0.0, Color::rgb(255, 0, 0)),
         GradientStop::new(1.0, Color::rgb(0, 0, 255)),
     ];
-    gui.paint_rectangle(Rectangle::new(LogicalRect::new(24.0, 1.0, 8.0, 8.0)).background(LinearGradient::new(&stops)));
-    gui.paint_rectangle(
+    renderer.paint(
+        bounds,
+        Rectangle::new(LogicalRect::new(24.0, 1.0, 8.0, 8.0)).background(LinearGradient::new(&stops)),
+    );
+    renderer.paint(
+        bounds,
         Rectangle::new(LogicalRect::new(32.0, 1.0, 8.0, 8.0))
             .background(LinearGradient::new(&stops))
             .border(Border::solid(1.0, Color::rgba(0, 255, 0, 128))),
@@ -215,7 +237,8 @@ fn renders_primitives_and_rebuilds_frames() {
         GradientStop::new(0.0, Color::rgba(0, 255, 0, 128)),
         GradientStop::new(1.0, Color::rgba(255, 255, 255, 128)),
     ];
-    gui.paint_rectangle(
+    renderer.paint(
+        bounds,
         Rectangle::new(LogicalRect::new(40.0, 1.0, 8.0, 8.0))
             .background(LinearGradient::new(&stops))
             .border(Border::gradient(1.0, LinearGradient::new(&border_stops).angle(90.0)))
@@ -226,36 +249,28 @@ fn renders_primitives_and_rebuilds_frames() {
         GradientStop::new(0.5, Color::rgba(0, 255, 0, 128)),
         GradientStop::new(1.0, Color::rgba(0, 0, 255, 192)),
     ];
-    gui.paint_rectangle(
+    renderer.paint(
+        bounds,
         Rectangle::new(LogicalRect::new(48.0, 1.0, 8.0, 8.0))
             .background(LinearGradient::new(&translucent_stops).angle(-45.0))
             .opacity(0.5),
     );
-    BoundsClip.push(&mut gui, LogicalRect::new(58.0, 1.0, 6.0, 8.0));
-    gui.paint_rectangle(Rectangle::new(LogicalRect::new(56.0, 1.0, 8.0, 8.0)).background(LinearGradient::new(&stops)));
-    BoundsClip.pop(&mut gui);
-    let input = gui.render_input();
-    let outer = input.display_list.push_clip(
-        ClipId::default(),
-        LogicalRect::new(12.5, 1.0, 3.5, 4.0),
-        BorderRadius::default(),
+    BoundsClip.push(&mut renderer, LogicalRect::new(58.0, 1.0, 6.0, 8.0));
+    renderer.paint(
+        bounds,
+        Rectangle::new(LogicalRect::new(56.0, 1.0, 8.0, 8.0)).background(LinearGradient::new(&stops)),
     );
-    let inner = input
-        .display_list
-        .push_clip(outer, LogicalRect::new(12.0, 1.5, 3.5, 3.5), BorderRadius::default());
-    input.display_list.push_rectangle(
+    BoundsClip.pop(&mut renderer);
+    renderer.push_clip(LogicalRect::new(12.5, 1.0, 3.5, 4.0), BorderRadius::default());
+    renderer.push_clip(LogicalRect::new(12.0, 1.5, 3.5, 3.5), BorderRadius::default());
+    renderer.paint(
+        bounds,
         Rectangle::new(LogicalRect::new(12.0, 1.0, 4.0, 4.0))
             .border(Border::gradient(1.0, LinearGradient::new(&stops))),
-        PhysicalRect {
-            x: 24,
-            y: 2,
-            width: 8,
-            height: 8,
-        },
-        inner,
     );
-
-    renderer.render(&target, input);
+    renderer.pop_clip();
+    renderer.pop_clip();
+    renderer.render(&target);
 
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("blit gpu native test readback"),

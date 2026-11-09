@@ -1,4 +1,4 @@
-use std::{any::TypeId, hash::Hash, marker::PhantomData, mem::offset_of, ptr::NonNull};
+use std::{hash::Hash, marker::PhantomData, mem::offset_of, ptr::NonNull};
 
 use blit::{
     PhysicalRect, Scale2,
@@ -8,7 +8,7 @@ use blit::{
     },
 };
 use blit_gui::{
-    display_list::{Command, DisplayList, Ops, Slice},
+    display_list::{Command, DisplayList, Slice},
     image::{ImageData, ImageHandle, prepare_image_patches},
     paint::{ImageRequest, Mesh, MeshVertex, Rectangle, TextRequest},
     style::{Border, Fill, GradientStop, LinearGradient},
@@ -485,32 +485,8 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
         K: Fn(&T, &DisplayList, &mut FxHasher) + 'static,
         F: Fn(&T, u32, &Command, &DisplayList, &mut PrepareContext<'_, P>) + 'static,
     {
-        let ops = const {
-            &Ops {
-                kind: TypeId::of::<(T, E, K, F)>(),
-                equal: |left, a, right, b| {
-                    // safety: insertion pairs this table with the stored tuple
-                    let (a, equal, _, _) = unsafe { left.data().get(Offset::<(T, E, K, F)>::new(a)) };
-                    let (b, _, _, _) = unsafe { right.data().get(Offset::<(T, E, K, F)>::new(b)) };
-                    equal(a, left, b, right)
-                },
-                hash: |list, offset, state| {
-                    // safety: insertion pairs this table with the stored tuple
-                    let (value, _, hash, _) = unsafe { list.data().get(Offset::<(T, E, K, F)>::new(offset)) };
-                    hash(value, list, state);
-                },
-                dispatch: |command, list, context| {
-                    // safety: recording pairs this table with its input and pixel type
-                    let (value, _, _, prepare) =
-                        unsafe { list.data().get(Offset::<(T, E, K, F)>::new(command.offset())) };
-                    let offset = command.offset() + offset_of!((T, E, K, F), 0) as u32;
-                    let context = unsafe { context.cast::<PrepareContext<'_, P>>().as_mut() };
-                    prepare(value, offset, command, list, context);
-                },
-            }
-        };
-        // safety: the table matches the stored tuple and this renderer's pixel type
-        unsafe { self.list.push(bounds, clip, (value, equal, hash, prepare), ops) };
+        // safety: this renderer dispatches its list with PrepareContext
+        unsafe { self.list.record(bounds, clip, value, equal, hash, prepare) };
     }
 }
 

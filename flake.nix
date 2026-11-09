@@ -31,6 +31,7 @@
             ];
             BLIT_TEST_FONT = "${pkgs.mononoki}/share/fonts/opentype/mononoki-Regular.otf";
           } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+            VK_ADD_DRIVER_FILES = "${pkgs.mesa}/share/vulkan/icd.d";
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (with pkgs; [
               fontconfig
               libxkbcommon

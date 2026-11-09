@@ -1,9 +1,11 @@
 use std::{io::Error as IoError, sync::Arc};
 
+use blit::{LogicalRect, Paint};
 use blit_gpu::Renderer;
 use blit_gui::{
-    RenderInput,
+    TextSystem,
     image::{ImageData, ImageHandle},
+    style::BorderRadius,
 };
 use wgpu::{CurrentSurfaceTexture, SurfaceConfiguration};
 use winit::{dpi::PhysicalSize, window::Window};
@@ -18,16 +20,16 @@ const BACKENDS: wgpu::Backends = wgpu::Backends::METAL;
 pub use blit_gpu::RendererConfig as Config;
 
 pub struct Backend {
-    config: Option<Config>,
+    pending: Option<(TextSystem, Config)>,
     instance: wgpu::Instance,
     gpu: Option<Gpu>,
     active: Option<Active>,
 }
 
 impl Backend {
-    pub fn new(config: Config) -> Self {
+    pub fn new(text: TextSystem, config: Config) -> Self {
         Self {
-            config: Some(config),
+            pending: Some((text, config)),
             instance: wgpu::Instance::new(wgpu::InstanceDescriptor {
                 backends: BACKENDS,
                 ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -35,6 +37,49 @@ impl Backend {
             gpu: None,
             active: None,
         }
+    }
+}
+
+impl blit::Context for Backend {
+    type Scalar = f32;
+}
+
+impl<T> Paint<T> for Backend
+where
+    Renderer: Paint<T>,
+{
+    fn paint(&mut self, bounds: LogicalRect, command: T) {
+        self.gpu
+            .as_mut()
+            .expect("GPU renderer is not initialized")
+            .renderer
+            .paint(bounds, command);
+    }
+}
+
+impl blit_gui::Context for Backend {
+    fn text(&mut self) -> &mut TextSystem {
+        if let Some(gpu) = &mut self.gpu {
+            gpu.renderer.text()
+        } else {
+            &mut self.pending.as_mut().expect("GPU renderer config").0
+        }
+    }
+
+    fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
+        self.gpu
+            .as_mut()
+            .expect("GPU renderer is not initialized")
+            .renderer
+            .push_clip(area, radius);
+    }
+
+    fn pop_clip(&mut self) {
+        self.gpu
+            .as_mut()
+            .expect("GPU renderer is not initialized")
+            .renderer
+            .pop_clip();
     }
 }
 
@@ -77,12 +122,8 @@ impl GraphicsBackend for Backend {
                 required_limits: wgpu::Limits::default().using_resolution(adapter.limits()),
                 ..Default::default()
             }))?;
-            let renderer = Renderer::new(
-                device.clone(),
-                queue.clone(),
-                surface_config.format,
-                self.config.take().expect("GPU renderer config"),
-            );
+            let (text, config) = self.pending.take().expect("GPU renderer config");
+            let renderer = Renderer::new(device.clone(), queue.clone(), surface_config.format, text, config);
             self.gpu = Some(Gpu {
                 renderer,
                 adapter,
@@ -102,6 +143,9 @@ impl GraphicsBackend for Backend {
 
     fn suspend(&mut self) {
         self.active = None;
+        if let Some(gpu) = &mut self.gpu {
+            gpu.renderer.discard_frame();
+        }
     }
 
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), GraphicsError> {
@@ -117,7 +161,15 @@ impl GraphicsBackend for Backend {
         Ok(())
     }
 
-    fn render(&mut self, input: RenderInput<'_>) -> Result<bool, GraphicsError> {
+    fn set_scale(&mut self, scale: f32) {
+        self.gpu
+            .as_mut()
+            .expect("GPU renderer is not initialized")
+            .renderer
+            .set_scale(scale);
+    }
+
+    fn render(&mut self) -> Result<bool, GraphicsError> {
         let (Some(active), Some(gpu)) = (&mut self.active, &mut self.gpu) else {
             return Ok(false);
         };
@@ -127,10 +179,12 @@ impl GraphicsBackend for Backend {
                 CurrentSurfaceTexture::Success(frame) => break (frame, false),
                 CurrentSurfaceTexture::Suboptimal(frame) => break (frame, true),
                 CurrentSurfaceTexture::Timeout => {
+                    gpu.renderer.discard_frame();
                     active.window.request_redraw();
                     return Ok(false);
                 }
                 CurrentSurfaceTexture::Occluded => {
+                    gpu.renderer.discard_frame();
                     return Ok(false);
                 }
                 status @ (CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost) if !retried => {
@@ -146,6 +200,7 @@ impl GraphicsBackend for Backend {
                     }
                 }
                 CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost => {
+                    gpu.renderer.discard_frame();
                     active.window.request_redraw();
                     return Ok(false);
                 }
@@ -155,7 +210,7 @@ impl GraphicsBackend for Backend {
             }
         };
 
-        gpu.renderer.render(&frame.texture, input);
+        gpu.renderer.render(&frame.texture);
         active.window.pre_present_notify();
         gpu.queue.present(frame);
         if suboptimal {

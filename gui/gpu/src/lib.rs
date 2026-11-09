@@ -1,15 +1,15 @@
 mod atlas;
+mod paint;
 mod text;
 
-use blit::{LogicalRect, PhysicalRect, Scale2};
+use blit::{PhysicalRect, Scale2};
 use blit_arena::Arena;
 use blit_gui::{
-    RenderInput,
+    TextSystem,
     color::Color,
-    display_list::Command,
-    image::{ImageData, ImageFormat, ImageHandle, ImageId, ImageSampling, ImageTiling, prepare_image_patches},
-    shadow::BoxShadow,
-    style::{BorderRadius, Fill},
+    display_list::DisplayList,
+    image::{ImageData, ImageFormat, ImageHandle, ImageId, ImageTiling},
+    style::BorderRadius,
 };
 use bytemuck::{Pod, Zeroable};
 
@@ -59,13 +59,24 @@ pub struct Renderer {
     glyphs: text::GlyphAtlas,
     empty_texture: wgpu::BindGroup,
     upload: Vec<u8>,
+    text: TextSystem,
+    list: DisplayList,
+    scale: f32,
+    paint_clip: u32,
+    paint_clips: Vec<u32>,
 }
 
 impl Renderer {
     /// creates a renderer for targets using `format`
     ///
     /// pass the linear format configured on every target passed to [`Self::render`]
-    pub fn new(device: wgpu::Device, queue: wgpu::Queue, format: wgpu::TextureFormat, config: RendererConfig) -> Self {
+    pub fn new(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        format: wgpu::TextureFormat,
+        text: TextSystem,
+        config: RendererConfig,
+    ) -> Self {
         assert!(!format.is_srgb(), "GPU rendering requires a linear target");
         let storage = wgpu::BufferBindingType::Storage { read_only: true };
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -280,7 +291,18 @@ impl Renderer {
             glyphs,
             empty_texture,
             upload: Vec::new(),
+            text,
+            list: DisplayList::default(),
+            scale: 1.0,
+            paint_clip: 0,
+            paint_clips: Vec::new(),
         }
+    }
+
+    pub fn set_scale(&mut self, scale: f32) {
+        assert!(scale.is_finite() && scale > 0.0);
+        assert!(self.list.commands().is_empty(), "cannot change scale during a frame");
+        self.scale = scale;
     }
 
     /// creates an image for use with this renderer
@@ -385,15 +407,10 @@ impl Renderer {
     }
 
     /// renders one frame into `target`
-    pub fn render(&mut self, target: &wgpu::Texture, input: RenderInput<'_>) {
+    pub fn render(&mut self, target: &wgpu::Texture) {
         let width = target.width();
         let height = target.height();
-        let RenderInput {
-            display_list,
-            text: text_system,
-            scale,
-            ..
-        } = input;
+        let display_list = std::mem::take(&mut self.list);
         self.instances.clear();
         self.glyph_instances.clear();
         self.draws.clear();
@@ -404,13 +421,13 @@ impl Renderer {
         self.clips.push(Clip::zeroed());
         self.glyphs.begin_frame();
 
-        let scale = scale.x;
+        let scale = self.scale;
         for node in display_list.clips() {
             let area = node.area.to_physical(Scale2::uniform(scale));
             self.clips.push(Clip {
                 rect: physical_rect(area),
                 radii: physical_radii(node.radius, scale, area.width, area.height),
-                data: [node.parent.0, 0, 0, 0],
+                data: [node.parent, 0, 0, 0],
             });
         }
 
@@ -420,385 +437,13 @@ impl Renderer {
             width: width.min(i32::MAX as u32) as i32,
             height: height.min(i32::MAX as u32) as i32,
         };
-        for record in display_list.iter() {
-            let start = self.instances.len() as u32;
-            let pipeline = match record.command {
-                Command::Clear => {
-                    let Some(draw) = record.bounds.intersection(screen) else {
-                        continue;
-                    };
-                    self.instances.push(Instance {
-                        draw: physical_rect(draw),
-                        inner_color: [
-                            self.clear_color.r as f32,
-                            self.clear_color.g as f32,
-                            self.clear_color.b as f32,
-                            self.clear_color.a as f32,
-                        ],
-                        ..Instance::zeroed()
-                    });
-                    Pipeline::Clear
-                }
-                Command::Rectangle(rectangle) => {
-                    let opacity = ((rectangle.opacity.clamp(0.0, 1.0) * 255.0).round() as u8) as f32 / 255.0;
-                    if opacity == 0.0 {
-                        continue;
-                    }
-                    let area = rectangle.area.to_physical(Scale2::uniform(scale));
-                    let Some(draw) = area
-                        .intersection(record.bounds)
-                        .and_then(|area| area.intersection(screen))
-                    else {
-                        continue;
-                    };
-                    if let Fill::Solid(background) = rectangle.background
-                        && opacity == 1.0
-                        && background.alpha > 0
-                        && rectangle.radius == BorderRadius::default()
-                        && rectangle.border.width <= 0.0
-                    {
-                        assert!(
-                            self.mesh_data.len() <= u32::MAX as usize - 3,
-                            "too many GPU mesh vertices"
-                        );
-                        let vertex = self.mesh_data.len() as u32;
-                        let color =
-                            u32::from_le_bytes([background.red, background.green, background.blue, background.alpha]);
-                        let left = draw.x as f32;
-                        let top = draw.y as f32;
-                        let right = draw.x.saturating_add(draw.width) as f32;
-                        let bottom = draw.y.saturating_add(draw.height) as f32;
-                        self.mesh_data.extend([
-                            MeshData([left.to_bits(), top.to_bits(), color, record.clip.0]),
-                            MeshData([right.to_bits(), top.to_bits(), color, record.clip.0]),
-                            MeshData([left.to_bits(), bottom.to_bits(), color, record.clip.0]),
-                            MeshData([right.to_bits(), bottom.to_bits(), color, record.clip.0]),
-                        ]);
-                        self.push_mesh_primitive([vertex, vertex + 1, vertex + 2, vertex + 3]);
-                        continue;
-                    }
-                    let mut colors = [[0.0; 4]; 2];
-                    let mut border_width = (rectangle.border.width * scale).round().max(0.0) as i32 as f32;
-                    let mut data = [record.clip.0, 0, 0, 0];
-                    for (index, fill) in [rectangle.background, rectangle.border.fill].into_iter().enumerate() {
-                        if index == 1 && border_width == 0.0 {
-                            continue;
-                        }
-                        match fill {
-                            Fill::Solid(color) => colors[index] = premultiplied(color, opacity),
-                            Fill::LinearGradient(gradient) => {
-                                let (direction_y, direction_x) = gradient.angle_degrees.to_radians().sin_cos();
-                                let extent =
-                                    direction_x.abs() * area.width as f32 + direction_y.abs() * area.height as f32;
-                                let end = u32::try_from(self.stops.len() + gradient.stops.len())
-                                    .expect("too many GPU gradient stops");
-                                data[index + 1] = self.stops.len() as u32 + 1;
-                                self.stops.extend(gradient.stops.iter().map(|stop| GradientStop {
-                                    color: premultiplied(stop.color, opacity),
-                                    position: stop.position,
-                                    x_step: direction_x / extent,
-                                    y_step: direction_y / extent,
-                                    end,
-                                }));
-                            }
-                        }
-                    }
-                    if data[2] == 0 && colors[1][3] == 0.0 {
-                        border_width = 0.0;
-                    }
-                    if data[1] == 0 && colors[0][3] == 0.0 && border_width == 0.0 {
-                        continue;
-                    }
-                    self.instances.push(Instance {
-                        shape: physical_rect(area),
-                        draw: physical_rect(draw),
-                        radii: physical_radii(rectangle.radius, scale, area.width, area.height),
-                        inner_color: colors[0],
-                        border_color: colors[1],
-                        params: [border_width, 0.0, 0.0, 0.0],
-                        data,
-                    });
-                    Pipeline::Content(None)
-                }
-                Command::Custom(command) => {
-                    let Some(shadow) = command.get::<BoxShadow>() else {
-                        panic!("no gpu extension registered for {}", command.type_name());
-                    };
-                    if shadow.color.alpha == 0 {
-                        continue;
-                    }
-                    if shadow.inset {
-                        let shape = shadow.area.to_physical(Scale2::uniform(scale));
-                        if shape.width <= 0 || shape.height <= 0 {
-                            continue;
-                        }
-                        let Some(draw) = shape
-                            .intersection(record.bounds)
-                            .and_then(|area| area.intersection(screen))
-                        else {
-                            continue;
-                        };
-                        let blur = (shadow.blur.max(0.0) * scale).ceil() as i32;
-                        let offset_x = (shadow.offset_x * scale).round() as i32;
-                        let offset_y = (shadow.offset_y * scale).round() as i32;
-                        let spread = (shadow.spread * scale).round() as i32;
-                        self.instances.push(Instance {
-                            shape: physical_rect(shape),
-                            draw: physical_rect(draw),
-                            radii: physical_radii(shadow.radius, scale, shape.width, shape.height),
-                            inner_color: premultiplied(shadow.color, 1.0),
-                            params: [blur as f32, offset_x as f32, offset_y as f32, spread as f32],
-                            data: [record.clip.0, 0, 0, INSET_SHADOW],
-                            ..Instance::zeroed()
-                        });
-                    } else {
-                        let area = LogicalRect {
-                            x: shadow.area.x + shadow.offset_x - shadow.spread,
-                            y: shadow.area.y + shadow.offset_y - shadow.spread,
-                            width: shadow.area.width + shadow.spread * 2.0,
-                            height: shadow.area.height + shadow.spread * 2.0,
-                        };
-                        if area.width <= 0.0 || area.height <= 0.0 {
-                            continue;
-                        }
-                        let shape = area.to_physical(Scale2::uniform(scale));
-                        if shape.width <= 0 || shape.height <= 0 {
-                            continue;
-                        }
-                        let blur = (shadow.blur.max(0.0) * scale).ceil() as i32;
-                        let support = if blur == 0 {
-                            shape
-                        } else {
-                            let Some(diameter) = blur.checked_mul(2) else {
-                                continue;
-                            };
-                            let (Some(width), Some(height)) =
-                                (shape.width.checked_add(diameter), shape.height.checked_add(diameter))
-                            else {
-                                continue;
-                            };
-                            PhysicalRect {
-                                x: shape.x.saturating_sub(blur),
-                                y: shape.y.saturating_sub(blur),
-                                width,
-                                height,
-                            }
-                        };
-                        let Some(draw) = support
-                            .intersection(record.bounds)
-                            .and_then(|area| area.intersection(screen))
-                        else {
-                            continue;
-                        };
-                        let radius = BorderRadius {
-                            top_left: (shadow.radius.top_left + shadow.spread).max(0.0),
-                            top_right: (shadow.radius.top_right + shadow.spread).max(0.0),
-                            bottom_right: (shadow.radius.bottom_right + shadow.spread).max(0.0),
-                            bottom_left: (shadow.radius.bottom_left + shadow.spread).max(0.0),
-                        };
-                        self.instances.push(Instance {
-                            shape: physical_rect(shape),
-                            draw: physical_rect(draw),
-                            radii: physical_radii(radius, scale, shape.width, shape.height),
-                            inner_color: premultiplied(shadow.color, 1.0),
-                            params: [blur as f32, 0.0, 0.0, 0.0],
-                            data: [record.clip.0, 0, 0, if blur == 0 { 0 } else { OUTSET_SHADOW }],
-                            ..Instance::zeroed()
-                        });
-                    }
-                    Pipeline::Content(None)
-                }
-                Command::Image(request) => {
-                    let opacity = ((request.opacity.clamp(0.0, 1.0) * 255.0).round() as u8) as f32 / 255.0;
-                    if opacity == 0.0 {
-                        continue;
-                    }
-                    let Some(image) = self.images.get(request.image.into()) else {
-                        continue;
-                    };
-                    let image_size = image.handle.size();
-                    let mask_color = image.mask_color.map(|color| premultiplied(color, 1.0));
-                    let colorize = request.colorize.map(|color| premultiplied(color, 1.0));
-                    prepare_image_patches(&request, image_size, scale, |patch| {
-                        let Some(draw) = patch
-                            .bounds
-                            .intersection(record.bounds)
-                            .and_then(|area| area.intersection(screen))
-                        else {
-                            return;
-                        };
-                        let offset_x = (i64::from(draw.x) - i64::from(patch.display.x)) as u64;
-                        let offset_y = (i64::from(draw.y) - i64::from(patch.display.y)) as u64;
-                        let (fixed_x, phase_x, step_x, bilinear_x, wrap_x) = image_axis(
-                            patch.source.width,
-                            patch.display.width,
-                            patch.horizontal_tiling,
-                            scale,
-                            offset_x,
-                        );
-                        let (fixed_y, phase_y, step_y, bilinear_y, wrap_y) = image_axis(
-                            patch.source.height,
-                            patch.display.height,
-                            patch.vertical_tiling,
-                            scale,
-                            offset_y,
-                        );
-                        let mut flags =
-                            (u32::from(wrap_x) * image_flag::WRAP_X) | (u32::from(wrap_y) * image_flag::WRAP_Y);
-                        if request.sampling == ImageSampling::Bilinear {
-                            flags |= image_flag::BILINEAR;
-                        }
-                        if mask_color.is_some() {
-                            flags |= image_flag::MASK;
-                        }
-                        if request.colorize.is_some() {
-                            flags |= image_flag::COLORIZE;
-                        }
-                        let (shape, params, axes, source_size) = if request.sampling == ImageSampling::Bilinear {
-                            (
-                                [0.0; 4],
-                                [step_x, step_y, opacity, 0.0],
-                                [bilinear_x.to_bits(), bilinear_y.to_bits()],
-                                [patch.source.width as f32, patch.source.height as f32],
-                            )
-                        } else {
-                            (
-                                [
-                                    f32::from_bits((fixed_x >> 32) as u32),
-                                    f32::from_bits((fixed_y >> 32) as u32),
-                                    f32::from_bits((phase_x >> 32) as u32),
-                                    f32::from_bits((phase_y >> 32) as u32),
-                                ],
-                                [
-                                    f32::from_bits(phase_x as u32),
-                                    f32::from_bits(phase_y as u32),
-                                    opacity,
-                                    0.0,
-                                ],
-                                [fixed_x as u32, fixed_y as u32],
-                                [
-                                    f32::from_bits(patch.source.width as u32),
-                                    f32::from_bits(patch.source.height as u32),
-                                ],
-                            )
-                        };
-                        self.instances.push(Instance {
-                            shape,
-                            draw: physical_rect(draw),
-                            radii: [
-                                f32::from_bits((patch.source.x - image.texture_origin[0]) as u32),
-                                f32::from_bits((patch.source.y - image.texture_origin[1]) as u32),
-                                source_size[0],
-                                source_size[1],
-                            ],
-                            inner_color: colorize.unwrap_or([0.0; 4]),
-                            border_color: mask_color.unwrap_or([0.0; 4]),
-                            params,
-                            data: [record.clip.0, flags, axes[0], axes[1]],
-                        });
-                    });
-                    Pipeline::Image(request.image)
-                }
-                Command::Text(request) => {
-                    let area = request.area.to_physical(Scale2::uniform(scale));
-                    let Some(visible_area) = area
-                        .intersection(record.bounds)
-                        .and_then(|area| area.intersection(screen))
-                    else {
-                        continue;
-                    };
-                    let mut resolved = text_system.paint_layout(&request);
-                    let layout = resolved.layout;
-                    for run in &layout.runs {
-                        let offset = resolved.line_offset(run.line as usize);
-                        let color = request.span_color(run.span);
-                        if color.alpha == 0 {
-                            continue;
-                        }
-                        let color = u32::from_le_bytes([color.red, color.green, color.blue, color.alpha]);
-                        for glyph in &layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
-                            let prepared = resolved.prepare_glyph(blit_text::GlyphRequest {
-                                font: run.font,
-                                glyph: glyph.id,
-                                scale,
-                                origin: blit::Point::new(
-                                    (request.area.x + glyph.position.x + offset.x - request.offset_x) * scale,
-                                    (request.area.y + glyph.position.y + offset.y) * scale,
-                                ),
-                            });
-                            let cached = self
-                                .glyphs
-                                .glyph(&self.device, &self.queue, &mut resolved, prepared.key);
-                            if cached.metrics.width == 0 || cached.metrics.height == 0 {
-                                continue;
-                            }
-                            let width = i32::from(cached.metrics.width);
-                            let height = i32::from(cached.metrics.height);
-                            let x = prepared.origin.x.saturating_add(i32::from(cached.metrics.left));
-                            let y = prepared.origin.y.saturating_add(i32::from(cached.metrics.top));
-                            let shape = PhysicalRect { x, y, width, height };
-                            let Some(draw) = shape.intersection(visible_area) else {
-                                continue;
-                            };
-                            let index = self.glyph_instances.len() as u32;
-                            self.glyph_instances.push(GlyphInstance {
-                                draw: physical_rect(draw),
-                                atlas: [
-                                    cached.atlas[0] + u32::try_from(draw.x - shape.x).unwrap(),
-                                    cached.atlas[1] + u32::try_from(draw.y - shape.y).unwrap(),
-                                ],
-                                color,
-                                clip: record.clip.0 | if cached.color { 1 << 31 } else { 0 },
-                            });
-                            self.push_draw(Pipeline::Content(Some(cached.page)), DRAW_TEXT | index);
-                        }
-                    }
-                    continue;
-                }
-                Command::Mesh(mesh) => {
-                    if record.bounds.intersection(screen).is_none() {
-                        continue;
-                    }
-                    let vertex_start = self.mesh_data.len() as u32;
-                    self.mesh_data.extend(mesh.vertices.iter().map(|vertex| {
-                        MeshData([
-                            (vertex.position.x * scale).to_bits(),
-                            (vertex.position.y * scale).to_bits(),
-                            u32::from_le_bytes([
-                                vertex.color.red,
-                                vertex.color.green,
-                                vertex.color.blue,
-                                vertex.color.alpha,
-                            ]),
-                            record.clip.0,
-                        ])
-                    }));
-                    assert!(self.mesh_data.len() <= u32::MAX as usize, "too many GPU mesh vertices");
-                    for triangle in mesh.indices.as_chunks::<3>().0 {
-                        let [first, second, third] = triangle.map(|index| vertex_start + index);
-                        self.push_mesh_primitive([first, second, third, third]);
-                    }
-                    continue;
-                }
-                _ => continue,
-            };
-            let end = self.instances.len() as u32;
-            if start == end {
-                continue;
-            }
-            if matches!(pipeline, Pipeline::Content(_)) {
-                for index in start..end {
-                    self.push_draw(pipeline, index);
-                }
-            } else if let Some(batch) = self.batches.last_mut()
-                && batch.pipeline == pipeline
-            {
-                batch.end = end;
-            } else {
-                self.batches.push(Batch { pipeline, start, end });
+        let mut preparation = paint::PrepareContext { renderer: self, screen };
+        for command in display_list.commands() {
+            // safety: recording pairs dispatch with this renderer preparation context
+            unsafe {
+                command.dispatch(&display_list, std::ptr::NonNull::from(&mut preparation).cast());
             }
         }
-
         let instance_bytes = self.instances.len() as u64 * size_of::<Instance>() as u64;
         let glyph_bytes = self.glyph_instances.len() as u64 * size_of::<GlyphInstance>() as u64;
         let draw_bytes = self.draws.len() as u64 * size_of::<u32>() as u64;
@@ -915,7 +560,9 @@ impl Renderer {
             }
         }
         self.queue.submit([encoder.finish()]);
-        self.glyphs.end_frame(text_system);
+        self.glyphs.end_frame(&mut self.text);
+        self.list = display_list;
+        self.discard_frame();
         self.images.retain(|image| !image.handle.is_uniquely_owned());
     }
 
@@ -923,32 +570,60 @@ impl Renderer {
     pub fn batch_count(&self) -> usize {
         self.batches.len()
     }
-}
 
-impl Renderer {
+    /// releases recorded inputs when a frame is presented or skipped
+    pub fn discard_frame(&mut self) {
+        self.list.clear();
+        self.paint_clip = 0;
+        self.paint_clips.clear();
+        self.text.finish_frame();
+    }
+    fn push_instances(&mut self, start: u32, pipeline: Pipeline) {
+        let end = self.instances.len() as u32;
+        if start == end {
+            return;
+        }
+        if matches!(pipeline, Pipeline::Content(_)) {
+            for index in start..end {
+                push_draw(&mut self.draws, &mut self.batches, pipeline, index);
+            }
+        } else if let Some(batch) = self.batches.last_mut()
+            && batch.pipeline == pipeline
+        {
+            batch.end = end;
+        } else {
+            self.batches.push(Batch { pipeline, start, end });
+        }
+    }
+
     fn push_mesh_primitive(&mut self, vertices: [u32; 4]) {
         assert!(self.mesh_data.len() < DRAW_MESH as usize, "too much GPU mesh data");
         let index = self.mesh_data.len() as u32;
         self.mesh_data.push(MeshData(vertices));
-        self.push_draw(Pipeline::Content(None), DRAW_MESH | index);
+        push_draw(
+            &mut self.draws,
+            &mut self.batches,
+            Pipeline::Content(None),
+            DRAW_MESH | index,
+        );
     }
+}
 
-    fn push_draw(&mut self, pipeline: Pipeline, draw: u32) {
-        let start = self.draws.len() as u32;
-        self.draws.push(draw);
-        let end = self.draws.len() as u32;
-        if let Some(batch) = self.batches.last_mut()
-            && let (Pipeline::Content(current), Pipeline::Content(texture)) = (&mut batch.pipeline, pipeline)
-            && (current.is_none() || texture.is_none() || *current == texture)
-        {
-            if current.is_none() {
-                *current = texture;
-            }
-            batch.end = end;
-            return;
+fn push_draw(draws: &mut Vec<u32>, batches: &mut Vec<Batch>, pipeline: Pipeline, draw: u32) {
+    let start = draws.len() as u32;
+    draws.push(draw);
+    let end = draws.len() as u32;
+    if let Some(batch) = batches.last_mut()
+        && let (Pipeline::Content(current), Pipeline::Content(texture)) = (&mut batch.pipeline, pipeline)
+        && (current.is_none() || texture.is_none() || *current == texture)
+    {
+        if current.is_none() {
+            *current = texture;
         }
-        self.batches.push(Batch { pipeline, start, end });
+        batch.end = end;
+        return;
     }
+    batches.push(Batch { pipeline, start, end });
 }
 
 #[repr(C)]
@@ -1186,6 +861,14 @@ mod tests {
             device,
             queue,
             wgpu::TextureFormat::Rgba8Unorm,
+            TextSystem::new(
+                blit_gui::TextConfig {
+                    fonts: Vec::new(),
+                    ..Default::default()
+                },
+                blit_text_parley::Backend::without_system_fonts(),
+            )
+            .unwrap(),
             RendererConfig::default(),
         );
     }

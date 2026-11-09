@@ -331,7 +331,8 @@ mod tests {
 
         use blit_gui::{
             TextConfig, TextSystem,
-            text::{FontId, TextOptions, TextRequest, TextSource, TextStyle},
+            paint::TextRequest,
+            text::{FontId, TextOptions, TextSource, TextStyle},
         };
         let mut text = TextSystem::new(
             TextConfig::new().font(
