@@ -1,8 +1,7 @@
 use std::{
     any::TypeId,
     marker::PhantomData,
-    mem::needs_drop,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicU32, Ordering},
 };
 
 use blit::internal::bump::{Bump, Offset};
@@ -10,8 +9,7 @@ use blit::internal::bump::{Bump, Offset};
 #[derive(Default)]
 pub struct Arena {
     bump: Bump,
-    drops: Vec<(u32, unsafe fn(&mut Bump, u32))>,
-    owner: u64,
+    owner: u32,
 }
 
 pub struct Writer<'a>(&'a mut Arena);
@@ -25,8 +23,8 @@ pub struct Writer<'a>(&'a mut Arena);
 /// let _: Handle<fn(&'static str)> = handle;
 /// ```
 pub struct Handle<T> {
-    pub(crate) offset: u32,
-    owner: u64,
+    offset: u32,
+    owner: u32,
     marker: PhantomData<fn(T) -> T>,
 }
 
@@ -38,7 +36,7 @@ pub struct Slice<T> {
 #[derive(Clone, Copy, Debug)]
 pub struct Value {
     offset: u32,
-    owner: u64,
+    owner: u32,
     kind: TypeId,
 }
 
@@ -49,17 +47,7 @@ impl Arena {
 
     pub fn push<T: 'static>(&mut self, value: T) -> Handle<T> {
         self.initialize();
-        if needs_drop::<T>() {
-            self.drops.reserve(1);
-        }
-        let offset = self.bump.push(value).byte();
-        if needs_drop::<T>() {
-            unsafe fn drop_value<T>(bump: &mut Bump, offset: u32) {
-                // safety: the arena records the type and removes this entry before dropping it
-                unsafe { std::ptr::drop_in_place(bump.get_mut(Offset::<T>::new(offset))) };
-            }
-            self.drops.push((offset, drop_value::<T>));
-        }
+        let offset = self.push_erased(value);
         Handle {
             offset,
             owner: self.owner,
@@ -114,10 +102,6 @@ impl Arena {
 
     pub fn clear(&mut self) {
         self.owner = 0;
-        while let Some((offset, drop_value)) = self.drops.pop() {
-            // safety: each entry identifies one live value and is removed before its destructor runs
-            unsafe { drop_value(&mut self.bump, offset) };
-        }
         self.bump.clear();
     }
 
@@ -125,19 +109,17 @@ impl Arena {
         self.bump.used()
     }
 
+    pub(crate) fn push_erased<T: 'static>(&mut self, value: T) -> u32 {
+        self.bump.push(value).byte()
+    }
+
     fn initialize(&mut self) {
-        static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
+        static NEXT_OWNER: AtomicU32 = AtomicU32::new(1);
         if self.owner == 0 {
             self.owner = NEXT_OWNER
                 .try_update(Ordering::Relaxed, Ordering::Relaxed, |owner| owner.checked_add(1))
                 .expect("arena epochs exhausted");
         }
-    }
-}
-
-impl Drop for Arena {
-    fn drop(&mut self) {
-        self.clear();
     }
 }
 

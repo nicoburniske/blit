@@ -22,7 +22,6 @@ pub struct FrameSlice<T> {
 #[derive(Default)]
 pub struct BumpArena {
     storage: Bump,
-    drops: Vec<DropEntry>,
     scratch_used: Cell<usize>,
     scratch_peak: Cell<usize>,
     scratch_live: Cell<usize>,
@@ -48,20 +47,7 @@ impl BumpArena {
     }
 
     pub fn store<T: 'static>(&mut self, value: T) -> BumpId {
-        // reserve before moving value so registering its destructor cannot allocate
-        if const { needs_drop::<T>() } {
-            self.drops.reserve(1);
-        }
         let id = BumpId(self.storage.push(value).byte());
-        if const { needs_drop::<T>() } {
-            self.drops.push(DropEntry {
-                offset: id.0,
-                drop: |value| {
-                    // safety: the drop entry was created for T at this address
-                    unsafe { value.cast::<T>().drop_in_place() };
-                },
-            });
-        }
         assert!(id.0 < u32::MAX, "too much frame data");
         id
     }
@@ -124,13 +110,8 @@ impl BumpArena {
     }
 
     pub fn clear(&mut self) {
-        let pointer = self.storage.as_ptr();
-        while let Some(entry) = self.drops.pop() {
-            // safety: entries point to initialized values in the arena
-            (entry.drop)(unsafe { pointer.add(entry.offset as usize) });
-        }
-        self.storage.clear();
         self.epoch = self.epoch.wrapping_add(1);
+        self.storage.clear();
     }
 }
 
@@ -147,12 +128,6 @@ impl BumpArena {
         }
         // safety: the offset is within the arena and shared writes use disjoint reserved ranges
         unsafe { self.storage.as_ptr().add(offset).cast::<T>() }
-    }
-}
-
-impl Drop for BumpArena {
-    fn drop(&mut self) {
-        self.clear();
     }
 }
 
@@ -200,9 +175,4 @@ impl<T> Drop for Scratch<'_, T> {
 enum ScratchInner<'a, T> {
     Ref(&'a mut [T]),
     Owned(Vec<T>),
-}
-
-struct DropEntry {
-    offset: u32,
-    drop: fn(*mut u8),
 }

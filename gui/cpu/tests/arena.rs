@@ -1,9 +1,10 @@
 use std::{cell::Cell, panic::AssertUnwindSafe, rc::Rc};
 
-use blit_cpu::arena::Arena;
+use blit_cpu::arena::{Arena, Handle};
 
 #[test]
 fn values_survive_growth_and_release_resources() {
+    assert_eq!(size_of::<Handle<Rc<str>>>(), 8);
     let resource: Rc<str> = Rc::from("retained for the frame");
     let mut arena = Arena::default();
     let value = arena.push(resource.clone());

@@ -3,24 +3,36 @@
 use std::{
     cell::UnsafeCell,
     marker::PhantomData,
-    mem::{MaybeUninit, align_of, size_of},
+    mem::{MaybeUninit, align_of, needs_drop, size_of},
 };
 
-/// byte storage whose values and destructors are managed by the caller
+/// owned values addressed by unchecked byte offsets
 #[derive(Default)]
 pub struct Bump {
     blocks: Vec<Block>,
+    drops: Vec<(u32, fn(*mut u8))>,
     len: u32,
+    // stored values may not be Send
+    marker: PhantomData<*mut ()>,
 }
 
 impl Bump {
     pub const ALIGNMENT: usize = align_of::<Block>();
 
     #[inline]
-    pub fn push<T>(&mut self, value: T) -> Offset<T> {
+    pub fn push<T: 'static>(&mut self, value: T) -> Offset<T> {
+        if needs_drop::<T>() {
+            self.drops.reserve(1);
+        }
         let offset = self.allocate::<T>(1);
         // safety: allocate reserves aligned storage for this value
         unsafe { self.as_ptr().add(offset.byte as usize).cast::<T>().write(value) };
+        if needs_drop::<T>() {
+            self.drops.push((offset.byte, |value| {
+                // safety: push registered this destructor for T at this offset
+                unsafe { value.cast::<T>().drop_in_place() };
+            }));
+        }
         offset
     }
 
@@ -102,6 +114,11 @@ impl Bump {
 
     #[inline]
     pub fn clear(&mut self) {
+        let pointer = self.as_ptr();
+        while let Some((offset, drop_value)) = self.drops.pop() {
+            // safety: each entry identifies one live value and is removed before its destructor runs
+            drop_value(unsafe { pointer.add(offset as usize) });
+        }
         self.len = 0;
     }
 
@@ -128,6 +145,12 @@ impl Bump {
             byte: start as u32,
             marker: PhantomData,
         }
+    }
+}
+
+impl Drop for Bump {
+    fn drop(&mut self) {
+        self.clear();
     }
 }
 

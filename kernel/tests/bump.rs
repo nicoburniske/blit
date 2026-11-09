@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use blit::internal::bump::{Bump, Offset, Slice};
 
 #[test]
@@ -34,4 +36,19 @@ fn preserves_alignment_and_values_across_growth() {
     assert_eq!(bump.capacity(), capacity);
     // safety: an empty slice does not access storage
     assert!(unsafe { bump.slice(Slice::<u64>::EMPTY) }.is_empty());
+}
+
+#[test]
+fn drops_owned_values_on_clear_and_drop() {
+    let resource = Rc::new(());
+    {
+        let mut bump = Bump::default();
+        bump.push(resource.clone());
+        bump.reserve(4096);
+        assert_eq!(Rc::strong_count(&resource), 2);
+        bump.clear();
+        assert_eq!(Rc::strong_count(&resource), 1);
+        bump.push(resource.clone());
+    }
+    assert_eq!(Rc::strong_count(&resource), 1);
 }

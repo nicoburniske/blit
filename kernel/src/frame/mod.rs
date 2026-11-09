@@ -11,7 +11,7 @@ use std::{
     any::TypeId,
     cell::Cell,
     marker::PhantomData,
-    mem::{MaybeUninit, align_of, needs_drop, size_of},
+    mem::{MaybeUninit, align_of, size_of},
     num::NonZeroU32,
     ops::{Deref, DerefMut},
     time::Duration,

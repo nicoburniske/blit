@@ -583,14 +583,12 @@ impl<P: Pixel> ErasedCommand<P> {
             handler,
             draw: None,
             reads: None,
-            value: data.push((value, prepare)).offset,
+            value: data.push_erased((value, prepare)),
             prepare: Some(|handler, value, data, prepared, cx| {
                 // safety: recording pairs this callback with its typed value
                 let (value, prepare) = unsafe { data.value_unchecked::<(T, F)>(value) };
                 // safety: recording pairs the handler pointer with its typed preparation
-                prepared
-                    .push(prepare(unsafe { handler.cast::<H>().as_mut() }, value, cx))
-                    .offset
+                prepared.push_erased(prepare(unsafe { handler.cast::<H>().as_mut() }, value, cx))
             }),
         }
     }
@@ -600,7 +598,7 @@ impl<P> ErasedCommand<P> {
     pub fn ready<T: 'static>(handler: NonNull<()>, prepared: &mut Arena, value: T) -> Self {
         Self {
             handler,
-            value: prepared.push(value).offset,
+            value: prepared.push_erased(value),
             prepare: None,
             draw: None,
             reads: None,
