@@ -1,4 +1,3 @@
-pub mod arena;
 pub mod damage;
 mod glyph;
 mod paint;
@@ -13,19 +12,17 @@ use blit::{LogicalRect, PhysicalRect};
 use blit_arena::Arena;
 use blit_gui::{
     Context, TextSystem,
+    display_list::{self, DisplayList},
     image::{ImageData, ImageFormat, ImageHandle},
     style::BorderRadius,
 };
 
 use self::{
-    damage::{
-        DamageInput,
-        passes::{PassDamage, StageDamage},
-    },
+    damage::passes::{PassDamage, StageDamage},
     paint::{DrawTarget, ErasedHandler},
     pixel::PixelSpan,
     render::image_patch::AlphaRows,
-    strategy::{clip::ClipStack, command::CommandList},
+    strategy::{clip::ClipStack, command::RasterCommands},
     text::TextRenderer,
 };
 pub use self::{
@@ -38,7 +35,6 @@ pub use self::{
 pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTracker = TileDamage> {
     context: RenderContext<B>,
     handlers: Vec<ErasedHandler>,
-    damage_input: DamageInput,
     paint_clip: u32,
     paint_clips: Vec<u32>,
     strategy: S,
@@ -55,7 +51,8 @@ impl<B: PixelBuffer> Renderer<B> {
                 scale_factor: 1.0,
                 images: Arena::new(),
                 text: TextRenderer::new(&config, text),
-                commands: CommandList::default(),
+                list: DisplayList::default(),
+                raster: RasterCommands::default(),
                 clips: ClipStack::default(),
                 snapshot: Surface {
                     width: 0,
@@ -66,7 +63,6 @@ impl<B: PixelBuffer> Renderer<B> {
                 preserved: Vec::new(),
             },
             handlers: Vec::new(),
-            damage_input: DamageInput::default(),
             paint_clip: 0,
             paint_clips: Vec::new(),
             strategy: Direct::default(),
@@ -82,7 +78,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         Renderer {
             context: self.context,
             handlers: self.handlers,
-            damage_input: self.damage_input,
             paint_clip: self.paint_clip,
             paint_clips: self.paint_clips,
             strategy,
@@ -97,7 +92,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         Renderer {
             context: self.context,
             handlers: self.handlers,
-            damage_input: self.damage_input,
             paint_clip: self.paint_clip,
             paint_clips: self.paint_clips,
             strategy: self.strategy,
@@ -122,9 +116,21 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         assert!(self.paint_clips.is_empty(), "unbalanced paint clips");
         let screen = self.screen();
         let scale = self.context.scale_factor;
-        self.damage.update(&self.damage_input, screen, scale, buffer_age);
+        self.damage.update(&self.context.list, screen, scale, buffer_age);
+        if !self.damage.is_empty() {
+            let context = &mut self.context;
+            for command in context.list.commands() {
+                (command.backend().prepare)(
+                    command,
+                    context.list.data(),
+                    scale,
+                    &context.images,
+                    std::ptr::NonNull::from(&mut context.raster).cast(),
+                );
+            }
+        }
         self.pass_damage
-            .update(&self.damage_input, &self.context, &self.damage, screen, self.pass_shift);
+            .update(&self.context, &self.damage, screen, self.pass_shift);
         let plan = &self.pass_damage;
         let mut damage = StageDamage {
             tracker: &mut self.damage,
@@ -132,7 +138,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         };
         let context = &mut self.context;
         if !damage.is_empty() {
-            let end = context.commands.len();
+            let end = context.raster.len();
             if let Some(region) = plan.stages.first() {
                 assert_eq!(
                     context.buffer.x_offset(),
@@ -161,11 +167,11 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             }
             let mut start = 0;
             for (stage, node) in plan.passes.iter().enumerate() {
-                context.commands.range = start..node.index;
+                context.raster.range = start..node.index;
                 self.strategy.render(context, &damage);
                 start = node.index + 1;
                 damage.region = Some(&plan.stages[stage + 1]);
-                let clip = context.commands.clip(node.index);
+                let clip = context.raster.clip(node.index);
                 if damage.intersects(node.bounds, clip) {
                     let snapshot = &mut context.snapshot;
                     snapshot.width = context.buffer.width();
@@ -182,14 +188,14 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                                 .copy_from_slice(context.buffer.read_line(y as usize, range));
                         }
                     }
-                    context.commands.entries[node.index as usize].draw(
-                        &context.commands.data,
-                        &mut context.commands.prepared,
+                    context.raster.entries[node.index as usize].draw(
+                        &context.raster.data,
+                        &mut context.raster.prepared,
                         &mut DrawContext {
                             bounds: node.bounds,
-                            data: &context.commands.data,
+                            data: context.list.data(),
                             text: &mut context.text,
-                            gradients: &mut context.commands.gradients,
+                            gradients: &mut context.raster.gradients,
                             images: &mut context.images,
                             source: Some(snapshot),
                             target: DrawTarget::Pass {
@@ -202,7 +208,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                     );
                 }
             }
-            context.commands.range = start..end;
+            context.raster.range = start..end;
             self.strategy.render(context, &damage);
             if !plan.passes.is_empty() {
                 let mut offset = 0;
@@ -220,15 +226,17 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                 }
             }
         }
-        context.commands.clear();
+        context.raster.clear();
         context.clips.clear();
+        let mut list = std::mem::take(&mut context.list);
+        self.damage.finish_frame(&mut list);
+        list.clear();
+        context.list = list;
         context.text.finish_frame();
         for handler in &mut self.handlers {
             (handler.finish)(handler);
         }
         context.images.retain(|image| !image.handle.is_uniquely_owned());
-        self.damage.finish_frame(&mut self.damage_input);
-        self.damage_input.clear();
         self.paint_clip = 0;
     }
 
@@ -254,7 +262,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
     pub fn set_scale(&mut self, scale: f32) {
         assert!(scale.is_finite() && scale > 0.0);
         assert!(
-            self.damage_input.records.is_empty(),
+            self.context.list.commands().is_empty(),
             "cannot change scale during a frame"
         );
         if self.context.scale_factor != scale {
@@ -275,7 +283,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Context for Rendere
 
     fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
         self.paint_clips.push(self.paint_clip);
-        self.damage_input.clips.push(damage::Clip {
+        let clip = self.context.list.push_clip(display_list::Clip {
             parent: self.paint_clip,
             area,
             radius,
@@ -283,7 +291,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Context for Rendere
         self.context
             .clips
             .push_node(self.paint_clip, area, radius, self.context.scale_factor);
-        self.paint_clip = u32::try_from(self.damage_input.clips.len()).expect("too many paint clips");
+        self.paint_clip = clip;
     }
 
     fn pop_clip(&mut self) {
@@ -297,14 +305,14 @@ pub struct Span<'a, P> {
     pub pixels: &'a mut [P],
     /// clip coverage to apply when blending pixels
     pub coverage: u8,
-    pub data: &'a arena::Arena,
+    pub data: &'a blit_gui::arena::Arena,
     images: &'a Arena<StoredImage>,
 }
 
 pub struct DrawContext<'a, P> {
     /// physical drawing bounds independent of the current span
     pub bounds: PhysicalRect,
-    data: &'a arena::Arena,
+    data: &'a blit_gui::arena::Arena,
     text: &'a mut TextRenderer,
     gradients: &'a mut render::fill::Gradients,
     images: &'a mut Arena<StoredImage>,
@@ -342,7 +350,8 @@ pub struct RenderContext<B: PixelBuffer> {
     scale_factor: f32,
     images: Arena<StoredImage>,
     text: TextRenderer,
-    commands: CommandList<B::Pixel>,
+    list: DisplayList<raster::Operations>,
+    raster: RasterCommands<B::Pixel>,
     clips: ClipStack,
     snapshot: Surface<B::Pixel>,
     preserved: Vec<B::Pixel>,

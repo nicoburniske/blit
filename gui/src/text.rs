@@ -1,4 +1,8 @@
-use std::{fmt, ops::Range};
+use std::{
+    fmt,
+    hash::{Hash, Hasher},
+    ops::Range,
+};
 
 use blit::geometry::LogicalRect;
 pub use blit_text::{FontSettings, FontStyle, OpticalSize};
@@ -109,6 +113,27 @@ impl TextRequest<'_> {
             .or(self.colors.last())
             .copied()
             .unwrap_or(Color::TRANSPARENT)
+    }
+}
+
+impl Hash for TextRequest<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.text.hash(state);
+        self.colors.hash(state);
+        [
+            self.area.x,
+            self.area.y,
+            self.area.width,
+            self.area.height,
+            self.offset_x,
+        ]
+        .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+        .hash(state);
+        self.options.wrap.hash(state);
+        self.options.overflow.hash(state);
+        self.options.horizontal_align.hash(state);
+        self.options.vertical_align.hash(state);
+        self.options.max_lines.hash(state);
     }
 }
 

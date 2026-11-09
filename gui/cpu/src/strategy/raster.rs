@@ -1,12 +1,13 @@
 use blit::geometry::PhysicalRect;
 use blit_arena::Arena;
 
-use super::command::{CommandId, CommandList, Payload};
+use super::command::{CommandId, Payload, RasterCommands};
 use crate::{DrawContext, Pixel, PixelBuffer, PixelSpan, StoredImage, TextRenderer, paint::DrawTarget};
 
 #[inline(always)]
 pub fn draw_line<B: PixelBuffer>(
-    commands: &mut CommandList<B::Pixel>,
+    commands: &mut RasterCommands<B::Pixel>,
+    data: &blit_gui::arena::Arena,
     command: CommandId,
     line: i32,
     clip: PhysicalRect,
@@ -16,7 +17,7 @@ pub fn draw_line<B: PixelBuffer>(
     buffer: &mut B,
 ) {
     if commands.entries[command as usize].is_pending() {
-        commands.prepare(command, images, text);
+        commands.prepare(command, data, images, text);
     }
     let bounds = commands.bounds(command);
     match commands.get(command) {
@@ -28,9 +29,8 @@ pub fn draw_line<B: PixelBuffer>(
             }
             let start = (clip.x - buffer.x_offset() as i32) as usize;
             let pixels = &mut buffer.line_mut(line as usize)[start..start + clip.width as usize];
-            let data = &commands.data;
             call.draw(
-                data,
+                &commands.data,
                 &mut commands.prepared,
                 &mut DrawContext {
                     bounds,

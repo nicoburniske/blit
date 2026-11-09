@@ -2,12 +2,12 @@ use std::{collections::VecDeque, ops::Range};
 
 use blit::{PhysicalRect, Scale2};
 
-use super::{DamageInput, DamageTracker};
+use super::{DamageTracker, DisplayList};
 
-/// compares ordered command fingerprints and their clip chains
+/// compares ordered command inputs and their clip chains
 #[derive(Default)]
 pub struct CommandDiff {
-    previous: DamageInput,
+    previous: DisplayList<crate::raster::Operations>,
     current: Vec<PhysicalRect>,
     history: VecDeque<Vec<PhysicalRect>>,
     damage: Vec<PhysicalRect>,
@@ -18,7 +18,13 @@ pub struct CommandDiff {
 }
 
 impl DamageTracker for CommandDiff {
-    fn update(&mut self, input: &DamageInput, screen: PhysicalRect, scale: f32, buffer_age: u8) {
+    fn update(
+        &mut self,
+        input: &DisplayList<crate::raster::Operations>,
+        screen: PhysicalRect,
+        scale: f32,
+        buffer_age: u8,
+    ) {
         self.max_age = self.max_age.max(buffer_age).max(1);
         self.current.clear();
         if !self.initialized || self.screen != screen {
@@ -28,20 +34,25 @@ impl DamageTracker for CommandDiff {
         } else {
             let previous = &self.previous;
             let mut start = 0;
-            let common = previous.records.len().min(input.records.len());
+            let common = previous.commands().len().min(input.commands().len());
             while start < common && previous.equivalent(start, input, start) {
                 start += 1;
             }
-            let mut old_end = previous.records.len();
-            let mut new_end = input.records.len();
-            while old_end > start && new_end > start && previous.equivalent(old_end - 1, input, new_end - 1) {
+            let mut old_end = previous.commands().len();
+            let mut new_end = input.commands().len();
+            while old_end > start
+                && new_end > start
+                && (old_end > start + 1 || new_end > start + 1)
+                && previous.equivalent(old_end - 1, input, new_end - 1)
+            {
                 old_end -= 1;
                 new_end -= 1;
             }
             let mut old = start;
             let mut new = start;
             while old < old_end && new < new_end {
-                if previous.equivalent(old, input, new) {
+                // the prefix already rejected the initial pair
+                if (old != start || new != start) && previous.equivalent(old, input, new) {
                     old += 1;
                     new += 1;
                     continue;
@@ -50,17 +61,19 @@ impl DamageTracker for CommandDiff {
                 for offset in 1..=8 {
                     if new + offset < new_end && previous.equivalent(old, input, new + offset) {
                         for index in new..new + offset {
-                            push_damage(&mut self.current, input.records[index].bounds);
+                            push_damage(&mut self.current, input.commands()[index].bounds);
                         }
-                        new += offset;
+                        new += offset + 1;
+                        old += 1;
                         aligned = true;
                         break;
                     }
                     if old + offset < old_end && previous.equivalent(old + offset, input, new) {
                         for index in old..old + offset {
-                            push_damage(&mut self.current, previous.records[index].bounds);
+                            push_damage(&mut self.current, previous.commands()[index].bounds);
                         }
-                        old += offset;
+                        old += offset + 1;
+                        new += 1;
                         aligned = true;
                         break;
                     }
@@ -68,8 +81,8 @@ impl DamageTracker for CommandDiff {
                 if aligned {
                     continue;
                 }
-                let old_bounds = previous.records[old].bounds;
-                let new_bounds = input.records[new].bounds;
+                let old_bounds = previous.commands()[old].bounds;
+                let new_bounds = input.commands()[new].bounds;
                 push_damage(&mut self.current, old_bounds);
                 if new_bounds != old_bounds {
                     push_damage(&mut self.current, new_bounds);
@@ -78,10 +91,10 @@ impl DamageTracker for CommandDiff {
                 new += 1;
             }
             for index in old..old_end {
-                push_damage(&mut self.current, previous.records[index].bounds);
+                push_damage(&mut self.current, previous.commands()[index].bounds);
             }
             for index in new..new_end {
-                push_damage(&mut self.current, input.records[index].bounds);
+                push_damage(&mut self.current, input.commands()[index].bounds);
             }
         }
         self.screen = screen;
@@ -96,7 +109,7 @@ impl DamageTracker for CommandDiff {
         }
         self.clips.clear();
         self.clips.push(screen);
-        for clip in &input.clips {
+        for clip in input.clips() {
             self.clips.push(
                 clip.area
                     .to_physical(Scale2::uniform(scale))
@@ -158,7 +171,7 @@ impl DamageTracker for CommandDiff {
         next
     }
 
-    fn finish_frame(&mut self, input: &mut DamageInput) {
+    fn finish_frame(&mut self, input: &mut DisplayList<crate::raster::Operations>) {
         std::mem::swap(&mut self.previous, input);
         self.history.push_front(std::mem::take(&mut self.current));
         if self.history.len() >= self.max_age as usize {

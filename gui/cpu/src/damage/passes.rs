@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use blit::{PhysicalRect, Scale2};
 
-use super::{DamageInput, DamageTracker, region::Region};
+use super::{DamageTracker, DisplayList, region::Region};
 use crate::{PixelBuffer, RenderContext};
 
 #[derive(Default)]
@@ -25,13 +25,13 @@ pub struct PassNode {
 impl PassDamage {
     pub fn update<B: PixelBuffer>(
         &mut self,
-        input: &DamageInput,
         context: &RenderContext<B>,
         tracker: &impl DamageTracker,
         screen: PhysicalRect,
         shift: u32,
     ) {
-        let commands = &context.commands;
+        let commands = &context.raster;
+        let input = &context.list;
         if commands.passes.is_empty() || tracker.is_empty() {
             self.passes.clear();
             self.stages.clear();
@@ -40,7 +40,7 @@ impl PassDamage {
         let scale = context.scale_factor;
         self.clips.clear();
         self.clips.push(screen);
-        for clip in &input.clips {
+        for clip in input.clips() {
             self.clips.push(
                 clip.area
                     .to_physical(Scale2::uniform(scale))
@@ -88,7 +88,7 @@ impl PassDamage {
                 let mut x = node.bounds.x & !(size - 1);
                 while x < node.bounds.x + node.bounds.width {
                     let output = PhysicalRect::new(x, y, size, size).intersection(node.bounds).unwrap();
-                    if self.present.intersects(call.reads(&commands.prepared, output)) {
+                    if self.present.intersects(call.reads(input.data(), output)) {
                         node.reads.add(output);
                     }
                     x += size;
@@ -107,7 +107,7 @@ impl PassDamage {
                 .rects()
                 .filter_map(|bounds| bounds.intersection(node.bounds))
             {
-                node.reads.add(call.reads(&commands.prepared, output));
+                node.reads.add(call.reads(input.data(), output));
             }
             let (before, after) = self.stages.split_at_mut(index + 1);
             before[index].clone_from(&after[0]);
@@ -124,7 +124,7 @@ pub struct StageDamage<'a, D> {
 }
 
 impl<D: DamageTracker> DamageTracker for StageDamage<'_, D> {
-    fn update(&mut self, input: &DamageInput, screen: PhysicalRect, scale: f32, age: u8) {
+    fn update(&mut self, input: &DisplayList<crate::raster::Operations>, screen: PhysicalRect, scale: f32, age: u8) {
         self.tracker.update(input, screen, scale, age);
     }
 
@@ -150,7 +150,7 @@ impl<D: DamageTracker> DamageTracker for StageDamage<'_, D> {
         region.line_ranges(line, bounds, ranges)
     }
 
-    fn finish_frame(&mut self, input: &mut DamageInput) {
+    fn finish_frame(&mut self, input: &mut DisplayList<crate::raster::Operations>) {
         self.tracker.finish_frame(input);
     }
 }

@@ -1,26 +1,22 @@
-use std::{
-    any::TypeId,
-    hash::{Hash, Hasher},
-    marker::PhantomData,
-    ptr::NonNull,
-};
+use std::{any::TypeId, hash::Hash, marker::PhantomData, mem::offset_of, ptr::NonNull};
 
-use blit::{LogicalRect, Paint, PhysicalRect, Scale2, internal::hash::FxHasher};
+use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_gui::{
+    arena::{Arena, Slice},
+    display_list::{Command, DisplayList, Operations},
     image::{ImageData, ImageHandle, ImageRequest, prepare_image_patches},
-    paint::{Mesh, Rectangle},
-    style::{Border, Fill, LinearGradient},
+    paint::{Mesh, MeshVertex, Rectangle},
+    style::{Border, Fill, GradientStop, LinearGradient},
     text::TextRequest,
 };
 
 use crate::{
     DamageTracker, DrawContext, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderStrategy, Renderer, Span,
     StoredImage, Surface,
-    arena::Arena,
-    damage::{DamageInput, Record, region::Region},
+    damage::region::Region,
     strategy::{
         clip::ClipStack,
-        command::{CommandList, Coverage, Payload},
+        command::{Coverage, Payload, RasterCommands},
     },
 };
 
@@ -69,9 +65,8 @@ pub struct PaintContext<'a, H, P: Pixel> {
     pub bounds: PhysicalRect,
     clip: u32,
     handler: NonNull<()>,
-    marker: PhantomData<fn(H) -> H>,
-    damage_input: &'a mut DamageInput,
-    commands: &'a mut CommandList<P>,
+    marker: PhantomData<fn(H, P) -> (H, P)>,
+    list: &'a mut DisplayList<crate::raster::Operations>,
     pub(crate) images: &'a mut blit_arena::Arena<StoredImage>,
 }
 
@@ -79,7 +74,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
     /// configures one handler before recording begins
     pub fn handler<H: 'static>(mut self, handler: H) -> Self {
         assert!(
-            self.damage_input.records.is_empty(),
+            self.context.list.commands().is_empty(),
             "cannot replace a handler during a frame"
         );
         let kind = TypeId::of::<H>();
@@ -95,7 +90,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
     /// returns a handler and invalidates retained pixels
     pub fn handler_mut<H: Default + 'static>(&mut self) -> &mut H {
         assert!(
-            self.damage_input.records.is_empty(),
+            self.context.list.commands().is_empty(),
             "cannot configure a handler during a frame"
         );
         self.damage.invalidate();
@@ -123,8 +118,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                 clip: self.paint_clip,
                 handler: pointer,
                 marker: PhantomData,
-                damage_input: &mut self.damage_input,
-                commands: &mut context.commands,
+                list: &mut context.list,
                 images: &mut context.images,
             },
         );
@@ -203,43 +197,61 @@ impl<P: Pixel> Handler<blit_gui::atom::Clear, P> for () {
 }
 
 impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
-    pub fn data(&mut self) -> crate::arena::Writer<'_> {
-        self.commands.data.writer()
+    pub fn data(&mut self) -> blit_gui::arena::Writer<'_> {
+        self.list.writer()
     }
 
-    /// records a raster callback with a key describing everything it draws
-    pub fn draw<T: 'static>(&mut self, key: &impl Hash, value: T, draw: fn(&mut H, &T, &mut DrawContext<'_, P>)) {
+    /// records a raster callback with an owned snapshot of its visual inputs
+    pub fn draw<T: 'static>(
+        &mut self,
+        key: impl PartialEq + Hash + 'static,
+        value: T,
+        draw: fn(&mut H, &T, &mut DrawContext<'_, P>),
+    ) {
         self.record_draw(key, value, draw, None);
     }
 
     /// prepares once on the first visible span and reuses the result for the frame
     pub fn draw_prepared<T: 'static, R: 'static>(
         &mut self,
-        key: &impl Hash,
+        key: impl PartialEq + Hash + 'static,
         value: T,
         prepare: fn(&mut H, &T, &mut DrawContext<'_, P>) -> R,
         draw: fn(&mut H, &R, &mut DrawContext<'_, P>),
     ) {
-        let call = ErasedCommand {
-            draw: Some(Call::<H, R, P>::draw),
-            ..ErasedCommand::prepared(
-                &mut self.commands.data,
-                self.handler,
-                (value, prepare, draw),
-                |handler, (value, prepare, draw), cx| Call {
-                    value: prepare(handler, value, cx),
-                    draw: *draw,
-                    reads: None,
-                },
-            )
-        };
-        self.record::<T>(key, call);
+        let handler = self.handler;
+        self.record(
+            self.bounds,
+            self.clip,
+            key,
+            value,
+            move |_, offset, command, _, _, _, target| {
+                let call = ErasedCommand {
+                    draw: Some(Call::<H, R, P>::draw),
+                    ..ErasedCommand::prepared(
+                        &mut target.data,
+                        handler,
+                        (offset, prepare, draw),
+                        |handler, (offset, prepare, draw), cx| {
+                            // safety: recording pairs this offset with T
+                            let value = unsafe { cx.data.value_unchecked::<T>(*offset) };
+                            Call {
+                                value: prepare(handler, value, cx),
+                                draw: *draw,
+                                reads: None,
+                            }
+                        },
+                    )
+                };
+                target.push(call, command.bounds, command.clip);
+            },
+        );
     }
 
     /// records a framebuffer effect with its source footprint for each output region
     pub fn pass<T: 'static>(
         &mut self,
-        key: &impl Hash,
+        key: impl PartialEq + Hash + 'static,
         value: T,
         draw: fn(&mut H, &T, &mut DrawContext<'_, P>),
         reads: fn(&H, &T, PhysicalRect) -> PhysicalRect,
@@ -249,38 +261,37 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
 
     fn record_draw<T: 'static>(
         &mut self,
-        key: &impl Hash,
+        key: impl PartialEq + Hash + 'static,
         value: T,
         draw: fn(&mut H, &T, &mut DrawContext<'_, P>),
         reads: Option<fn(&H, &T, PhysicalRect) -> PhysicalRect>,
     ) {
-        let call = ErasedCommand {
-            draw: Some(Call::<H, T, P>::draw),
-            reads: reads.map(|_| {
-                (|handler: NonNull<()>, value, data: &Arena, output| {
-                    // safety: recording pairs this callback with its typed value
-                    let call = unsafe { data.value_unchecked::<Call<H, T, P>>(value) };
-                    // safety: the context records the pointer selected for H
-                    call.reads.unwrap()(unsafe { handler.cast::<H>().as_ref() }, &call.value, output)
-                }) as _
-            }),
-            ..ErasedCommand::ready(self.handler, &mut self.commands.prepared, Call { value, draw, reads })
-        };
-        self.record::<T>(key, call);
-    }
-
-    fn record<T: 'static>(&mut self, key: &impl Hash, call: ErasedCommand<P>) {
-        let mut hash = FxHasher::default();
-        TypeId::of::<H>().hash(&mut hash);
-        TypeId::of::<T>().hash(&mut hash);
-        std::any::type_name_of_val(key).hash(&mut hash);
-        key.hash(&mut hash);
-        self.damage_input.records.push(Record {
-            bounds: self.bounds,
-            clip: self.clip,
-            fingerprint: hash.finish(),
-        });
-        self.commands.push(call, self.bounds, self.clip);
+        let handler = self.handler;
+        self.record(
+            self.bounds,
+            self.clip,
+            key,
+            Call { value, draw, reads },
+            move |input, offset, command, _, _, _, target| {
+                let call = ErasedCommand {
+                    handler,
+                    value: offset,
+                    prepare: None,
+                    draw: Some(|handler, offset, _, cx| {
+                        Call::<H, T, P>::draw(handler, offset, cx.data, cx);
+                    }),
+                    reads: input.reads.map(|_| {
+                        (|handler: NonNull<()>, offset, data: &Arena, output| {
+                            // safety: recording pairs this offset with Call
+                            let call = unsafe { data.value_unchecked::<Call<H, T, P>>(offset) };
+                            // safety: recording selects the handler for H
+                            call.reads.unwrap()(unsafe { handler.cast::<H>().as_ref() }, &call.value, output)
+                        }) as _
+                    }),
+                };
+                target.push(call, command.bounds, command.clip);
+            },
+        );
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
@@ -292,226 +303,214 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
     }
 
     pub fn rectangle(&mut self, rectangle: Rectangle<'_>) {
-        let mut hash = FxHasher::default();
-        hash.write_u8(0);
-        [
-            rectangle.area.x,
-            rectangle.area.y,
-            rectangle.area.width,
-            rectangle.area.height,
-            rectangle.radius.top_left,
-            rectangle.radius.top_right,
-            rectangle.radius.bottom_right,
-            rectangle.radius.bottom_left,
-            rectangle.opacity,
-            rectangle.border.width,
-        ]
-        .map(f32::to_bits)
-        .hash(&mut hash);
-        for fill in [rectangle.background, rectangle.border.fill] {
-            std::mem::discriminant(&fill).hash(&mut hash);
-            match fill {
-                Fill::Solid(color) => color.hash(&mut hash),
-                Fill::LinearGradient(gradient) => {
-                    assert!(
-                        gradient.stops.len() >= 2
-                            && gradient.angle_degrees.is_finite()
-                            && gradient
-                                .stops
-                                .iter()
-                                .all(|stop| stop.position.is_finite() && (0.0..=1.0).contains(&stop.position))
-                            && gradient
-                                .stops
-                                .windows(2)
-                                .all(|stops| stops[0].position < stops[1].position),
-                        "invalid linear gradient"
-                    );
-                    hash.write_u32(gradient.angle_degrees.to_bits());
-                    gradient.stops.len().hash(&mut hash);
-                    for stop in gradient.stops {
-                        hash.write_u32(stop.position.to_bits());
-                        stop.color.hash(&mut hash);
-                    }
-                }
+        let mut stops = [None; 2];
+        let fills = [rectangle.background, rectangle.border.fill];
+        let fills = [0, 1].map(|index| match fills[index] {
+            Fill::Solid(color) => Fill::Solid(color),
+            Fill::LinearGradient(gradient) => {
+                assert!(
+                    gradient.stops.len() >= 2
+                        && gradient.angle_degrees.is_finite()
+                        && gradient
+                            .stops
+                            .iter()
+                            .all(|stop| stop.position.is_finite() && (0.0..=1.0).contains(&stop.position))
+                        && gradient
+                            .stops
+                            .windows(2)
+                            .all(|stops| stops[0].position < stops[1].position),
+                    "invalid linear gradient"
+                );
+                stops[index] = Some(self.list.writer().extend(gradient.stops.iter().copied()));
+                Fill::LinearGradient(LinearGradient { stops: &[], ..gradient })
             }
-        }
-        self.damage_input.records.push(Record {
-            bounds: self.bounds,
-            clip: self.clip,
-            fingerprint: hash.finish(),
         });
-        if rectangle.opacity > 0.0
-            && let Some(bounds) = rectangle
-                .area
-                .to_physical(Scale2::uniform(self.scale))
-                .intersection(self.bounds)
-        {
-            let coverage = match rectangle.background {
-                Fill::Solid(color) if PremultipliedRgbaColor::with_opacity(color, rectangle.opacity).alpha == 255 => {
-                    if rectangle.radius == Default::default() {
-                        Coverage::Full
-                    } else {
-                        Coverage::Rounded
-                    }
-                }
-                _ => Coverage::None,
-            };
-            if self.clip == 0
-                && let Some(previous) = self.commands.metadata.last()
-                && previous.clip == 0
-                && previous.bounds == bounds
-                && coverage == Coverage::Full
-            {
-                self.commands.metadata.pop();
-                self.commands.entries.pop();
-                let removed = self.commands.len();
-                for indices in [&mut self.commands.meshes, &mut self.commands.passes] {
-                    if indices.last() == Some(&removed) {
-                        indices.pop();
-                    }
-                }
-            }
-            let mut stops = [None; 2];
-            let fills = [rectangle.background, rectangle.border.fill];
-            let fills = [0, 1].map(|index| match fills[index] {
-                Fill::Solid(color) => Fill::Solid(color),
-                Fill::LinearGradient(gradient) => {
-                    stops[index] = Some(self.commands.data.extend(gradient.stops.iter().copied()));
-                    Fill::LinearGradient(LinearGradient { stops: &[], ..gradient })
-                }
-            });
-            let rectangle = Rectangle {
+        let value = StoredRectangle {
+            rectangle: Rectangle {
                 background: fills[0],
                 border: Border {
                     fill: fills[1],
                     ..rectangle.border
                 },
                 ..rectangle
-            };
-            let command = self.commands.record(
-                bounds,
-                self.clip,
-                (self.scale, rectangle, stops),
-                |_, (scale, rectangle, stops), cx| {
-                    let mut rectangle = *rectangle;
-                    for (fill, stops) in [&mut rectangle.background, &mut rectangle.border.fill]
-                        .into_iter()
-                        .zip(stops)
-                    {
-                        if let Fill::LinearGradient(gradient) = fill {
-                            gradient.stops = cx.data.slice(stops.unwrap());
-                        }
-                    }
-                    crate::render::rectangle::Prepared::new(&rectangle, *scale, cx.gradients)
-                        .map(Payload::Rectangle)
-                        .unwrap_or(Payload::Empty)
-                },
-            );
-            command.coverage = coverage;
-        }
+            },
+            stops,
+        };
+        self.list.push(
+            self.bounds,
+            self.clip,
+            value,
+            const {
+                &Operations::new(
+                    |a: &StoredRectangle, left, b, right| a.view(left) == b.view(right),
+                    |value, data, state| {
+                        value.view(data).hash(state);
+                    },
+                    crate::raster::Operations {
+                        prepare: |record, data, scale, _, target| {
+                            // safety: recording pairs this operation with its input and pixel type
+                            let input = unsafe { data.value_unchecked::<StoredRectangle>(record.offset()) };
+                            let target = unsafe { target.cast::<RasterCommands<P>>().as_mut() };
+                            let rectangle = input.rectangle;
+                            let Some(bounds) = rectangle
+                                .area
+                                .to_physical(Scale2::uniform(scale))
+                                .intersection(record.bounds)
+                            else {
+                                return;
+                            };
+                            if rectangle.opacity <= 0.0 || rectangle.opacity.is_nan() {
+                                return;
+                            }
+                            let coverage = match rectangle.background {
+                                Fill::Solid(color)
+                                    if PremultipliedRgbaColor::with_opacity(color, rectangle.opacity).alpha == 255 =>
+                                {
+                                    if rectangle.radius == Default::default() {
+                                        Coverage::Full
+                                    } else {
+                                        Coverage::Rounded
+                                    }
+                                }
+                                _ => Coverage::None,
+                            };
+                            if record.clip == 0
+                                && coverage == Coverage::Full
+                                && let Some(previous) = target.metadata.last()
+                                && previous.clip == 0
+                                && previous.bounds == bounds
+                            {
+                                target.metadata.pop();
+                                target.entries.pop();
+                                let removed = target.len();
+                                for indices in [&mut target.meshes, &mut target.passes] {
+                                    if indices.last() == Some(&removed) {
+                                        indices.pop();
+                                    }
+                                }
+                            }
+                            target
+                                .record(
+                                    bounds,
+                                    record.clip,
+                                    (scale, record.offset()),
+                                    |_, (scale, value), cx| {
+                                        // safety: recording stores this offset as StoredRectangle
+                                        let input = unsafe { cx.data.value_unchecked::<StoredRectangle>(*value) };
+                                        crate::render::rectangle::Prepared::new(
+                                            &input.view(cx.data),
+                                            *scale,
+                                            cx.gradients,
+                                        )
+                                        .map(Payload::Rectangle)
+                                        .unwrap_or(Payload::Empty)
+                                    },
+                                )
+                                .coverage = coverage;
+                        },
+                    },
+                )
+            },
+        );
     }
 
     pub fn image(&mut self, request: ImageRequest) {
-        let mut hash = FxHasher::default();
-        hash.write_u8(1);
-        request.image.hash(&mut hash);
-        [
-            request.area.x,
-            request.area.y,
-            request.area.width,
-            request.area.height,
-            request.opacity,
-        ]
-        .map(f32::to_bits)
-        .hash(&mut hash);
-        std::mem::discriminant(&request.fit).hash(&mut hash);
-        std::mem::discriminant(&request.sampling).hash(&mut hash);
-        std::mem::discriminant(&request.horizontal_tiling).hash(&mut hash);
-        std::mem::discriminant(&request.vertical_tiling).hash(&mut hash);
-        request.colorize.hash(&mut hash);
-        request
-            .nine_slice
-            .map(|slice| [slice.top, slice.right, slice.bottom, slice.left])
-            .hash(&mut hash);
-        self.damage_input.records.push(Record {
-            bounds: self.bounds,
-            clip: self.clip,
-            fingerprint: hash.finish(),
-        });
-        if let Some(texture) = self.images.get(request.image.into()) {
-            prepare_image_patches(&request, texture.data.size, self.scale, |patch| {
-                if let Some(bounds) = patch.bounds.intersection(self.bounds) {
-                    let (opaque, partial_opaque) = crate::render::image::coverage(
-                        &request,
-                        patch,
-                        &texture.data,
-                        texture.opaque,
-                        texture.has_opaque_spans,
-                    );
-                    let command = self.commands.record(
-                        bounds,
-                        self.clip,
-                        (self.scale, request, patch),
-                        |_, (scale, request, patch), _| {
-                            crate::render::image_patch::Prepared::new(request, *patch, *scale)
-                                .map(Payload::Image)
-                                .unwrap_or(Payload::Empty)
+        self.list.push(
+            self.bounds,
+            self.clip,
+            request,
+            const {
+                &Operations::new(
+                    |a: &ImageRequest, _, b, _| a == b,
+                    |value, _, state| {
+                        value.hash(state);
+                    },
+                    crate::raster::Operations {
+                        prepare: |record, data, scale, images, target| {
+                            // safety: recording pairs this operation with its input and pixel type
+                            let request = unsafe { data.value_unchecked::<ImageRequest>(record.offset()) };
+                            let target = unsafe { target.cast::<RasterCommands<P>>().as_mut() };
+                            if let Some(texture) = images.get(request.image.into()) {
+                                prepare_image_patches(request, texture.data.size, scale, |patch| {
+                                    if let Some(bounds) = patch.bounds.intersection(record.bounds) {
+                                        let (opaque, partial) = crate::render::image::coverage(
+                                            request,
+                                            patch,
+                                            &texture.data,
+                                            texture.opaque,
+                                            texture.has_opaque_spans,
+                                        );
+                                        target
+                                            .record(
+                                                bounds,
+                                                record.clip,
+                                                (scale, record.offset(), patch),
+                                                |_, (scale, value, patch), cx| {
+                                                    // safety: recording stores this offset as ImageRequest
+                                                    let request =
+                                                        unsafe { cx.data.value_unchecked::<ImageRequest>(*value) };
+                                                    crate::render::image_patch::Prepared::new(request, *patch, *scale)
+                                                        .map(Payload::Image)
+                                                        .unwrap_or(Payload::Empty)
+                                                },
+                                            )
+                                            .coverage = if opaque {
+                                            Coverage::Full
+                                        } else if partial {
+                                            Coverage::PartialImage
+                                        } else {
+                                            Coverage::None
+                                        };
+                                    }
+                                });
+                            }
                         },
-                    );
-                    command.coverage = if opaque {
-                        Coverage::Full
-                    } else if partial_opaque {
-                        Coverage::PartialImage
-                    } else {
-                        Coverage::None
-                    };
-                }
-            });
-        }
+                    },
+                )
+            },
+        );
     }
 
     pub fn text(&mut self, request: TextRequest<'_>) {
-        let mut hash = FxHasher::default();
-        hash.write_u8(2);
-        request.text.hash(&mut hash);
-        request.colors.hash(&mut hash);
-        [
-            request.area.x,
-            request.area.y,
-            request.area.width,
-            request.area.height,
-            request.offset_x,
-        ]
-        .map(f32::to_bits)
-        .hash(&mut hash);
-        request.options.wrap.hash(&mut hash);
-        request.options.overflow.hash(&mut hash);
-        request.options.horizontal_align.hash(&mut hash);
-        request.options.vertical_align.hash(&mut hash);
-        request.options.max_lines.hash(&mut hash);
-        self.damage_input.records.push(Record {
-            bounds: self.bounds,
-            clip: self.clip,
-            fingerprint: hash.finish(),
-        });
-        let area = request.area.to_physical(Scale2::uniform(self.scale));
-        if let Some(visible) = area.intersection(self.bounds) {
-            let colors = self.commands.data.extend(request.colors.iter().copied());
-            let request = TextRequest { colors: &[], ..request };
-            self.commands.record(
-                visible,
-                self.clip,
-                (self.scale, request, colors),
-                |_, (scale, request, colors), cx| {
-                    let request = TextRequest {
-                        colors: cx.data.slice(*colors),
-                        ..*request
-                    };
-                    let (text, bounds) = cx.text.prepare(&request, *scale);
-                    Payload::Text(text, bounds)
-                },
-            );
-        }
+        let colors = self.list.writer().extend(request.colors.iter().copied());
+        let value = StoredText {
+            request: TextRequest { colors: &[], ..request },
+            colors,
+        };
+        self.list.push(
+            self.bounds,
+            self.clip,
+            value,
+            const {
+                &Operations::new(
+                    |a: &StoredText, left, b, right| a.view(left) == b.view(right),
+                    |value, data, state| {
+                        value.view(data).hash(state);
+                    },
+                    crate::raster::Operations {
+                        prepare: |record, data, scale, _, target| {
+                            // safety: recording pairs this operation with its input and pixel type
+                            let input = unsafe { data.value_unchecked::<StoredText>(record.offset()) };
+                            let target = unsafe { target.cast::<RasterCommands<P>>().as_mut() };
+                            let area = input.request.area.to_physical(Scale2::uniform(scale));
+                            if let Some(bounds) = area.intersection(record.bounds) {
+                                target.record(
+                                    bounds,
+                                    record.clip,
+                                    (scale, record.offset()),
+                                    |_, (scale, value), cx| {
+                                        // safety: recording stores this offset as StoredText
+                                        let input = unsafe { cx.data.value_unchecked::<StoredText>(*value) };
+                                        let (text, bounds) = cx.text.prepare(&input.view(cx.data), *scale);
+                                        Payload::Text(text, bounds)
+                                    },
+                                );
+                            }
+                        },
+                    },
+                )
+            },
+        );
     }
 
     pub fn mesh(&mut self, mesh: Mesh<'_>) {
@@ -523,43 +522,140 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             mesh.indices.iter().all(|index| (*index as usize) < mesh.vertices.len()),
             "mesh index out of bounds"
         );
-        let mut hash = FxHasher::default();
-        hash.write_u8(3);
-        mesh.vertices.len().hash(&mut hash);
-        for vertex in mesh.vertices {
-            assert!(
-                vertex.position.x.is_finite() && vertex.position.y.is_finite(),
-                "mesh positions must be finite"
-            );
-            [vertex.position.x, vertex.position.y].map(f32::to_bits).hash(&mut hash);
-            vertex.color.hash(&mut hash);
-        }
-        mesh.indices.hash(&mut hash);
-        self.damage_input.records.push(Record {
-            bounds: self.bounds,
-            clip: self.clip,
-            fingerprint: hash.finish(),
-        });
-        let vertices = self.commands.data.extend(mesh.vertices.iter().copied());
-        let indices = self.commands.data.extend(mesh.indices.iter().copied());
-        let call = ErasedCommand::ready(
-            NonNull::<()>::dangling(),
-            &mut self.commands.prepared,
-            Payload::Mesh(vertices, indices, self.scale),
+        assert!(
+            mesh.vertices
+                .iter()
+                .all(|vertex| vertex.position.x.is_finite() && vertex.position.y.is_finite()),
+            "mesh positions must be finite"
         );
-        let index = self.commands.len();
-        self.commands.push(call, self.bounds, self.clip);
-        self.commands.meshes.push(index);
+        let vertices = self.list.writer().extend(mesh.vertices.iter().copied());
+        let indices = self.list.writer().extend(mesh.indices.iter().copied());
+        let value = StoredMesh { vertices, indices };
+        self.list.push(
+            self.bounds,
+            self.clip,
+            value,
+            const {
+                &Operations::new(
+                    |a: &StoredMesh, left, b, right| a.view(left) == b.view(right),
+                    |value, data, state| {
+                        value.view(data).hash(state);
+                    },
+                    crate::raster::Operations {
+                        prepare: |record, data, scale, _, target| {
+                            // safety: recording pairs this operation with its input and pixel type
+                            let input = unsafe { data.value_unchecked::<StoredMesh>(record.offset()) };
+                            let target = unsafe { target.cast::<RasterCommands<P>>().as_mut() };
+                            let call = ErasedCommand::ready(
+                                NonNull::<()>::dangling(),
+                                &mut target.prepared,
+                                Payload::Mesh(input.vertices, input.indices, scale),
+                            );
+                            let index = target.len();
+                            target.push(call, record.bounds, record.clip);
+                            target.meshes.push(index);
+                        },
+                    },
+                )
+            },
+        );
     }
 
     pub fn clear(&mut self) {
-        self.damage_input.records.push(Record {
-            bounds: self.bounds,
-            clip: 0,
-            fingerprint: u64::MAX,
+        self.record(self.bounds, 0, (), (), |_, _, record, _, _, _, target| {
+            let call = ErasedCommand::ready(NonNull::<()>::dangling(), &mut target.prepared, Payload::Clear);
+            target.push(call, record.bounds, 0).coverage = Coverage::Full;
         });
-        let call = ErasedCommand::ready(NonNull::<()>::dangling(), &mut self.commands.prepared, Payload::Clear);
-        self.commands.push(call, self.bounds, 0).coverage = Coverage::Full;
+    }
+
+    fn record<T: 'static, K: PartialEq + Hash + 'static, F>(
+        &mut self,
+        bounds: PhysicalRect,
+        clip: u32,
+        key: K,
+        value: T,
+        prepare: F,
+    ) where
+        F: Fn(
+                &T,
+                u32,
+                &Command<crate::raster::Operations>,
+                &Arena,
+                f32,
+                &blit_arena::Arena<StoredImage>,
+                &mut RasterCommands<P>,
+            ) + 'static,
+    {
+        self.list.push(
+            bounds,
+            clip,
+            (key, value, prepare),
+            const {
+                &Operations::new(
+                    |(left, _, _): &(K, T, F), _, (right, _, _), _| left == right,
+                    |(key, _, _), _, state| {
+                        key.hash(state);
+                    },
+                    crate::raster::Operations {
+                        prepare: |command, data, scale, images, target| {
+                            // safety: recording pairs this operation with its input and pixel type
+                            let (_, value, prepare) = unsafe { data.value_unchecked::<(K, T, F)>(command.offset()) };
+                            let offset = command.offset() + offset_of!((K, T, F), 1) as u32;
+                            let target = unsafe { target.cast::<RasterCommands<P>>().as_mut() };
+                            prepare(value, offset, command, data, scale, images, target);
+                        },
+                    },
+                )
+            },
+        );
+    }
+}
+
+struct StoredRectangle {
+    rectangle: Rectangle<'static>,
+    stops: [Option<Slice<GradientStop>>; 2],
+}
+
+impl StoredRectangle {
+    fn view<'a>(&self, data: &'a Arena) -> Rectangle<'a> {
+        let mut rectangle = self.rectangle;
+        for (fill, stops) in [&mut rectangle.background, &mut rectangle.border.fill]
+            .into_iter()
+            .zip(self.stops)
+        {
+            if let Fill::LinearGradient(gradient) = fill {
+                gradient.stops = data.slice(stops.unwrap());
+            }
+        }
+        rectangle
+    }
+}
+
+struct StoredText {
+    request: TextRequest<'static>,
+    colors: Slice<blit_gui::color::Color>,
+}
+
+impl StoredText {
+    fn view<'a>(&self, data: &'a Arena) -> TextRequest<'a> {
+        TextRequest {
+            colors: data.slice(self.colors),
+            ..self.request
+        }
+    }
+}
+
+struct StoredMesh {
+    vertices: Slice<MeshVertex>,
+    indices: Slice<u32>,
+}
+
+impl StoredMesh {
+    fn view<'a>(&self, data: &'a Arena) -> Mesh<'a> {
+        Mesh {
+            vertices: data.slice(self.vertices),
+            indices: data.slice(self.indices),
+        }
     }
 }
 

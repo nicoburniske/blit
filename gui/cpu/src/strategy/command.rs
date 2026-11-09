@@ -1,12 +1,15 @@
 use std::{ops::Range, ptr::NonNull};
 
 use blit::PhysicalRect;
-use blit_gui::{color::Color, paint::MeshVertex};
+use blit_gui::{
+    arena::{Arena, Slice},
+    color::Color,
+    paint::MeshVertex,
+};
 
 use super::clip::ClipId;
 use crate::{
     DamageTracker, DrawContext, Pixel, StoredImage,
-    arena::{Arena, Slice},
     paint::{DrawTarget, ErasedCommand},
     render::{
         fill::Gradients,
@@ -19,7 +22,7 @@ use crate::{
 
 pub type CommandId = u32;
 
-pub struct CommandList<P> {
+pub struct RasterCommands<P> {
     pub metadata: Vec<Metadata>,
     pub entries: Vec<ErasedCommand<P>>,
     pub data: Arena,
@@ -30,7 +33,7 @@ pub struct CommandList<P> {
     pub passes: Vec<CommandId>,
 }
 
-impl<P> Default for CommandList<P> {
+impl<P> Default for RasterCommands<P> {
     fn default() -> Self {
         Self {
             metadata: Vec::new(),
@@ -68,7 +71,7 @@ pub struct PreparedText {
     pub color: Color,
 }
 
-impl<P: Pixel> CommandList<P> {
+impl<P: Pixel> RasterCommands<P> {
     pub fn len(&self) -> CommandId {
         CommandId::try_from(self.metadata.len()).expect("too many cpu commands in one frame")
     }
@@ -77,6 +80,7 @@ impl<P: Pixel> CommandList<P> {
     pub fn prepare(
         &mut self,
         id: CommandId,
+        data: &Arena,
         images: &mut blit_arena::Arena<StoredImage>,
         text: &mut TextRenderer,
     ) -> &Payload {
@@ -94,7 +98,7 @@ impl<P: Pixel> CommandList<P> {
             &mut self.prepared,
             &mut DrawContext {
                 bounds: command.bounds,
-                data: &self.data,
+                data,
                 text,
                 gradients: &mut self.gradients,
                 images,
@@ -118,7 +122,7 @@ impl<P: Pixel> CommandList<P> {
             && next < self.range.end
             && self.clip(next) == 0
             && self.bounds(id) == self.bounds(next)
-            && let Payload::Rectangle(second) = self.prepare(next, images, text)
+            && let Payload::Rectangle(second) = self.prepare(next, data, images, text)
             && let Some(pair) = first.fuse(second)
         {
             self.entries[id as usize] =
@@ -165,6 +169,7 @@ impl<P: Pixel> CommandList<P> {
         &mut self,
         id: CommandId,
         line: i32,
+        data: &Arena,
         images: &mut blit_arena::Arena<StoredImage>,
         text: &mut TextRenderer,
     ) -> Option<Range<i32>> {
@@ -175,7 +180,7 @@ impl<P: Pixel> CommandList<P> {
         let partial_image = metadata.coverage == Coverage::PartialImage;
         let area = metadata.bounds;
         let bounds = self.horizontal_bounds(id);
-        let span = match self.prepare(id, images, text) {
+        let span = match self.prepare(id, data, images, text) {
             Payload::Clear => bounds.clone(),
             Payload::Rectangle(rectangle) => rectangle.overwrite_span(line)?,
             Payload::SolidPair(_) => bounds.clone(),
@@ -198,7 +203,7 @@ impl<P: Pixel> CommandList<P> {
         (start < end).then_some(start..end)
     }
 
-    pub fn expand_meshes(&mut self, damage: &impl DamageTracker) {
+    pub fn expand_meshes(&mut self, data: &Arena, damage: &impl DamageTracker) {
         let range = self.range.clone();
         if !self.meshes.iter().any(|id| range.contains(id)) {
             return;
@@ -227,10 +232,10 @@ impl<P: Pixel> CommandList<P> {
             }) {
                 continue;
             }
-            for triangle in 0..self.data.slice(indices).len() / 3 {
-                let indices: [u32; 3] = self.data.slice(indices)[triangle * 3..][..3].try_into().unwrap();
+            for triangle in 0..data.slice(indices).len() / 3 {
+                let indices: [u32; 3] = data.slice(indices)[triangle * 3..][..3].try_into().unwrap();
                 let vertices = {
-                    let vertices = self.data.slice(vertices);
+                    let vertices = data.slice(vertices);
                     indices.map(|index| vertices[index as usize])
                 };
                 let points = vertices.map(|vertex| [vertex.position.x * scale, vertex.position.y * scale]);
@@ -267,7 +272,7 @@ impl<P: Pixel> CommandList<P> {
     }
 }
 
-impl<P: Pixel> CommandList<P> {
+impl<P: Pixel> RasterCommands<P> {
     pub fn record<T: 'static>(
         &mut self,
         bounds: PhysicalRect,

@@ -49,7 +49,7 @@ impl<P: Pixel> crate::Handler<BoxShadow, P> for Handler {
     fn handle(&mut self, shadow: BoxShadow, cx: &mut PaintContext<'_, Self, P>) {
         let scale = cx.scale;
         cx.draw_prepared(
-            &shadow,
+            shadow,
             (shadow, scale),
             |handler, (shadow, scale), cx| {
                 let scale_factor = *scale;

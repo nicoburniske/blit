@@ -1,6 +1,9 @@
 //! image data, display options, and renderer resources
 
-use std::rc::Rc;
+use std::{
+    hash::{Hash, Hasher},
+    rc::Rc,
+};
 
 use blit::{
     Scale2,
@@ -137,6 +140,29 @@ pub struct ImageRequest {
     pub nine_slice: Option<NineSlice>,
     pub horizontal_tiling: ImageTiling,
     pub vertical_tiling: ImageTiling,
+}
+
+impl Hash for ImageRequest {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.image.hash(state);
+        [
+            self.area.x,
+            self.area.y,
+            self.area.width,
+            self.area.height,
+            self.opacity,
+        ]
+        .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+        .hash(state);
+        std::mem::discriminant(&self.fit).hash(state);
+        std::mem::discriminant(&self.sampling).hash(state);
+        std::mem::discriminant(&self.horizontal_tiling).hash(state);
+        std::mem::discriminant(&self.vertical_tiling).hash(state);
+        self.colorize.hash(state);
+        self.nine_slice
+            .map(|slice| [slice.top, slice.right, slice.bottom, slice.left])
+            .hash(state);
+    }
 }
 
 #[doc(hidden)]

@@ -1,11 +1,22 @@
+use std::ptr::NonNull;
+
 use blit::PhysicalRect;
-use blit_gui::image::{ImageHandle, ImageRequest};
+use blit_gui::{
+    arena::Arena,
+    display_list::Command,
+    image::{ImageHandle, ImageRequest},
+};
 
 pub use crate::render::{blur, rounded};
 use crate::{
     DrawContext, PaintContext, Pixel, Span, StoredImage,
     render::{image, image_patch},
 };
+
+/// cpu preparation entry in a display list vtable
+pub struct Operations {
+    pub(crate) prepare: fn(&Command<Self>, &Arena, f32, &blit_arena::Arena<StoredImage>, NonNull<()>),
+}
 
 /// prepared image patches that retain their source image
 pub struct Image {

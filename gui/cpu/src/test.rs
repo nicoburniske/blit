@@ -22,6 +22,139 @@ use super::*;
 const SCALE: Scale2 = Scale2::IDENTITY;
 
 #[test]
+fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
+    use std::{
+        cell::Cell,
+        hash::{Hash, Hasher},
+        rc::Rc,
+    };
+
+    use blit_gui::display_list::Command;
+
+    #[derive(Default)]
+    struct Counts {
+        hashes: Cell<usize>,
+        comparisons: Cell<usize>,
+    }
+
+    #[derive(Clone)]
+    struct Key(u8, Rc<Counts>);
+
+    impl PartialEq for Key {
+        fn eq(&self, other: &Self) -> bool {
+            self.1.comparisons.set(self.1.comparisons.get() + 1);
+            self.0 == other.0
+        }
+    }
+
+    impl Hash for Key {
+        fn hash<H: Hasher>(&self, state: &mut H) {
+            self.1.hashes.set(self.1.hashes.get() + 1);
+            self.0.hash(state);
+        }
+    }
+
+    impl Handler<Key, Xrgb8888> for () {
+        fn handle(&mut self, key: Key, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+            let value = key.0;
+            cx.draw(key, value, |_, value, cx| {
+                cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(*value, 0, 0)));
+            });
+        }
+    }
+
+    impl<T: 'static> Handler<(Key, T), Xrgb8888> for () {
+        fn handle(&mut self, (key, value): (Key, T), cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+            cx.draw(key, value, |_, _, _| {});
+        }
+    }
+
+    fn check<D: DamageTracker>(damage: D, tiled: bool) {
+        let mut renderer = new_renderer(VecBuffer::new(16, 8), renderer_config()).damage_tracker(damage);
+        let visible = Rc::<Counts>::default();
+        let hidden = Rc::<Counts>::default();
+        let area = LogicalRect::new(0.0, 0.0, 8.0, 8.0);
+        for (frame, value) in [32, 32, 64].into_iter().enumerate() {
+            visible.hashes.set(0);
+            visible.comparisons.set(0);
+            hidden.hashes.set(0);
+            renderer.handle::<(), _>(area, Key(value, visible.clone()));
+            renderer.handle::<(), _>(LogicalRect::new(32.0, 0.0, 8.0, 8.0), Key(255, hidden.clone()));
+            renderer.push_clip(LogicalRect::new(8.0, 0.0, 8.0, 8.0), BorderRadius::default());
+            renderer.handle::<(), _>(area, Key(255, hidden.clone()));
+            renderer.pop_clip();
+            assert_eq!(visible.hashes.get(), 0);
+            assert_eq!(visible.comparisons.get(), 0);
+            assert_eq!(hidden.hashes.get(), 0);
+            renderer.render(1);
+            assert_eq!(visible.hashes.get(), usize::from(tiled));
+            assert_eq!(hidden.hashes.get(), 0);
+            assert_eq!(visible.comparisons.get() > 0, !tiled && frame > 0);
+            assert_eq!(renderer.buffer().pixels()[0], Xrgb8888::from_rgb(value, 0, 0));
+        }
+    }
+
+    check(TileDamage::new(8), true);
+    check(damage::command::CommandDiff::default(), false);
+
+    let counts = Rc::<Counts>::default();
+    let bounds = LogicalRect::new(0.0, 0.0, 8.0, 8.0);
+    let mut left = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
+    let mut right = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
+    left.handle::<(), _>(bounds, (Key(1, counts.clone()), 0u8));
+    right.handle::<(), _>(bounds, (Key(1, counts.clone()), 0u16));
+    assert!(!left.context.list.equivalent(0, &right.context.list, 0));
+    assert_eq!(counts.comparisons.get(), 0);
+    assert_eq!(size_of::<Command<raster::Operations>>(), 32);
+}
+
+#[test]
+fn panicking_damage_tracker_cannot_leave_foreign_commands() {
+    struct Swap {
+        foreign: Option<DisplayList<raster::Operations>>,
+    }
+
+    impl DamageTracker for Swap {
+        fn update(&mut self, _: &DisplayList<raster::Operations>, _: PhysicalRect, _: f32, _: u8) {}
+        fn invalidate(&mut self) {}
+        fn is_empty(&self) -> bool {
+            true
+        }
+        fn intersects(&self, _: PhysicalRect, _: u32) -> bool {
+            false
+        }
+        fn line_ranges(&self, _: i32, bounds: PhysicalRect, _: &mut Vec<Range<usize>>) -> i32 {
+            bounds.y + bounds.height
+        }
+        fn finish_frame(&mut self, list: &mut DisplayList<raster::Operations>) {
+            if let Some(mut foreign) = self.foreign.take() {
+                std::mem::swap(list, &mut foreign);
+                panic!("interrupted after swapping lists");
+            }
+        }
+    }
+
+    let mut other = new_renderer(VecBuffer::<Rgba8888>::new(8, 8), renderer_config());
+    other.paint(LogicalRect::new(0.0, 0.0, 8.0, 8.0), blit_gui::atom::Clear);
+    let foreign = Some(std::mem::take(&mut other.context.list));
+    let mut renderer =
+        new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config()).damage_tracker(Swap { foreign });
+    renderer.push_clip(LogicalRect::new(0.0, 0.0, 4.0, 8.0), BorderRadius::default());
+    renderer.pop_clip();
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| renderer.render(0))).is_err());
+    assert!(renderer.context.list.commands().is_empty());
+
+    let mut renderer = renderer.damage_tracker(TileDamage::new(4));
+    let area = LogicalRect::new(0.0, 0.0, 8.0, 8.0);
+    renderer.push_clip(LogicalRect::new(4.0, 0.0, 4.0, 8.0), BorderRadius::default());
+    renderer.paint(area, Rectangle::new(area).background(Color::WHITE));
+    renderer.pop_clip();
+    renderer.render(0);
+    assert_eq!(renderer.buffer().pixels()[0], Xrgb8888::background());
+    assert_eq!(renderer.buffer().pixels()[7], Xrgb8888::from_rgb(255, 255, 255));
+}
+
+#[test]
 fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
     use std::{cell::Cell, rc::Rc};
 
@@ -41,7 +174,7 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
 
     impl<const VALUE: u8> Handler<(), Xrgb8888> for Fill<VALUE> {
         fn handle(&mut self, _: (), cx: &mut PaintContext<'_, Self, Xrgb8888>) {
-            cx.draw(&(), (), |handler, _, cx| {
+            cx.draw((), (), |handler, _, cx| {
                 cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(handler.0, 0, 0)));
             });
         }
@@ -111,7 +244,7 @@ fn prepared_draws_capture_data_and_drop_results_once() {
         fn handle(&mut self, samples: Samples<'_>, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
             let values = cx.data().extend(samples.0.iter().copied());
             cx.draw_prepared(
-                &samples.0,
+                samples.0.to_vec(),
                 (values, samples.1),
                 |_, (values, counts), cx| {
                     counts.prepares.set(counts.prepares.get() + 1);
@@ -133,7 +266,7 @@ fn prepared_draws_capture_data_and_drop_results_once() {
         let mut values = [64];
         renderer.handle::<(), _>(bounds, Samples(&values, counts.clone()));
         values.fill(128);
-        assert_eq!(renderer.context.commands.prepared.used(), 0);
+        assert_eq!(renderer.context.raster.prepared.used(), 0);
         renderer.paint(
             bounds,
             Mesh {
@@ -176,18 +309,15 @@ fn builtin_preparation_follows_damage_and_occlusion() {
 
     impl RenderStrategy<VecBuffer<Xrgb8888>> for Check {
         fn render(&mut self, context: &mut RenderContext<VecBuffer<Xrgb8888>>, damage: &impl DamageTracker) {
-            assert!(matches!(context.commands.get(1), Payload::Pending));
-            assert!(matches!(context.commands.get(2), Payload::Pending));
+            assert!(matches!(context.raster.get(1), Payload::Pending));
+            assert!(matches!(context.raster.get(2), Payload::Pending));
             self.scanline.render(context, damage);
             if self.calls.get() == 0 {
-                assert!(matches!(context.commands.get(1), Payload::Pending));
+                assert!(matches!(context.raster.get(1), Payload::Pending));
             } else {
-                assert!(matches!(context.commands.get(1), Payload::Rectangle(_)));
+                assert!(matches!(context.raster.get(1), Payload::Rectangle(_)));
             }
-            assert_eq!(
-                matches!(context.commands.get(2), Payload::Pending),
-                self.calls.get() != 1
-            );
+            assert_eq!(matches!(context.raster.get(2), Payload::Pending), self.calls.get() != 1);
             self.calls.set(self.calls.get() + 1);
         }
     }
@@ -276,7 +406,7 @@ fn atoms_record_into_the_renderer_context() {
         frame.layout(&mut renderer);
         frame.paint(&mut renderer);
         renderer.render(1);
-        assert!(renderer.damage_input.records.is_empty());
+        assert!(renderer.context.list.commands().is_empty());
         assert!(renderer.buffer().pixels().iter().any(|pixel| pixel.raw() != 0xffffff));
     }
 }
@@ -375,9 +505,9 @@ fn dirty_tiles_preserve_gaps_and_blend_once() {
             }
             if frame == 0 {
                 // seed tracking without drawing to isolate partial rasterization
-                renderer.damage.update(&renderer.damage_input, screen, 1.0, 1);
-                renderer.damage_input.clear();
-                renderer.context.commands.clear();
+                renderer.damage.update(&renderer.context.list, screen, 1.0, 1);
+                renderer.context.list.clear();
+                renderer.context.raster.clear();
             } else {
                 renderer.render(1);
             }
@@ -607,13 +737,13 @@ fn mesh_interpolates_colors_without_shared_edge_overdraw() {
 
     impl RenderStrategy<VecBuffer<BgrPixel>> for Check {
         fn render(&mut self, context: &mut RenderContext<VecBuffer<BgrPixel>>, damage: &impl DamageTracker) {
-            let range = context.commands.range.clone();
-            context.commands.expand_meshes(damage);
+            let range = context.raster.range.clone();
+            context.raster.expand_meshes(context.list.data(), damage);
             for id in range {
-                assert!(matches!(context.commands.get(id), Payload::Pending | Payload::Mesh(..)));
+                assert!(matches!(context.raster.get(id), Payload::Pending | Payload::Mesh(..)));
             }
             self.0.render(context, damage);
-            assert_eq!(context.commands.range.len(), [3, 1, 3, 2, 1][self.1]);
+            assert_eq!(context.raster.range.len(), [3, 1, 3, 2, 1][self.1]);
             self.1 += 1;
         }
     }
@@ -644,7 +774,8 @@ fn mesh_interpolates_colors_without_shared_edge_overdraw() {
             indices: &indices,
         },
     );
-    assert_eq!(renderer.context.commands.len(), 1);
+    assert_eq!(renderer.context.list.commands().len(), 1);
+    assert_eq!(renderer.context.raster.len(), 0);
     indices.fill(0);
     renderer.render(0);
 

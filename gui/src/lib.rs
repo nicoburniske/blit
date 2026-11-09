@@ -1,6 +1,8 @@
+pub mod arena;
 pub mod atom;
 pub mod color;
 mod context;
+pub mod display_list;
 pub mod image;
 pub mod paint;
 pub mod shadow;

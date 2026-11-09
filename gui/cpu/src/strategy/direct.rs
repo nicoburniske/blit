@@ -12,14 +12,15 @@ pub struct Direct {
 
 impl<B: PixelBuffer> RenderStrategy<B> for Direct {
     fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker) {
-        context.commands.expand_meshes(damage);
+        context.raster.expand_meshes(context.list.data(), damage);
         let screen = PhysicalRect {
             x: context.buffer.x_offset() as i32,
             y: 0,
             width: context.buffer.width() as i32,
             height: context.buffer.height() as i32,
         };
-        let commands = &mut context.commands;
+        let commands = &mut context.raster;
+        let data = context.list.data();
         let clips = &context.clips;
         let images = &mut context.images;
         let text = &mut context.text;
@@ -41,11 +42,12 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                     for range in &self.ranges {
                         let clip = PhysicalRect::new(range.start as i32, line, (range.end - range.start) as i32, 1);
                         if clip_id == 0 {
-                            raster::draw_line(commands, offset, line, clip, 255, images, text, buffer);
+                            raster::draw_line(commands, data, offset, line, clip, 255, images, text, buffer);
                         } else {
                             clips.for_each(clip_id, line, clip.x..clip.x + clip.width, |range, coverage| {
                                 raster::draw_line(
                                     commands,
+                                    data,
                                     offset,
                                     line,
                                     PhysicalRect::new(range.start, line, range.end - range.start, 1),

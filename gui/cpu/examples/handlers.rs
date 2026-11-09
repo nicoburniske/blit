@@ -3,10 +3,11 @@ use std::{cell::Cell, collections::HashMap, io::Write, rc::Rc};
 use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_cpu::{
     DamageTracker, Handler, PaintContext, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderStrategy, Renderer,
-    RendererConfig, Scanline, VecBuffer, Xrgb8888, arena::Slice,
+    RendererConfig, Scanline, VecBuffer, Xrgb8888,
 };
 use blit_gui::{
     TextConfig, TextSystem,
+    arena::Slice,
     color::Color,
     image::{ImageData, ImageFormat, ImageHandle, ImagePixels},
     paint::Rectangle,
@@ -46,7 +47,6 @@ struct BlurHandler {
     calls: Rc<Cell<usize>>,
 }
 
-#[derive(Hash)]
 struct Path<'a> {
     points: &'a [[i16; 2]],
     width: u16,
@@ -76,7 +76,8 @@ impl<P: Pixel> Handler<Path<'_>, P> for () {
                 radius: path.width as f32 * cx.scale * 0.5,
                 color: path.color,
             };
-        cx.draw(&path, prepared, |_, path, cx| {
+        let key = (path.points.to_vec(), path.width, path.color);
+        cx.draw(key, prepared, |_, path, cx| {
             cx.for_each_span(|span| {
                 let segments = span.data.slice(path.segments);
                 for (index, pixel) in span.pixels.iter_mut().enumerate() {
@@ -100,7 +101,7 @@ impl<P: Pixel> Handler<Path<'_>, P> for () {
     }
 }
 
-#[derive(Hash)]
+#[derive(Clone, Copy, Hash, PartialEq)]
 struct SoftShadow {
     blur: u16,
     color: Color,
@@ -128,7 +129,7 @@ impl<P: Pixel> Handler<SoftShadow, P> for ShadowHandler {
     fn handle(&mut self, shadow: SoftShadow, cx: &mut PaintContext<'_, Self, P>) {
         let radius = (shadow.blur as f32 * cx.scale).round().max(1.0) as i32;
         cx.draw_prepared(
-            &shadow,
+            shadow,
             (radius, shadow.color),
             |handler, (radius, color), cx| {
                 handler.stats.prepares.set(handler.stats.prepares.get() + 1);
@@ -183,7 +184,7 @@ impl<P: Pixel> Handler<SoftShadow, P> for ShadowHandler {
     }
 }
 
-#[derive(Hash)]
+#[derive(Clone, Copy, Hash, PartialEq)]
 struct BackdropBlur {
     radius: u16,
 }
@@ -200,7 +201,7 @@ impl Handler<BackdropBlur, Xrgb8888> for BlurHandler {
     fn handle(&mut self, blur: BackdropBlur, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
         let radius = (blur.radius as f32 * cx.scale).round() as usize;
         cx.pass(
-            &blur,
+            blur,
             radius,
             |handler, radius, cx| {
                 handler.calls.set(handler.calls.get() + 1);
@@ -566,12 +567,12 @@ mod tests {
     #[test]
     #[should_panic(expected = "outside its declared source footprint")]
     fn pass_reads_outside_declared_dependencies_are_rejected() {
-        #[derive(Hash)]
+        #[derive(Clone, Copy, Hash, PartialEq)]
         struct BadRead;
         impl Handler<BadRead, Xrgb8888> for () {
             fn handle(&mut self, command: BadRead, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
                 cx.pass(
-                    &command,
+                    command,
                     (),
                     |_, _, cx| {
                         let _ = cx.source().unwrap().row(220, 340..341);
@@ -593,7 +594,7 @@ mod tests {
 
     #[test]
     fn nonlocal_pass_dependencies_rebuild_source_before_later_overlays() {
-        #[derive(Clone, Copy, Hash)]
+        #[derive(Clone, Copy, Hash, PartialEq)]
         struct CopyArea(bool);
         impl Handler<CopyArea, Xrgb8888> for () {
             fn handle(&mut self, command: CopyArea, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
@@ -604,7 +605,7 @@ mod tests {
                     return;
                 }
                 cx.pass(
-                    &command,
+                    command,
                     (),
                     |_, _, cx| {
                         let Some(source) = cx.source() else {
@@ -799,12 +800,12 @@ mod tests {
 
     #[test]
     fn pass_barriers_read_current_frame_and_respect_nested_clips() {
-        #[derive(Hash)]
+        #[derive(Clone, Copy, Hash, PartialEq)]
         struct Shift;
         impl Handler<Shift, Xrgb8888> for () {
             fn handle(&mut self, command: Shift, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
                 cx.pass(
-                    &command,
+                    command,
                     (),
                     |_, _, cx| {
                         let source = cx.source().unwrap();

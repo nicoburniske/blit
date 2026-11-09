@@ -14,7 +14,7 @@ use std::{hash::Hash, ops::Range};
 
 use blit::{PhysicalRect, Scale2, internal::hash::FxHasher};
 
-use super::{DamageInput, DamageTracker};
+use super::{DamageTracker, DisplayList};
 
 pub struct TileDamage {
     shift: u32,
@@ -55,7 +55,13 @@ impl TileDamage {
 }
 
 impl DamageTracker for TileDamage {
-    fn update(&mut self, input: &DamageInput, screen: PhysicalRect, scale: f32, buffer_age: u8) {
+    fn update(
+        &mut self,
+        input: &DisplayList<crate::raster::Operations>,
+        screen: PhysicalRect,
+        scale: f32,
+        buffer_age: u8,
+    ) {
         let tile_size = 1usize << self.shift;
         if self.screen != screen {
             self.screen = screen;
@@ -80,7 +86,7 @@ impl DamageTracker for TileDamage {
             bounds: screen,
             inner: screen,
         });
-        for clip in &input.clips {
+        for clip in input.clips() {
             let parent = &self.clips[clip.parent as usize];
             let area = clip.area.to_physical(Scale2::uniform(scale));
             let radius = [
@@ -118,7 +124,7 @@ impl DamageTracker for TileDamage {
                 inner: inner.intersection(parent.inner).unwrap_or_default(),
             });
         }
-        for record in &input.records {
+        for (index, record) in input.commands().iter().enumerate() {
             let clip = &self.clips[record.clip as usize];
             let Some(bounds) = record.bounds.intersection(clip.bounds) else {
                 continue;
@@ -128,7 +134,7 @@ impl DamageTracker for TileDamage {
             if bounds.intersection(clip.inner) != Some(bounds) {
                 hash.write_u64(clip.hash);
             }
-            hash.write_u64(record.fingerprint);
+            input.hash(index, &mut hash);
             let hash = hash.finish();
             let left = bounds.x as usize >> self.shift;
             let right = ((bounds.x + bounds.width - 1) as usize >> self.shift) + 1;

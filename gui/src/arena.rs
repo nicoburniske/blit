@@ -17,7 +17,7 @@ pub struct Writer<'a>(&'a mut Arena);
 /// typed handles are invariant and tied to their arena epoch
 ///
 /// ```compile_fail
-/// use blit_cpu::arena::{Arena, Handle};
+/// use blit_gui::arena::{Arena, Handle};
 /// let mut arena = Arena::default();
 /// let handle: Handle<fn(&str)> = arena.push((|_: &str| {}) as fn(&str));
 /// let _: Handle<fn(&'static str)> = handle;
@@ -83,7 +83,9 @@ impl Arena {
         Some(unsafe { self.bump.get(Offset::new(value.offset)) })
     }
 
-    pub(crate) unsafe fn value_unchecked<T: 'static>(&self, offset: u32) -> &T {
+    /// # Safety
+    /// the offset must identify a live initialized T in this arena
+    pub unsafe fn value_unchecked<T: 'static>(&self, offset: u32) -> &T {
         debug_assert!(offset as usize <= self.bump.used());
         // safety: the caller pairs the value with its recorded type and arena
         unsafe { self.bump.get(Offset::new(offset)) }
@@ -109,7 +111,7 @@ impl Arena {
         self.bump.used()
     }
 
-    pub(crate) fn push_erased<T: 'static>(&mut self, value: T) -> u32 {
+    pub fn push_erased<T: 'static>(&mut self, value: T) -> u32 {
         self.bump.push(value).byte()
     }
 
@@ -126,6 +128,10 @@ impl Arena {
 impl Writer<'_> {
     pub fn push<T: 'static>(&mut self, value: T) -> Handle<T> {
         self.0.push(value)
+    }
+
+    pub fn push_erased<T: 'static>(&mut self, value: T) -> u32 {
+        self.0.push_erased(value)
     }
 
     pub fn extend<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> Slice<T> {

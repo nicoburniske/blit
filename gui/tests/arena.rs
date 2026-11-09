@@ -1,6 +1,6 @@
 use std::{cell::Cell, panic::AssertUnwindSafe, rc::Rc};
 
-use blit_cpu::arena::{Arena, Handle};
+use blit_gui::arena::{Arena, Handle};
 
 #[test]
 fn values_survive_growth_and_release_resources() {
