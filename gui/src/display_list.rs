@@ -1,18 +1,24 @@
-use std::{any::TypeId, hash::Hash, ptr::NonNull};
-
-use blit::{LogicalRect, PhysicalRect, internal::hash::FxHasher};
-
-use crate::{
-    arena::{Arena, Slice},
-    style::BorderRadius,
+use std::{
+    any::TypeId,
+    hash::Hash,
+    ptr::NonNull,
+    sync::atomic::{AtomicU32, Ordering},
 };
+
+use blit::{
+    LogicalRect, PhysicalRect,
+    internal::{bump::Bump, hash::FxHasher},
+};
+
+use crate::style::BorderRadius;
 
 /// owned drawing inputs and their static backend operations
 #[derive(Default)]
 pub struct DisplayList {
     commands: Vec<Command>,
     clips: Vec<Clip>,
-    data: Arena,
+    data: Bump,
+    epoch: u32,
 }
 
 pub struct Command {
@@ -25,9 +31,16 @@ pub struct Command {
 /// shared comparison operations and backend dispatch for one input type
 pub struct Ops {
     pub kind: TypeId,
-    pub equal: unsafe fn(&Arena, u32, &Arena, u32) -> bool,
-    pub hash: unsafe fn(&Arena, u32, &mut FxHasher),
-    pub dispatch: unsafe fn(&Command, &Arena, NonNull<()>),
+    pub equal: unsafe fn(&DisplayList, u32, &DisplayList, u32) -> bool,
+    pub hash: unsafe fn(&DisplayList, u32, &mut FxHasher),
+    pub dispatch: unsafe fn(&Command, &DisplayList, NonNull<()>),
+}
+
+/// slices stored until their display list is cleared
+#[derive(Clone, Copy)]
+pub struct Slice<T> {
+    slice: blit::internal::bump::Slice<T>,
+    epoch: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -46,24 +59,42 @@ impl DisplayList {
         &self.clips
     }
 
-    pub fn data(&self) -> &Arena {
+    pub fn data(&self) -> &Bump {
         &self.data
     }
 
     pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> Slice<T> {
-        self.data.store_slice(values)
+        static NEXT_EPOCH: AtomicU32 = AtomicU32::new(1);
+        if self.epoch == 0 {
+            self.epoch = NEXT_EPOCH
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |epoch| epoch.checked_add(1))
+                .expect("display list epochs exhausted");
+        }
+        Slice {
+            slice: self.data.extend(values),
+            epoch: self.epoch,
+        }
+    }
+
+    pub fn slice<T: Copy + 'static>(&self, slice: Slice<T>) -> &[T] {
+        assert_eq!(
+            slice.epoch, self.epoch,
+            "slice belongs to another display list or frame"
+        );
+        // safety: the private slice preserves its type and the epoch identifies its storage
+        unsafe { self.data.slice(slice.slice) }
     }
 
     /// # Safety
     /// the operations must match T and its backend interpretation
     /// matching kinds must have the same representation and comparison semantics
-    /// all referenced arena data must belong to this list
+    /// all referenced storage must belong to this list
     pub unsafe fn push<T: 'static>(&mut self, bounds: PhysicalRect, clip: u32, value: T, ops: &'static Ops) {
         assert!(clip as usize <= self.clips.len(), "invalid paint clip");
         self.commands.push(Command {
             bounds,
             clip,
-            value: self.data.store(value),
+            value: self.data.push(value).byte(),
             ops,
         });
     }
@@ -81,7 +112,7 @@ impl DisplayList {
         let operations = command.ops;
         operations.kind.hash(state);
         // safety: insertion pairs the operations with their recorded data
-        unsafe { (operations.hash)(&self.data, command.value, state) };
+        unsafe { (operations.hash)(self, command.value, state) };
     }
 
     pub fn equivalent(&self, index: usize, other: &Self, other_index: usize) -> bool {
@@ -108,10 +139,11 @@ impl DisplayList {
             other_clip = right.parent;
         }
         // safety: insertion pairs matching kinds with the same representation
-        unsafe { (operations.equal)(&self.data, left.value, &other.data, right.value) }
+        unsafe { (operations.equal)(self, left.value, other, right.value) }
     }
 
     pub fn clear(&mut self) {
+        self.epoch = 0;
         self.commands.clear();
         self.clips.clear();
         self.data.clear();
@@ -120,11 +152,11 @@ impl DisplayList {
 
 impl Command {
     /// # Safety
-    /// data must belong to this command's list and context must match its backend
+    /// list must contain this command and context must match its backend
     #[inline]
-    pub unsafe fn dispatch(&self, data: &Arena, context: NonNull<()>) {
-        // safety: the caller provides this command's data and backend context
-        unsafe { (self.ops.dispatch)(self, data, context) };
+    pub unsafe fn dispatch(&self, list: &DisplayList, context: NonNull<()>) {
+        // safety: the caller provides this command's list and backend context
+        unsafe { (self.ops.dispatch)(self, list, context) };
     }
 
     pub fn offset(&self) -> u32 {

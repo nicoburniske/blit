@@ -2,6 +2,7 @@ use std::ops::Range;
 
 use blit::geometry::PhysicalRect;
 use blit_arena::Arena;
+use blit_gui::display_list::DisplayList;
 
 use super::{
     RenderStrategy,
@@ -49,7 +50,7 @@ impl<P: Pixel> PixelBuffer for LineBuffer<'_, P> {
 
 fn draw_commands<const CLIPPED: bool, P: Pixel>(
     commands: &mut RasterCommands<P>,
-    data: &blit_gui::arena::Arena,
+    list: &DisplayList,
     active: &[CommandId],
     clip_ranges: &[Option<ClipLine>],
     images: &mut Arena<StoredImage>,
@@ -103,7 +104,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
                                 width: range.end - range.start,
                                 height: 1,
                             };
-                            raster::draw_line(commands, data, *command, line, clip, coverage, images, text, buffer);
+                            raster::draw_line(commands, list, *command, line, clip, coverage, images, text, buffer);
                         },
                     );
                     continue;
@@ -116,18 +117,18 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
             width: end - start,
             height: 1,
         };
-        raster::draw_line(commands, data, *command, line, clip, 255, images, text, buffer);
+        raster::draw_line(commands, list, *command, line, clip, 255, images, text, buffer);
     }
 }
 
 impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
     fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker) {
-        context.raster.expand_meshes(context.list.data(), damage);
+        context.raster.expand_meshes(&context.list, damage);
         let width = context.buffer.width();
         let height = context.buffer.height();
         let screen = PhysicalRect::new(0, 0, width as i32, height as i32);
         let commands = &mut context.raster;
-        let data = context.list.data();
+        let list = &context.list;
         let clips = &context.clips;
         let images = &mut context.images;
         let text = &mut context.text;
@@ -210,7 +211,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         bounds.start <= range.start as i32
                             && bounds.end >= range.end as i32
                             && commands
-                                .overwrite_span(**command, line, data, images, text)
+                                .overwrite_span(**command, line, list, images, text)
                                 .and_then(|span| clip_span(commands.clip(**command), span))
                                 .is_some_and(|span| span.start <= range.start as i32 && span.end >= range.end as i32)
                     })
@@ -230,7 +231,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         if clipped {
                             draw_commands::<true, _>(
                                 commands,
-                                data,
+                                list,
                                 active,
                                 &self.clip_ranges,
                                 images,
@@ -240,7 +241,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         } else {
                             draw_commands::<false, _>(
                                 commands,
-                                data,
+                                list,
                                 active,
                                 &self.clip_ranges,
                                 images,
@@ -265,7 +266,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         }
                         let command_first = first + 1 + offset;
                         // rounded commands and partially opaque images can hide a scanline center
-                        let span = commands.overwrite_span(*command, line, data, images, text)?;
+                        let span = commands.overwrite_span(*command, line, list, images, text)?;
                         let span = clip_span(commands.clip(*command), span)?;
                         let start = span.start.max(range.start as i32);
                         let end = span.end.min(range.end as i32);
@@ -286,7 +287,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         if clipped {
                             draw_commands::<true, _>(
                                 commands,
-                                data,
+                                list,
                                 &self.active[first..],
                                 &self.clip_ranges,
                                 images,
@@ -296,7 +297,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         } else {
                             draw_commands::<false, _>(
                                 commands,
-                                data,
+                                list,
                                 &self.active[first..],
                                 &self.clip_ranges,
                                 images,

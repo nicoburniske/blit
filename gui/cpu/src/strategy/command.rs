@@ -2,8 +2,8 @@ use std::{ops::Range, ptr::NonNull};
 
 use blit::{PhysicalRect, internal::bump::Bump};
 use blit_gui::{
-    arena::{Arena, Slice},
     color::Color,
+    display_list::{DisplayList, Slice},
     paint::MeshVertex,
 };
 
@@ -80,7 +80,7 @@ impl<P: Pixel> RasterCommands<P> {
     pub fn prepare(
         &mut self,
         id: CommandId,
-        data: &Arena,
+        list: &DisplayList,
         images: &mut blit_arena::Arena<StoredImage>,
         text: &mut TextRenderer,
     ) -> &Payload {
@@ -98,7 +98,7 @@ impl<P: Pixel> RasterCommands<P> {
             &mut self.prepared,
             &mut DrawContext {
                 bounds: command.bounds,
-                data,
+                list,
                 text,
                 gradients: &mut self.gradients,
                 images,
@@ -122,7 +122,7 @@ impl<P: Pixel> RasterCommands<P> {
             && next < self.range.end
             && self.clip(next) == 0
             && self.bounds(id) == self.bounds(next)
-            && let Payload::Rectangle(second) = self.prepare(next, data, images, text)
+            && let Payload::Rectangle(second) = self.prepare(next, list, images, text)
             && let Some(pair) = first.fuse(second)
         {
             self.entries[id as usize] =
@@ -169,7 +169,7 @@ impl<P: Pixel> RasterCommands<P> {
         &mut self,
         id: CommandId,
         line: i32,
-        data: &Arena,
+        list: &DisplayList,
         images: &mut blit_arena::Arena<StoredImage>,
         text: &mut TextRenderer,
     ) -> Option<Range<i32>> {
@@ -180,7 +180,7 @@ impl<P: Pixel> RasterCommands<P> {
         let partial_image = metadata.coverage == Coverage::PartialImage;
         let area = metadata.bounds;
         let bounds = self.horizontal_bounds(id);
-        let span = match self.prepare(id, data, images, text) {
+        let span = match self.prepare(id, list, images, text) {
             Payload::Clear => bounds.clone(),
             Payload::Rectangle(rectangle) => rectangle.overwrite_span(line)?,
             Payload::SolidPair(_) => bounds.clone(),
@@ -203,7 +203,7 @@ impl<P: Pixel> RasterCommands<P> {
         (start < end).then_some(start..end)
     }
 
-    pub fn expand_meshes(&mut self, data: &Arena, damage: &impl DamageTracker) {
+    pub fn expand_meshes(&mut self, list: &DisplayList, damage: &impl DamageTracker) {
         let range = self.range.clone();
         if !self.meshes.iter().any(|id| range.contains(id)) {
             return;
@@ -232,10 +232,10 @@ impl<P: Pixel> RasterCommands<P> {
             }) {
                 continue;
             }
-            for triangle in 0..data.slice(indices).len() / 3 {
-                let indices: [u32; 3] = data.slice(indices)[triangle * 3..][..3].try_into().unwrap();
+            for triangle in 0..list.slice(indices).len() / 3 {
+                let indices: [u32; 3] = list.slice(indices)[triangle * 3..][..3].try_into().unwrap();
                 let vertices = {
-                    let vertices = data.slice(vertices);
+                    let vertices = list.slice(vertices);
                     indices.map(|index| vertices[index as usize])
                 };
                 let points = vertices.map(|vertex| [vertex.position.x * scale, vertex.position.y * scale]);

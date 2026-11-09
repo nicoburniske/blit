@@ -7,9 +7,9 @@ use blit_cpu::{
 };
 use blit_gui::{
     TextConfig, TextSystem,
-    arena::Slice,
     color::Color,
     damage::DamageTracker,
+    display_list::Slice,
     image::{ImageData, ImageFormat, ImageHandle, ImagePixels},
     paint::Rectangle,
     style::BorderRadius,
@@ -80,7 +80,7 @@ impl<P: Pixel> Handler<Path<'_>, P> for () {
         let key = (path.points.to_vec(), path.width, path.color);
         cx.draw(key, prepared, |_, path, cx| {
             cx.for_each_span(|span| {
-                let segments = span.data.slice(path.segments);
+                let segments = span.slice(path.segments);
                 for (index, pixel) in span.pixels.iter_mut().enumerate() {
                     let point = [span.x as f32 + index as f32 + 0.5, span.y as f32 + 0.5];
                     let mut distance = f32::INFINITY;

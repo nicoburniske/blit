@@ -127,7 +127,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             for command in context.list.commands() {
                 // safety: recording pairs dispatch with this renderer's preparation context
                 unsafe {
-                    command.dispatch(context.list.data(), std::ptr::NonNull::from(&mut preparation).cast());
+                    command.dispatch(&context.list, std::ptr::NonNull::from(&mut preparation).cast());
                 }
             }
         }
@@ -195,7 +195,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                         &mut context.raster.prepared,
                         &mut DrawContext {
                             bounds: node.bounds,
-                            data: context.list.data(),
+                            list: &context.list,
                             text: &mut context.text,
                             gradients: &mut context.raster.gradients,
                             images: &mut context.images,
@@ -307,14 +307,14 @@ pub struct Span<'a, P> {
     pub pixels: &'a mut [P],
     /// clip coverage to apply when blending pixels
     pub coverage: u8,
-    pub data: &'a blit_gui::arena::Arena,
+    list: &'a DisplayList,
     images: &'a Arena<StoredImage>,
 }
 
 pub struct DrawContext<'a, P> {
     /// physical drawing bounds independent of the current span
     pub bounds: PhysicalRect,
-    data: &'a blit_gui::arena::Arena,
+    list: &'a DisplayList,
     text: &'a mut TextRenderer,
     gradients: &'a mut render::fill::Gradients,
     images: &'a mut Arena<StoredImage>,

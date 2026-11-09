@@ -1,4 +1,3 @@
-pub mod arena;
 pub mod atom;
 pub mod color;
 mod context;

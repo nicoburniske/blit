@@ -89,7 +89,7 @@ impl PassDamage {
                 let mut x = node.bounds.x & !(size - 1);
                 while x < node.bounds.x + node.bounds.width {
                     let output = PhysicalRect::new(x, y, size, size).intersection(node.bounds).unwrap();
-                    if self.present.intersects(call.reads(input.data(), output)) {
+                    if self.present.intersects(call.reads(input, output)) {
                         node.reads.add(output);
                     }
                     x += size;
@@ -108,7 +108,7 @@ impl PassDamage {
                 .rects()
                 .filter_map(|bounds| bounds.intersection(node.bounds))
             {
-                node.reads.add(call.reads(input.data(), output));
+                node.reads.add(call.reads(input, output));
             }
             let (before, after) = self.stages.split_at_mut(index + 1);
             before[index].clone_from(&after[0]);

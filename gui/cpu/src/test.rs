@@ -248,7 +248,7 @@ fn prepared_draws_capture_data_and_drop_results_once() {
                 (values, samples.1),
                 |_, (values, counts), cx| {
                     counts.prepares.set(counts.prepares.get() + 1);
-                    Prepared([cx.data().slice(*values)[0]; 1024], counts.clone())
+                    Prepared([cx.slice(*values)[0]; 1024], counts.clone())
                 },
                 |_, prepared, cx| {
                     let value = prepared.0[0];
@@ -738,7 +738,7 @@ fn mesh_interpolates_colors_without_shared_edge_overdraw() {
     impl RenderStrategy<VecBuffer<BgrPixel>> for Check {
         fn render(&mut self, context: &mut RenderContext<VecBuffer<BgrPixel>>, damage: &impl DamageTracker) {
             let range = context.raster.range.clone();
-            context.raster.expand_meshes(context.list.data(), damage);
+            context.raster.expand_meshes(&context.list, damage);
             for id in range {
                 assert!(matches!(context.raster.get(id), Payload::Pending | Payload::Mesh(..)));
             }

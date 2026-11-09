@@ -1,5 +1,6 @@
 use blit::geometry::PhysicalRect;
 use blit_arena::Arena;
+use blit_gui::display_list::DisplayList;
 
 use super::command::{CommandId, Payload, RasterCommands};
 use crate::{DrawContext, Pixel, PixelBuffer, PixelSpan, StoredImage, TextRenderer, paint::DrawTarget};
@@ -7,7 +8,7 @@ use crate::{DrawContext, Pixel, PixelBuffer, PixelSpan, StoredImage, TextRendere
 #[inline(always)]
 pub fn draw_line<B: PixelBuffer>(
     commands: &mut RasterCommands<B::Pixel>,
-    data: &blit_gui::arena::Arena,
+    list: &DisplayList,
     command: CommandId,
     line: i32,
     clip: PhysicalRect,
@@ -17,7 +18,7 @@ pub fn draw_line<B: PixelBuffer>(
     buffer: &mut B,
 ) {
     if commands.entries[command as usize].is_pending() {
-        commands.prepare(command, data, images, text);
+        commands.prepare(command, list, images, text);
     }
     let bounds = commands.bounds(command);
     match commands.get(command) {
@@ -34,7 +35,7 @@ pub fn draw_line<B: PixelBuffer>(
                 &mut commands.prepared,
                 &mut DrawContext {
                     bounds,
-                    data,
+                    list,
                     text,
                     gradients: &mut commands.gradients,
                     images,

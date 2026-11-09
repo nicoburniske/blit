@@ -8,8 +8,7 @@ use blit::{
     },
 };
 use blit_gui::{
-    arena::{Arena, Slice},
-    display_list::{Command, DisplayList, Ops},
+    display_list::{Command, DisplayList, Ops, Slice},
     image::{ImageData, ImageHandle, ImageRequest, prepare_image_patches},
     paint::{Mesh, MeshVertex, Rectangle},
     style::{Border, Fill, GradientStop, LinearGradient},
@@ -242,7 +241,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                         (offset, prepare, draw),
                         |handler, (offset, prepare, draw), cx| {
                             // safety: recording pairs this offset with T
-                            let value = unsafe { cx.data.load::<T>(*offset) };
+                            let value = unsafe { cx.list.data().get(Offset::<T>::new(*offset)) };
                             Call {
                                 value: prepare(handler, value, cx),
                                 draw: *draw,
@@ -287,13 +286,13 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                     prepare: None,
                     draw: Some(|handler, offset, _, cx| {
                         // safety: recording pairs this offset with Call and this handler with H
-                        let call = unsafe { cx.data.load::<Call<H, T, P>>(offset) };
+                        let call = unsafe { cx.list.data().get(Offset::<Call<H, T, P>>::new(offset)) };
                         (call.draw)(unsafe { handler.cast::<H>().as_mut() }, &call.value, cx);
                     }),
                     reads: input.reads.map(|_| {
-                        (|handler: NonNull<()>, offset, data: &Arena, output| {
+                        (|handler: NonNull<()>, offset, list: &DisplayList, output| {
                             // safety: recording pairs this offset with Call
-                            let call = unsafe { data.load::<Call<H, T, P>>(offset) };
+                            let call = unsafe { list.data().get(Offset::<Call<H, T, P>>::new(offset)) };
                             // safety: recording selects the handler for H
                             call.reads.unwrap()(unsafe { handler.cast::<H>().as_ref() }, &call.value, output)
                         }) as _
@@ -351,7 +350,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             self.clip,
             value,
             |a, left, b, right| a.view(left) == b.view(right),
-            |value, data, state| value.view(data).hash(state),
+            |value, list, state| value.view(list).hash(state),
             |input, offset, record, _, context| {
                 let scale = context.scale;
                 let target = &mut *context.commands;
@@ -396,8 +395,8 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                 target
                     .record(bounds, record.clip, (scale, offset), |_, (scale, value), cx| {
                         // safety: recording stores this offset as StoredRectangle
-                        let input = unsafe { cx.data.load::<StoredRectangle>(*value) };
-                        crate::render::rectangle::Prepared::new(&input.view(cx.data), *scale, cx.gradients)
+                        let input = unsafe { cx.list.data().get(Offset::<StoredRectangle>::new(*value)) };
+                        crate::render::rectangle::Prepared::new(&input.view(cx.list), *scale, cx.gradients)
                             .map(Payload::Rectangle)
                             .unwrap_or(Payload::Empty)
                     })
@@ -433,7 +432,8 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                                     (scale, offset, patch),
                                     |_, (scale, value, patch), cx| {
                                         // safety: recording stores this offset as ImageRequest
-                                        let request = unsafe { cx.data.load::<ImageRequest>(*value) };
+                                        let request =
+                                            unsafe { cx.list.data().get(Offset::<ImageRequest>::new(*value)) };
                                         crate::render::image_patch::Prepared::new(request, *patch, *scale)
                                             .map(Payload::Image)
                                             .unwrap_or(Payload::Empty)
@@ -464,7 +464,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             self.clip,
             value,
             |a, left, b, right| a.view(left) == b.view(right),
-            |value, data, state| value.view(data).hash(state),
+            |value, list, state| value.view(list).hash(state),
             |input, offset, record, _, context| {
                 let scale = context.scale;
                 let target = &mut *context.commands;
@@ -472,8 +472,8 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                 if let Some(bounds) = area.intersection(record.bounds) {
                     target.record(bounds, record.clip, (scale, offset), |_, (scale, value), cx| {
                         // safety: recording stores this offset as StoredText
-                        let input = unsafe { cx.data.load::<StoredText>(*value) };
-                        let (text, bounds) = cx.text.prepare(&input.view(cx.data), *scale);
+                        let input = unsafe { cx.list.data().get(Offset::<StoredText>::new(*value)) };
+                        let (text, bounds) = cx.text.prepare(&input.view(cx.list), *scale);
                         Payload::Text(text, bounds)
                     });
                 }
@@ -504,7 +504,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             self.clip,
             value,
             |a, left, b, right| a.view(left) == b.view(right),
-            |value, data, state| value.view(data).hash(state),
+            |value, list, state| value.view(list).hash(state),
             |input, _, record, _, context| {
                 let scale = context.scale;
                 let target = &mut *context.commands;
@@ -535,7 +535,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
         value: T,
         prepare: F,
     ) where
-        F: Fn(&T, u32, &Command, &Arena, f32, &blit_arena::Arena<StoredImage>, &mut RasterCommands<P>) + 'static,
+        F: Fn(&T, u32, &Command, &DisplayList, f32, &blit_arena::Arena<StoredImage>, &mut RasterCommands<P>) + 'static,
     {
         self.record_input(
             bounds,
@@ -543,13 +543,13 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             (key, value, prepare),
             |(a, _, _), _, (b, _, _), _| a == b,
             |(key, _, _), _, state| key.hash(state),
-            |(_, value, prepare), offset, command, data, context| {
+            |(_, value, prepare), offset, command, list, context| {
                 let offset = offset + offset_of!((K, T, F), 1) as u32;
                 prepare(
                     value,
                     offset,
                     command,
-                    data,
+                    list,
                     context.scale,
                     context.images,
                     context.commands,
@@ -567,30 +567,31 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
         hash: K,
         prepare: F,
     ) where
-        E: Fn(&T, &Arena, &T, &Arena) -> bool + 'static,
-        K: Fn(&T, &Arena, &mut FxHasher) + 'static,
-        F: Fn(&T, u32, &Command, &Arena, &mut PrepareContext<'_, P>) + 'static,
+        E: Fn(&T, &DisplayList, &T, &DisplayList) -> bool + 'static,
+        K: Fn(&T, &DisplayList, &mut FxHasher) + 'static,
+        F: Fn(&T, u32, &Command, &DisplayList, &mut PrepareContext<'_, P>) + 'static,
     {
         let ops = const {
             &Ops {
                 kind: TypeId::of::<(T, E, K, F)>(),
                 equal: |left, a, right, b| {
                     // safety: insertion pairs this table with the stored tuple
-                    let (a, equal, _, _) = unsafe { left.load::<(T, E, K, F)>(a) };
-                    let (b, _, _, _) = unsafe { right.load::<(T, E, K, F)>(b) };
+                    let (a, equal, _, _) = unsafe { left.data().get(Offset::<(T, E, K, F)>::new(a)) };
+                    let (b, _, _, _) = unsafe { right.data().get(Offset::<(T, E, K, F)>::new(b)) };
                     equal(a, left, b, right)
                 },
-                hash: |data, offset, state| {
+                hash: |list, offset, state| {
                     // safety: insertion pairs this table with the stored tuple
-                    let (value, _, hash, _) = unsafe { data.load::<(T, E, K, F)>(offset) };
-                    hash(value, data, state);
+                    let (value, _, hash, _) = unsafe { list.data().get(Offset::<(T, E, K, F)>::new(offset)) };
+                    hash(value, list, state);
                 },
-                dispatch: |command, data, context| {
+                dispatch: |command, list, context| {
                     // safety: recording pairs this table with its input and pixel type
-                    let (value, _, _, prepare) = unsafe { data.load::<(T, E, K, F)>(command.offset()) };
+                    let (value, _, _, prepare) =
+                        unsafe { list.data().get(Offset::<(T, E, K, F)>::new(command.offset())) };
                     let offset = command.offset() + offset_of!((T, E, K, F), 0) as u32;
                     let context = unsafe { context.cast::<PrepareContext<'_, P>>().as_mut() };
-                    prepare(value, offset, command, data, context);
+                    prepare(value, offset, command, list, context);
                 },
             }
         };
@@ -605,14 +606,14 @@ struct StoredRectangle {
 }
 
 impl StoredRectangle {
-    fn view<'a>(&self, data: &'a Arena) -> Rectangle<'a> {
+    fn view<'a>(&self, list: &'a DisplayList) -> Rectangle<'a> {
         let mut rectangle = self.rectangle;
         for (fill, stops) in [&mut rectangle.background, &mut rectangle.border.fill]
             .into_iter()
             .zip(self.stops)
         {
             if let Fill::LinearGradient(gradient) = fill {
-                gradient.stops = data.slice(stops.unwrap());
+                gradient.stops = list.slice(stops.unwrap());
             }
         }
         rectangle
@@ -625,9 +626,9 @@ struct StoredText {
 }
 
 impl StoredText {
-    fn view<'a>(&self, data: &'a Arena) -> TextRequest<'a> {
+    fn view<'a>(&self, list: &'a DisplayList) -> TextRequest<'a> {
         TextRequest {
-            colors: data.slice(self.colors),
+            colors: list.slice(self.colors),
             ..self.request
         }
     }
@@ -639,10 +640,10 @@ struct StoredMesh {
 }
 
 impl StoredMesh {
-    fn view<'a>(&self, data: &'a Arena) -> Mesh<'a> {
+    fn view<'a>(&self, list: &'a DisplayList) -> Mesh<'a> {
         Mesh {
-            vertices: data.slice(self.vertices),
-            indices: data.slice(self.indices),
+            vertices: list.slice(self.vertices),
+            indices: list.slice(self.indices),
         }
     }
 }
@@ -653,7 +654,7 @@ pub struct ErasedCommand<P> {
     value: u32,
     prepare: Option<fn(NonNull<()>, u32, &Bump, &mut Bump, &mut DrawContext<'_, P>) -> u32>,
     pub draw: Option<fn(NonNull<()>, u32, &Bump, &mut DrawContext<'_, P>)>,
-    pub reads: Option<fn(NonNull<()>, u32, &Arena, PhysicalRect) -> PhysicalRect>,
+    pub reads: Option<fn(NonNull<()>, u32, &DisplayList, PhysicalRect) -> PhysicalRect>,
 }
 
 impl<P: Pixel> ErasedCommand<P> {
@@ -715,8 +716,8 @@ impl<P> ErasedCommand<P> {
         }
     }
 
-    pub fn reads(&self, data: &Arena, output: PhysicalRect) -> PhysicalRect {
-        (self.reads.unwrap())(self.handler, self.value, data, output)
+    pub fn reads(&self, list: &DisplayList, output: PhysicalRect) -> PhysicalRect {
+        (self.reads.unwrap())(self.handler, self.value, list, output)
     }
 }
 
@@ -768,8 +769,8 @@ impl Drop for ErasedHandler {
 }
 
 impl<'a, P: Pixel> DrawContext<'a, P> {
-    pub fn data(&self) -> &Arena {
-        self.data
+    pub fn slice<T: Copy + 'static>(&self, slice: Slice<T>) -> &'a [T] {
+        self.list.slice(slice)
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
@@ -804,7 +805,7 @@ impl<'a, P: Pixel> DrawContext<'a, P> {
                 y: *y,
                 pixels,
                 coverage: *coverage,
-                data: self.data,
+                list: self.list,
                 images: self.images,
             }),
             DrawTarget::Pass {
@@ -821,7 +822,7 @@ impl<'a, P: Pixel> DrawContext<'a, P> {
                                     x: range.start,
                                     y,
                                     coverage,
-                                    data: self.data,
+                                    list: self.list,
                                     images: self.images,
                                     pixels,
                                 })
@@ -835,6 +836,10 @@ impl<'a, P: Pixel> DrawContext<'a, P> {
 }
 
 impl<'a, P> Span<'a, P> {
+    pub fn slice<T: Copy + 'static>(&self, slice: Slice<T>) -> &'a [T] {
+        self.list.slice(slice)
+    }
+
     pub fn image(&self, image: &ImageHandle) -> Option<&'a ImageData> {
         self.images.get(image.id().into()).map(|image| &image.data)
     }
