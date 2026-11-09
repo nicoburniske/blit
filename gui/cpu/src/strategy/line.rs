@@ -6,7 +6,7 @@ use blit_arena::Arena;
 use super::{
     RenderStrategy,
     clip::{ClipLine, ClipSpan},
-    command::{CommandId, CommandList, Payload},
+    command::{CommandId, CommandList, Coverage},
     raster,
 };
 use crate::{DamageTracker, Pixel, PixelBuffer, RenderContext, StoredImage, TextRenderer};
@@ -121,9 +121,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
 
 impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
     fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker) {
-        context
-            .commands
-            .expand_meshes(damage, &mut context.images, &mut context.text);
+        context.commands.expand_meshes(damage);
         let width = context.buffer.width();
         let height = context.buffer.height();
         let screen = PhysicalRect::new(0, 0, width as i32, height as i32);
@@ -132,9 +130,14 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         let images = &mut context.images;
         let text = &mut context.text;
         let buffer = &mut context.buffer;
-        let clipped = commands.has_clips;
-
-        self.starts.extend(commands.offsets());
+        let mut clipped = false;
+        let mut partial_opaque = false;
+        self.starts.extend(commands.range.clone());
+        for &id in &self.starts {
+            let metadata = &commands.metadata[id as usize];
+            clipped |= metadata.clip != 0;
+            partial_opaque |= metadata.coverage == Coverage::PartialImage;
+        }
         self.starts.sort_unstable_by(|left, right| {
             commands
                 .vertical_bounds(*left)
@@ -198,7 +201,10 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         let bounds = commands.horizontal_bounds(**command);
                         bounds.start <= range.start as i32
                             && bounds.end >= range.end as i32
-                            && commands.overwrites(**command)
+                            && matches!(
+                                commands.metadata[**command as usize].coverage,
+                                Coverage::Full | Coverage::Rounded
+                            )
                             && commands
                                 .overwrite_span(**command, line, images, text)
                                 .and_then(|span| clip_span(commands.clip(**command), span))
@@ -208,7 +214,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     .unwrap_or(0);
                 // splitting short spans costs more than redrawing their covered pixels
                 // TODO: what heuristic to use?
-                if range.len() < 128 && !commands.has_partial_opaque() {
+                if range.len() < 128 && !partial_opaque {
                     let active = &self.active[first..];
                     buffer.process_line(line as usize, range.clone(), |pixels| {
                         let mut buffer = LineBuffer {
@@ -236,20 +242,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         }
                         let command_first = first + 1 + offset;
                         // rounded commands and partially opaque images can hide a scanline center
-                        let span = if commands.overwrites(*command) {
-                            commands.overwrite_span(*command, line, images, text)
-                        } else if commands.partial_opaque(*command) {
-                            if matches!(commands.get(*command), Payload::Pending) {
-                                commands.prepare(*command, images, text);
-                            }
-                            let Payload::Image(image) = commands.get(*command) else {
-                                return None;
-                            };
-                            let texture = images.get(image.image.into())?;
-                            image.opaque_span(line, commands.bounds(*command), &texture.data, &texture.alpha_rows)
-                        } else {
-                            None
-                        }?;
+                        let span = commands.overwrite_span(*command, line, images, text)?;
                         let span = clip_span(commands.clip(*command), span)?;
                         let start = span.start.max(range.start as i32);
                         let end = span.end.min(range.end as i32);

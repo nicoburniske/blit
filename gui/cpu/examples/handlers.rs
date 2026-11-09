@@ -837,6 +837,7 @@ mod tests {
         .enumerate()
         {
             let source = Rectangle::new(LogicalRect::new(0.0, 0.0, 12.0, 1.0)).background(color);
+            renderer.handle::<(), _>(source.area, Shift);
             renderer.paint(source.area, source);
             renderer.handle::<(), _>(LogicalRect::new(0.0, 1.0, 12.0, 1.0), Shift);
             renderer.push_clip(LogicalRect::new(1.0, 0.0, 9.0, 8.0), BorderRadius::uniform(3.0));

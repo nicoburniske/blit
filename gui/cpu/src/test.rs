@@ -42,9 +42,12 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
     impl<const VALUE: u8> Handler<(), Xrgb8888> for Fill<VALUE> {
         fn handle(&mut self, _: (), cx: &mut PaintContext<'_, Self, Xrgb8888>) {
             cx.draw(&(), (), |handler, _, cx| {
-                handler.1 += 1;
                 cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(handler.0, 0, 0)));
             });
+        }
+
+        fn finish_frame(&mut self) {
+            self.1 += 1;
         }
     }
 
@@ -68,7 +71,8 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
             [Xrgb8888::from_rgb(red, 0, 0), Xrgb8888::from_rgb(16, 0, 0)]
         );
     }
-    assert_eq!(renderer.handler_mut::<Fill<16>>().1, 3);
+    renderer.render(1);
+    assert_eq!(renderer.handler_mut::<Fill<16>>().1, 5);
     assert_eq!(drops.get(), 1);
     drop(renderer);
     assert_eq!(drops.get(), 2);
@@ -596,13 +600,20 @@ fn renderer_supports_custom_pixel_layouts() {
 
 #[test]
 fn mesh_interpolates_colors_without_shared_edge_overdraw() {
+    use crate::strategy::command::Payload;
+
     #[derive(Default)]
     struct Check(Scanline, usize);
 
     impl RenderStrategy<VecBuffer<BgrPixel>> for Check {
         fn render(&mut self, context: &mut RenderContext<VecBuffer<BgrPixel>>, damage: &impl DamageTracker) {
+            let range = context.commands.range.clone();
+            context.commands.expand_meshes(damage);
+            for id in range {
+                assert!(matches!(context.commands.get(id), Payload::Pending | Payload::Mesh(..)));
+            }
             self.0.render(context, damage);
-            assert_eq!(context.commands.offsets().len(), [3, 1, 3, 1][self.1]);
+            assert_eq!(context.commands.range.len(), [3, 1, 3, 2, 1][self.1]);
             self.1 += 1;
         }
     }
@@ -665,18 +676,22 @@ fn mesh_interpolates_colors_without_shared_edge_overdraw() {
     assert!(pixels[16 + 13].green > pixels[16 + 13].red);
     assert!(pixels[5 * 16 + 9].blue > pixels[5 * 16 + 9].red);
 
-    renderer.paint(
-        LogicalRect::new(0.0, 0.0, 15.0, 8.0),
-        Mesh {
-            vertices: &vertices,
-            indices: &[0, 1, 2],
-        },
-    );
-    renderer.paint(
-        bounds.to_logical(SCALE),
-        Rectangle::new(bounds.to_logical(SCALE)).background(Color::WHITE),
-    );
-    renderer.render(0);
+    for radius in [2.0, 0.0] {
+        renderer.paint(
+            LogicalRect::new(0.0, 0.0, 15.0, 8.0),
+            Mesh {
+                vertices: &vertices,
+                indices: &[0, 1, 2],
+            },
+        );
+        renderer.paint(
+            bounds.to_logical(SCALE),
+            Rectangle::new(bounds.to_logical(SCALE))
+                .background(Color::WHITE)
+                .radius(BorderRadius::uniform(radius)),
+        );
+        renderer.render(0);
+    }
     assert!(renderer.buffer().pixels().iter().all(|pixel| *pixel
         == BgrPixel {
             red: 255,

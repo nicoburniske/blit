@@ -161,7 +161,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             }
             let mut start = 0;
             for (stage, node) in plan.passes.iter().enumerate() {
-                context.commands.range = Some(start..node.index);
+                context.commands.range = start..node.index;
                 self.strategy.render(context, &damage);
                 start = node.index + 1;
                 damage.region = Some(&plan.stages[stage + 1]);
@@ -202,7 +202,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                     );
                 }
             }
-            context.commands.range = Some(start..end);
+            context.commands.range = start..end;
             self.strategy.render(context, &damage);
             if !plan.passes.is_empty() {
                 let mut offset = 0;
@@ -224,9 +224,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         context.clips.clear();
         context.text.finish_frame();
         for handler in &mut self.handlers {
-            if let Some(finish) = handler.finish.take() {
-                finish(handler);
-            }
+            (handler.finish)(handler);
         }
         context.images.retain(|image| !image.handle.is_uniquely_owned());
         self.damage.finish_frame(&mut self.damage_input);

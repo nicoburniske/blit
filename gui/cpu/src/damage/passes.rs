@@ -3,7 +3,7 @@ use std::ops::Range;
 use blit::{PhysicalRect, Scale2};
 
 use super::{DamageInput, DamageTracker, region::Region};
-use crate::{PixelBuffer, RenderContext, strategy::command::Payload};
+use crate::{PixelBuffer, RenderContext};
 
 #[derive(Default)]
 pub struct PassDamage {
@@ -32,7 +32,7 @@ impl PassDamage {
         shift: u32,
     ) {
         let commands = &context.commands;
-        if !commands.has_passes || tracker.is_empty() {
+        if commands.passes.is_empty() || tracker.is_empty() {
             self.passes.clear();
             self.stages.clear();
             return;
@@ -49,14 +49,7 @@ impl PassDamage {
             );
         }
         let mut count = 0;
-        for index in commands.offsets() {
-            let Payload::Custom = commands.get(index) else {
-                continue;
-            };
-            let call = &commands.entries[index as usize];
-            if call.reads.is_none() {
-                continue;
-            }
+        for &index in &commands.passes {
             let Some(bounds) = commands
                 .bounds(index)
                 .intersection(self.clips[commands.clip(index) as usize])

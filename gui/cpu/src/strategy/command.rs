@@ -24,12 +24,10 @@ pub struct CommandList<P> {
     pub entries: Vec<ErasedCommand<P>>,
     pub data: Arena,
     pub prepared: Arena,
-    pub range: Option<Range<CommandId>>,
+    pub range: Range<CommandId>,
     pub gradients: Gradients,
-    pub has_partial_opaque: bool,
-    pub has_clips: bool,
-    pub has_meshes: bool,
-    pub has_passes: bool,
+    pub meshes: Vec<CommandId>,
+    pub passes: Vec<CommandId>,
 }
 
 impl<P> Default for CommandList<P> {
@@ -39,12 +37,10 @@ impl<P> Default for CommandList<P> {
             entries: Vec::new(),
             data: Arena::default(),
             prepared: Arena::default(),
-            range: None,
+            range: 0..0,
             gradients: Gradients::default(),
-            has_partial_opaque: false,
-            has_clips: false,
-            has_meshes: false,
-            has_passes: false,
+            meshes: Vec::new(),
+            passes: Vec::new(),
         }
     }
 }
@@ -77,14 +73,21 @@ impl<P: Pixel> CommandList<P> {
         CommandId::try_from(self.metadata.len()).expect("too many cpu commands in one frame")
     }
 
-    pub fn prepare(&mut self, id: CommandId, images: &mut blit_arena::Arena<StoredImage>, text: &mut TextRenderer) {
+    #[inline(always)]
+    pub fn prepare(
+        &mut self,
+        id: CommandId,
+        images: &mut blit_arena::Arena<StoredImage>,
+        text: &mut TextRenderer,
+    ) -> &Payload {
         let command = &mut self.metadata[id as usize];
         let input = &mut self.entries[id as usize];
         if input.draw.is_some() {
-            return;
+            return &Payload::Custom;
         }
         if !input.is_pending() {
-            return;
+            // safety: entries without a draw callback prepare Payload values
+            return unsafe { input.get(&self.prepared) };
         }
         input.prepare(
             &self.data,
@@ -104,7 +107,7 @@ impl<P: Pixel> CommandList<P> {
             command.bounds = bounds.intersection(command.bounds).unwrap_or_default();
         }
         let Payload::Rectangle(first) = self.get(id) else {
-            return;
+            return self.get(id);
         };
         let first = *first;
         let next = id + 1;
@@ -112,23 +115,19 @@ impl<P: Pixel> CommandList<P> {
             && first.radii.is_zero()
             && first.border_width == 0
             && self.clip(id) == 0
-            && next < self.offsets().end
+            && next < self.range.end
             && self.clip(next) == 0
             && self.bounds(id) == self.bounds(next)
-            && !matches!(self.get(next), Payload::Custom)
+            && let Payload::Rectangle(second) = self.prepare(next, images, text)
+            && let Some(pair) = first.fuse(second)
         {
-            self.prepare(next, images, text);
-            if let Payload::Rectangle(second) = self.get(next)
-                && let Some(pair) = first.fuse(second)
-            {
-                self.entries[id as usize] =
-                    ErasedCommand::ready(NonNull::<()>::dangling(), &mut self.prepared, Payload::SolidPair(pair));
-                self.entries[next as usize] =
-                    ErasedCommand::ready(NonNull::<()>::dangling(), &mut self.prepared, Payload::Empty);
-                self.metadata[next as usize].overwrites = false;
-                self.metadata[next as usize].partial_opaque = false;
-            }
+            self.entries[id as usize] =
+                ErasedCommand::ready(NonNull::<()>::dangling(), &mut self.prepared, Payload::SolidPair(pair));
+            self.entries[next as usize] =
+                ErasedCommand::ready(NonNull::<()>::dangling(), &mut self.prepared, Payload::Empty);
+            self.metadata[next as usize].coverage = Coverage::None;
         }
+        self.get(id)
     }
 
     #[inline(always)]
@@ -162,18 +161,6 @@ impl<P: Pixel> CommandList<P> {
         self.metadata[id as usize].clip
     }
 
-    pub fn overwrites(&self, id: CommandId) -> bool {
-        self.metadata[id as usize].overwrites
-    }
-
-    pub fn has_partial_opaque(&self) -> bool {
-        self.has_partial_opaque
-    }
-
-    pub fn partial_opaque(&self, id: CommandId) -> bool {
-        self.metadata[id as usize].partial_opaque
-    }
-
     pub fn overwrite_span(
         &mut self,
         id: CommandId,
@@ -181,14 +168,21 @@ impl<P: Pixel> CommandList<P> {
         images: &mut blit_arena::Arena<StoredImage>,
         text: &mut TextRenderer,
     ) -> Option<Range<i32>> {
-        if matches!(self.get(id), Payload::Pending) {
-            self.prepare(id, images, text);
+        let metadata = &self.metadata[id as usize];
+        if metadata.coverage == Coverage::None {
+            return None;
         }
+        let partial_image = metadata.coverage == Coverage::PartialImage;
+        let area = metadata.bounds;
         let bounds = self.horizontal_bounds(id);
-        let span = match self.get(id) {
+        let span = match self.prepare(id, images, text) {
             Payload::Clear => bounds.clone(),
             Payload::Rectangle(rectangle) => rectangle.overwrite_span(line)?,
             Payload::SolidPair(_) => bounds.clone(),
+            Payload::Image(image) if partial_image => {
+                let texture = images.get(image.image.into())?;
+                image.opaque_span(line, area, &texture.data, &texture.alpha_rows)?
+            }
             Payload::Image(_) => bounds.clone(),
             Payload::Pending
             | Payload::Empty
@@ -204,18 +198,9 @@ impl<P: Pixel> CommandList<P> {
         (start < end).then_some(start..end)
     }
 
-    pub fn offsets(&self) -> Range<CommandId> {
-        self.range.clone().unwrap_or_else(|| 0..self.len())
-    }
-
-    pub fn expand_meshes(
-        &mut self,
-        damage: &impl DamageTracker,
-        images: &mut blit_arena::Arena<StoredImage>,
-        text: &mut TextRenderer,
-    ) {
-        let range = self.offsets();
-        if !self.has_meshes || !range.clone().any(|id| matches!(self.get(id), Payload::Mesh(..))) {
+    pub fn expand_meshes(&mut self, damage: &impl DamageTracker) {
+        let range = self.range.clone();
+        if !self.meshes.iter().any(|id| range.contains(id)) {
             return;
         }
         let start = self.len();
@@ -235,18 +220,10 @@ impl<P: Pixel> CommandList<P> {
                 }
             };
             if (id + 1..range.end).rev().any(|next| {
-                if !self.overwrites(next)
-                    || self.clip(next) != 0
-                    || self.bounds(next).intersection(metadata.bounds) != Some(metadata.bounds)
-                {
-                    return false;
-                }
-                self.prepare(next, images, text);
-                match self.get(next) {
-                    Payload::Clear | Payload::SolidPair(_) | Payload::Image(_) => true,
-                    Payload::Rectangle(rectangle) => rectangle.radii.is_zero() && rectangle.overwrites(),
-                    _ => false,
-                }
+                let next = &self.metadata[next as usize];
+                next.coverage == Coverage::Full
+                    && next.clip == 0
+                    && next.bounds.intersection(metadata.bounds) == Some(metadata.bounds)
             }) {
                 continue;
             }
@@ -275,7 +252,7 @@ impl<P: Pixel> CommandList<P> {
                 }
             }
         }
-        self.range = Some(start..self.len());
+        self.range = start..self.len();
     }
 
     pub fn clear(&mut self) {
@@ -283,13 +260,11 @@ impl<P: Pixel> CommandList<P> {
         self.entries.clear();
         self.prepared.clear();
         self.data.clear();
-        self.range = None;
+        self.range = 0..0;
         self.gradients.entries.clear();
         self.gradients.stops.clear();
-        self.has_partial_opaque = false;
-        self.has_clips = false;
-        self.has_meshes = false;
-        self.has_passes = false;
+        self.meshes.clear();
+        self.passes.clear();
     }
 }
 
@@ -306,14 +281,14 @@ impl<P: Pixel> CommandList<P> {
     }
 
     pub fn push(&mut self, input: ErasedCommand<P>, bounds: PhysicalRect, clip: ClipId) -> &mut Metadata {
-        self.has_clips |= clip != 0;
-        self.has_passes |= input.reads.is_some();
+        if input.reads.is_some() {
+            self.passes.push(self.len());
+        }
         self.entries.push(input);
         self.metadata.push(Metadata {
             bounds,
             clip,
-            overwrites: false,
-            partial_opaque: false,
+            coverage: Coverage::None,
         });
         self.metadata.last_mut().unwrap()
     }
@@ -322,6 +297,13 @@ impl<P: Pixel> CommandList<P> {
 pub struct Metadata {
     pub bounds: PhysicalRect,
     pub clip: ClipId,
-    pub overwrites: bool,
-    pub partial_opaque: bool,
+    pub coverage: Coverage,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Coverage {
+    None,
+    Full,
+    Rounded,
+    PartialImage,
 }

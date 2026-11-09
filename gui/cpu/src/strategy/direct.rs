@@ -12,9 +12,7 @@ pub struct Direct {
 
 impl<B: PixelBuffer> RenderStrategy<B> for Direct {
     fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker) {
-        context
-            .commands
-            .expand_meshes(damage, &mut context.images, &mut context.text);
+        context.commands.expand_meshes(damage);
         let screen = PhysicalRect {
             x: context.buffer.x_offset() as i32,
             y: 0,
@@ -27,7 +25,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
         let text = &mut context.text;
         let buffer = &mut context.buffer;
 
-        for offset in commands.offsets() {
+        for offset in commands.range.clone() {
             let draw_bounds = commands.bounds(offset);
             let Some(bounds) = draw_bounds.intersection(screen) else {
                 continue;

@@ -20,7 +20,7 @@ use crate::{
     damage::{DamageInput, Record, region::Region},
     strategy::{
         clip::ClipStack,
-        command::{CommandList, Payload},
+        command::{CommandList, Coverage, Payload},
     },
 };
 
@@ -60,7 +60,7 @@ use crate::{
 pub trait Handler<T, P: Pixel>: Sized + 'static {
     fn handle(&mut self, command: T, cx: &mut PaintContext<'_, Self, P>);
 
-    /// called once per handler after the frame data is dropped
+    /// called after each frame once the handler has been used
     fn finish_frame(&mut self) {}
 }
 
@@ -101,26 +101,27 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         self.damage.invalidate();
         let index = self.handler_index::<H>();
         // safety: the lookup selects the entry created for H
-        unsafe { self.handlers[index].value.cast::<H>().as_mut() }
+        unsafe { self.handlers[index].cast::<H>() }
     }
 
     /// dispatches drawing data to its handler and creates its default on first use
     pub fn handle<H: Handler<T, B::Pixel> + Default, T>(&mut self, bounds: LogicalRect, command: T) {
         let index = self.handler_index::<H>();
-        self.handlers[index].finish = Some(|handler| {
+        let handler = &mut self.handlers[index];
+        handler.finish = |handler| {
             // safety: dispatch pairs this callback with the entry created for H
-            unsafe { handler.value.cast::<H>().as_mut() }.finish_frame();
-        });
-        let handler = self.handlers[index].value;
+            unsafe { handler.cast::<H>() }.finish_frame();
+        };
+        let pointer = handler.value;
         let context = &mut self.context;
         // safety: the lookup selects the entry created for H
-        unsafe { handler.cast::<H>().as_mut() }.handle(
+        unsafe { handler.cast::<H>() }.handle(
             command,
             &mut PaintContext {
                 scale: context.scale_factor,
                 bounds: bounds.to_physical(Scale2::uniform(context.scale_factor)),
                 clip: self.paint_clip,
-                handler,
+                handler: pointer,
                 marker: PhantomData,
                 damage_input: &mut self.damage_input,
                 commands: &mut context.commands,
@@ -344,17 +345,30 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                 .to_physical(Scale2::uniform(self.scale))
                 .intersection(self.bounds)
         {
-            let overwrites = matches!(rectangle.background, Fill::Solid(color)
-                if PremultipliedRgbaColor::with_opacity(color, rectangle.opacity).alpha == 255);
+            let coverage = match rectangle.background {
+                Fill::Solid(color) if PremultipliedRgbaColor::with_opacity(color, rectangle.opacity).alpha == 255 => {
+                    if rectangle.radius == Default::default() {
+                        Coverage::Full
+                    } else {
+                        Coverage::Rounded
+                    }
+                }
+                _ => Coverage::None,
+            };
             if self.clip == 0
                 && let Some(previous) = self.commands.metadata.last()
                 && previous.clip == 0
                 && previous.bounds == bounds
-                && overwrites
-                && rectangle.radius == Default::default()
+                && coverage == Coverage::Full
             {
                 self.commands.metadata.pop();
                 self.commands.entries.pop();
+                let removed = self.commands.len();
+                for indices in [&mut self.commands.meshes, &mut self.commands.passes] {
+                    if indices.last() == Some(&removed) {
+                        indices.pop();
+                    }
+                }
             }
             let mut stops = [None; 2];
             let fills = [rectangle.background, rectangle.border.fill];
@@ -392,7 +406,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                         .unwrap_or(Payload::Empty)
                 },
             );
-            command.overwrites = overwrites;
+            command.coverage = coverage;
         }
     }
 
@@ -443,9 +457,13 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                                 .unwrap_or(Payload::Empty)
                         },
                     );
-                    command.overwrites = opaque;
-                    command.partial_opaque = !opaque && partial_opaque;
-                    self.commands.has_partial_opaque |= command.partial_opaque;
+                    command.coverage = if opaque {
+                        Coverage::Full
+                    } else if partial_opaque {
+                        Coverage::PartialImage
+                    } else {
+                        Coverage::None
+                    };
                 }
             });
         }
@@ -528,8 +546,9 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             &mut self.commands.prepared,
             Payload::Mesh(vertices, indices, self.scale),
         );
+        let index = self.commands.len();
         self.commands.push(call, self.bounds, self.clip);
-        self.commands.has_meshes = true;
+        self.commands.meshes.push(index);
     }
 
     pub fn clear(&mut self) {
@@ -539,7 +558,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             fingerprint: u64::MAX,
         });
         let call = ErasedCommand::ready(NonNull::<()>::dangling(), &mut self.commands.prepared, Payload::Clear);
-        self.commands.push(call, self.bounds, 0).overwrites = true;
+        self.commands.push(call, self.bounds, 0).coverage = Coverage::Full;
     }
 }
 
@@ -547,9 +566,9 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
 pub struct ErasedCommand<P> {
     handler: NonNull<()>,
     value: Value,
-    prepare: Option<unsafe fn(NonNull<()>, Value, &Arena, &mut Arena, &mut DrawContext<'_, P>) -> Value>,
-    pub draw: Option<unsafe fn(NonNull<()>, Value, &Arena, &mut DrawContext<'_, P>)>,
-    pub reads: Option<unsafe fn(NonNull<()>, Value, &Arena, PhysicalRect) -> PhysicalRect>,
+    prepare: Option<fn(NonNull<()>, Value, &Arena, &mut Arena, &mut DrawContext<'_, P>) -> Value>,
+    pub draw: Option<fn(NonNull<()>, Value, &Arena, &mut DrawContext<'_, P>)>,
+    pub reads: Option<fn(NonNull<()>, Value, &Arena, PhysicalRect) -> PhysicalRect>,
 }
 
 impl<P: Pixel> ErasedCommand<P> {
@@ -597,27 +616,23 @@ impl<P> ErasedCommand<P> {
         unsafe { prepared.value_unchecked::<T>(self.value) }
     }
 
+    #[inline(always)]
     pub fn prepare(&mut self, data: &Arena, prepared: &mut Arena, cx: &mut DrawContext<'_, P>) {
         if let Some(prepare) = self.prepare {
-            // safety: recording pairs the captured input with its preparation
-            self.value = unsafe { prepare(self.handler, self.value, data, prepared, cx) };
+            self.value = prepare(self.handler, self.value, data, prepared, cx);
             self.prepare = None;
         }
     }
 
     pub fn draw(&mut self, data: &Arena, prepared: &mut Arena, cx: &mut DrawContext<'_, P>) {
         self.prepare(data, prepared, cx);
-        // safety: recording pairs the handler pointer with its typed callback
-        // handlers cannot be replaced while commands are pending
         if let Some(draw) = self.draw {
-            unsafe { draw(self.handler, self.value, prepared, cx) };
+            draw(self.handler, self.value, prepared, cx);
         }
     }
 
     pub fn reads(&self, data: &Arena, output: PhysicalRect) -> PhysicalRect {
-        // safety: recording pairs the handler pointer with its typed callback
-        // handlers cannot be replaced while commands are pending
-        unsafe { (self.reads.unwrap())(self.handler, self.value, data, output) }
+        (self.reads.unwrap())(self.handler, self.value, data, output)
     }
 }
 
@@ -628,7 +643,7 @@ struct Call<H, T, P> {
 }
 
 impl<H: 'static, T: 'static, P: Pixel> Call<H, T, P> {
-    unsafe fn draw(handler: NonNull<()>, value: Value, data: &Arena, cx: &mut DrawContext<'_, P>) {
+    fn draw(handler: NonNull<()>, value: Value, data: &Arena, cx: &mut DrawContext<'_, P>) {
         // safety: recording pairs this callback with its typed value
         let call = unsafe { data.value_unchecked::<Self>(value) };
         // safety: recording pairs the handler pointer with this typed callback
@@ -639,8 +654,8 @@ impl<H: 'static, T: 'static, P: Pixel> Call<H, T, P> {
 pub struct ErasedHandler {
     kind: TypeId,
     value: NonNull<()>,
-    drop: unsafe fn(NonNull<()>),
-    pub finish: Option<fn(&mut Self)>,
+    drop: fn(NonNull<()>),
+    pub finish: fn(&mut Self),
 }
 
 impl ErasedHandler {
@@ -648,19 +663,23 @@ impl ErasedHandler {
         Self {
             kind: TypeId::of::<H>(),
             value: NonNull::from(Box::leak(Box::new(handler))).cast(),
-            finish: None,
+            finish: |_| {},
             drop: |value| {
                 // safety: new transfers ownership of one boxed H to this entry
                 unsafe { drop(Box::from_raw(value.cast::<H>().as_ptr())) };
             },
         }
     }
+
+    unsafe fn cast<H>(&mut self) -> &mut H {
+        // safety: callers select the type used to create this entry
+        unsafe { self.value.cast::<H>().as_mut() }
+    }
 }
 
 impl Drop for ErasedHandler {
     fn drop(&mut self) {
-        // safety: new pairs the allocation with its destructor and entries are never copied
-        unsafe { (self.drop)(self.value) };
+        (self.drop)(self.value);
     }
 }
 
