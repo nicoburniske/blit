@@ -967,6 +967,64 @@ fn mesh_interpolates_colors_without_shared_edge_overdraw() {
 }
 
 #[test]
+fn mesh_occlusion_uses_screen_and_ancestor_clip_bounds() {
+    struct Check(Scanline, bool);
+
+    impl RenderStrategy<VecBuffer<Xrgb8888>> for Check {
+        fn render(&mut self, context: &mut RenderContext<VecBuffer<Xrgb8888>>, damage: &impl DamageTracker) {
+            self.0.render(context, damage);
+            assert_eq!(context.raster.range.len(), if self.1 { 3 } else { 5 });
+        }
+    }
+
+    for scale in [1.0, 1.5] {
+        for clipped in [false, true] {
+            for (opacity, radius) in [(1.0, 0.0), (0.5, 0.0), (1.0, 2.0)] {
+                let hidden = opacity == 1.0 && radius == 0.0;
+                let mut renderer = new_renderer(VecBuffer::new(24, 24), renderer_config())
+                    .strategy(Check(Scanline::default(), hidden));
+                renderer.set_scale(scale);
+                let screen = renderer.screen().to_logical(Scale2::uniform(scale));
+                renderer.paint(screen, blit_gui::paint::Clear);
+                let cover = if clipped {
+                    renderer.push_clip(LogicalRect::new(6.0, 6.0, 6.0, 6.0), BorderRadius::uniform(2.0));
+                    renderer.push_clip(LogicalRect::new(4.0, 4.0, 12.0, 12.0), BorderRadius::default());
+                    LogicalRect::new(6.0, 6.0, 6.0, 6.0)
+                } else {
+                    screen
+                };
+                renderer.paint(
+                    LogicalRect::new(-16.0, -16.0, 64.0, 64.0),
+                    Mesh {
+                        vertices: &[
+                            MeshVertex::new(-16.0, -16.0, Color::WHITE),
+                            MeshVertex::new(48.0, -16.0, Color::WHITE),
+                            MeshVertex::new(-16.0, 48.0, Color::WHITE),
+                            MeshVertex::new(48.0, 48.0, Color::WHITE),
+                        ],
+                        indices: &[0, 1, 2, 2, 1, 3],
+                    },
+                );
+                if clipped {
+                    renderer.pop_clip();
+                    renderer.pop_clip();
+                }
+                let marker = LogicalRect::new(0.0, 0.0, 1.0, 1.0);
+                renderer.paint(marker, Rectangle::new(marker).background(Color::WHITE));
+                renderer.paint(
+                    cover,
+                    Rectangle::new(cover)
+                        .background(Color::BLACK)
+                        .opacity(opacity)
+                        .radius(BorderRadius::uniform(radius)),
+                );
+                renderer.render(0);
+            }
+        }
+    }
+}
+
+#[test]
 fn recorded_commands_track_damage_and_invalidation() {
     let mut renderer = new_renderer(
         TrackingBuffer {
@@ -1831,6 +1889,40 @@ fn scanline_skips_commands_behind_opaque_content() {
     renderer.paint(screen.to_logical(SCALE), overlay);
     renderer.render(0);
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 10);
+
+    for radius in [0.0, 2.0] {
+        for alpha in [255, 254] {
+            for opacity in [1.0, 0.5] {
+                let mut renderer = new_renderer(VecBuffer::<CountingPixel>::new(256, 8), renderer_config())
+                    .strategy(Scanline::default());
+                let screen = renderer.screen().to_logical(SCALE);
+                renderer.paint(screen, Rectangle::new(screen).background(Color::rgb(255, 0, 0)));
+                let area = LogicalRect::new(64.0, 2.0, 128.0, 4.0);
+                let stops = [
+                    GradientStop::new(0.0, Color::rgb(0, 255, 0)),
+                    GradientStop::new(1.0, Color::rgba(0, 0, 255, alpha)),
+                ];
+                renderer.paint(
+                    area,
+                    Rectangle::new(area)
+                        .background(LinearGradient::new(&stops))
+                        .opacity(opacity)
+                        .radius(BorderRadius::uniform(radius)),
+                );
+                RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
+                renderer.render(0);
+                let drawn = RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed);
+                if alpha == 255 && opacity == 1.0 {
+                    assert!(drawn < 2048);
+                    if radius == 0.0 {
+                        assert_eq!(drawn, 1536);
+                    }
+                } else {
+                    assert_eq!(drawn, 2048);
+                }
+            }
+        }
+    }
 }
 
 #[test]

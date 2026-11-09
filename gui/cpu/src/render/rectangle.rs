@@ -67,12 +67,8 @@ impl Prepared {
         })
     }
 
-    pub fn overwrites(&self) -> bool {
-        matches!(self.background, PreparedFill::Solid(color) if color.alpha == 255)
-    }
-
     pub fn overwrite_span(&self, line: i32) -> Option<Range<i32>> {
-        if !self.overwrites() || line < self.geometry.y || line >= self.geometry.y + self.geometry.height {
+        if line < self.geometry.y || line >= self.geometry.y + self.geometry.height {
             return None;
         }
         let top = line - self.geometry.y;

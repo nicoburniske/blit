@@ -189,6 +189,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             let context = &mut self.context;
             let mut preparation = paint::PrepareContext {
                 scale,
+                screen,
                 images: &context.images,
                 commands: &mut context.raster,
             };

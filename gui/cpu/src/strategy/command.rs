@@ -11,7 +11,10 @@ use crate::{
     DamageTracker, DrawContext, Pixel, StoredImage,
     paint::{ErasedCommand, StoredMesh},
     raster::DrawTarget,
-    render::{fill::Gradients, image_patch, rectangle, triangle},
+    render::{
+        fill::{Gradients, PreparedFill},
+        image_patch, rectangle, triangle,
+    },
     text::{PreparedRuns, TextRenderer},
 };
 
@@ -87,7 +90,7 @@ impl<P: Pixel> RasterCommands<P> {
         };
         let first = *first;
         let next = id + 1;
-        if first.overwrites()
+        if matches!(first.background, PreparedFill::Solid(color) if color.alpha == 255)
             && first.radii.is_zero()
             && first.border_width == 0
             && self.clip(id) == 0
@@ -97,10 +100,8 @@ impl<P: Pixel> RasterCommands<P> {
             && let Payload::Rectangle(second) = self.prepare(next, list, images, text)
             && let Some(pair) = first.fuse(second)
         {
-            self.entries[id as usize] =
-                ErasedCommand::ready(NonNull::<()>::dangling(), &mut self.prepared, Payload::SolidPair(pair));
-            self.entries[next as usize] =
-                ErasedCommand::ready(NonNull::<()>::dangling(), &mut self.prepared, Payload::Empty);
+            self.entries[id as usize] = ErasedCommand::ready(&mut self.prepared, Payload::SolidPair(pair));
+            self.entries[next as usize] = ErasedCommand::ready(&mut self.prepared, Payload::Empty);
             self.metadata[next as usize].coverage = Coverage::None;
         }
         self.get(id)

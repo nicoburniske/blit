@@ -191,10 +191,10 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             value,
             |a, left, b, right| a.view(left) == b.view(right),
             |value, list, state| value.view(list).hash(state),
-            |input, offset, record, _, context| {
+            |input, offset, record, list, context| {
                 let scale = context.scale;
                 let target = &mut *context.commands;
-                let rectangle = input.rectangle;
+                let rectangle = input.view(list);
                 let Some(bounds) = rectangle
                     .area
                     .to_physical(Scale2::uniform(scale))
@@ -205,17 +205,19 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                 if rectangle.opacity <= 0.0 || rectangle.opacity.is_nan() {
                     return;
                 }
-                let coverage = match rectangle.background {
-                    Fill::Solid(color)
-                        if PremultipliedRgbaColor::with_opacity(color, rectangle.opacity).alpha == 255 =>
-                    {
-                        if rectangle.radius == Default::default() {
-                            Coverage::Full
-                        } else {
-                            Coverage::Rounded
-                        }
-                    }
-                    _ => Coverage::None,
+                let opaque = match rectangle.background {
+                    Fill::Solid(color) => PremultipliedRgbaColor::with_opacity(color, rectangle.opacity).alpha == 255,
+                    Fill::LinearGradient(gradient) => gradient
+                        .stops
+                        .iter()
+                        .all(|stop| PremultipliedRgbaColor::with_opacity(stop.color, rectangle.opacity).alpha == 255),
+                };
+                let coverage = if !opaque {
+                    Coverage::None
+                } else if rectangle.radius == Default::default() {
+                    Coverage::Full
+                } else {
+                    Coverage::Rounded
                 };
                 if record.clip == 0
                     && coverage == Coverage::Full
@@ -349,15 +351,23 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             value,
             |a, left, b, right| a.view(left) == b.view(right),
             |value, list, state| value.view(list).hash(state),
-            |_, mesh_offset, record, _, context| {
+            |_, mesh_offset, record, list, context| {
+                let mut bounds = record.bounds.intersection(context.screen);
+                let mut clip = record.clip;
+                while clip != 0
+                    && let Some(area) = bounds
+                {
+                    let node = &list.clips()[clip as usize - 1];
+                    bounds = area.intersection(node.area.to_physical(Scale2::uniform(context.scale)));
+                    clip = node.parent;
+                }
+                let Some(bounds) = bounds else {
+                    return;
+                };
                 let target = &mut *context.commands;
-                let call = ErasedCommand::ready(
-                    NonNull::<()>::dangling(),
-                    &mut target.prepared,
-                    Payload::Mesh(Offset::new(mesh_offset)),
-                );
+                let call = ErasedCommand::ready(&mut target.prepared, Payload::Mesh(Offset::new(mesh_offset)));
                 let index = target.len();
-                target.push(call, record.bounds, record.clip);
+                target.push(call, bounds, record.clip);
                 target.meshes.push(index);
             },
         );
@@ -371,7 +381,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             (),
             PhysicalRect::default(),
             |_, _, record, _, _, _, target| {
-                let call = ErasedCommand::ready(NonNull::<()>::dangling(), &mut target.prepared, Payload::Clear);
+                let call = ErasedCommand::ready(&mut target.prepared, Payload::Clear);
                 target.push(call, record.bounds, 0).coverage = Coverage::Full;
             },
         );
@@ -557,6 +567,7 @@ pub struct ErasedCommand<P> {
 }
 
 impl<P> ErasedCommand<P> {
+    /// stores inputs and a callback when the value needs lazy preparation before drawing
     pub fn prepared<H: 'static, T: 'static, R: 'static, F: Fn(&mut H, &T, &mut DrawContext<'_, P>) -> R + 'static>(
         data: &mut Bump,
         handler: NonNull<()>,
@@ -583,9 +594,10 @@ impl<P> ErasedCommand<P> {
         }
     }
 
-    pub fn ready<T: 'static>(handler: NonNull<()>, prepared: &mut Bump, value: T) -> Self {
+    /// stores an already prepared value when no preparation callback is needed
+    pub fn ready<T: 'static>(prepared: &mut Bump, value: T) -> Self {
         Self {
-            handler,
+            handler: NonNull::dangling(),
             value: prepared.push(value).byte(),
             opaque: Offset::new(0),
             prepare: None,
@@ -670,6 +682,7 @@ impl<P: Pixel> Handler<blit_gui::paint::Clear, P> for () {
 
 pub struct PrepareContext<'a, P: Pixel> {
     pub scale: f32,
+    pub screen: PhysicalRect,
     pub images: &'a blit_arena::Arena<StoredImage>,
     pub commands: &'a mut RasterCommands<P>,
 }
