@@ -73,101 +73,13 @@ impl Paint<Rectangle<'_>> for Renderer {
             },
             stops,
         };
-        self.record(
-            bounds,
-            self.paint_clip,
-            value,
-            |a, left, b, right| a.view(left) == b.view(right),
-            |value, list, state| value.view(list).hash(state),
-            |value, list, renderer, bounds, clip| {
-                let rectangle = value.view(list);
-
-                let scale = renderer.scale;
-                let start = renderer.instances.len() as u32;
-                let opacity = ((rectangle.opacity.clamp(0.0, 1.0) * 255.0).round() as u8) as f32 / 255.0;
-                if opacity == 0.0 {
-                    return;
-                }
-                let area = rectangle.area.to_physical(Scale2::uniform(scale));
-                let Some(draw) = area.intersection(bounds) else {
-                    return;
-                };
-                if let Fill::Solid(background) = rectangle.background
-                    && opacity == 1.0
-                    && background.alpha > 0
-                    && rectangle.radius == BorderRadius::default()
-                    && rectangle.border.width <= 0.0
-                {
-                    assert!(
-                        renderer.mesh_data.len() <= u32::MAX as usize - 3,
-                        "too many GPU mesh vertices"
-                    );
-                    let vertex = renderer.mesh_data.len() as u32;
-                    let color =
-                        u32::from_le_bytes([background.red, background.green, background.blue, background.alpha]);
-                    let left = draw.x as f32;
-                    let top = draw.y as f32;
-                    let right = draw.x.saturating_add(draw.width) as f32;
-                    let bottom = draw.y.saturating_add(draw.height) as f32;
-                    renderer.mesh_data.extend([
-                        MeshData([left.to_bits(), top.to_bits(), color, clip]),
-                        MeshData([right.to_bits(), top.to_bits(), color, clip]),
-                        MeshData([left.to_bits(), bottom.to_bits(), color, clip]),
-                        MeshData([right.to_bits(), bottom.to_bits(), color, clip]),
-                    ]);
-                    renderer.push_mesh_primitive([vertex, vertex + 1, vertex + 2, vertex + 3]);
-                    return;
-                }
-                let mut colors = [[0.0; 4]; 2];
-                let mut border_width = (rectangle.border.width * scale).round().max(0.0) as i32 as f32;
-                let mut data = [clip, 0, 0, 0];
-                for (index, fill) in [rectangle.background, rectangle.border.fill].into_iter().enumerate() {
-                    if index == 1 && border_width == 0.0 {
-                        continue;
-                    }
-                    match fill {
-                        Fill::Solid(color) => colors[index] = premultiplied(color, opacity),
-                        Fill::LinearGradient(gradient) => {
-                            let (direction_y, direction_x) = gradient.angle_degrees.to_radians().sin_cos();
-                            let extent = direction_x.abs() * area.width as f32 + direction_y.abs() * area.height as f32;
-                            let end = u32::try_from(renderer.stops.len() + gradient.stops.len())
-                                .expect("too many GPU gradient stops");
-                            data[index + 1] = renderer.stops.len() as u32 + 1;
-                            renderer.stops.extend(gradient.stops.iter().map(|stop| GradientStop {
-                                color: premultiplied(stop.color, opacity),
-                                position: stop.position,
-                                x_step: direction_x / extent,
-                                y_step: direction_y / extent,
-                                end,
-                            }));
-                        }
-                    }
-                }
-                if data[2] == 0 && colors[1][3] == 0.0 {
-                    border_width = 0.0;
-                }
-                if data[1] == 0 && colors[0][3] == 0.0 && border_width == 0.0 {
-                    return;
-                }
-                renderer.instances.push(Instance {
-                    shape: physical_rect(area),
-                    draw: physical_rect(draw),
-                    radii: physical_radii(rectangle.radius, scale, area.width, area.height),
-                    inner_color: colors[0],
-                    border_color: colors[1],
-                    params: [border_width, 0.0, 0.0, 0.0],
-                    data,
-                });
-
-                renderer.push_instances(start, Pipeline::Content(None));
-            },
-        );
+        self.record::<Builtins>(bounds).draw(value);
     }
 }
 
 impl Paint<ImageRequest> for Renderer {
     fn paint(&mut self, bounds: LogicalRect, request: ImageRequest) {
-        self.record(
+        self.record_native(
             bounds,
             self.paint_clip,
             request,
@@ -275,7 +187,7 @@ impl Paint<TextRequest<'_>> for Renderer {
             request: TextRequest { colors: &[], ..request },
             colors,
         };
-        self.record(
+        self.record_native(
             bounds,
             self.paint_clip,
             value,
@@ -366,7 +278,7 @@ impl Paint<Mesh<'_>> for Renderer {
             vertices: self.list.store_slice(mesh.vertices.iter().copied()),
             indices: self.list.store_slice(mesh.indices.iter().copied()),
         };
-        self.record(
+        self.record_native(
             bounds,
             self.paint_clip,
             value,
@@ -405,103 +317,13 @@ impl Paint<Mesh<'_>> for Renderer {
 
 impl Paint<BoxShadow> for Renderer {
     fn paint(&mut self, bounds: LogicalRect, shadow: BoxShadow) {
-        self.record(
-            bounds,
-            self.paint_clip,
-            shadow,
-            |a, _, b, _| a == b,
-            |value, _, state| value.hash(state),
-            |value, _, renderer, bounds, clip| {
-                let shadow = *value;
-
-                let scale = renderer.scale;
-                let start = renderer.instances.len() as u32;
-                if shadow.color.alpha == 0 {
-                    return;
-                }
-                if shadow.inset {
-                    let shape = shadow.area.to_physical(Scale2::uniform(scale));
-                    if shape.width <= 0 || shape.height <= 0 {
-                        return;
-                    }
-                    let Some(draw) = shape.intersection(bounds) else {
-                        return;
-                    };
-                    let blur = (shadow.blur.max(0.0) * scale).ceil() as i32;
-                    let offset_x = (shadow.offset_x * scale).round() as i32;
-                    let offset_y = (shadow.offset_y * scale).round() as i32;
-                    let spread = (shadow.spread * scale).round() as i32;
-                    renderer.instances.push(Instance {
-                        shape: physical_rect(shape),
-                        draw: physical_rect(draw),
-                        radii: physical_radii(shadow.radius, scale, shape.width, shape.height),
-                        inner_color: premultiplied(shadow.color, 1.0),
-                        params: [blur as f32, offset_x as f32, offset_y as f32, spread as f32],
-                        data: [clip, 0, 0, INSET_SHADOW],
-                        ..Instance::zeroed()
-                    });
-                } else {
-                    let area = LogicalRect {
-                        x: shadow.area.x + shadow.offset_x - shadow.spread,
-                        y: shadow.area.y + shadow.offset_y - shadow.spread,
-                        width: shadow.area.width + shadow.spread * 2.0,
-                        height: shadow.area.height + shadow.spread * 2.0,
-                    };
-                    if area.width <= 0.0 || area.height <= 0.0 {
-                        return;
-                    }
-                    let shape = area.to_physical(Scale2::uniform(scale));
-                    if shape.width <= 0 || shape.height <= 0 {
-                        return;
-                    }
-                    let blur = (shadow.blur.max(0.0) * scale).ceil() as i32;
-                    let support = if blur == 0 {
-                        shape
-                    } else {
-                        let Some(diameter) = blur.checked_mul(2) else {
-                            return;
-                        };
-                        let (Some(width), Some(height)) =
-                            (shape.width.checked_add(diameter), shape.height.checked_add(diameter))
-                        else {
-                            return;
-                        };
-                        PhysicalRect {
-                            x: shape.x.saturating_sub(blur),
-                            y: shape.y.saturating_sub(blur),
-                            width,
-                            height,
-                        }
-                    };
-                    let Some(draw) = support.intersection(bounds) else {
-                        return;
-                    };
-                    let radius = BorderRadius {
-                        top_left: (shadow.radius.top_left + shadow.spread).max(0.0),
-                        top_right: (shadow.radius.top_right + shadow.spread).max(0.0),
-                        bottom_right: (shadow.radius.bottom_right + shadow.spread).max(0.0),
-                        bottom_left: (shadow.radius.bottom_left + shadow.spread).max(0.0),
-                    };
-                    renderer.instances.push(Instance {
-                        shape: physical_rect(shape),
-                        draw: physical_rect(draw),
-                        radii: physical_radii(radius, scale, shape.width, shape.height),
-                        inner_color: premultiplied(shadow.color, 1.0),
-                        params: [blur as f32, 0.0, 0.0, 0.0],
-                        data: [clip, 0, 0, if blur == 0 { 0 } else { OUTSET_SHADOW }],
-                        ..Instance::zeroed()
-                    });
-                }
-
-                renderer.push_instances(start, Pipeline::Content(None));
-            },
-        );
+        self.record::<Builtins>(bounds).draw(shadow);
     }
 }
 
 impl Paint<Clear> for Renderer {
     fn paint(&mut self, bounds: LogicalRect, _: Clear) {
-        self.record(
+        self.record_native(
             bounds,
             0,
             (),
@@ -528,7 +350,7 @@ impl Paint<Clear> for Renderer {
 }
 
 impl Renderer {
-    fn record<T, E, H, F>(&mut self, bounds: LogicalRect, clip: u32, value: T, equal: E, hash: H, prepare: F)
+    fn record_native<T, E, H, F>(&mut self, bounds: LogicalRect, clip: u32, value: T, equal: E, hash: H, prepare: F)
     where
         T: 'static,
         E: Fn(&T, &DisplayList, &T, &DisplayList) -> bool + 'static,
@@ -547,7 +369,7 @@ impl Renderer {
                       _,
                       command: &blit_gui::display_list::Command,
                       list: &DisplayList,
-                      context: &mut PrepareContext<'_>| {
+                      context: &mut Dispatch<'_>| {
                     if let Some(bounds) = command.bounds.intersection(context.screen) {
                         prepare(value, list, context.renderer, bounds, command.clip);
                     }
@@ -557,7 +379,7 @@ impl Renderer {
     }
 }
 
-pub struct PrepareContext<'a> {
+pub struct Dispatch<'a> {
     pub renderer: &'a mut Renderer,
     pub screen: PhysicalRect,
 }
@@ -607,5 +429,202 @@ impl StoredMesh {
             vertices: list.slice(self.vertices),
             indices: list.slice(self.indices),
         }
+    }
+}
+
+impl crate::Handler<StoredRectangle> for Builtins {
+    type Prepared = ();
+    fn new(_: &crate::PrepareContext<'_>) -> Self {
+        Self
+    }
+    #[inline]
+    fn prepare(&mut self, value: &StoredRectangle, context: &mut crate::PrepareContext<'_>) -> Option<()> {
+        let list = context.list;
+        let bounds = context.bounds;
+        let clip = context.clip;
+        let renderer = &mut *context.renderer;
+
+        let rectangle = value.view(list);
+
+        let scale = renderer.scale;
+        let start = renderer.instances.len() as u32;
+        let opacity = ((rectangle.opacity.clamp(0.0, 1.0) * 255.0).round() as u8) as f32 / 255.0;
+        if opacity == 0.0 {
+            return None;
+        }
+        let area = rectangle.area.to_physical(Scale2::uniform(scale));
+        let draw = area.intersection(bounds)?;
+        if let Fill::Solid(background) = rectangle.background
+            && opacity == 1.0
+            && background.alpha > 0
+            && rectangle.radius == BorderRadius::default()
+            && rectangle.border.width <= 0.0
+        {
+            assert!(
+                renderer.mesh_data.len() <= u32::MAX as usize - 3,
+                "too many GPU mesh vertices"
+            );
+            let vertex = renderer.mesh_data.len() as u32;
+            let color = u32::from_le_bytes([background.red, background.green, background.blue, background.alpha]);
+            let left = draw.x as f32;
+            let top = draw.y as f32;
+            let right = draw.x.saturating_add(draw.width) as f32;
+            let bottom = draw.y.saturating_add(draw.height) as f32;
+            renderer.mesh_data.extend([
+                MeshData([left.to_bits(), top.to_bits(), color, clip]),
+                MeshData([right.to_bits(), top.to_bits(), color, clip]),
+                MeshData([left.to_bits(), bottom.to_bits(), color, clip]),
+                MeshData([right.to_bits(), bottom.to_bits(), color, clip]),
+            ]);
+            renderer.push_mesh_primitive([vertex, vertex + 1, vertex + 2, vertex + 3]);
+            return None;
+        }
+        let mut colors = [[0.0; 4]; 2];
+        let mut border_width = (rectangle.border.width * scale).round().max(0.0) as i32 as f32;
+        let mut data = [clip, 0, 0, 0];
+        for (index, fill) in [rectangle.background, rectangle.border.fill].into_iter().enumerate() {
+            if index == 1 && border_width == 0.0 {
+                continue;
+            }
+            match fill {
+                Fill::Solid(color) => colors[index] = premultiplied(color, opacity),
+                Fill::LinearGradient(gradient) => {
+                    let (direction_y, direction_x) = gradient.angle_degrees.to_radians().sin_cos();
+                    let extent = direction_x.abs() * area.width as f32 + direction_y.abs() * area.height as f32;
+                    let end = u32::try_from(renderer.stops.len() + gradient.stops.len())
+                        .expect("too many GPU gradient stops");
+                    data[index + 1] = renderer.stops.len() as u32 + 1;
+                    renderer.stops.extend(gradient.stops.iter().map(|stop| GradientStop {
+                        color: premultiplied(stop.color, opacity),
+                        position: stop.position,
+                        x_step: direction_x / extent,
+                        y_step: direction_y / extent,
+                        end,
+                    }));
+                }
+            }
+        }
+        if data[2] == 0 && colors[1][3] == 0.0 {
+            border_width = 0.0;
+        }
+        if data[1] == 0 && colors[0][3] == 0.0 && border_width == 0.0 {
+            return None;
+        }
+        renderer.instances.push(Instance {
+            shape: physical_rect(area),
+            draw: physical_rect(draw),
+            radii: physical_radii(rectangle.radius, scale, area.width, area.height),
+            inner_color: colors[0],
+            border_color: colors[1],
+            params: [border_width, 0.0, 0.0, 0.0],
+            data,
+        });
+
+        renderer.push_instances(start, Pipeline::Content(None));
+        None
+    }
+    fn draw(&mut self, _: &[()], _: &mut crate::DrawContext<'_>) {}
+}
+
+impl crate::Handler<BoxShadow> for Builtins {
+    type Prepared = ();
+    fn new(_: &crate::PrepareContext<'_>) -> Self {
+        Self
+    }
+    #[inline]
+    fn prepare(&mut self, value: &BoxShadow, context: &mut crate::PrepareContext<'_>) -> Option<()> {
+        let bounds = context.bounds;
+        let clip = context.clip;
+        let renderer = &mut *context.renderer;
+
+        let shadow = *value;
+
+        let scale = renderer.scale;
+        let start = renderer.instances.len() as u32;
+        if shadow.color.alpha == 0 {
+            return None;
+        }
+        if shadow.inset {
+            let shape = shadow.area.to_physical(Scale2::uniform(scale));
+            if shape.width <= 0 || shape.height <= 0 {
+                return None;
+            }
+            let draw = shape.intersection(bounds)?;
+            let blur = (shadow.blur.max(0.0) * scale).ceil() as i32;
+            let offset_x = (shadow.offset_x * scale).round() as i32;
+            let offset_y = (shadow.offset_y * scale).round() as i32;
+            let spread = (shadow.spread * scale).round() as i32;
+            renderer.instances.push(Instance {
+                shape: physical_rect(shape),
+                draw: physical_rect(draw),
+                radii: physical_radii(shadow.radius, scale, shape.width, shape.height),
+                inner_color: premultiplied(shadow.color, 1.0),
+                params: [blur as f32, offset_x as f32, offset_y as f32, spread as f32],
+                data: [clip, 0, 0, INSET_SHADOW],
+                ..Instance::zeroed()
+            });
+        } else {
+            let area = LogicalRect {
+                x: shadow.area.x + shadow.offset_x - shadow.spread,
+                y: shadow.area.y + shadow.offset_y - shadow.spread,
+                width: shadow.area.width + shadow.spread * 2.0,
+                height: shadow.area.height + shadow.spread * 2.0,
+            };
+            if area.width <= 0.0 || area.height <= 0.0 {
+                return None;
+            }
+            let shape = area.to_physical(Scale2::uniform(scale));
+            if shape.width <= 0 || shape.height <= 0 {
+                return None;
+            }
+            let blur = (shadow.blur.max(0.0) * scale).ceil() as i32;
+            let support = if blur == 0 {
+                shape
+            } else {
+                let diameter = blur.checked_mul(2)?;
+                let (Some(width), Some(height)) =
+                    (shape.width.checked_add(diameter), shape.height.checked_add(diameter))
+                else {
+                    return None;
+                };
+                PhysicalRect {
+                    x: shape.x.saturating_sub(blur),
+                    y: shape.y.saturating_sub(blur),
+                    width,
+                    height,
+                }
+            };
+            let draw = support.intersection(bounds)?;
+            let radius = BorderRadius {
+                top_left: (shadow.radius.top_left + shadow.spread).max(0.0),
+                top_right: (shadow.radius.top_right + shadow.spread).max(0.0),
+                bottom_right: (shadow.radius.bottom_right + shadow.spread).max(0.0),
+                bottom_left: (shadow.radius.bottom_left + shadow.spread).max(0.0),
+            };
+            renderer.instances.push(Instance {
+                shape: physical_rect(shape),
+                draw: physical_rect(draw),
+                radii: physical_radii(radius, scale, shape.width, shape.height),
+                inner_color: premultiplied(shadow.color, 1.0),
+                params: [blur as f32, 0.0, 0.0, 0.0],
+                data: [clip, 0, 0, if blur == 0 { 0 } else { OUTSET_SHADOW }],
+                ..Instance::zeroed()
+            });
+        }
+
+        renderer.push_instances(start, Pipeline::Content(None));
+        None
+    }
+    fn draw(&mut self, _: &[()], _: &mut crate::DrawContext<'_>) {}
+}
+
+struct Builtins;
+
+impl blit_gui::display_list::Compare for StoredRectangle {
+    fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
+        a.view(left) == b.view(right)
+    }
+    fn hash(value: &Self, list: &DisplayList, state: &mut impl std::hash::Hasher) {
+        value.view(list).hash(state);
     }
 }

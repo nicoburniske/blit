@@ -1,8 +1,11 @@
 mod atlas;
+mod handler;
 mod paint;
 mod text;
 
-use blit::{PhysicalRect, Scale2};
+use std::marker::PhantomData;
+
+use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_arena::Arena;
 use blit_gui::{
     TextSystem,
@@ -12,6 +15,10 @@ use blit_gui::{
     style::BorderRadius,
 };
 use bytemuck::{Pod, Zeroable};
+pub use handler::{DrawContext, Handler, PaintContext, PrepareContext};
+
+/// shared frame transform and rounded clip coverage for custom shaders
+pub const SHADER: &str = include_str!("clip.wgsl");
 
 const INITIAL_INSTANCES: u64 = 256;
 const INITIAL_GLYPHS: u64 = 256;
@@ -31,6 +38,7 @@ pub struct RendererConfig {
 }
 
 pub struct Renderer {
+    format: wgpu::TextureFormat,
     device: wgpu::Device,
     queue: wgpu::Queue,
     clear_color: wgpu::Color,
@@ -64,6 +72,9 @@ pub struct Renderer {
     scale: f32,
     paint_clip: u32,
     paint_clips: Vec<u32>,
+    handlers: Vec<handler::ErasedHandler>,
+    calls: Vec<handler::Call>,
+    effects: Option<Effects>,
 }
 
 impl Renderer {
@@ -82,9 +93,9 @@ impl Renderer {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("blit gpu data"),
             entries: &[
-                (0, wgpu::ShaderStages::VERTEX, wgpu::BufferBindingType::Uniform),
+                (0, wgpu::ShaderStages::VERTEX_FRAGMENT, wgpu::BufferBindingType::Uniform),
                 (1, wgpu::ShaderStages::VERTEX_FRAGMENT, storage),
-                (2, wgpu::ShaderStages::FRAGMENT, storage),
+                (2, wgpu::ShaderStages::VERTEX_FRAGMENT, storage),
                 (3, wgpu::ShaderStages::FRAGMENT, storage),
                 (4, wgpu::ShaderStages::VERTEX, storage),
                 (5, wgpu::ShaderStages::VERTEX, storage),
@@ -123,7 +134,10 @@ impl Renderer {
             bind_group_layouts: &[Some(&bind_group_layout), Some(&texture_bind_group_layout)],
             immediate_size: 0,
         });
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("blit gpu"),
+            source: wgpu::ShaderSource::Wgsl(format!("{SHADER}{}", include_str!("shader.wgsl")).into()),
+        });
         let draw_attributes = wgpu::vertex_attr_array![0 => Uint32];
         let draw_layout = [Some(wgpu::VertexBufferLayout {
             array_stride: size_of::<u32>() as u64,
@@ -258,6 +272,7 @@ impl Renderer {
         });
 
         Self {
+            format,
             device,
             queue,
             clear_color: wgpu::Color {
@@ -296,6 +311,20 @@ impl Renderer {
             scale: 1.0,
             paint_clip: 0,
             paint_clips: Vec::new(),
+            handlers: Vec::new(),
+            calls: Vec::new(),
+            effects: None,
+        }
+    }
+
+    /// begins recording inputs for H
+    #[inline]
+    pub fn record<H>(&mut self, bounds: LogicalRect) -> PaintContext<'_, H> {
+        PaintContext {
+            scale: self.scale,
+            bounds: bounds.to_physical(Scale2::uniform(self.scale)),
+            renderer: self,
+            marker: PhantomData,
         }
     }
 
@@ -408,162 +437,343 @@ impl Renderer {
 
     /// renders one frame into `target`
     pub fn render(&mut self, target: &wgpu::Texture) {
-        let width = target.width();
-        let height = target.height();
-        let display_list = std::mem::take(&mut self.list);
-        self.instances.clear();
-        self.glyph_instances.clear();
-        self.draws.clear();
-        self.mesh_data.clear();
-        self.clips.clear();
-        self.stops.clear();
-        self.batches.clear();
-        self.clips.push(Clip::zeroed());
-        self.glyphs.begin_frame();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert_eq!(
+                target.format(),
+                self.format,
+                "GPU target format differs from renderer format"
+            );
+            let width = target.width();
+            let height = target.height();
+            let display_list = std::mem::take(&mut self.list);
+            self.instances.clear();
+            self.glyph_instances.clear();
+            self.draws.clear();
+            self.mesh_data.clear();
+            self.clips.clear();
+            self.stops.clear();
+            self.batches.clear();
+            self.clips.push(Clip::zeroed());
+            self.glyphs.begin_frame();
 
-        let scale = self.scale;
-        for node in display_list.clips() {
-            let area = node.area.to_physical(Scale2::uniform(scale));
-            self.clips.push(Clip {
-                rect: physical_rect(area),
-                radii: physical_radii(node.radius, scale, area.width, area.height),
-                data: [node.parent, 0, 0, 0],
-            });
-        }
-
-        let screen = PhysicalRect {
-            x: 0,
-            y: 0,
-            width: width.min(i32::MAX as u32) as i32,
-            height: height.min(i32::MAX as u32) as i32,
-        };
-        let mut preparation = paint::PrepareContext { renderer: self, screen };
-        for command in display_list.commands() {
-            // safety: recording pairs dispatch with this renderer preparation context
-            unsafe {
-                command.dispatch(&display_list, std::ptr::NonNull::from(&mut preparation).cast());
+            let scale = self.scale;
+            for node in display_list.clips() {
+                let area = node.area.to_physical(Scale2::uniform(scale));
+                self.clips.push(Clip {
+                    rect: physical_rect(area),
+                    radii: physical_radii(node.radius, scale, area.width, area.height),
+                    data: [node.parent, 0, 0, 0],
+                });
             }
-        }
-        let instance_bytes = self.instances.len() as u64 * size_of::<Instance>() as u64;
-        let glyph_bytes = self.glyph_instances.len() as u64 * size_of::<GlyphInstance>() as u64;
-        let draw_bytes = self.draws.len() as u64 * size_of::<u32>() as u64;
-        let mesh_bytes = self.mesh_data.len() as u64 * size_of::<MeshData>() as u64;
-        let clip_bytes = self.clips.len() as u64 * size_of::<Clip>() as u64;
-        let stop_bytes = self.stops.len() as u64 * size_of::<GradientStop>() as u64;
-        if instance_bytes > self.instance_buffer.size()
-            || glyph_bytes > self.glyph_buffer.size()
-            || draw_bytes > self.draw_buffer.size()
-            || mesh_bytes > self.mesh_buffer.size()
-            || clip_bytes > self.clip_buffer.size()
-            || stop_bytes > self.stop_buffer.size()
-        {
-            let device = &self.device;
-            grow_buffer(device, &mut self.instance_buffer, &self.instances, "blit gpu instances");
-            grow_buffer(
-                device,
-                &mut self.glyph_buffer,
-                &self.glyph_instances,
-                "blit gpu glyph instances",
-            );
-            grow_buffer(device, &mut self.draw_buffer, &self.draws, "blit gpu draws");
-            grow_buffer(device, &mut self.mesh_buffer, &self.mesh_data, "blit gpu mesh data");
-            grow_buffer(device, &mut self.clip_buffer, &self.clips, "blit gpu clips");
-            grow_buffer(device, &mut self.stop_buffer, &self.stops, "blit gpu gradient stops");
-            self.bind_group = data_bind_group(
-                &self.device,
-                &self.bind_group_layout,
-                &self.frame_buffer,
-                &self.instance_buffer,
-                &self.clip_buffer,
-                &self.stop_buffer,
-                &self.glyph_buffer,
-                &self.mesh_buffer,
-            );
-        }
 
-        let frame_size = [width, height];
-        if self.frame_size != frame_size {
-            self.queue.write_buffer(
-                &self.frame_buffer,
-                0,
-                bytemuck::bytes_of(&Frame {
-                    transform: [2.0 / width as f32, -2.0 / height as f32, -1.0, 1.0],
-                }),
-            );
-            self.frame_size = frame_size;
-        }
-        if !self.instances.is_empty() {
-            self.queue
-                .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&self.instances));
-        }
-        if !self.glyph_instances.is_empty() {
-            self.queue
-                .write_buffer(&self.glyph_buffer, 0, bytemuck::cast_slice(&self.glyph_instances));
-        }
-        if !self.draws.is_empty() {
-            self.queue
-                .write_buffer(&self.draw_buffer, 0, bytemuck::cast_slice(&self.draws));
-        }
-        if !self.mesh_data.is_empty() {
-            self.queue
-                .write_buffer(&self.mesh_buffer, 0, bytemuck::cast_slice(&self.mesh_data));
-        }
-        if self.clips.len() > 1 {
-            self.queue.write_buffer(
-                &self.clip_buffer,
-                size_of::<Clip>() as u64,
-                bytemuck::cast_slice(&self.clips[1..]),
-            );
-        }
-        if !self.stops.is_empty() {
-            self.queue
-                .write_buffer(&self.stop_buffer, 0, bytemuck::cast_slice(&self.stops));
-        }
+            let screen = PhysicalRect {
+                x: 0,
+                y: 0,
+                width: width.min(i32::MAX as u32) as i32,
+                height: height.min(i32::MAX as u32) as i32,
+            };
+            let mut preparation = paint::Dispatch { renderer: self, screen };
+            for command in display_list.commands() {
+                // safety: recording pairs dispatch with this renderer preparation context
+                unsafe {
+                    command.dispatch(&display_list, std::ptr::NonNull::from(&mut preparation).cast());
+                }
+            }
+            for handler in &self.handlers {
+                (handler.upload)(handler.value, &self.device, &self.queue);
+            }
+            let instance_bytes = self.instances.len() as u64 * size_of::<Instance>() as u64;
+            let glyph_bytes = self.glyph_instances.len() as u64 * size_of::<GlyphInstance>() as u64;
+            let draw_bytes = self.draws.len() as u64 * size_of::<u32>() as u64;
+            let mesh_bytes = self.mesh_data.len() as u64 * size_of::<MeshData>() as u64;
+            let clip_bytes = self.clips.len() as u64 * size_of::<Clip>() as u64;
+            let stop_bytes = self.stops.len() as u64 * size_of::<GradientStop>() as u64;
+            if instance_bytes > self.instance_buffer.size()
+                || glyph_bytes > self.glyph_buffer.size()
+                || draw_bytes > self.draw_buffer.size()
+                || mesh_bytes > self.mesh_buffer.size()
+                || clip_bytes > self.clip_buffer.size()
+                || stop_bytes > self.stop_buffer.size()
+            {
+                let device = &self.device;
+                grow_buffer(device, &mut self.instance_buffer, &self.instances, "blit gpu instances");
+                grow_buffer(
+                    device,
+                    &mut self.glyph_buffer,
+                    &self.glyph_instances,
+                    "blit gpu glyph instances",
+                );
+                grow_buffer(device, &mut self.draw_buffer, &self.draws, "blit gpu draws");
+                grow_buffer(device, &mut self.mesh_buffer, &self.mesh_data, "blit gpu mesh data");
+                grow_buffer(device, &mut self.clip_buffer, &self.clips, "blit gpu clips");
+                grow_buffer(device, &mut self.stop_buffer, &self.stops, "blit gpu gradient stops");
+                self.bind_group = data_bind_group(
+                    &self.device,
+                    &self.bind_group_layout,
+                    &self.frame_buffer,
+                    &self.instance_buffer,
+                    &self.clip_buffer,
+                    &self.stop_buffer,
+                    &self.glyph_buffer,
+                    &self.mesh_buffer,
+                );
+            }
 
-        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("blit gpu frame"),
-        });
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let frame_size = [width, height];
+            if self.frame_size != frame_size {
+                self.queue.write_buffer(
+                    &self.frame_buffer,
+                    0,
+                    bytemuck::bytes_of(&Frame {
+                        transform: [2.0 / width as f32, -2.0 / height as f32, -1.0, 1.0],
+                    }),
+                );
+                self.frame_size = frame_size;
+            }
+            if !self.instances.is_empty() {
+                self.queue
+                    .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&self.instances));
+            }
+            if !self.glyph_instances.is_empty() {
+                self.queue
+                    .write_buffer(&self.glyph_buffer, 0, bytemuck::cast_slice(&self.glyph_instances));
+            }
+            if !self.draws.is_empty() {
+                self.queue
+                    .write_buffer(&self.draw_buffer, 0, bytemuck::cast_slice(&self.draws));
+            }
+            if !self.mesh_data.is_empty() {
+                self.queue
+                    .write_buffer(&self.mesh_buffer, 0, bytemuck::cast_slice(&self.mesh_data));
+            }
+            if self.clips.len() > 1 {
+                self.queue.write_buffer(
+                    &self.clip_buffer,
+                    size_of::<Clip>() as u64,
+                    bytemuck::cast_slice(&self.clips[1..]),
+                );
+            }
+            if !self.stops.is_empty() {
+                self.queue
+                    .write_buffer(&self.stop_buffer, 0, bytemuck::cast_slice(&self.stops));
+            }
+
+            let effects = self.calls.iter().any(|call| call.reads.is_some());
+            if effects {
+                self.effects(frame_size);
+            }
+            let output = target.create_view(&wgpu::TextureViewDescriptor::default());
+            let effect = effects.then(|| self.effects.as_ref().unwrap());
+            let view = effect.map_or(&output, |effect| &effect.view);
+            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("blit gpu frame"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(self.clear_color),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
             });
-            pass.set_bind_group(0, &self.bind_group, &[]);
-            pass.set_vertex_buffer(0, self.draw_buffer.slice(..));
-            for batch in &self.batches {
-                match batch.pipeline {
-                    Pipeline::Clear => pass.set_pipeline(&self.clear_pipeline),
-                    Pipeline::Content(page) => {
-                        pass.set_pipeline(&self.content_pipeline);
-                        let texture = match page {
-                            Some(page) => self.glyphs.bind_group(page),
-                            None => &self.empty_texture,
-                        };
-                        pass.set_bind_group(1, texture, &[]);
+            let pass = encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("blit gpu frame"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(self.clear_color),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    ..Default::default()
+                })
+                .forget_lifetime();
+            let mut context = DrawContext {
+                bounds: screen,
+                clip: 0,
+                size: frame_size,
+                pass: Some(pass),
+                encoder,
+                view,
+                binding: &self.bind_group,
+            };
+            for batches in self
+                .batches
+                .chunk_by(|left, right| matches!((left, right), (Batch::Draw { .. }, Batch::Draw { .. })))
+            {
+                if let [Batch::Custom(index)] = batches {
+                    let call = &self.calls[*index];
+                    if let Some(reads) = call.reads {
+                        let effect = effect.unwrap();
+                        if reads.width > 0 && reads.height > 0 {
+                            let origin = wgpu::Origin3d {
+                                x: reads.x as u32,
+                                y: reads.y as u32,
+                                z: 0,
+                            };
+                            context.encoder().copy_texture_to_texture(
+                                wgpu::TexelCopyTextureInfo {
+                                    texture: &effect.target,
+                                    mip_level: 0,
+                                    origin,
+                                    aspect: wgpu::TextureAspect::All,
+                                },
+                                wgpu::TexelCopyTextureInfo {
+                                    texture: &effect.snapshot,
+                                    mip_level: 0,
+                                    origin,
+                                    aspect: wgpu::TextureAspect::All,
+                                },
+                                wgpu::Extent3d {
+                                    width: reads.width as u32,
+                                    height: reads.height as u32,
+                                    depth_or_array_layers: 1,
+                                },
+                            );
+                        }
                     }
-                    Pipeline::Image(image) => {
-                        pass.set_pipeline(&self.image_pipeline);
-                        pass.set_bind_group(1, &self.images.get(image.into()).unwrap().bind_group, &[]);
+                    context.bounds = call.bounds;
+                    context.clip = call.clip;
+                    let handler = &self.handlers[call.handler];
+                    (handler.draw)(handler.value, call.range.clone(), &mut context);
+                } else {
+                    context.bounds = screen;
+                    context.clip = 0;
+                    let pass = context.pass();
+                    pass.set_vertex_buffer(0, self.draw_buffer.slice(..));
+                    for batch in batches {
+                        if let Batch::Draw { pipeline, start, end } = *batch {
+                            match pipeline {
+                                Pipeline::Clear => pass.set_pipeline(&self.clear_pipeline),
+                                Pipeline::Content(page) => {
+                                    pass.set_pipeline(&self.content_pipeline);
+                                    let texture = match page {
+                                        Some(page) => self.glyphs.bind_group(page),
+                                        None => &self.empty_texture,
+                                    };
+                                    pass.set_bind_group(1, texture, &[]);
+                                }
+                                Pipeline::Image(image) => {
+                                    pass.set_pipeline(&self.image_pipeline);
+                                    pass.set_bind_group(1, &self.images.get(image.into()).unwrap().bind_group, &[]);
+                                }
+                            }
+                            pass.draw(0..4, start..end);
+                        }
                     }
                 }
-                pass.draw(0..4, batch.start..batch.end);
             }
-        }
-        self.queue.submit([encoder.finish()]);
-        self.glyphs.end_frame(&mut self.text);
-        self.list = display_list;
+            if let Some(effect) = effect {
+                let mut pass = context.encoder().begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("blit gpu present"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &output,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(self.clear_color),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    ..Default::default()
+                });
+                pass.set_pipeline(&effect.pipeline);
+                pass.set_bind_group(0, &effect.binding, &[]);
+                pass.draw(0..4, 0..1);
+            }
+            context.pass = None;
+            self.queue.submit([context.encoder.finish()]);
+            self.glyphs.end_frame(&mut self.text);
+            self.list = display_list;
+        }));
         self.discard_frame();
         self.images.retain(|image| !image.handle.is_uniquely_owned());
+        if let Err(error) = result {
+            std::panic::resume_unwind(error);
+        }
+    }
+
+    fn effects(&mut self, size: [u32; 2]) -> &Effects {
+        let extent = wgpu::Extent3d {
+            width: size[0],
+            height: size[1],
+            depth_or_array_layers: 1,
+        };
+        if self
+            .effects
+            .as_ref()
+            .is_none_or(|cached| cached.target.size() != extent)
+        {
+            let [buffer, snapshot] = ["blit gpu effect target", "blit gpu source"].map(|label| {
+                self.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: extent,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: self.format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::COPY_SRC
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                })
+            });
+            let view = buffer.create_view(&Default::default());
+            let source = snapshot.create_view(&Default::default());
+            let binding = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("blit gpu present"),
+                layout: &self.texture_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                }],
+            });
+            let pipeline = self
+                .effects
+                .as_ref()
+                .map(|cached| cached.pipeline.clone())
+                .unwrap_or_else(|| {
+                    let shader = self.device.create_shader_module(wgpu::include_wgsl!("present.wgsl"));
+                    let layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("blit gpu present"),
+                        bind_group_layouts: &[Some(&self.texture_bind_group_layout)],
+                        immediate_size: 0,
+                    });
+                    self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                        label: Some("blit gpu present"),
+                        layout: Some(&layout),
+                        vertex: wgpu::VertexState {
+                            module: &shader,
+                            entry_point: Some("vertex"),
+                            compilation_options: Default::default(),
+                            buffers: &[],
+                        },
+                        primitive: wgpu::PrimitiveState {
+                            topology: wgpu::PrimitiveTopology::TriangleStrip,
+                            ..Default::default()
+                        },
+                        depth_stencil: None,
+                        multisample: Default::default(),
+                        fragment: Some(wgpu::FragmentState {
+                            module: &shader,
+                            entry_point: Some("fragment"),
+                            compilation_options: Default::default(),
+                            targets: &[Some(wgpu::ColorTargetState {
+                                format: self.format,
+                                blend: None,
+                                write_mask: wgpu::ColorWrites::ALL,
+                            })],
+                        }),
+                        multiview_mask: None,
+                        cache: None,
+                    })
+                });
+            self.effects = Some(Effects {
+                target: buffer,
+                view,
+                snapshot,
+                source,
+                binding,
+                pipeline,
+            });
+        }
+        self.effects.as_ref().unwrap()
     }
 
     #[doc(hidden)]
@@ -574,6 +784,10 @@ impl Renderer {
     /// releases recorded inputs when a frame is presented or skipped
     pub fn discard_frame(&mut self) {
         self.list.clear();
+        self.calls.clear();
+        for handler in &self.handlers {
+            (handler.finish)(handler.value);
+        }
         self.paint_clip = 0;
         self.paint_clips.clear();
         self.text.finish_frame();
@@ -587,12 +801,16 @@ impl Renderer {
             for index in start..end {
                 push_draw(&mut self.draws, &mut self.batches, pipeline, index);
             }
-        } else if let Some(batch) = self.batches.last_mut()
-            && batch.pipeline == pipeline
+        } else if let Some(Batch::Draw {
+            pipeline: previous,
+            end: last,
+            ..
+        }) = self.batches.last_mut()
+            && *previous == pipeline
         {
-            batch.end = end;
+            *last = end;
         } else {
-            self.batches.push(Batch { pipeline, start, end });
+            self.batches.push(Batch::Draw { pipeline, start, end });
         }
     }
 
@@ -613,17 +831,21 @@ fn push_draw(draws: &mut Vec<u32>, batches: &mut Vec<Batch>, pipeline: Pipeline,
     let start = draws.len() as u32;
     draws.push(draw);
     let end = draws.len() as u32;
-    if let Some(batch) = batches.last_mut()
-        && let (Pipeline::Content(current), Pipeline::Content(texture)) = (&mut batch.pipeline, pipeline)
+    if let Some(Batch::Draw {
+        pipeline: previous,
+        end: last,
+        ..
+    }) = batches.last_mut()
+        && let (Pipeline::Content(current), Pipeline::Content(texture)) = (previous, pipeline)
         && (current.is_none() || texture.is_none() || *current == texture)
     {
         if current.is_none() {
             *current = texture;
         }
-        batch.end = end;
+        *last = end;
         return;
     }
-    batches.push(Batch { pipeline, start, end });
+    batches.push(Batch::Draw { pipeline, start, end });
 }
 
 #[repr(C)]
@@ -682,10 +904,18 @@ enum Pipeline {
     Image(ImageId),
 }
 
-struct Batch {
-    pipeline: Pipeline,
-    start: u32,
-    end: u32,
+struct Effects {
+    target: wgpu::Texture,
+    view: wgpu::TextureView,
+    snapshot: wgpu::Texture,
+    source: wgpu::TextureView,
+    binding: wgpu::BindGroup,
+    pipeline: wgpu::RenderPipeline,
+}
+
+enum Batch {
+    Draw { pipeline: Pipeline, start: u32, end: u32 },
+    Custom(usize),
 }
 
 struct StoredImage {
@@ -857,8 +1087,8 @@ mod tests {
     #[test]
     fn pipeline_is_valid() {
         let (device, queue) = wgpu::Device::noop(&Default::default());
-        Renderer::new(
-            device,
+        let mut renderer = Renderer::new(
+            device.clone(),
             queue,
             wgpu::TextureFormat::Rgba8Unorm,
             TextSystem::new(
@@ -871,6 +1101,70 @@ mod tests {
             .unwrap(),
             RendererConfig::default(),
         );
+        struct State {
+            kind: u8,
+            used: bool,
+        }
+        impl Handler<u8> for State {
+            type Prepared = ();
+            fn new(_: &PrepareContext<'_>) -> Self {
+                Self { kind: 8, used: false }
+            }
+            fn prepare(&mut self, input: &u8, _: &mut PrepareContext<'_>) -> Option<()> {
+                assert_eq!(self.kind, 8);
+                assert!(!self.used);
+                self.used = true;
+                assert_eq!(*input, 0, "failed preparation");
+                None
+            }
+            fn draw(&mut self, _: &[()], _: &mut DrawContext<'_>) {}
+            fn finish_frame(&mut self) {
+                self.used = false;
+            }
+        }
+        impl Handler<u16> for State {
+            type Prepared = ();
+            fn new(_: &PrepareContext<'_>) -> Self {
+                Self { kind: 16, used: false }
+            }
+            fn prepare(&mut self, _: &u16, _: &mut PrepareContext<'_>) -> Option<()> {
+                assert_eq!(self.kind, 16);
+                assert!(!self.used);
+                self.used = true;
+                None
+            }
+            fn draw(&mut self, _: &[()], _: &mut DrawContext<'_>) {}
+            fn finish_frame(&mut self) {
+                self.used = false;
+            }
+        }
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 8,
+                height: 8,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        for _ in 0..2 {
+            let bounds = blit::LogicalRect::new(0.0, 0.0, 8.0, 8.0);
+            renderer.record::<State>(bounds).draw(0u8);
+            renderer.record::<State>(bounds).draw(0u16);
+            renderer.render(&target);
+            assert_eq!(renderer.handlers.len(), 2);
+        }
+        let bounds = blit::LogicalRect::new(0.0, 0.0, 8.0, 8.0);
+        renderer.record::<State>(bounds).draw(1u8);
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| renderer.render(&target)));
+        assert!(failure.is_err());
+        renderer.record::<State>(bounds).draw(0u8);
+        renderer.render(&target);
     }
 
     #[test]
