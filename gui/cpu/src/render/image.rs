@@ -1,10 +1,78 @@
-use blit::{LogicalRect, PhysicalRect};
+use std::hash::Hash;
+
+use blit::{LogicalRect, Paint, PhysicalRect, internal::bump::Offset};
 use blit_gui::{
     Image,
+    damage::DamageTracker,
     image::{ImageData, ImageFormat, ImageHandle, ImagePatch, ImageSampling, ImageTiling, prepare_image_patches},
 };
 
 use super::image_patch::{AlphaRows, Prepared};
+use crate::{
+    PixelBuffer, RenderStrategy, Renderer,
+    strategy::command::{Coverage, Payload},
+};
+
+impl<B, S, D> Paint<Image> for Renderer<B, S, D>
+where
+    B: PixelBuffer,
+    S: RenderStrategy<B>,
+    D: DamageTracker,
+{
+    fn paint(&mut self, area: LogicalRect, request: Image) {
+        let mut recording = self.record::<()>(area);
+        recording.record_input(
+            recording.bounds,
+            recording.clip,
+            (area, request),
+            |a, _, b, _| a == b,
+            |(area, image), _, state| {
+                [area.x, area.y, area.width, area.height]
+                    .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+                    .hash(state);
+                image.hash(state);
+            },
+            |(area, request), offset, record, _, context| {
+                let scale = context.scale;
+                let target = &mut *context.commands;
+                if let Some(texture) = context.images.get(request.image.into()) {
+                    prepare_image_patches(*area, request, texture.data.size, scale, |patch| {
+                        if let Some(bounds) = patch.bounds.intersection(record.bounds) {
+                            let (opaque, partial) = crate::render::image::coverage(
+                                request,
+                                patch,
+                                &texture.data,
+                                texture.opaque,
+                                texture.has_opaque_spans,
+                            );
+                            target
+                                .record(
+                                    bounds,
+                                    record.clip,
+                                    (scale, offset, patch),
+                                    |_, (scale, value, patch), cx| {
+                                        // safety: recording stores this offset as placed image data
+                                        let (_, request) =
+                                            unsafe { cx.list.data().get(Offset::<(LogicalRect, Image)>::new(*value)) };
+                                        crate::render::image_patch::Prepared::new(request, *patch, *scale)
+                                            .map(Payload::Image)
+                                            .unwrap_or(Payload::Empty)
+                                    },
+                                )
+                                .coverage = if opaque {
+                                Coverage::Full
+                            } else if partial {
+                                Coverage::PartialImage
+                            } else {
+                                Coverage::None
+                            };
+                        }
+                    });
+                }
+            },
+        );
+    }
+}
 
 pub struct StoredImage {
     pub handle: ImageHandle,

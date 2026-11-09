@@ -1,6 +1,10 @@
 mod atlas;
+mod clear;
 mod handler;
-mod paint;
+mod image;
+mod mesh;
+mod rectangle;
+mod shadow;
 mod text;
 
 use std::marker::PhantomData;
@@ -75,6 +79,29 @@ pub struct Renderer {
     handlers: Vec<handler::ErasedHandler>,
     calls: Vec<handler::Call>,
     effects: Option<Effects>,
+}
+
+impl blit::Context for Renderer {
+    type Scalar = f32;
+}
+
+impl blit_gui::Context for Renderer {
+    fn text(&mut self) -> &mut TextSystem {
+        &mut self.text
+    }
+
+    fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
+        self.paint_clips.push(self.paint_clip);
+        self.paint_clip = self.list.push_clip(blit_gui::display_list::Clip {
+            parent: self.paint_clip,
+            area,
+            radius,
+        });
+    }
+
+    fn pop_clip(&mut self) {
+        self.paint_clip = self.paint_clips.pop().expect("no paint clip to pop");
+    }
 }
 
 impl Renderer {
@@ -472,7 +499,7 @@ impl Renderer {
                 width: width.min(i32::MAX as u32) as i32,
                 height: height.min(i32::MAX as u32) as i32,
             };
-            let mut preparation = paint::Dispatch { renderer: self, screen };
+            let mut preparation = handler::Dispatch { renderer: self, screen };
             for command in display_list.commands() {
                 // safety: recording pairs dispatch with this renderer preparation context
                 unsafe {

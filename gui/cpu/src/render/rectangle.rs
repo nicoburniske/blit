@@ -1,13 +1,86 @@
 use std::ops::Range;
 
-use blit::{LogicalRect, PhysicalRect, Scale2};
-use blit_gui::Rectangle;
+use blit::{LogicalRect, Paint, PhysicalRect, Scale2, internal::bump::Offset};
+use blit_gui::{Rectangle, damage::DamageTracker, style::Fill};
 
 use super::{
     fill::{Gradients, PreparedFill},
     rounded::{Radii, RoundedLine},
 };
-use crate::{Pixel, PixelSpan, PremultipliedRgbaColor};
+use crate::{
+    Pixel, PixelBuffer, PixelSpan, PremultipliedRgbaColor, RenderStrategy, Renderer,
+    strategy::command::{Coverage, Payload},
+};
+
+impl<B, S, D> Paint<Rectangle<'_>> for Renderer<B, S, D>
+where
+    B: PixelBuffer,
+    S: RenderStrategy<B>,
+    D: DamageTracker,
+{
+    fn paint(&mut self, area: LogicalRect, rectangle: Rectangle<'_>) {
+        let mut recording = self.record::<()>(area);
+        let value = blit_gui::rectangle::Stored::new(area, rectangle, recording.list);
+        recording.record_input(
+            recording.bounds,
+            recording.clip,
+            value,
+            <blit_gui::rectangle::Stored as blit_gui::display_list::Compare>::equal,
+            <blit_gui::rectangle::Stored as blit_gui::display_list::Compare>::hash,
+            |input, offset, record, list, context| {
+                let scale = context.scale;
+                let target = &mut *context.commands;
+                let rectangle = input.view(list);
+                let Some(bounds) = input
+                    .area
+                    .to_physical(Scale2::uniform(scale))
+                    .intersection(record.bounds)
+                else {
+                    return;
+                };
+                if rectangle.opacity <= 0.0 || rectangle.opacity.is_nan() {
+                    return;
+                }
+                let opaque = match rectangle.background {
+                    Fill::Solid(color) => PremultipliedRgbaColor::with_opacity(color, rectangle.opacity).alpha == 255,
+                    Fill::LinearGradient(gradient) => gradient
+                        .stops
+                        .iter()
+                        .all(|stop| PremultipliedRgbaColor::with_opacity(stop.color, rectangle.opacity).alpha == 255),
+                };
+                let coverage = if !opaque {
+                    Coverage::None
+                } else if rectangle.radius == Default::default() {
+                    Coverage::Full
+                } else {
+                    Coverage::Rounded
+                };
+                if record.clip == 0
+                    && coverage == Coverage::Full
+                    && let Some(previous) = target.metadata.last()
+                    && previous.clip == 0
+                    && previous.bounds == bounds
+                {
+                    target.metadata.pop();
+                    target.entries.pop();
+                    let removed = target.len();
+                    if target.passes.last() == Some(&removed) {
+                        target.passes.pop();
+                    }
+                }
+                target
+                    .record(bounds, record.clip, (scale, offset), |_, (scale, value), cx| {
+                        // safety: recording stores this offset as blit_gui::rectangle::Stored
+                        let input = unsafe { cx.list.data().get(Offset::<blit_gui::rectangle::Stored>::new(*value)) };
+                        crate::render::rectangle::Prepared::new(input.area, &input.view(cx.list), *scale, cx.gradients)
+                            .map(Payload::Rectangle)
+                            .unwrap_or(Payload::Empty)
+                    })
+                    .coverage = coverage;
+            },
+        );
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct Prepared {

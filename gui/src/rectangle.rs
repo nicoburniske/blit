@@ -4,7 +4,8 @@ use blit::{Atom, AtomCx, Constraints, LogicalRect, Paint, Size};
 
 use crate::{
     color::Color,
-    style::{Border, BorderRadius, Fill},
+    display_list::{Compare, DisplayList, Slice},
+    style::{Border, BorderRadius, Fill, GradientStop, LinearGradient},
 };
 
 blit::builder! {
@@ -62,5 +63,81 @@ impl Hash for Rectangle<'_> {
                 }
             }
         }
+    }
+}
+
+#[doc(hidden)]
+pub struct Stored {
+    pub area: LogicalRect,
+    rectangle: Rectangle<'static>,
+    stops: [Option<Slice<GradientStop>>; 2],
+}
+
+impl Stored {
+    #[inline]
+    pub fn new(area: LogicalRect, rectangle: Rectangle<'_>, list: &mut DisplayList) -> Self {
+        let [(background, background_stops), (border, border_stops)] = [rectangle.background, rectangle.border.fill]
+            .map(|fill| match fill {
+                Fill::Solid(color) => (Fill::Solid(color), None),
+                Fill::LinearGradient(gradient) => {
+                    assert!(
+                        gradient.stops.len() >= 2
+                            && gradient.angle_degrees.is_finite()
+                            && gradient
+                                .stops
+                                .iter()
+                                .all(|stop| stop.position.is_finite() && (0.0..=1.0).contains(&stop.position))
+                            && gradient
+                                .stops
+                                .windows(2)
+                                .all(|stops| stops[0].position < stops[1].position),
+                        "invalid linear gradient"
+                    );
+                    (
+                        Fill::LinearGradient(LinearGradient { stops: &[], ..gradient }),
+                        Some(list.store_slice(gradient.stops.iter().copied())),
+                    )
+                }
+            });
+        Self {
+            area,
+            rectangle: Rectangle {
+                background,
+                border: Border {
+                    fill: border,
+                    ..rectangle.border
+                },
+                ..rectangle
+            },
+            stops: [background_stops, border_stops],
+        }
+    }
+
+    #[inline]
+    pub fn view<'a>(&self, list: &'a DisplayList) -> Rectangle<'a> {
+        let mut rectangle = self.rectangle;
+        for (fill, stops) in [&mut rectangle.background, &mut rectangle.border.fill]
+            .into_iter()
+            .zip(self.stops)
+        {
+            if let Fill::LinearGradient(gradient) = fill {
+                gradient.stops = list.slice(stops.unwrap());
+            }
+        }
+        rectangle
+    }
+}
+
+impl Compare for Stored {
+    #[inline]
+    fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
+        a.area == b.area && a.view(left) == b.view(right)
+    }
+
+    fn hash(value: &Self, list: &DisplayList, state: &mut impl Hasher) {
+        [value.area.x, value.area.y, value.area.width, value.area.height]
+            .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+            .hash(state);
+        value.view(list).hash(state);
     }
 }

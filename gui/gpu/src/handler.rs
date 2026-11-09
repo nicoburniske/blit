@@ -1,6 +1,6 @@
-use std::{any::TypeId, marker::PhantomData, ops::Range, ptr::NonNull};
+use std::{any::TypeId, hash::Hash, marker::PhantomData, ops::Range, ptr::NonNull};
 
-use blit::{PhysicalRect, Scale2};
+use blit::{LogicalRect, PhysicalRect, Scale2, internal::hash::FxHasher};
 use blit_gui::display_list::{Compare, DisplayList, Slice};
 
 use crate::{Batch, Renderer};
@@ -54,7 +54,7 @@ impl<H> PaintContext<'_, H> {
                        _: u32,
                        command: &blit_gui::display_list::Command,
                        list: &DisplayList,
-                       dispatch: &mut crate::paint::Dispatch<'_>| {
+                       dispatch: &mut Dispatch<'_>| {
             let Some(mut bounds) = command.bounds.intersection(dispatch.screen) else {
                 return;
             };
@@ -296,4 +296,51 @@ impl Drop for ErasedHandler {
     fn drop(&mut self) {
         (self.drop)(self.value);
     }
+}
+impl Renderer {
+    pub(crate) fn record_native<T, E, H, F>(
+        &mut self,
+        bounds: LogicalRect,
+        clip: u32,
+        value: T,
+        equal: E,
+        hash: H,
+        prepare: F,
+    ) where
+        T: 'static,
+        E: Fn(&T, &DisplayList, &T, &DisplayList) -> bool + 'static,
+        H: Fn(&T, &DisplayList, &mut FxHasher) + 'static,
+        F: Fn(&T, &DisplayList, &mut Renderer, PhysicalRect, u32) + 'static,
+    {
+        // safety: this renderer dispatches its list with PrepareContext
+        unsafe {
+            self.list.record(
+                bounds.to_physical(Scale2::uniform(self.scale)),
+                clip,
+                value,
+                equal,
+                hash,
+                move |value: &T,
+                      _,
+                      command: &blit_gui::display_list::Command,
+                      list: &DisplayList,
+                      context: &mut Dispatch<'_>| {
+                    if let Some(bounds) = command.bounds.intersection(context.screen) {
+                        prepare(value, list, context.renderer, bounds, command.clip);
+                    }
+                },
+            );
+        }
+    }
+}
+
+pub struct Dispatch<'a> {
+    pub renderer: &'a mut Renderer,
+    pub screen: PhysicalRect,
+}
+
+pub fn hash_area(area: LogicalRect, state: &mut impl std::hash::Hasher) {
+    [area.x, area.y, area.width, area.height]
+        .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+        .hash(state);
 }

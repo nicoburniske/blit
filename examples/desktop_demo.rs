@@ -16,7 +16,7 @@ use blit_desktop::{Application, Config, EventLoopProxy, Scope};
 use blit_gui::{
     BoundsClip, Family, FontData, FontStack, Rectangle, Shadow, TextConfig, TextSystem,
     color::Color,
-    paint::{Mesh, MeshVertex},
+    mesh::{Mesh, MeshVertex},
     style::{Border, BorderRadius},
     text::{
         FontId, FontStyle, HorizontalAlign, Span, SpanStyle, TextOptions, TextOverflow, TextStyle, TextWrap,

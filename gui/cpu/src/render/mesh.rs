@@ -1,8 +1,96 @@
-use blit::{PhysicalRect, internal::bump::Offset};
-use blit_gui::display_list::DisplayList;
+use std::hash::Hash;
+
+use blit::{LogicalRect, Paint, PhysicalRect, Scale2, internal::bump::Offset};
+use blit_gui::{
+    damage::DamageTracker,
+    display_list::{DisplayList, Slice},
+    mesh::{Mesh, MeshVertex},
+};
 
 use super::triangle;
-use crate::{Pixel, PixelSpan, paint::StoredMesh};
+use crate::{
+    Pixel, PixelBuffer, PixelSpan, RenderStrategy, Renderer, handler::ErasedCommand, strategy::command::Payload,
+};
+
+impl<B, S, D> Paint<Mesh<'_>> for Renderer<B, S, D>
+where
+    B: PixelBuffer,
+    S: RenderStrategy<B>,
+    D: DamageTracker,
+{
+    fn paint(&mut self, bounds: LogicalRect, mesh: Mesh<'_>) {
+        let mut recording = self.record::<()>(bounds);
+        assert_eq!(mesh.indices.len() % 3, 0, "mesh index count must be divisible by three");
+        if mesh.indices.is_empty() {
+            return;
+        }
+        assert!(
+            mesh.indices.iter().all(|index| (*index as usize) < mesh.vertices.len()),
+            "mesh index out of bounds"
+        );
+        assert!(
+            mesh.vertices
+                .iter()
+                .all(|vertex| vertex.position.x.is_finite() && vertex.position.y.is_finite()),
+            "mesh positions must be finite"
+        );
+        let vertices = recording.list.store_slice(mesh.vertices.iter().copied());
+        let indices = recording.list.store_slice(mesh.indices.iter().copied());
+        let value = StoredMesh {
+            vertices,
+            indices,
+            scale: recording.scale,
+        };
+        recording.record_input(
+            recording.bounds,
+            recording.clip,
+            value,
+            |a, left, b, right| a.view(left) == b.view(right),
+            |value, list, state| value.view(list).hash(state),
+            |_, mesh_offset, record, list, context| {
+                let mut bounds = record.bounds.intersection(context.screen);
+                let mut clip = record.clip;
+                while clip != 0
+                    && let Some(area) = bounds
+                {
+                    let node = &list.clips()[clip as usize - 1];
+                    bounds = area.intersection(node.area.to_physical(Scale2::uniform(context.scale)));
+                    clip = node.parent;
+                }
+                let Some(bounds) = bounds else {
+                    return;
+                };
+                let target = &mut *context.commands;
+                let index = target.mesh_count;
+                if index == target.meshes.len() {
+                    target
+                        .meshes
+                        .push(crate::render::mesh::Prepared::new(Offset::new(mesh_offset)));
+                } else {
+                    target.meshes[index].source = Offset::new(mesh_offset);
+                }
+                target.mesh_count += 1;
+                let call = ErasedCommand::ready(&mut target.prepared, Payload::Mesh(index as u32));
+                target.push(call, bounds, record.clip);
+            },
+        );
+    }
+}
+
+pub struct StoredMesh {
+    vertices: Slice<MeshVertex>,
+    indices: Slice<u32>,
+    pub scale: f32,
+}
+
+impl StoredMesh {
+    pub fn view<'a>(&self, list: &'a DisplayList) -> Mesh<'a> {
+        Mesh {
+            vertices: list.slice(self.vertices),
+            indices: list.slice(self.indices),
+        }
+    }
+}
 
 pub struct Prepared {
     pub source: Offset<StoredMesh>,

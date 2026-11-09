@@ -334,7 +334,7 @@ mod tests {
     use blit_gui::{
         Context,
         damage::{command::CommandDiff, tile::TileDamage},
-        paint::{Mesh, MeshVertex},
+        mesh::{Mesh, MeshVertex},
     };
 
     use super::*;

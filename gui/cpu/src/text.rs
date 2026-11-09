@@ -1,10 +1,46 @@
 use std::ptr::NonNull;
 
-use blit::{LogicalRect, PhysicalRect, Point, Scale2};
-use blit_gui::{TextSystem, color::Color, paint::TextRequest};
+use blit::{LogicalRect, Paint, PhysicalRect, Point, Scale2, internal::bump::Offset};
+use blit_gui::{TextSystem, color::Color, damage::DamageTracker, text::TextRequest};
 use blit_text::GlyphRequest;
 
-use crate::{Pixel, PixelSpan, RendererConfig, glyph::GlyphCache, strategy::command::PreparedText};
+use crate::{
+    Pixel, PixelBuffer, PixelSpan, RenderStrategy, Renderer, RendererConfig,
+    glyph::GlyphCache,
+    strategy::command::{Payload, PreparedText},
+};
+
+impl<B, S, D> Paint<TextRequest<'_>> for Renderer<B, S, D>
+where
+    B: PixelBuffer,
+    S: RenderStrategy<B>,
+    D: DamageTracker,
+{
+    fn paint(&mut self, area: LogicalRect, request: TextRequest<'_>) {
+        let mut recording = self.record::<()>(area);
+        let value = blit_gui::text::Stored::new(area, request, recording.list);
+        recording.record_input(
+            recording.bounds,
+            recording.clip,
+            value,
+            <blit_gui::text::Stored as blit_gui::display_list::Compare>::equal,
+            <blit_gui::text::Stored as blit_gui::display_list::Compare>::hash,
+            |input, offset, record, _, context| {
+                let scale = context.scale;
+                let target = &mut *context.commands;
+                let area = input.area.to_physical(Scale2::uniform(scale));
+                if let Some(bounds) = area.intersection(record.bounds) {
+                    target.record(bounds, record.clip, (scale, offset), |_, (scale, value), cx| {
+                        // safety: recording stores this offset as blit_gui::text::Stored
+                        let input = unsafe { cx.list.data().get(Offset::<blit_gui::text::Stored>::new(*value)) };
+                        let (text, bounds) = cx.text.prepare(input.area, &input.view(cx.list), *scale);
+                        Payload::Text(text, bounds)
+                    });
+                }
+            },
+        );
+    }
+}
 
 pub struct TextRenderer {
     pub system: TextSystem,

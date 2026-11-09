@@ -1,9 +1,17 @@
-use std::{fmt, ops::Range};
+use std::{
+    fmt,
+    hash::{Hash, Hasher},
+    ops::Range,
+};
 
 use blit::{Atom, AtomCx, Constraints, FrameSlice, LogicalRect, Paint, Size, Widget, state};
 pub use blit_text::{FontSettings, FontStyle, OpticalSize};
 
-use crate::{Context, color::Color, paint::TextRequest};
+use crate::{
+    Context,
+    color::Color,
+    display_list::{Compare, DisplayList, Slice},
+};
 
 mod system;
 
@@ -19,7 +27,10 @@ blit::builder! {
     }
 }
 
-impl<C: Context + for<'a> Paint<TextRequest<'a>>> Widget<C, state::Node> for Text<'_> {
+impl<C> Widget<C, state::Node> for Text<'_>
+where
+    C: Context + for<'a> Paint<TextRequest<'a>>,
+{
     type Response = ();
 
     fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
@@ -40,7 +51,10 @@ blit::builder! {
     }
 }
 
-impl<C: Context + for<'a> Paint<TextRequest<'a>>> Widget<C, state::Node> for RichText<'_> {
+impl<C> Widget<C, state::Node> for RichText<'_>
+where
+    C: Context + for<'a> Paint<TextRequest<'a>>,
+{
     type Response = ();
 
     fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
@@ -56,6 +70,83 @@ impl<C: Context + for<'a> Paint<TextRequest<'a>>> Widget<C, state::Node> for Ric
             )
         };
         ui.insert(TextAtom::new(run, colors).offset_x(self.offset_x).options(self.options));
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextRequest<'a> {
+    pub text: TextRun,
+    /// one color per span, missing spans repeat the last color
+    pub colors: &'a [Color],
+    pub offset_x: f32,
+    pub options: TextOptions,
+}
+
+impl TextRequest<'_> {
+    pub fn span_color(&self, span: usize) -> Color {
+        self.colors
+            .get(span)
+            .or(self.colors.last())
+            .copied()
+            .unwrap_or(Color::TRANSPARENT)
+    }
+}
+
+impl Hash for TextRequest<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.text.hash(state);
+        self.colors.hash(state);
+        (if self.offset_x == 0.0 {
+            0
+        } else {
+            self.offset_x.to_bits()
+        })
+        .hash(state);
+        self.options.wrap.hash(state);
+        self.options.overflow.hash(state);
+        self.options.horizontal_align.hash(state);
+        self.options.vertical_align.hash(state);
+        self.options.max_lines.hash(state);
+    }
+}
+
+#[doc(hidden)]
+pub struct Stored {
+    pub area: LogicalRect,
+    request: TextRequest<'static>,
+    colors: Slice<Color>,
+}
+
+impl Stored {
+    #[inline]
+    pub fn new(area: LogicalRect, request: TextRequest<'_>, list: &mut DisplayList) -> Self {
+        Self {
+            area,
+            request: TextRequest { colors: &[], ..request },
+            colors: list.store_slice(request.colors.iter().copied()),
+        }
+    }
+
+    #[inline]
+    pub fn view<'a>(&self, list: &'a DisplayList) -> TextRequest<'a> {
+        TextRequest {
+            colors: list.slice(self.colors),
+            ..self.request
+        }
+    }
+}
+
+impl Compare for Stored {
+    #[inline]
+    fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
+        a.area == b.area && a.view(left) == b.view(right)
+    }
+
+    fn hash(value: &Self, list: &DisplayList, state: &mut impl Hasher) {
+        [value.area.x, value.area.y, value.area.width, value.area.height]
+            .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+            .hash(state);
+        value.view(list).hash(state);
     }
 }
 
@@ -201,7 +292,10 @@ blit::builder! {
     }
 }
 
-impl<C: Context + for<'a> Paint<TextRequest<'a>>> Atom<C> for TextAtom {
+impl<C> Atom<C> for TextAtom
+where
+    C: Context + for<'a> Paint<TextRequest<'a>>,
+{
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         let measured = cx.context_mut().text().measure(&TextLayoutRequest {
             text: self.text,

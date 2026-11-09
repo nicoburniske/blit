@@ -16,7 +16,7 @@ use super::{
     FontId, HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextOverflow, TextRun, TextSource, TextStyle,
     TextWrap, VerticalAlign,
 };
-use crate::paint::TextRequest;
+use crate::text::TextRequest;
 
 pub struct TextSystem {
     engine: Box<dyn ErasedTextEngine>,

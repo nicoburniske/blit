@@ -1,6 +1,7 @@
+mod clear;
 mod damage;
 mod glyph;
-mod paint;
+mod handler;
 mod pixel;
 pub mod raster;
 mod render;
@@ -29,7 +30,7 @@ use self::{
     text::TextRenderer,
 };
 pub use self::{
-    paint::{Handler, PaintContext},
+    handler::{Handler, PaintContext},
     pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888},
     raster::{DrawContext, Span, Surface},
     strategy::{Direct, RenderStrategy, Scanline},
@@ -170,7 +171,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         self.damage.update(&self.context.list, screen, scale, buffer_age);
         if !self.damage.is_empty() {
             let context = &mut self.context;
-            let mut preparation = paint::PrepareContext {
+            let mut preparation = handler::PrepareContext {
                 scale,
                 screen,
                 images: &context.images,

@@ -4,9 +4,8 @@ use blit::{Paint, Sides, Size, Widget};
 use blit_gui::{
     Context, Rectangle,
     color::Color,
-    paint::TextRequest,
     style::{Border, BorderRadius},
-    text::TextStyle,
+    text::{TextRequest, TextStyle},
 };
 use blit_widgets::{FrameProfiler, interact};
 

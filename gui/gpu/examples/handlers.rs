@@ -2,7 +2,7 @@ use std::{error::Error, io::Write, sync::mpsc};
 
 use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_gpu::{DrawContext, Handler, PrepareContext, Renderer, RendererConfig};
-use blit_gui::{Context, Rectangle, TextConfig, TextSystem, color::Color, paint::Clear, style::BorderRadius};
+use blit_gui::{Clear, Context, Rectangle, TextConfig, TextSystem, color::Color, style::BorderRadius};
 use bytemuck::{Pod, Zeroable};
 
 const WIDTH: u32 = 192;

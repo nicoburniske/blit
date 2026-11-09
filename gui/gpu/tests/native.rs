@@ -8,9 +8,9 @@ use blit_gui::{
     BoundsClip, Context, FontData, FontStack, Image, Rectangle, Shadow, TextConfig, TextSystem,
     color::Color,
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageSampling, ImageTiling},
-    paint::{Mesh, MeshVertex, TextRequest},
+    mesh::{Mesh, MeshVertex},
     style::{Border, BorderRadius, GradientStop, LinearGradient},
-    text::{FontId, TextOptions, TextStyle},
+    text::{FontId, TextOptions, TextRequest, TextStyle},
 };
 
 #[test]

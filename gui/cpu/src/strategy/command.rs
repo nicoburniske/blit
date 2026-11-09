@@ -6,7 +6,7 @@ use blit_gui::{color::Color, display_list::DisplayList};
 use super::clip::ClipId;
 use crate::{
     DamageTracker, DrawContext, Pixel, StoredImage,
-    paint::ErasedCommand,
+    handler::ErasedCommand,
     raster::DrawTarget,
     render::{
         fill::{Gradients, PreparedFill},

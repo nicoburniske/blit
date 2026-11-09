@@ -9,10 +9,11 @@ use blit_gui::{
     color::Color,
     display_list::Compare,
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageSampling, ImageTiling},
-    paint::{Mesh, MeshVertex, TextRequest},
+    mesh::{Mesh, MeshVertex},
     style::{Border, BorderRadius, Fill, GradientStop, LinearGradient},
     text::{
-        FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextStyle, TextWrap, VerticalAlign,
+        FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextRequest, TextStyle, TextWrap,
+        VerticalAlign,
     },
 };
 use blit_text::{
@@ -190,7 +191,7 @@ fn panicking_damage_tracker_cannot_leave_foreign_commands() {
     }
 
     let mut other = new_renderer(VecBuffer::<Rgba8888>::new(8, 8), renderer_config());
-    other.paint(LogicalRect::new(0.0, 0.0, 8.0, 8.0), blit_gui::paint::Clear);
+    other.paint(LogicalRect::new(0.0, 0.0, 8.0, 8.0), blit_gui::Clear);
     let foreign = Some(std::mem::take(&mut other.context.list));
     let mut renderer =
         new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config()).damage_tracker(Swap { foreign });
@@ -442,7 +443,7 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
 
     check(|| TileDamage::new(8));
     check(blit_gui::damage::command::CommandDiff::default);
-    assert_eq!(size_of::<paint::ErasedCommand<Xrgb8888>>(), 40);
+    assert_eq!(size_of::<handler::ErasedCommand<Xrgb8888>>(), 40);
     assert_eq!(size_of::<strategy::command::Metadata>(), 24);
 }
 
@@ -593,7 +594,7 @@ fn builtin_preparation_follows_damage_and_occlusion() {
         (false, Color::BLACK),
         (false, Color::BLACK),
     ] {
-        renderer.paint(bounds, blit_gui::paint::Clear);
+        renderer.paint(bounds, blit_gui::Clear);
         renderer.paint(area, Rectangle::new().background(color));
         renderer.paint(unrelated, Rectangle::new().background(Color::WHITE));
         if covered {
@@ -702,10 +703,7 @@ fn scattered_tiles_stay_local_across_command_reorders() {
     for frame in 0..3 {
         renderer.buffer_mut().ranges.clear();
 
-        renderer.paint(
-            (PhysicalRect::new(0, 0, 643, 53)).to_logical(SCALE),
-            blit_gui::paint::Clear,
-        );
+        renderer.paint((PhysicalRect::new(0, 0, 643, 53)).to_logical(SCALE), blit_gui::Clear);
         renderer.push_clip(
             LogicalRect::new(0.0, 0.0, if frame == 2 { 635.0 } else { 643.0 }, 53.0),
             BorderRadius::default(),
@@ -809,10 +807,7 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
             std::mem::swap(renderer.buffer_mut(), &mut buffers[index]);
             let left = frame.min(19) % 5 * 7;
 
-            renderer.paint(
-                (PhysicalRect::new(0, 0, 37, 21)).to_logical(SCALE),
-                blit_gui::paint::Clear,
-            );
+            renderer.paint((PhysicalRect::new(0, 0, 37, 21)).to_logical(SCALE), blit_gui::Clear);
             let area = LogicalRect::new(left as f32, 2.0, 6.0, 16.0);
             renderer.paint(area, Rectangle::new().background(Color::WHITE));
             renderer.render(age);
@@ -1074,7 +1069,7 @@ fn mesh_occlusion_uses_screen_and_ancestor_clip_bounds() {
                     .strategy(Check(Scanline::default(), hidden));
                 renderer.set_scale(scale);
                 let screen = renderer.screen().to_logical(Scale2::uniform(scale));
-                renderer.paint(screen, blit_gui::paint::Clear);
+                renderer.paint(screen, blit_gui::Clear);
                 let cover = if clipped {
                     renderer.push_clip(LogicalRect::new(6.0, 6.0, 6.0, 6.0), BorderRadius::uniform(2.0));
                     renderer.push_clip(LogicalRect::new(4.0, 4.0, 12.0, 12.0), BorderRadius::default());
@@ -1181,7 +1176,7 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
             let text = renderer.text().text_run("M", TextStyle::default());
             for (frame, color) in [Color::BLACK, Color::WHITE, Color::WHITE].into_iter().enumerate() {
                 renderer.buffer_mut().ranges.clear();
-                renderer.paint(area, blit_gui::paint::Clear);
+                renderer.paint(area, blit_gui::Clear);
                 match case {
                     "fill" | "border" => {
                         let stops = [GradientStop::new(0.0, Color::BLACK), GradientStop::new(1.0, color)];
@@ -1263,7 +1258,7 @@ fn text_placement_tracks_physical_clip_size() {
                 options: TextOptions::default(),
             };
             let screen = renderer.screen();
-            renderer.paint(screen.to_logical(SCALE), blit_gui::paint::Clear);
+            renderer.paint(screen.to_logical(SCALE), blit_gui::Clear);
             renderer.paint(request_area, request);
             renderer.render(0);
         }
@@ -1513,7 +1508,7 @@ fn clear_resets_stale_pixels_before_drawing() {
             .radius(BorderRadius::uniform(5.0));
 
         if clear {
-            renderer.paint(screen.to_logical(SCALE), blit_gui::paint::Clear);
+            renderer.paint(screen.to_logical(SCALE), blit_gui::Clear);
         }
         renderer.paint(rectangle_area, rectangle);
         renderer.render(0);
@@ -1535,7 +1530,7 @@ fn clear_resets_stale_pixels_before_drawing() {
     renderer.buffer_mut().pixels_mut().fill(stale);
     let screen = renderer.screen();
 
-    renderer.paint(screen.to_logical(SCALE), blit_gui::paint::Clear);
+    renderer.paint(screen.to_logical(SCALE), blit_gui::Clear);
     renderer.render(0);
     assert!(renderer.buffer().pixels().iter().all(|pixel| *pixel == transparent));
 }
@@ -2120,7 +2115,7 @@ fn dropped_image_remains_valid_until_frame_end() {
     let image = renderer.create_image(ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgba8, 1, 1));
     let screen = renderer.screen();
 
-    renderer.paint(screen.to_logical(SCALE), blit_gui::paint::Clear);
+    renderer.paint(screen.to_logical(SCALE), blit_gui::Clear);
     renderer.paint(
         screen.to_logical(SCALE),
         Image {
@@ -2150,7 +2145,7 @@ fn dropped_image_remains_valid_until_frame_end() {
         1,
     ));
     assert_ne!(replacement.id(), image_id);
-    renderer.paint(screen.to_logical(SCALE), blit_gui::paint::Clear);
+    renderer.paint(screen.to_logical(SCALE), blit_gui::Clear);
     renderer.render(0);
     assert_eq!(renderer.buffer().pixels()[0].raw(), 0);
 }
@@ -2249,10 +2244,7 @@ fn damage_trackers_preserve_overlapping_reorders() {
         for frame in frames {
             reference.invalidate_all();
             for renderer in [&mut incremental, &mut reference] {
-                renderer.paint(
-                    (PhysicalRect::new(0, 0, 16, 16)).to_logical(SCALE),
-                    blit_gui::paint::Clear,
-                );
+                renderer.paint((PhysicalRect::new(0, 0, 16, 16)).to_logical(SCALE), blit_gui::Clear);
                 for &index in *frame {
                     let rectangle_area = LogicalRect::new(index as f32, index as f32, 10.0, 10.0);
                     let rectangle = Rectangle::new().background(Color::rgba(index * 50, 100, 200, 128));
