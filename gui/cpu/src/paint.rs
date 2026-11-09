@@ -338,20 +338,23 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
         );
         let vertices = self.list.store_slice(mesh.vertices.iter().copied());
         let indices = self.list.store_slice(mesh.indices.iter().copied());
-        let value = StoredMesh { vertices, indices };
+        let value = StoredMesh {
+            vertices,
+            indices,
+            scale: self.scale,
+        };
         self.record_input(
             self.bounds,
             self.clip,
             value,
             |a, left, b, right| a.view(left) == b.view(right),
             |value, list, state| value.view(list).hash(state),
-            |input, _, record, _, context| {
-                let scale = context.scale;
+            |_, mesh_offset, record, _, context| {
                 let target = &mut *context.commands;
                 let call = ErasedCommand::ready(
                     NonNull::<()>::dangling(),
                     &mut target.prepared,
-                    Payload::Mesh(input.vertices, input.indices, scale),
+                    Payload::Mesh(Offset::new(mesh_offset)),
                 );
                 let index = target.len();
                 target.push(call, record.bounds, record.clip);
@@ -528,13 +531,14 @@ impl StoredText {
     }
 }
 
-struct StoredMesh {
+pub struct StoredMesh {
     vertices: Slice<MeshVertex>,
     indices: Slice<u32>,
+    pub scale: f32,
 }
 
 impl StoredMesh {
-    fn view<'a>(&self, list: &'a DisplayList) -> Mesh<'a> {
+    pub fn view<'a>(&self, list: &'a DisplayList) -> Mesh<'a> {
         Mesh {
             vertices: list.slice(self.vertices),
             indices: list.slice(self.indices),

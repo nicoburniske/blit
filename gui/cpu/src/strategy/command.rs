@@ -1,16 +1,15 @@
 use std::{ops::Range, ptr::NonNull};
 
-use blit::{PhysicalRect, internal::bump::Bump};
-use blit_gui::{
-    color::Color,
-    display_list::{DisplayList, Slice},
-    paint::MeshVertex,
+use blit::{
+    PhysicalRect,
+    internal::bump::{Bump, Offset},
 };
+use blit_gui::{color::Color, display_list::DisplayList};
 
 use super::clip::ClipId;
 use crate::{
     DamageTracker, DrawContext, Pixel, StoredImage,
-    paint::ErasedCommand,
+    paint::{ErasedCommand, StoredMesh},
     raster::DrawTarget,
     render::{fill::Gradients, image_patch, rectangle, triangle},
     text::{PreparedRuns, TextRenderer},
@@ -206,8 +205,8 @@ impl<P: Pixel> RasterCommands<P> {
             if !damage.intersects(metadata.bounds, metadata.clip) {
                 continue;
             }
-            let (vertices, indices, scale) = match self.get(id) {
-                Payload::Mesh(vertices, indices, scale) => (*vertices, *indices, *scale),
+            let mesh_offset = match self.get(id) {
+                Payload::Mesh(mesh_offset) => *mesh_offset,
                 _ => {
                     self.entries.push(self.entries[id as usize]);
                     self.metadata.push(metadata);
@@ -222,13 +221,14 @@ impl<P: Pixel> RasterCommands<P> {
             }) {
                 continue;
             }
-            for triangle in 0..list.slice(indices).len() / 3 {
-                let indices: [u32; 3] = list.slice(indices)[triangle * 3..][..3].try_into().unwrap();
-                let vertices = {
-                    let vertices = list.slice(vertices);
-                    indices.map(|index| vertices[index as usize])
-                };
-                let points = vertices.map(|vertex| [vertex.position.x * scale, vertex.position.y * scale]);
+            // safety: mesh recording stores an offset to StoredMesh in this list
+            let mesh = unsafe { list.data().get(mesh_offset) };
+            let view = mesh.view(list);
+            for (triangle_index, indices) in view.indices.as_chunks::<3>().0.iter().enumerate() {
+                let points = indices.map(|vertex_index| {
+                    let position = view.vertices[vertex_index as usize].position;
+                    [position.x * mesh.scale, position.y * mesh.scale]
+                });
                 let Some(bounds) = crate::render::triangle::bounds(points).intersection(metadata.bounds) else {
                     continue;
                 };
@@ -236,9 +236,16 @@ impl<P: Pixel> RasterCommands<P> {
                     self.record(
                         bounds,
                         metadata.clip,
-                        (points, vertices.map(|vertex| vertex.color)),
-                        |_, (points, colors), _| {
-                            triangle::Prepared::new(*points, *colors)
+                        (mesh_offset, triangle_index as u32),
+                        |_, (mesh_offset, triangle_index), cx| {
+                            // safety: mesh recording stores an offset to StoredMesh in this list
+                            let mesh = unsafe { cx.list.data().get(*mesh_offset) };
+                            let view = mesh.view(cx.list);
+                            let vertices = view.indices.as_chunks::<3>().0[*triangle_index as usize]
+                                .map(|vertex_index| view.vertices[vertex_index as usize]);
+                            let points =
+                                vertices.map(|vertex| [vertex.position.x * mesh.scale, vertex.position.y * mesh.scale]);
+                            triangle::Prepared::new(points, vertices.map(|vertex| vertex.color))
                                 .map(Payload::Triangle)
                                 .unwrap_or(Payload::Empty)
                         },
@@ -296,7 +303,7 @@ pub enum Payload {
     Image(image_patch::Prepared),
     Text(PreparedText, PhysicalRect),
     Triangle(triangle::Prepared),
-    Mesh(Slice<MeshVertex>, Slice<u32>, f32),
+    Mesh(Offset<StoredMesh>),
     Custom,
 }
 
