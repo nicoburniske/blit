@@ -7,7 +7,7 @@ use super::{DamageTracker, DisplayList};
 /// compares ordered command inputs and their clip chains
 #[derive(Default)]
 pub struct CommandDiff {
-    previous: DisplayList<crate::raster::Operations>,
+    previous: DisplayList,
     current: Vec<PhysicalRect>,
     history: VecDeque<Vec<PhysicalRect>>,
     damage: Vec<PhysicalRect>,
@@ -18,13 +18,7 @@ pub struct CommandDiff {
 }
 
 impl DamageTracker for CommandDiff {
-    fn update(
-        &mut self,
-        input: &DisplayList<crate::raster::Operations>,
-        screen: PhysicalRect,
-        scale: f32,
-        buffer_age: u8,
-    ) {
+    fn update(&mut self, input: &DisplayList, screen: PhysicalRect, scale: f32, buffer_age: u8) {
         self.max_age = self.max_age.max(buffer_age).max(1);
         self.current.clear();
         if !self.initialized || self.screen != screen {
@@ -171,7 +165,7 @@ impl DamageTracker for CommandDiff {
         next
     }
 
-    fn finish_frame(&mut self, input: &mut DisplayList<crate::raster::Operations>) {
+    fn finish_frame(&mut self, input: &mut DisplayList) {
         std::mem::swap(&mut self.previous, input);
         self.history.push_front(std::mem::take(&mut self.current));
         if self.history.len() >= self.max_age as usize {

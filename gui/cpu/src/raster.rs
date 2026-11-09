@@ -1,9 +1,9 @@
-use std::ptr::NonNull;
+use std::{any::TypeId, ptr::NonNull};
 
-use blit::PhysicalRect;
+use blit::{PhysicalRect, internal::hash::FxHasher};
 use blit_gui::{
     arena::Arena,
-    display_list::Command,
+    display_list::{Command, Ops},
     image::{ImageHandle, ImageRequest},
 };
 
@@ -11,11 +11,26 @@ pub use crate::render::{blur, rounded};
 use crate::{
     DrawContext, PaintContext, Pixel, Span, StoredImage,
     render::{image, image_patch},
+    strategy::command::RasterCommands,
 };
 
-/// cpu preparation entry in a display list vtable
-pub struct Operations {
-    pub(crate) prepare: fn(&Command<Self>, &Arena, f32, &blit_arena::Arena<StoredImage>, NonNull<()>),
+pub(crate) struct PrepareContext<'a, P: Pixel> {
+    pub scale: f32,
+    pub images: &'a blit_arena::Arena<StoredImage>,
+    pub commands: &'a mut RasterCommands<P>,
+}
+
+pub(crate) const fn ops<T: 'static>(
+    equal: unsafe fn(&Arena, u32, &Arena, u32) -> bool,
+    hash: unsafe fn(&Arena, u32, &mut FxHasher),
+    dispatch: unsafe fn(&Command, &Arena, NonNull<()>),
+) -> Ops {
+    Ops {
+        kind: TypeId::of::<T>(),
+        equal,
+        hash,
+        dispatch,
+    }
 }
 
 /// prepared image patches that retain their source image

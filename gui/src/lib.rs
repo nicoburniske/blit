@@ -2,6 +2,7 @@ pub mod arena;
 pub mod atom;
 pub mod color;
 mod context;
+pub mod damage;
 pub mod display_list;
 pub mod image;
 pub mod paint;

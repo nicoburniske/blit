@@ -95,7 +95,7 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
     }
 
     check(TileDamage::new(8), true);
-    check(damage::command::CommandDiff::default(), false);
+    check(blit_gui::damage::command::CommandDiff::default(), false);
 
     let counts = Rc::<Counts>::default();
     let bounds = LogicalRect::new(0.0, 0.0, 8.0, 8.0);
@@ -105,17 +105,17 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
     right.handle::<(), _>(bounds, (Key(1, counts.clone()), 0u16));
     assert!(!left.context.list.equivalent(0, &right.context.list, 0));
     assert_eq!(counts.comparisons.get(), 0);
-    assert_eq!(size_of::<Command<raster::Operations>>(), 32);
+    assert_eq!(size_of::<Command>(), 32);
 }
 
 #[test]
 fn panicking_damage_tracker_cannot_leave_foreign_commands() {
     struct Swap {
-        foreign: Option<DisplayList<raster::Operations>>,
+        foreign: Option<DisplayList>,
     }
 
     impl DamageTracker for Swap {
-        fn update(&mut self, _: &DisplayList<raster::Operations>, _: PhysicalRect, _: f32, _: u8) {}
+        fn update(&mut self, _: &DisplayList, _: PhysicalRect, _: f32, _: u8) {}
         fn invalidate(&mut self) {}
         fn is_empty(&self) -> bool {
             true
@@ -126,7 +126,7 @@ fn panicking_damage_tracker_cannot_leave_foreign_commands() {
         fn line_ranges(&self, _: i32, bounds: PhysicalRect, _: &mut Vec<Range<usize>>) -> i32 {
             bounds.y + bounds.height
         }
-        fn finish_frame(&mut self, list: &mut DisplayList<raster::Operations>) {
+        fn finish_frame(&mut self, list: &mut DisplayList) {
             if let Some(mut foreign) = self.foreign.take() {
                 std::mem::swap(list, &mut foreign);
                 panic!("interrupted after swapping lists");
@@ -579,13 +579,13 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
         }
     }
     check::<1, _>(false, TileDamage::new(8));
-    check::<1, _>(false, damage::command::CommandDiff::default());
+    check::<1, _>(false, blit_gui::damage::command::CommandDiff::default());
     check::<2, _>(false, TileDamage::new(8));
-    check::<2, _>(false, damage::command::CommandDiff::default());
+    check::<2, _>(false, blit_gui::damage::command::CommandDiff::default());
     check::<3, _>(false, TileDamage::new(8));
-    check::<3, _>(false, damage::command::CommandDiff::default());
+    check::<3, _>(false, blit_gui::damage::command::CommandDiff::default());
     check::<3, _>(true, TileDamage::new(8));
-    check::<3, _>(true, damage::command::CommandDiff::default());
+    check::<3, _>(true, blit_gui::damage::command::CommandDiff::default());
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -962,7 +962,7 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
         }
     }
     check(|| TileDamage::new(8));
-    check(damage::command::CommandDiff::default);
+    check(blit_gui::damage::command::CommandDiff::default);
 }
 
 #[test]
@@ -1998,5 +1998,5 @@ fn damage_trackers_preserve_overlapping_reorders() {
         }
     }
     check(|| TileDamage::new(8));
-    check(damage::command::CommandDiff::default);
+    check(blit_gui::damage::command::CommandDiff::default);
 }

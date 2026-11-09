@@ -1,48 +1,55 @@
-use std::{
-    hash::Hash,
-    sync::atomic::{AtomicUsize, Ordering},
+use std::{any::TypeId, hash::Hash, ptr::NonNull};
+
+use blit::PhysicalRect;
+use blit_gui::{
+    damage::{DamageTracker, command::CommandDiff, tile::TileDamage},
+    display_list::{DisplayList, Ops},
 };
 
-use blit::{PhysicalRect, internal::hash::FxHasher};
-use blit_gui::display_list::{DisplayList, Operations};
-
 #[test]
-fn typed_operations_preserve_callback_state_after_erasure() {
-    static COMPARISONS: AtomicUsize = AtomicUsize::new(0);
-    static HASHES: AtomicUsize = AtomicUsize::new(0);
-    let operations = const {
-        let captured = 42u64;
-        &Operations::new(
-            move |a: &String, _, b, _| {
-                assert_eq!(captured, 42);
-                COMPARISONS.fetch_add(1, Ordering::Relaxed);
-                a == b
-            },
-            move |value, _, state| {
-                assert_eq!(captured, 42);
-                HASHES.fetch_add(1, Ordering::Relaxed);
-                value.hash(state);
-            },
-            [42u64; 3],
-        )
-    };
-    let bounds = PhysicalRect::new(0, 0, 8, 8);
-    let mut left = DisplayList::default();
-    let mut right = DisplayList::default();
-    left.push(bounds, 0, String::from("same input"), operations);
-    right.push(bounds, 0, String::from("same input"), operations);
-    assert_eq!(COMPARISONS.load(Ordering::Relaxed), 0);
-    assert_eq!(HASHES.load(Ordering::Relaxed), 0);
-    assert_eq!(left.commands()[0].backend(), &[42; 3]);
-    assert!(left.equivalent(0, &right, 0));
-    assert_eq!(COMPARISONS.load(Ordering::Relaxed), 1);
-    let mut a = FxHasher::default();
-    let mut b = FxHasher::default();
-    left.hash(0, &mut a);
-    right.hash(0, &mut b);
-    assert_eq!(HASHES.load(Ordering::Relaxed), 2);
-    assert_eq!(a.finish(), b.finish());
-    left.clear();
-    left.push(bounds, 0, String::from("changed input"), operations);
-    assert!(!left.equivalent(0, &right, 0));
+fn damage_tracking_and_backend_dispatch_share_a_display_list() {
+    fn check<D: DamageTracker>(mut damage: D) {
+        let ops = const {
+            &Ops {
+                kind: TypeId::of::<String>(),
+                equal: |left, a, right, b| {
+                    // safety: insertion pairs this table with String
+                    unsafe { left.value_unchecked::<String>(a) == right.value_unchecked::<String>(b) }
+                },
+                hash: |data, offset, state| {
+                    // safety: insertion pairs this table with String
+                    unsafe { data.value_unchecked::<String>(offset) }.hash(state);
+                },
+                dispatch: |command, data, context| {
+                    // safety: the test pairs String inputs with a usize output
+                    let value = unsafe { data.value_unchecked::<String>(command.offset()) };
+                    unsafe { *context.cast::<usize>().as_mut() = value.len() };
+                },
+            }
+        };
+        let bounds = PhysicalRect::new(0, 0, 8, 8);
+        let mut list = DisplayList::default();
+        for (value, changed) in [("same", true), ("same", false), ("changed", true)] {
+            // safety: the table describes the owned String and its comparison semantics
+            unsafe { list.push(bounds, 0, String::from(value), ops) };
+            damage.update(&list, bounds, 1.0, 1);
+            assert_eq!(damage.is_empty(), !changed);
+            assert_eq!(damage.intersects(bounds, 0), changed);
+            let mut ranges = Vec::new();
+            assert_eq!(damage.line_ranges(0, bounds, &mut ranges), 8);
+            assert_eq!(ranges.len(), usize::from(changed));
+            if changed {
+                assert_eq!(ranges[0], 0..8);
+            }
+            let mut output = 0usize;
+            // safety: this command belongs to list and its dispatch expects a usize output
+            unsafe { list.commands()[0].dispatch(list.data(), NonNull::from(&mut output).cast()) };
+            assert_eq!(output, value.len());
+            damage.finish_frame(&mut list);
+            list.clear();
+        }
+    }
+
+    check(TileDamage::new(8));
+    check(CommandDiff::default());
 }

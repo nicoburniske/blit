@@ -1,4 +1,4 @@
-pub mod damage;
+mod damage;
 mod glyph;
 mod paint;
 mod pixel;
@@ -12,6 +12,7 @@ use blit::{LogicalRect, PhysicalRect};
 use blit_arena::Arena;
 use blit_gui::{
     Context, TextSystem,
+    damage::{DamageTracker, tile::TileDamage},
     display_list::{self, DisplayList},
     image::{ImageData, ImageFormat, ImageHandle},
     style::BorderRadius,
@@ -26,7 +27,6 @@ use self::{
     text::TextRenderer,
 };
 pub use self::{
-    damage::{DamageTracker, tile::TileDamage},
     paint::{Handler, PaintContext},
     pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888},
     strategy::{Direct, RenderStrategy, Scanline},
@@ -119,14 +119,16 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         self.damage.update(&self.context.list, screen, scale, buffer_age);
         if !self.damage.is_empty() {
             let context = &mut self.context;
+            let mut preparation = raster::PrepareContext {
+                scale,
+                images: &context.images,
+                commands: &mut context.raster,
+            };
             for command in context.list.commands() {
-                (command.backend().prepare)(
-                    command,
-                    context.list.data(),
-                    scale,
-                    &context.images,
-                    std::ptr::NonNull::from(&mut context.raster).cast(),
-                );
+                // safety: recording pairs dispatch with this renderer's preparation context
+                unsafe {
+                    command.dispatch(context.list.data(), std::ptr::NonNull::from(&mut preparation).cast());
+                }
             }
         }
         self.pass_damage
@@ -350,7 +352,7 @@ pub struct RenderContext<B: PixelBuffer> {
     scale_factor: f32,
     images: Arena<StoredImage>,
     text: TextRenderer,
-    list: DisplayList<raster::Operations>,
+    list: DisplayList,
     raster: RasterCommands<B::Pixel>,
     clips: ClipStack,
     snapshot: Surface<B::Pixel>,

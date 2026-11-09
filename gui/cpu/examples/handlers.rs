@@ -2,13 +2,14 @@ use std::{cell::Cell, collections::HashMap, io::Write, rc::Rc};
 
 use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_cpu::{
-    DamageTracker, Handler, PaintContext, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderStrategy, Renderer,
-    RendererConfig, Scanline, VecBuffer, Xrgb8888,
+    Handler, PaintContext, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderStrategy, Renderer, RendererConfig,
+    Scanline, VecBuffer, Xrgb8888,
 };
 use blit_gui::{
     TextConfig, TextSystem,
     arena::Slice,
     color::Color,
+    damage::DamageTracker,
     image::{ImageData, ImageFormat, ImageHandle, ImagePixels},
     paint::Rectangle,
     style::BorderRadius,
@@ -307,9 +308,10 @@ fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B
 
 #[cfg(test)]
 mod tests {
-    use blit_cpu::{DamageTracker, Direct, PixelBuffer, RenderStrategy, TileDamage, damage::command::CommandDiff};
+    use blit_cpu::{Direct, PixelBuffer, RenderStrategy};
     use blit_gui::{
         Context,
+        damage::{command::CommandDiff, tile::TileDamage},
         paint::{Mesh, MeshVertex},
     };
 

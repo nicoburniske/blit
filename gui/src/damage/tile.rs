@@ -55,13 +55,7 @@ impl TileDamage {
 }
 
 impl DamageTracker for TileDamage {
-    fn update(
-        &mut self,
-        input: &DisplayList<crate::raster::Operations>,
-        screen: PhysicalRect,
-        scale: f32,
-        buffer_age: u8,
-    ) {
+    fn update(&mut self, input: &DisplayList, screen: PhysicalRect, scale: f32, buffer_age: u8) {
         let tile_size = 1usize << self.shift;
         if self.screen != screen {
             self.screen = screen;

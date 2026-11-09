@@ -1,8 +1,9 @@
 use std::ops::Range;
 
 use blit::{PhysicalRect, Scale2};
+use blit_gui::{damage::DamageTracker, display_list::DisplayList};
 
-use super::{DamageTracker, DisplayList, region::Region};
+use super::region::Region;
 use crate::{PixelBuffer, RenderContext};
 
 #[derive(Default)]
@@ -124,7 +125,7 @@ pub struct StageDamage<'a, D> {
 }
 
 impl<D: DamageTracker> DamageTracker for StageDamage<'_, D> {
-    fn update(&mut self, input: &DisplayList<crate::raster::Operations>, screen: PhysicalRect, scale: f32, age: u8) {
+    fn update(&mut self, input: &DisplayList, screen: PhysicalRect, scale: f32, age: u8) {
         self.tracker.update(input, screen, scale, age);
     }
 
@@ -150,7 +151,7 @@ impl<D: DamageTracker> DamageTracker for StageDamage<'_, D> {
         region.line_ranges(line, bounds, ranges)
     }
 
-    fn finish_frame(&mut self, input: &mut DisplayList<crate::raster::Operations>) {
+    fn finish_frame(&mut self, input: &mut DisplayList) {
         self.tracker.finish_frame(input);
     }
 }
