@@ -10,14 +10,13 @@ mod text;
 
 use std::{any::TypeId, marker::PhantomData, ptr::NonNull};
 
-use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
+use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_arena::Arena;
 use blit_gui::{
     Context, TextSystem,
     damage::{DamageTracker, tile::TileDamage},
     display_list::{self, DisplayList},
     image::{ImageData, ImageHandle},
-    paint::{ImageRequest, Mesh, Rectangle, TextRequest},
     style::BorderRadius,
 };
 
@@ -327,36 +326,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             self.context.scale_factor = scale;
             self.invalidate_all();
         }
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Rectangle<'_>> for Renderer<B, S, D> {
-    fn paint(&mut self, bounds: LogicalRect, command: Rectangle<'_>) {
-        self.record::<()>(bounds).rectangle(command);
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<ImageRequest> for Renderer<B, S, D> {
-    fn paint(&mut self, bounds: LogicalRect, command: ImageRequest) {
-        self.record::<()>(bounds).image(command);
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<TextRequest<'_>> for Renderer<B, S, D> {
-    fn paint(&mut self, bounds: LogicalRect, command: TextRequest<'_>) {
-        self.record::<()>(bounds).text(command);
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Mesh<'_>> for Renderer<B, S, D> {
-    fn paint(&mut self, bounds: LogicalRect, command: Mesh<'_>) {
-        self.record::<()>(bounds).mesh(command);
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<blit_gui::paint::Clear> for Renderer<B, S, D> {
-    fn paint(&mut self, bounds: LogicalRect, _: blit_gui::paint::Clear) {
-        self.record::<()>(bounds).clear();
     }
 }
 

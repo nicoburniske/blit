@@ -1,13 +1,19 @@
-use std::{hash::Hash, marker::PhantomData, mem::offset_of, ptr::NonNull};
+use std::{
+    hash::{Hash, Hasher},
+    marker::PhantomData,
+    mem::offset_of,
+    ptr::NonNull,
+};
 
 use blit::{
-    PhysicalRect, Scale2,
+    LogicalRect, Paint, PhysicalRect, Scale2,
     internal::{
         bump::{Bump, Offset},
         hash::FxHasher,
     },
 };
 use blit_gui::{
+    damage::DamageTracker,
     display_list::{Command, DisplayList, Slice},
     image::{ImageData, ImageHandle, prepare_image_patches},
     paint::{ImageRequest, Mesh, MeshVertex, Rectangle, TextRequest},
@@ -15,7 +21,7 @@ use blit_gui::{
 };
 
 use crate::{
-    DrawContext, Pixel, PremultipliedRgbaColor, StoredImage,
+    DrawContext, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderStrategy, Renderer, StoredImage,
     strategy::command::{Coverage, Payload, RasterCommands},
 };
 
@@ -26,6 +32,8 @@ use crate::{
 /// use blit_gui::damage::DamageTracker;
 /// use blit_cpu::{DrawContext, Handler, Pixel, PixelBuffer, PremultipliedRgbaColor, Renderer, RenderStrategy};
 /// use blit_gui::color::Color;
+/// use blit_gui::display_list::DisplayList;
+/// use std::hash::{Hash, Hasher};
 ///
 /// struct Swatch(Color);
 /// #[derive(Default)]
@@ -33,6 +41,9 @@ use crate::{
 ///
 /// impl<P: Pixel> Handler<Color, P> for Painter {
 ///     type Prepared = Color;
+///
+///     fn equal(a: &Color, _: &DisplayList, b: &Color, _: &DisplayList) -> bool { a == b }
+///     fn hash(color: &Color, _: &DisplayList, state: &mut impl Hasher) { color.hash(state); }
 ///
 ///     fn prepare(&mut self, color: &Color, _: &mut DrawContext<'_, P>) -> Color { *color }
 ///
@@ -45,7 +56,7 @@ use crate::{
 ///
 /// impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Swatch> for Renderer<B, S, D> {
 ///     fn paint(&mut self, bounds: LogicalRect, swatch: Swatch) {
-///         self.record::<Painter>(bounds).draw_ready(swatch.0, swatch.0, None);
+///         self.record::<Painter>(bounds).draw_ready(swatch.0, None);
 ///     }
 /// }
 /// ```
@@ -63,6 +74,11 @@ where
     P: Pixel,
 {
     type Prepared: 'static;
+
+    /// compares drawing inputs including any referenced frame storage
+    fn equal(a: &T, left: &DisplayList, b: &T, right: &DisplayList) -> bool;
+    /// hashes the same drawing data compared by equal
+    fn hash(input: &T, list: &DisplayList, state: &mut impl Hasher);
 
     fn prepare(&mut self, input: &T, cx: &mut DrawContext<'_, P>) -> Self::Prepared;
     fn draw(&mut self, prepared: &Self::Prepared, cx: &mut DrawContext<'_, P>);
@@ -103,21 +119,17 @@ where
 
     /// records an already prepared value without running preparation
     /// opaque guarantees fully opaque output inside a physical rectangle intersected with bounds and clip
-    pub fn draw_ready<T: 'static>(
-        &mut self,
-        key: impl PartialEq + Hash + 'static,
-        value: T,
-        opaque: Option<PhysicalRect>,
-    ) where
+    pub fn draw_ready<T: 'static>(&mut self, value: T, opaque: Option<PhysicalRect>)
+    where
         H: Handler<T, P, Prepared = T>,
     {
         let handler = self.handler::<T>();
-        self.record_draw(key, value, opaque, handler, false);
+        self.record_draw(value, opaque, handler, false);
     }
 
     /// prepares once on the first visible span and reuses the result for the frame
     /// opaque guarantees fully opaque output inside a physical rectangle intersected with bounds and clip
-    pub fn draw<T: 'static>(&mut self, key: impl PartialEq + Hash + 'static, value: T, opaque: Option<PhysicalRect>)
+    pub fn draw<T: 'static>(&mut self, value: T, opaque: Option<PhysicalRect>)
     where
         H: Handler<T, P>,
     {
@@ -125,7 +137,6 @@ where
         self.record(
             self.bounds,
             self.clip,
-            key,
             value,
             opaque.unwrap_or_default(),
             move |_, offset, command, _, _, _, target| {
@@ -147,13 +158,13 @@ where
     }
 
     /// records a framebuffer effect with its source footprint for each output region
-    pub fn pass<T: 'static>(&mut self, key: impl PartialEq + Hash + 'static, value: T)
+    pub fn pass<T: 'static>(&mut self, value: T)
     where
         H: Handler<T, P, Prepared = T>,
     {
         let handler = self.handler::<T>();
         *self.reads_framebuffer = true;
-        self.record_draw(key, value, None, handler, true);
+        self.record_draw(value, None, handler, true);
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
@@ -164,7 +175,111 @@ where
         self.images.get(id).unwrap().handle.clone()
     }
 
-    pub fn rectangle(&mut self, rectangle: Rectangle<'_>) {
+    fn record_draw<T: 'static>(&mut self, value: T, opaque: Option<PhysicalRect>, handler: NonNull<()>, reads: bool)
+    where
+        H: Handler<T, P, Prepared = T>,
+    {
+        self.record(
+            self.bounds,
+            self.clip,
+            value,
+            opaque.unwrap_or_default(),
+            move |_, offset, command, _, _, _, target| {
+                let call = ErasedCommand {
+                    handler,
+                    value: offset,
+                    opaque: Offset::new(0),
+                    prepare: None,
+                    draw: Some(|handler, offset, _, cx| {
+                        // safety: recording pairs this value and handler with H
+                        let value = unsafe { cx.list.data().get(Offset::<T>::new(offset)) };
+                        unsafe { handler.cast::<H>().as_mut() }.draw(value, cx);
+                    }),
+                    reads: reads.then_some({
+                        (|handler: NonNull<()>, offset, list: &DisplayList, output| {
+                            // safety: recording pairs this offset with T
+                            let value = unsafe { list.data().get(Offset::<T>::new(offset)) };
+                            // safety: recording selects the handler for H
+                            unsafe { handler.cast::<H>().as_ref() }.reads(value, output)
+                        }) as _
+                    }),
+                };
+                target.push(call, command.bounds, command.clip);
+            },
+        );
+    }
+
+    fn handler<T>(&mut self) -> NonNull<()>
+    where
+        H: Handler<T, P>,
+    {
+        let index = crate::handler_index::<H>(self.handlers);
+        let handler = &mut self.handlers[index];
+        handler.finish = |handler| {
+            // safety: recording selects the entry created for H
+            unsafe { handler.cast::<H>() }.finish_frame();
+        };
+        handler.value
+    }
+
+    fn record<T: 'static, F>(&mut self, bounds: PhysicalRect, clip: u32, value: T, opaque: PhysicalRect, prepare: F)
+    where
+        H: Handler<T, P>,
+        F: Fn(&T, u32, &Command, &DisplayList, f32, &blit_arena::Arena<StoredImage>, &mut RasterCommands<P>) + 'static,
+    {
+        self.record_input(
+            bounds,
+            clip,
+            (value, prepare, opaque),
+            |(a, _, _), left, (b, _, _), right| H::equal(a, left, b, right),
+            |(input, _, _), list, state| H::hash(input, list, state),
+            |(value, prepare, opaque), offset, command, list, context| {
+                let index = context.commands.len() as usize;
+                let value_offset = offset + offset_of!((T, F, PhysicalRect), 0) as u32;
+                prepare(
+                    value,
+                    value_offset,
+                    command,
+                    list,
+                    context.scale,
+                    context.images,
+                    context.commands,
+                );
+                if opaque.intersection(command.bounds).is_some() {
+                    context.commands.metadata[index].coverage = Coverage::Rect;
+                    context.commands.entries[index].opaque =
+                        Offset::new(offset + offset_of!((T, F, PhysicalRect), 2) as u32);
+                }
+            },
+        );
+    }
+
+    fn record_input<T: 'static, E, K, F>(
+        &mut self,
+        bounds: PhysicalRect,
+        clip: u32,
+        value: T,
+        equal: E,
+        hash: K,
+        prepare: F,
+    ) where
+        E: Fn(&T, &DisplayList, &T, &DisplayList) -> bool + 'static,
+        K: Fn(&T, &DisplayList, &mut FxHasher) + 'static,
+        F: Fn(&T, u32, &Command, &DisplayList, &mut PrepareContext<'_, P>) + 'static,
+    {
+        // safety: this renderer dispatches its list with PrepareContext
+        unsafe { self.list.record(bounds, clip, value, equal, hash, prepare) };
+    }
+}
+
+impl<B, S, D> Paint<Rectangle<'_>> for Renderer<B, S, D>
+where
+    B: PixelBuffer,
+    S: RenderStrategy<B>,
+    D: DamageTracker,
+{
+    fn paint(&mut self, bounds: LogicalRect, rectangle: Rectangle<'_>) {
+        let mut recording = self.record::<()>(bounds);
         let mut stops = [None; 2];
         let fills = [rectangle.background, rectangle.border.fill];
         let fills = [0, 1].map(|index| match fills[index] {
@@ -183,7 +298,7 @@ where
                             .all(|stops| stops[0].position < stops[1].position),
                     "invalid linear gradient"
                 );
-                stops[index] = Some(self.list.store_slice(gradient.stops.iter().copied()));
+                stops[index] = Some(recording.list.store_slice(gradient.stops.iter().copied()));
                 Fill::LinearGradient(LinearGradient { stops: &[], ..gradient })
             }
         });
@@ -198,9 +313,9 @@ where
             },
             stops,
         };
-        self.record_input(
-            self.bounds,
-            self.clip,
+        recording.record_input(
+            recording.bounds,
+            recording.clip,
             value,
             |a, left, b, right| a.view(left) == b.view(right),
             |value, list, state| value.view(list).hash(state),
@@ -257,11 +372,19 @@ where
             },
         );
     }
+}
 
-    pub fn image(&mut self, request: ImageRequest) {
-        self.record_input(
-            self.bounds,
-            self.clip,
+impl<B, S, D> Paint<ImageRequest> for Renderer<B, S, D>
+where
+    B: PixelBuffer,
+    S: RenderStrategy<B>,
+    D: DamageTracker,
+{
+    fn paint(&mut self, bounds: LogicalRect, request: ImageRequest) {
+        let mut recording = self.record::<()>(bounds);
+        recording.record_input(
+            recording.bounds,
+            recording.clip,
             request,
             |a, _, b, _| a == b,
             |value, _, state| value.hash(state),
@@ -305,16 +428,24 @@ where
             },
         );
     }
+}
 
-    pub fn text(&mut self, request: TextRequest<'_>) {
-        let colors = self.list.store_slice(request.colors.iter().copied());
+impl<B, S, D> Paint<TextRequest<'_>> for Renderer<B, S, D>
+where
+    B: PixelBuffer,
+    S: RenderStrategy<B>,
+    D: DamageTracker,
+{
+    fn paint(&mut self, bounds: LogicalRect, request: TextRequest<'_>) {
+        let mut recording = self.record::<()>(bounds);
+        let colors = recording.list.store_slice(request.colors.iter().copied());
         let value = StoredText {
             request: TextRequest { colors: &[], ..request },
             colors,
         };
-        self.record_input(
-            self.bounds,
-            self.clip,
+        recording.record_input(
+            recording.bounds,
+            recording.clip,
             value,
             |a, left, b, right| a.view(left) == b.view(right),
             |value, list, state| value.view(list).hash(state),
@@ -333,8 +464,16 @@ where
             },
         );
     }
+}
 
-    pub fn mesh(&mut self, mesh: Mesh<'_>) {
+impl<B, S, D> Paint<Mesh<'_>> for Renderer<B, S, D>
+where
+    B: PixelBuffer,
+    S: RenderStrategy<B>,
+    D: DamageTracker,
+{
+    fn paint(&mut self, bounds: LogicalRect, mesh: Mesh<'_>) {
+        let mut recording = self.record::<()>(bounds);
         assert_eq!(mesh.indices.len() % 3, 0, "mesh index count must be divisible by three");
         if mesh.indices.is_empty() {
             return;
@@ -349,16 +488,16 @@ where
                 .all(|vertex| vertex.position.x.is_finite() && vertex.position.y.is_finite()),
             "mesh positions must be finite"
         );
-        let vertices = self.list.store_slice(mesh.vertices.iter().copied());
-        let indices = self.list.store_slice(mesh.indices.iter().copied());
+        let vertices = recording.list.store_slice(mesh.vertices.iter().copied());
+        let indices = recording.list.store_slice(mesh.indices.iter().copied());
         let value = StoredMesh {
             vertices,
             indices,
-            scale: self.scale,
+            scale: recording.scale,
         };
-        self.record_input(
-            self.bounds,
-            self.clip,
+        recording.record_input(
+            recording.bounds,
+            recording.clip,
             value,
             |a, left, b, right| a.view(left) == b.view(right),
             |value, list, state| value.view(list).hash(state),
@@ -390,128 +529,28 @@ where
             },
         );
     }
+}
 
-    pub fn clear(&mut self) {
-        self.record(
-            self.bounds,
+impl<B, S, D> Paint<blit_gui::paint::Clear> for Renderer<B, S, D>
+where
+    B: PixelBuffer,
+    S: RenderStrategy<B>,
+    D: DamageTracker,
+{
+    fn paint(&mut self, bounds: LogicalRect, _: blit_gui::paint::Clear) {
+        let mut recording = self.record::<()>(bounds);
+        recording.record_input(
+            recording.bounds,
             0,
             (),
-            (),
-            PhysicalRect::default(),
-            |_, _, record, _, _, _, target| {
+            |_, _, _, _| true,
+            |_, _, _| {},
+            |_, _, record, _, context| {
+                let target = &mut *context.commands;
                 let call = ErasedCommand::ready(&mut target.prepared, Payload::Clear);
                 target.push(call, record.bounds, 0).coverage = Coverage::Full;
             },
         );
-    }
-
-    fn record_draw<T: 'static>(
-        &mut self,
-        key: impl PartialEq + Hash + 'static,
-        value: T,
-        opaque: Option<PhysicalRect>,
-        handler: NonNull<()>,
-        reads: bool,
-    ) where
-        H: Handler<T, P, Prepared = T>,
-    {
-        self.record(
-            self.bounds,
-            self.clip,
-            key,
-            value,
-            opaque.unwrap_or_default(),
-            move |_, offset, command, _, _, _, target| {
-                let call = ErasedCommand {
-                    handler,
-                    value: offset,
-                    opaque: Offset::new(0),
-                    prepare: None,
-                    draw: Some(|handler, offset, _, cx| {
-                        // safety: recording pairs this value and handler with H
-                        let value = unsafe { cx.list.data().get(Offset::<T>::new(offset)) };
-                        unsafe { handler.cast::<H>().as_mut() }.draw(value, cx);
-                    }),
-                    reads: reads.then_some({
-                        (|handler: NonNull<()>, offset, list: &DisplayList, output| {
-                            // safety: recording pairs this offset with T
-                            let value = unsafe { list.data().get(Offset::<T>::new(offset)) };
-                            // safety: recording selects the handler for H
-                            unsafe { handler.cast::<H>().as_ref() }.reads(value, output)
-                        }) as _
-                    }),
-                };
-                target.push(call, command.bounds, command.clip);
-            },
-        );
-    }
-
-    fn handler<T>(&mut self) -> NonNull<()>
-    where
-        H: Handler<T, P>,
-    {
-        let index = crate::handler_index::<H>(self.handlers);
-        let handler = &mut self.handlers[index];
-        handler.finish = |handler| {
-            // safety: recording selects the entry created for H
-            unsafe { handler.cast::<H>() }.finish_frame();
-        };
-        handler.value
-    }
-
-    fn record<T: 'static, K: PartialEq + Hash + 'static, F>(
-        &mut self,
-        bounds: PhysicalRect,
-        clip: u32,
-        key: K,
-        value: T,
-        opaque: PhysicalRect,
-        prepare: F,
-    ) where
-        F: Fn(&T, u32, &Command, &DisplayList, f32, &blit_arena::Arena<StoredImage>, &mut RasterCommands<P>) + 'static,
-    {
-        self.record_input(
-            bounds,
-            clip,
-            (key, value, prepare, opaque),
-            |(a, _, _, _), _, (b, _, _, _), _| a == b,
-            |(key, _, _, _), _, state| key.hash(state),
-            |(_, value, prepare, opaque), offset, command, list, context| {
-                let index = context.commands.len() as usize;
-                let value_offset = offset + offset_of!((K, T, F, PhysicalRect), 1) as u32;
-                prepare(
-                    value,
-                    value_offset,
-                    command,
-                    list,
-                    context.scale,
-                    context.images,
-                    context.commands,
-                );
-                if opaque.intersection(command.bounds).is_some() {
-                    context.commands.metadata[index].coverage = Coverage::Rect;
-                    context.commands.entries[index].opaque =
-                        Offset::new(offset + offset_of!((K, T, F, PhysicalRect), 3) as u32);
-                }
-            },
-        );
-    }
-
-    fn record_input<T: 'static, E, K, F>(
-        &mut self,
-        bounds: PhysicalRect,
-        clip: u32,
-        value: T,
-        equal: E,
-        hash: K,
-        prepare: F,
-    ) where
-        E: Fn(&T, &DisplayList, &T, &DisplayList) -> bool + 'static,
-        K: Fn(&T, &DisplayList, &mut FxHasher) + 'static,
-        F: Fn(&T, u32, &Command, &DisplayList, &mut PrepareContext<'_, P>) + 'static,
-    {
-        // safety: this renderer dispatches its list with PrepareContext
-        unsafe { self.list.record(bounds, clip, value, equal, hash, prepare) };
     }
 }
 

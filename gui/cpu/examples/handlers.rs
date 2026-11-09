@@ -1,4 +1,10 @@
-use std::{cell::Cell, collections::HashMap, io::Write, rc::Rc};
+use std::{
+    cell::Cell,
+    collections::HashMap,
+    hash::{Hash, Hasher},
+    io::Write,
+    rc::Rc,
+};
 
 use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_cpu::{
@@ -9,7 +15,7 @@ use blit_gui::{
     TextConfig, TextSystem,
     color::Color,
     damage::DamageTracker,
-    display_list::Slice,
+    display_list::{DisplayList, Slice},
     image::{ImageData, ImageFormat, ImageHandle, ImagePixels},
     paint::Rectangle,
     style::BorderRadius,
@@ -73,14 +79,27 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Path<'_>> for
                 radius: path.width as f32 * cx.scale * 0.5,
                 color: path.color,
             };
-        let key = (path.points.to_vec(), path.width, path.color);
-
-        cx.draw_ready(key, prepared, None);
+        cx.draw_ready(prepared, None);
     }
 }
 
 impl<P: Pixel> Handler<PreparedPath, P> for () {
     type Prepared = PreparedPath;
+
+    fn equal(a: &PreparedPath, left: &DisplayList, b: &PreparedPath, right: &DisplayList) -> bool {
+        a.radius == b.radius && a.color == b.color && left.slice(a.segments) == right.slice(b.segments)
+    }
+
+    fn hash(path: &PreparedPath, list: &DisplayList, state: &mut impl Hasher) {
+        path.radius.to_bits().hash(state);
+        path.color.hash(state);
+        let segments = list.slice(path.segments);
+        segments.len().hash(state);
+        for coordinate in segments.iter().flatten().flatten() {
+            (if *coordinate == 0.0 { 0 } else { coordinate.to_bits() }).hash(state);
+        }
+    }
+
     fn prepare(&mut self, path: &PreparedPath, _: &mut DrawContext<'_, P>) -> PreparedPath {
         *path
     }
@@ -129,12 +148,19 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<SoftShadow> f
     fn paint(&mut self, bounds: LogicalRect, shadow: SoftShadow) {
         let mut cx = self.record::<ShadowHandler>(bounds);
         let radius = (shadow.blur as f32 * cx.scale).round().max(1.0) as i32;
-        cx.draw(shadow, (radius, shadow.color), None);
+        cx.draw((radius, shadow.color), None);
     }
 }
 
 impl<P: Pixel> Handler<(i32, Color), P> for ShadowHandler {
     type Prepared = PreparedShadow;
+
+    fn equal(a: &(i32, Color), _: &DisplayList, b: &(i32, Color), _: &DisplayList) -> bool {
+        a == b
+    }
+    fn hash(input: &(i32, Color), _: &DisplayList, state: &mut impl Hasher) {
+        input.hash(state);
+    }
 
     fn prepare(&mut self, (radius, color): &(i32, Color), cx: &mut DrawContext<'_, P>) -> PreparedShadow {
         self.stats.prepares.set(self.stats.prepares.get() + 1);
@@ -196,12 +222,18 @@ impl<B: PixelBuffer<Pixel = Xrgb8888>, S: RenderStrategy<B>, D: DamageTracker> P
     fn paint(&mut self, bounds: LogicalRect, blur: BackdropBlur) {
         let mut cx = self.record::<BlurHandler>(bounds);
         let radius = (blur.radius as f32 * cx.scale).round() as usize;
-        cx.pass(blur, radius);
+        cx.pass(radius);
     }
 }
 
 impl Handler<usize, Xrgb8888> for BlurHandler {
     type Prepared = usize;
+    fn equal(a: &usize, _: &DisplayList, b: &usize, _: &DisplayList) -> bool {
+        a == b
+    }
+    fn hash(input: &usize, _: &DisplayList, state: &mut impl Hasher) {
+        input.hash(state);
+    }
     fn prepare(&mut self, radius: &usize, _: &mut DrawContext<'_, Xrgb8888>) -> usize {
         *radius
     }
@@ -321,8 +353,10 @@ mod tests {
 
     #[test]
     fn borrowed_paths_are_stored_before_source_changes() {
-        fn check<S: RenderStrategy<VecBuffer<Xrgb8888>> + Default>() {
-            let mut renderer = new_renderer(VecBuffer::new(20, 12), RendererConfig::default()).strategy(S::default());
+        fn check<S: RenderStrategy<VecBuffer<Xrgb8888>> + Default, D: DamageTracker>(make_damage: fn() -> D) {
+            let mut renderer = new_renderer(VecBuffer::new(20, 12), RendererConfig::default())
+                .strategy(S::default())
+                .damage_tracker(make_damage());
             let bounds = LogicalRect::new(0.0, 0.0, 20.0, 12.0);
             for y in [4, 4, 8] {
                 renderer.paint(bounds, Rectangle::new(bounds).background(Color::BLACK));
@@ -342,8 +376,10 @@ mod tests {
                 assert_eq!(renderer.buffer().pixels()[previous * 20 + 10].raw(), 0);
             }
         }
-        check::<Direct>();
-        check::<Scanline>();
+        check::<Direct, _>(|| TileDamage::new(8));
+        check::<Scanline, _>(|| TileDamage::new(8));
+        check::<Direct, _>(CommandDiff::default);
+        check::<Scanline, _>(CommandDiff::default);
     }
 
     fn damage_scene<C>(renderer: &mut C, frame: usize)
@@ -572,6 +608,12 @@ mod tests {
         struct BadRead;
         impl Handler<BadRead, Xrgb8888> for () {
             type Prepared = BadRead;
+            fn equal(a: &BadRead, _: &DisplayList, b: &BadRead, _: &DisplayList) -> bool {
+                a == b
+            }
+            fn hash(input: &BadRead, _: &DisplayList, state: &mut impl Hasher) {
+                input.hash(state);
+            }
             fn prepare(&mut self, command: &BadRead, _: &mut DrawContext<'_, Xrgb8888>) -> BadRead {
                 *command
             }
@@ -586,7 +628,7 @@ mod tests {
             D: DamageTracker,
         {
             fn paint(&mut self, bounds: LogicalRect, command: BadRead) {
-                self.record::<()>(bounds).pass(command, command);
+                self.record::<()>(bounds).pass(command);
             }
         }
         let mut renderer = new_renderer(
@@ -606,6 +648,12 @@ mod tests {
         struct CopyArea(bool);
         impl Handler<CopyArea, Xrgb8888> for () {
             type Prepared = CopyArea;
+            fn equal(a: &CopyArea, _: &DisplayList, b: &CopyArea, _: &DisplayList) -> bool {
+                a == b
+            }
+            fn hash(input: &CopyArea, _: &DisplayList, state: &mut impl Hasher) {
+                input.hash(state);
+            }
             fn prepare(&mut self, command: &CopyArea, _: &mut DrawContext<'_, Xrgb8888>) -> CopyArea {
                 *command
             }
@@ -640,11 +688,10 @@ mod tests {
             D: DamageTracker,
         {
             fn paint(&mut self, bounds: LogicalRect, command: CopyArea) {
-                let mut cx = self.record::<()>(bounds);
                 if !command.0 {
-                    cx.rectangle(Rectangle::new(bounds).background(Color::WHITE));
+                    self.paint(bounds, Rectangle::new(bounds).background(Color::WHITE));
                 } else {
-                    cx.pass(command, command);
+                    self.record::<()>(bounds).pass(command);
                 }
             }
         }
@@ -819,6 +866,12 @@ mod tests {
         struct Shift;
         impl Handler<Shift, Xrgb8888> for () {
             type Prepared = Shift;
+            fn equal(a: &Shift, _: &DisplayList, b: &Shift, _: &DisplayList) -> bool {
+                a == b
+            }
+            fn hash(input: &Shift, _: &DisplayList, state: &mut impl Hasher) {
+                input.hash(state);
+            }
             fn prepare(&mut self, command: &Shift, _: &mut DrawContext<'_, Xrgb8888>) -> Shift {
                 *command
             }
@@ -845,7 +898,7 @@ mod tests {
             D: DamageTracker,
         {
             fn paint(&mut self, bounds: LogicalRect, command: Shift) {
-                self.record::<()>(bounds).pass(command, command);
+                self.record::<()>(bounds).pass(command);
             }
         }
         let mut renderer =
