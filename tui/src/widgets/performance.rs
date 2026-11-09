@@ -4,12 +4,10 @@ use blit::{Sides, Widget};
 use blit_widgets::{FrameProfiler, interact};
 
 use crate::{
-    Context,
-    atom::{Border, BorderStyle},
+    Block, Border, BorderStyle, Context, Popover, PopoverClose, PopoverState, Text,
     color::Color,
     layout::{Align, Justify, Sizing, absolute::Anchor, flex, grid},
     text::TextAttributes,
-    widget::{Block, Popover, PopoverClose, PopoverState, Text},
 };
 
 blit::builder! {

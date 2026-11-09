@@ -1,18 +1,20 @@
 use std::fmt::Write as _;
 
 use base64::Engine as _;
-use blit::PhysicalRect;
 
-use super::{BASE64, KittyPlacement, TuiRenderer, image::ImagePlacement, text::TextAttributes, write_color};
+use super::{BASE64, KittyPlacement, TuiRenderer, write_color};
+use crate::{image::ImagePlacement, text::TextAttributes};
 
 impl TuiRenderer {
     pub fn begin_frame(&mut self) {
+        self.clip = self.screen();
+        self.clips.clear();
         self.output.clear();
         self.frame_cells.clear();
         self.kitty_placements.clear();
     }
-    pub fn place_image(&mut self, request: ImagePlacement, clip: PhysicalRect) {
-        if let Some(area) = request.area.intersection(clip) {
+    pub fn place_image(&mut self, request: ImagePlacement) {
+        if let Some(area) = request.area.intersection(self.clip) {
             let (x, y, right, bottom) = self.cell_bounds(area);
             if right > x && bottom > y {
                 self.kitty_placements.push(KittyPlacement {
@@ -145,8 +147,8 @@ impl TuiRenderer {
                     let more = usize::from((index + 1) * 3072 < bytes.len());
                     if index == 0 {
                         let format = match image.format {
-                            super::image::ImageFormat::Rgb8 => 24,
-                            super::image::ImageFormat::Rgba8 => 32,
+                            crate::image::ImageFormat::Rgb8 => 24,
+                            crate::image::ImageFormat::Rgba8 => 32,
                         };
                         uwrite!(
                             self.output,

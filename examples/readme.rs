@@ -1,12 +1,10 @@
 use blit::KeyboardEvent;
 use blit_tui::{
-    Ui,
-    atom::Border,
+    Block, Border, Text, Ui,
     color::Color,
     interact,
     layout::{Justify, flex},
     text::{HorizontalAlign, TextAttributes, TextOptions},
-    widget::{Block, Text},
 };
 
 fn main() -> std::io::Result<()> {
@@ -35,7 +33,7 @@ fn main() -> std::io::Result<()> {
             _ => None,
         }));
         if quit || quit_key.is_some() {
-            root.context_mut().quit();
+            root.context_mut().should_quit = true;
         }
     })
 }

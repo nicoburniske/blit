@@ -47,14 +47,17 @@ impl Gauge {
     }
 }
 
-impl<C: Context> Atom<C> for Gauge {
+impl<C> Atom<C> for Gauge
+where
+    C: Context,
+{
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         let width = self.label.map_or_else(
             || percentage_label(self.ratio).1 as i32,
             |label| {
                 cx.context_mut()
                     .as_mut()
-                    .renderer_mut()
+                    .renderer
                     .measure_text(&TextLayoutRequest::new(label).max_lines(1))
                     .width
             },
@@ -64,7 +67,7 @@ impl<C: Context> Atom<C> for Gauge {
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
         {
-            let mut cells = cx.context_mut().as_mut().cells(area);
+            let mut cells = cx.context_mut().as_mut().renderer.cells(area);
             let width = cells.columns();
             let rows = cells.rows();
             let filled = (width as f64 * self.ratio.clamp(0.0, 1.0)).round() as usize;
@@ -94,7 +97,7 @@ impl<C: Context> Atom<C> for Gauge {
             }
         }
         if let Some(label) = self.label {
-            cx.context_mut().as_mut().paint_text(
+            cx.context_mut().as_mut().renderer.paint_text(
                 TextRequest::new(
                     label,
                     PhysicalRect::new(area.x, area.y + area.height / 2, area.width, 1),

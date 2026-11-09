@@ -19,7 +19,10 @@ blit::builder! {
     }
 }
 
-impl<C: Context> Atom<C> for Sparkline {
+impl<C> Atom<C> for Sparkline
+where
+    C: Context,
+{
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         constraints.constrain(Size::new(self.data.borrow().len() as i32, 1))
     }
@@ -27,7 +30,7 @@ impl<C: Context> Atom<C> for Sparkline {
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
         const LEVELS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
         let data = self.data.borrow();
-        let mut cells = cx.context_mut().as_mut().cells(area);
+        let mut cells = cx.context_mut().as_mut().renderer.cells(area);
         let width = cells.columns();
         let rows = cells.rows();
         let style = if let Some(background) = self.background {

@@ -36,7 +36,11 @@ blit::builder! {
     }
 }
 
-impl<C: Context, F: Handler<Action = Edit>> Widget<C> for TextInput<'_, F> {
+impl<C, F> Widget<C> for TextInput<'_, F>
+where
+    C: Context,
+    F: Handler<Action = Edit>,
+{
     type Response = TextInputResponse;
 
     fn build(self, mut ui: Ui<'_, C>) -> Self::Response {
@@ -64,7 +68,7 @@ impl<C: Context, F: Handler<Action = Edit>> Widget<C> for TextInput<'_, F> {
             focused = false;
         }
         let response = state.update(value, if focused { editing } else { None });
-        let text = ui.context_mut().as_mut().renderer_mut().text_run(value);
+        let text = ui.context_mut().as_mut().renderer.text_run(value);
         let options = TextOptions::new().max_lines(1);
         let moved = matches!(
             input,
@@ -107,7 +111,7 @@ impl<C: Context, F: Handler<Action = Edit>> Widget<C> for TextInput<'_, F> {
                 let offset = ui
                     .context_mut()
                     .as_mut()
-                    .renderer_mut()
+                    .renderer
                     .text_offset_at_position(&request, position);
                 state.move_to(value, offset, extend);
             }
@@ -115,7 +119,7 @@ impl<C: Context, F: Handler<Action = Edit>> Widget<C> for TextInput<'_, F> {
                 let cursor = ui
                     .context_mut()
                     .as_mut()
-                    .renderer_mut()
+                    .renderer
                     .text_cursor_rect(&request, state.cursor);
                 if cursor.x < area.x {
                     state.offset_x = (state.offset_x - area.x + cursor.x).max(0);
@@ -127,7 +131,7 @@ impl<C: Context, F: Handler<Action = Edit>> Widget<C> for TextInput<'_, F> {
             ui.request_frame();
         }
         let display = if value.is_empty() && !placeholder.is_empty() {
-            ui.context_mut().as_mut().renderer_mut().text_run(placeholder)
+            ui.context_mut().as_mut().renderer.text_run(placeholder)
         } else {
             text
         };
@@ -164,21 +168,24 @@ struct InputAtom {
     focused: bool,
 }
 
-impl<C: Context> Atom<C> for InputAtom {
+impl<C> Atom<C> for InputAtom
+where
+    C: Context,
+{
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         let size = cx
             .context_mut()
             .as_mut()
-            .renderer_mut()
+            .renderer
             .measure_text(&TextLayoutRequest::new(self.display).max_lines(1));
         constraints.constrain(size + self.padding.size())
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
-        let context = cx.context_mut().as_mut();
+        let renderer = &mut cx.context_mut().as_mut().renderer;
         let area = area.inset(self.padding);
         if let Some(background) = self.background {
-            context
+            renderer
                 .cells(area)
                 .clear(Cell::default().style(CellStyle::new().background(background)));
         }
@@ -188,25 +195,24 @@ impl<C: Context> Atom<C> for InputAtom {
         let start = self.state.cursor.min(self.state.anchor);
         let end = self.state.cursor.max(self.state.anchor);
         if start != end {
-            let start = context.renderer_mut().text_cursor_rect(&request, start);
-            let end = context.renderer_mut().text_cursor_rect(&request, end);
+            let start = renderer.text_cursor_rect(&request, start);
+            let end = renderer.text_cursor_rect(&request, end);
             if let Some(selection) = blit::PhysicalRect::new(start.x, start.y, end.x - start.x, 1).intersection(area) {
-                context
+                renderer
                     .cells(selection)
                     .clear(Cell::default().style(CellStyle::new().background(self.selection_background)));
             }
         }
         if self.focused
-            && let Some(cursor) = context
-                .renderer_mut()
+            && let Some(cursor) = renderer
                 .text_cursor_rect(&request, self.state.cursor)
                 .intersection(area)
         {
-            context
+            renderer
                 .cells(cursor)
                 .clear(Cell::default().style(CellStyle::new().background(self.cursor_background)));
         }
-        context.paint_text(
+        renderer.paint_text(
             TextRequest::new(self.display, area)
                 .offset_x(self.state.offset_x)
                 .color(if self.display != self.text {

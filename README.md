@@ -44,12 +44,12 @@ means recording draw commands for the backend using its resolved position and si
 use blit::KeyboardEvent;
 use blit_tui::{
     Ui,
-    atom::Border,
+    Border,
     interact,
     color::Color,
     layout::{Align, Justify, flex},
     text::{HorizontalAlign, TextAttributes, TextOptions},
-    widget::{Block, Text},
+    Block, Text,
 };
 
 fn main() -> std::io::Result<()> {
@@ -100,7 +100,7 @@ fn main() -> std::io::Result<()> {
             _ => None,
         }));
         if quit || quit_key.is_some() {
-            root.context_mut().quit();
+            root.context_mut().should_quit = true;
         }
     })
 }

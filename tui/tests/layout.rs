@@ -2,10 +2,9 @@ use std::time::Duration;
 
 use blit::{Constraints, Frame, FrameInfo, Id, Input, Size};
 use blit_tui::{
-    RendererConfig, TuiContext, TuiRenderer, Ui,
+    RendererConfig, Text, TuiContext, TuiRenderer, Ui,
     layout::{Sizing, flex, grid},
     text::{TextOptions, TextWrap},
-    widget::Text,
 };
 
 #[test]
@@ -47,9 +46,9 @@ fn three_columns_use_all_ten_cells_and_wrap_at_the_assigned_width() {
             [0, 1, 2].map(|column| frame.area(Id::new(column)).unwrap().width),
             [3, 4, 3]
         );
-        context.begin_paint();
+        context.renderer.begin_frame();
         frame.paint(&mut context);
-        context.finish_paint();
-        assert_eq!(context.renderer().plain_text(), "abcabcdabc\nd      d\n");
+        context.renderer.end_frame();
+        assert_eq!(context.renderer.plain_text(), "abcabcdabc\nd      d\n");
     }
 }

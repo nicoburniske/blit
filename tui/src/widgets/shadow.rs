@@ -23,7 +23,10 @@ impl Shadow {
     }
 }
 
-impl<C: Context> Atom<C> for Shadow {
+impl<C> Atom<C> for Shadow
+where
+    C: Context,
+{
     fn measure(&self, _: &mut AtomCx<'_, C>, _: Constraints<i32>) -> Size<i32> {
         Size::ZERO
     }
@@ -40,7 +43,7 @@ impl<C: Context> Atom<C> for Shadow {
         let bottom = (area.y + area.height) as isize;
         let origin_x = shifted.x as isize;
         let origin_y = shifted.y as isize;
-        let mut cells = cx.context_mut().as_mut().cells(shifted);
+        let mut cells = cx.context_mut().as_mut().renderer.cells(shifted);
         let style = CellStyle::new().background(self.color);
         for y in 0..cells.rows() {
             for x in 0..cells.columns() {

@@ -11,29 +11,41 @@
 //! the built in runner targets Unix terminals with the kitty keyboard protocol,
 //! such as Kitty and Ghostty. Windows and legacy terminals are not supported.
 
+pub mod color;
 mod context;
+pub mod image;
 mod protocol;
 mod renderer;
 mod terminal;
-
-pub mod atom;
-pub mod widget;
+pub mod text;
+pub mod widgets;
 pub mod layout {
     blit_layout::export!(i32);
 }
 
-pub use blit_widgets::interact;
+pub use blit_widgets::{
+    Popover, PopoverClose, PopoverState, Resize, ResizeEdge, ResizeGrip, ScrollArea, Split, SplitDivider, Stage,
+    UniformList, UniformListResponse, VirtualList, VirtualListResponse, interact,
+};
+pub type ResizeState = blit_widgets::ResizeState<i32>;
+pub type SplitState = blit_widgets::SplitState<i32>;
+pub type ScrollState = blit_widgets::ScrollState<i32>;
+pub type VirtualListState = blit_widgets::VirtualListState<i32>;
 
 pub use self::{
     context::{BoundsClip, TuiContext},
-    renderer::{RendererConfig, TuiRenderer, cell, color, image, text},
+    renderer::{RendererConfig, TuiRenderer, cell},
+    widgets::{
+        Bar, BarChart, Block, Border, BorderSides, BorderStyle, Gauge, Image, Performance, PerformanceState, Shadow,
+        Sparkline, Text, TextInput, TextInputResponse, TextInputState, TextSource, Tint, Title, TitlePosition,
+    },
 };
 
 pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TuiContext, S>;
 
 pub trait Context: blit_widgets::Context<Scalar = i32> + AsMut<TuiContext> {}
 
-impl<C: blit_widgets::Context<Scalar = i32> + AsMut<TuiContext>> Context for C {}
+impl<C> Context for C where C: blit_widgets::Context<Scalar = i32> + AsMut<TuiContext> {}
 
 use std::{
     io,
@@ -48,7 +60,6 @@ use blit::{
     input::{Input, Key, KeyInput, Modifiers, MouseButton, ScrollPhase},
 };
 use terminal::{Size, Terminal};
-use widget::Stage;
 
 const MAX_EVENTS_PER_FRAME: usize = 32;
 
@@ -63,7 +74,10 @@ pub fn run(mut render: impl FnMut(Ui<'_>)) -> io::Result<()> {
 /// owns terminal setup, input, presentation and frame timing
 ///
 /// call [`Session::pump`] to drive it from an application owned loop
-pub struct Session<C: Context = TuiContext> {
+pub struct Session<C = TuiContext>
+where
+    C: Context,
+{
     terminal: Terminal,
     config: RendererConfig,
     wake: WakeHandle,
@@ -75,7 +89,10 @@ pub struct Session<C: Context = TuiContext> {
     query_colors: bool,
 }
 
-impl<C: Context> Session<C> {
+impl<C> Session<C>
+where
+    C: Context,
+{
     pub fn new() -> io::Result<Self> {
         let (wake, wake_writer) = UnixStream::pair()?;
         wake.set_nonblocking(true)?;
@@ -141,29 +158,29 @@ impl<C: Context> Session<C> {
 
         // replay the collected inputs and draw the final resulting tree
         let now = self.started.elapsed();
-        context.as_mut().renderer_mut().resize(self.config);
+        context.as_mut().renderer.resize(self.config);
         let info = self.frame_info();
         // the prefilled Input::None runs one pass when no events were collected
-        context.as_mut().profiler_mut().begin_frame(now);
+        context.as_mut().profiler.begin_frame(now);
         for &input in &inputs[..input_count.max(1)] {
             self.frame.build(context, info, now, input, |mut ui: blit::Ui<'_, C>| {
-                if !ui.context_mut().as_mut().should_quit() {
+                if !ui.context_mut().as_mut().should_quit {
                     render(ui);
                 }
             });
-            context.as_mut().profiler_mut().finish_stage(Stage::Build);
+            context.as_mut().profiler.finish_stage(Stage::Build);
             self.frame.layout(context);
-            context.as_mut().profiler_mut().finish_stage(Stage::Layout);
+            context.as_mut().profiler.finish_stage(Stage::Layout);
         }
-        if context.as_mut().should_quit() {
-            context.as_mut().profiler_mut().cancel_frame();
+        if context.as_mut().should_quit {
+            context.as_mut().profiler.cancel_frame();
             self.finish(context)?;
             return Ok(false);
         }
-        context.as_mut().begin_paint();
+        context.as_mut().renderer.begin_frame();
         self.frame.paint(context);
-        context.as_mut().finish_paint();
-        context.as_mut().profiler_mut().finish_frame();
+        context.as_mut().renderer.end_frame();
+        context.as_mut().profiler.finish_frame();
         self.present(context)?;
         // establish the earliest time for the following frame
         self.next_frame = now + self.frame_interval;
@@ -212,7 +229,7 @@ impl<C: Context> Session<C> {
                 }
                 terminal::Event::Resize(size) => {
                     self.config = renderer_config(size)?;
-                    context.as_mut().renderer_mut().resize(self.config);
+                    context.as_mut().renderer.resize(self.config);
                     result.resized = true;
                     break;
                 }
@@ -223,7 +240,7 @@ impl<C: Context> Session<C> {
                     self.query_colors = true;
                 }
                 protocol::Event::Color { slot, rgb } => {
-                    result.redraw |= context.as_mut().renderer_mut().set_palette_color(*slot, *rgb);
+                    result.redraw |= context.as_mut().renderer.set_palette_color(*slot, *rgb);
                 }
                 _ => {}
             }
@@ -333,7 +350,7 @@ impl<C: Context> Session<C> {
     }
 
     pub fn present(&mut self, context: &mut C) -> io::Result<()> {
-        let output = context.as_mut().renderer().output();
+        let output = context.as_mut().renderer.output();
         // avoid flushing when rendering produced no terminal changes
         if output.is_empty() {
             return Ok(());
@@ -348,7 +365,7 @@ impl<C: Context> Session<C> {
             return Ok(());
         }
         self.active = false;
-        let clear = context.as_mut().renderer_mut().clear_kitty_graphics(&mut self.terminal);
+        let clear = context.as_mut().renderer.clear_kitty_graphics(&mut self.terminal);
         let finish = self.terminal.finish();
         clear.and(finish)
     }

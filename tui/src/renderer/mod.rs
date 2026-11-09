@@ -12,10 +12,7 @@ macro_rules! uwrite {
 }
 
 pub mod cell;
-pub mod color;
-pub mod image;
 mod present;
-pub mod text;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use blit::{PhysicalPoint, PhysicalRect, PhysicalSize};
@@ -23,7 +20,7 @@ use blit_cache::{DeferredCache, Equivalent, Scale};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use self::{
+use crate::{
     color::{Color, Palette, PaletteSlot},
     image::{ImageData, ImageHandle, ImageId},
     text::{Span, TextAttributes, TextLayoutRequest, TextRequest, TextRunId, TextWrap},
@@ -44,6 +41,8 @@ blit::builder! {
 pub struct TuiRenderer {
     columns: usize,
     rows: usize,
+    clip: PhysicalRect,
+    clips: Vec<PhysicalRect>,
     palette: Palette,
     text_runs: DeferredCache<RunKey, CachedRun, RunScale>,
     text_layouts: DeferredCache<LayoutKey, TextLayout, LayoutScale>,
@@ -72,6 +71,8 @@ impl TuiRenderer {
         Self {
             columns,
             rows,
+            clip: PhysicalRect::new(0, 0, columns as i32, rows as i32),
+            clips: Vec::new(),
             palette: Palette::default(),
             text_runs: DeferredCache::new(RunScale, TEXT_RUN_CACHE_CAPACITY),
             text_layouts: DeferredCache::new(LayoutScale, TEXT_LAYOUT_CACHE_CAPACITY),
@@ -98,6 +99,15 @@ impl TuiRenderer {
             width: self.columns as i32,
             height: self.rows as i32,
         }
+    }
+
+    pub fn push_clip(&mut self, area: PhysicalRect) {
+        self.clips.push(self.clip);
+        self.clip = self.clip.intersection(area).unwrap_or_default();
+    }
+
+    pub fn pop_clip(&mut self) {
+        self.clip = self.clips.pop().expect("no paint clip to pop");
     }
 
     /// sets the terminal colors used by cell tinting and reports whether they changed
@@ -134,6 +144,8 @@ impl TuiRenderer {
         }
         self.columns = columns;
         self.rows = rows;
+        self.clip = self.screen();
+        self.clips.clear();
         self.frame_cells.resize(columns * rows);
         self.cells = Cells::new(columns * rows);
         self.changed = vec![true; columns * rows];
@@ -278,8 +290,8 @@ impl TuiRenderer {
 
 struct StoredImage {
     handle: ImageHandle,
-    pixels: self::image::ImagePixels,
-    format: self::image::ImageFormat,
+    pixels: crate::image::ImagePixels,
+    format: crate::image::ImageFormat,
     transmitted: bool,
 }
 
@@ -821,12 +833,22 @@ mod tests {
         let clip = PhysicalRect::new(1, 0, i32::MAX, i32::MAX);
         let text = renderer.text_run("abcd");
         renderer.begin_frame();
+        renderer.push_clip(screen);
         for (area, clip) in [(offscreen, screen), (screen, offscreen), (screen, clip)] {
-            renderer.cells(area, clip).clear(SurfaceCell::new('x'));
-            renderer.paint_text(TextRequest::new(text, area), clip);
+            renderer.push_clip(clip);
+            renderer.cells(area).clear(SurfaceCell::new('x'));
+            renderer.paint_text(TextRequest::new(text, area));
+            renderer.pop_clip();
         }
+        renderer.pop_clip();
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), " bcd\n");
+
+        renderer.push_clip(offscreen);
+        renderer.begin_frame();
+        renderer.paint_text(TextRequest::new(text, screen));
+        renderer.end_frame();
+        assert_eq!(renderer.plain_text(), "abcd\n");
     }
 
     #[test]
@@ -841,16 +863,16 @@ mod tests {
 
         for frame in 0..3 {
             renderer.begin_frame();
-            renderer.cells(screen, screen).write(
+            renderer.cells(screen).write(
                 0,
                 0,
                 "A界e\u{301}B",
                 CellStyle::new().foreground(Color::RED).attributes(TextAttributes::BOLD),
             );
-            renderer.cells(screen, screen).tint([255, 0, 0], 0);
+            renderer.cells(screen).tint([255, 0, 0], 0);
             assert_eq!(renderer.frame_cells.foreground[0], Color::RED.packed());
             if frame < 2 {
-                renderer.cells(screen, screen).tint([0, 0, 0], 128);
+                renderer.cells(screen).tint([0, 0, 0], 128);
                 assert!(
                     renderer
                         .frame_cells
@@ -865,9 +887,9 @@ mod tests {
                         .iter()
                         .all(|color| { *color == Color::Rgb(10, 20, 30).packed() })
                 );
-                renderer
-                    .cells(screen, PhysicalRect::new(3, 0, 1, 1))
-                    .tint([0, 0, 0], 128);
+                renderer.push_clip(PhysicalRect::new(3, 0, 1, 1));
+                renderer.cells(screen).tint([0, 0, 0], 128);
+                renderer.pop_clip();
                 assert_eq!(renderer.frame_cells.foreground[3], Color::Rgb(50, 25, 12).packed());
             }
             renderer.end_frame();
@@ -883,10 +905,10 @@ mod tests {
         }
 
         renderer.begin_frame();
-        renderer.cells(screen, screen).write(0, 0, "X", CellStyle::new());
-        renderer.cells(screen, screen).tint([0, 0, 0], 128);
+        renderer.cells(screen).write(0, 0, "X", CellStyle::new());
+        renderer.cells(screen).tint([0, 0, 0], 128);
         assert_eq!(renderer.frame_cells.foreground[0], Color::Rgb(50, 40, 30).packed());
-        renderer.cells(screen, screen).tint([3, 5, 7], 255);
+        renderer.cells(screen).tint([3, 5, 7], 255);
         assert_eq!(renderer.frame_cells.foreground[0], Color::Rgb(3, 5, 7).packed());
         assert_eq!(renderer.frame_cells.background[0], Color::Rgb(3, 5, 7).packed());
     }
@@ -896,10 +918,10 @@ mod tests {
         let mut renderer = renderer(4, 1);
         let screen = renderer.screen();
         renderer.begin_frame();
-        renderer.cells(screen, screen).write(0, 0, "界界", CellStyle::new());
-        renderer
-            .cells(screen, PhysicalRect::new(1, 0, 2, 1))
-            .tint([0, 0, 0], 255);
+        renderer.cells(screen).write(0, 0, "界界", CellStyle::new());
+        renderer.push_clip(PhysicalRect::new(1, 0, 2, 1));
+        renderer.cells(screen).tint([0, 0, 0], 255);
+        renderer.pop_clip();
         assert!(
             renderer
                 .frame_cells
@@ -922,9 +944,9 @@ mod tests {
         let screen = renderer.screen();
         renderer.begin_frame();
         renderer
-            .cells(screen, screen)
+            .cells(screen)
             .write(0, 0, "x", CellStyle::new().foreground(Color::RED));
-        renderer.cells(screen, screen).tint([0, 0, 0], 150);
+        renderer.cells(screen).tint([0, 0, 0], 150);
         assert_eq!(renderer.frame_cells.foreground[0], Color::RED.packed());
         assert_eq!(renderer.frame_cells.background[0], Color::Reset.packed());
     }
@@ -935,7 +957,7 @@ mod tests {
         let area = renderer.screen();
         renderer.begin_frame();
         renderer
-            .cells(area, area)
+            .cells(area)
             .write(0, 0, "hello", CellStyle::new().foreground(Color::GREEN));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "hello\n\n");
@@ -943,13 +965,13 @@ mod tests {
 
         renderer.begin_frame();
         renderer
-            .cells(area, area)
+            .cells(area)
             .write(0, 0, "hello", CellStyle::new().foreground(Color::GREEN));
         renderer.end_frame();
         assert!(renderer.output().is_empty());
 
         renderer.begin_frame();
-        renderer.cells(area, area).set_cell(1, 1, SurfaceCell::new('x'));
+        renderer.cells(area).set_cell(1, 1, SurfaceCell::new('x'));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "\n x\n");
     }
@@ -963,7 +985,7 @@ mod tests {
 
         renderer.begin_frame();
         {
-            let mut cells = renderer.cells(area, area);
+            let mut cells = renderer.cells(area);
             cells.write(0, 0, text, CellStyle::new());
             cells.write(5, 0, family, CellStyle::new());
         }
@@ -972,7 +994,7 @@ mod tests {
 
         renderer.begin_frame();
         {
-            let mut cells = renderer.cells(area, area);
+            let mut cells = renderer.cells(area);
             cells.write(0, 0, text, CellStyle::new());
             cells.write(5, 0, family, CellStyle::new());
         }
@@ -980,10 +1002,10 @@ mod tests {
         assert!(renderer.output().is_empty());
 
         renderer.begin_frame();
-        renderer.cells(area, area).write(0, 0, "👨‍👩‍👧x", CellStyle::new());
+        renderer.cells(area).write(0, 0, "👨‍👩‍👧x", CellStyle::new());
         renderer.end_frame();
         renderer.begin_frame();
-        renderer.cells(area, area).write(0, 0, "👨‍👩‍👧y", CellStyle::new());
+        renderer.cells(area).write(0, 0, "👨‍👩‍👧y", CellStyle::new());
         renderer.end_frame();
         assert!(!renderer.changed[0]);
         assert!(!renderer.changed[1]);
@@ -991,7 +1013,7 @@ mod tests {
 
         renderer.begin_frame();
         {
-            let mut cells = renderer.cells(area, area);
+            let mut cells = renderer.cells(area);
             cells.write(0, 0, "界", CellStyle::new());
             cells.set_cell(1, 0, SurfaceCell::new('x'));
         }
@@ -1000,7 +1022,7 @@ mod tests {
 
         renderer.begin_frame();
         {
-            let mut cells = renderer.cells(area, area);
+            let mut cells = renderer.cells(area);
             cells.write(0, 0, "界", CellStyle::new());
             cells.set_cell(
                 1,
@@ -1013,26 +1035,26 @@ mod tests {
         assert_eq!(renderer.cells.background[1], Color::RED.packed());
 
         renderer.begin_frame();
-        renderer.cells(area, area).write(0, 0, "界", CellStyle::new());
+        renderer.cells(area).write(0, 0, "界", CellStyle::new());
         renderer
-            .cells(PhysicalRect::new(1, 0, 1, 1), area)
+            .cells(PhysicalRect::new(1, 0, 1, 1))
             .clear(SurfaceCell::default().style(CellStyle::new().background(Color::GREEN)));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "\n");
         assert_eq!(renderer.cells.background[1], Color::GREEN.packed());
 
         renderer.begin_frame();
-        renderer.cells(area, area).write(7, 0, "界", CellStyle::new());
+        renderer.cells(area).write(7, 0, "界", CellStyle::new());
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "\n");
 
         renderer.begin_frame();
-        renderer.cells(area, area).set_cell(0, 0, SurfaceCell::new('界'));
+        renderer.cells(area).set_cell(0, 0, SurfaceCell::new('界'));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "界\n");
 
         renderer.begin_frame();
-        renderer.cells(area, area).set_cell(0, 0, SurfaceCell::new('a'));
+        renderer.cells(area).set_cell(0, 0, SurfaceCell::new('a'));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "a\n");
         assert!(String::from_utf8_lossy(renderer.output()).contains("a "));
@@ -1052,7 +1074,6 @@ mod tests {
         let text = renderer.rich_text(&spans);
         assert_eq!(renderer.rich_text(&spans), text);
         let area = PhysicalRect::new(0, 0, 5, 3);
-        let screen = renderer.screen();
         renderer.begin_frame();
         renderer.paint_text(
             TextRequest::new(text, area)
@@ -1063,7 +1084,6 @@ mod tests {
                         .horizontal_align(HorizontalAlign::Center)
                         .vertical_align(VerticalAlign::Center),
                 ),
-            screen,
         );
         renderer.end_frame();
 
@@ -1088,13 +1108,13 @@ mod tests {
         let overflow = TextOptions::new().overflow(TextOverflow::Ellipsis);
         let text = renderer.text_run("abcdef\nx");
         renderer.begin_frame();
-        renderer.paint_text(TextRequest::new(text, screen).options(overflow), screen);
+        renderer.paint_text(TextRequest::new(text, screen).options(overflow));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "abcd\nx\n");
 
         let text = renderer.rich_text(&[Span::new("abcdef").color(Color::RED)]);
         renderer.begin_frame();
-        renderer.paint_text(TextRequest::new(text, screen).options(overflow), screen);
+        renderer.paint_text(TextRequest::new(text, screen).options(overflow));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "abc…\n\n");
         assert_eq!(renderer.cells.foreground[3], Color::RED.packed());
@@ -1106,12 +1126,12 @@ mod tests {
         let area = renderer.screen();
         let text = renderer.text_run("x");
         renderer.begin_frame();
-        renderer.paint_text(TextRequest::new(text, area), area);
+        renderer.paint_text(TextRequest::new(text, area));
         renderer.end_frame();
 
         renderer.text_run(&"y".repeat(TEXT_RUN_CACHE_CAPACITY));
         renderer.begin_frame();
-        renderer.paint_text(TextRequest::new(text, area), area);
+        renderer.paint_text(TextRequest::new(text, area));
         renderer.end_frame();
 
         assert_eq!(renderer.plain_text(), "x\n");

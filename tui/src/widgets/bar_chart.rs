@@ -33,7 +33,10 @@ blit::builder! {
     }
 }
 
-impl<C: Context> Atom<C> for BarChart {
+impl<C> Atom<C> for BarChart
+where
+    C: Context,
+{
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         let width = self
             .bars
@@ -47,7 +50,7 @@ impl<C: Context> Atom<C> for BarChart {
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
         const LEVELS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
         let bars = self.bars.borrow();
-        let mut cells = cx.context_mut().as_mut().cells(area);
+        let mut cells = cx.context_mut().as_mut().renderer.cells(area);
         let width = cells.columns();
         let rows = cells.rows();
         if let Some(background) = self.background {

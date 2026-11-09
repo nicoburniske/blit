@@ -37,7 +37,7 @@ fn render_screen(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
         .bench_local(|| {
             renderer.begin_frame();
             renderer
-                .cells(screen, screen)
+                .cells(screen)
                 .clear(Cell::default().style(CellStyle::new().background(Color::Rgb(20, 30, 40))));
             renderer.end_frame();
             black_box(renderer.output());
@@ -49,7 +49,7 @@ fn tint_screen(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
     let mut renderer = TuiRenderer::new(RendererConfig::new().columns(columns).rows(rows));
     let screen = renderer.screen();
     renderer.begin_frame();
-    renderer.cells(screen, screen).clear(
+    renderer.cells(screen).clear(
         Cell::new('x').style(
             CellStyle::new()
                 .foreground(Color::Rgb(220, 220, 220))
@@ -59,9 +59,7 @@ fn tint_screen(bencher: divan::Bencher, (columns, rows): (u16, u16)) {
     bencher
         .counter(ItemsCount::new(usize::from(columns) * usize::from(rows)))
         .bench_local(|| {
-            renderer
-                .cells(screen, screen)
-                .tint(black_box([0, 0, 0]), black_box(150));
+            renderer.cells(screen).tint(black_box([0, 0, 0]), black_box(150));
             black_box(&renderer);
         });
 }
@@ -98,12 +96,12 @@ fn update_one_cell_in_large_text(bencher: divan::Bencher) {
     let old = renderer.text_run(&frame);
     let new = renderer.text_run(&changed_frame);
     renderer.begin_frame();
-    renderer.paint_text(TextRequest::new(old, screen), screen);
+    renderer.paint_text(TextRequest::new(old, screen));
     renderer.end_frame();
     let mut changed = true;
     bencher.counter(ItemsCount::new(1usize)).bench_local(|| {
         renderer.begin_frame();
-        renderer.paint_text(TextRequest::new(if changed { new } else { old }, screen), screen);
+        renderer.paint_text(TextRequest::new(if changed { new } else { old }, screen));
         renderer.end_frame();
         black_box(renderer.output());
         changed = !changed;
@@ -111,7 +109,6 @@ fn update_one_cell_in_large_text(bencher: divan::Bencher) {
 }
 
 fn scene(renderer: &mut TuiRenderer, changed: bool) {
-    let screen = renderer.screen();
     renderer.begin_frame();
     for row in 0..8 {
         for column in 0..12 {
@@ -122,7 +119,7 @@ fn scene(renderer: &mut TuiRenderer, changed: bool) {
                 height: 4,
             };
             renderer
-                .cells(area, screen)
+                .cells(area)
                 .clear(Cell::default().style(CellStyle::new().background(Color::Rgb(
                     (column * 19) as u8,
                     (row * 31) as u8,
@@ -131,11 +128,9 @@ fn scene(renderer: &mut TuiRenderer, changed: bool) {
         }
     }
     if changed {
-        renderer.cells(CHANGED_CELL, screen).set_cell(
-            0,
-            0,
-            Cell::new('x').style(CellStyle::new().foreground(Color::WHITE)),
-        );
+        renderer
+            .cells(CHANGED_CELL)
+            .set_cell(0, 0, Cell::new('x').style(CellStyle::new().foreground(Color::WHITE)));
     }
     renderer.end_frame();
 }

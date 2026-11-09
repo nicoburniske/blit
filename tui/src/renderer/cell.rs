@@ -3,8 +3,8 @@
 use blit::PhysicalRect;
 use unicode_width::UnicodeWidthChar;
 
-use super::{
-    Cells, Glyph, TuiRenderer,
+use super::{Cells, Glyph, TuiRenderer};
+use crate::{
     color::Color,
     text::{HorizontalAlign, TextAttributes, TextLayoutRequest, TextOverflow, TextRequest, VerticalAlign},
 };
@@ -51,12 +51,12 @@ pub struct CellBuffer<'a> {
 
 impl TuiRenderer {
     #[inline]
-    pub fn cells(&mut self, area: PhysicalRect, clip: PhysicalRect) -> CellBuffer<'_> {
-        CellBuffer::new(self, area, clip)
+    pub fn cells(&mut self, area: PhysicalRect) -> CellBuffer<'_> {
+        CellBuffer::new(self, area, self.clip)
     }
 
-    pub fn paint_text(&mut self, request: TextRequest, clip: PhysicalRect) {
-        self.paint_text_at(request, clip, None);
+    pub fn paint_text(&mut self, request: TextRequest) {
+        self.paint_text_at(request, self.clip, None);
     }
 }
 

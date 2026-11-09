@@ -8,16 +8,13 @@ use std::{
 use blit::{Animation, Axis, Easing, Id, Input, Key, KeyboardEvent, Motion, Scalar, Sides, Size, Tween, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, SpringDrag, Transition, select};
 use blit_tui::{
-    BoundsClip, TuiContext, Ui,
-    atom::{Bar, BarChart, Border, BorderSides, BorderStyle, Gauge, Shadow, Sparkline, Tint},
+    Bar, BarChart, Block, Border, BorderSides, BorderStyle, BoundsClip, Gauge, Performance, PerformanceState, Popover,
+    PopoverClose, PopoverState, Resize, ResizeEdge, ResizeGrip, ResizeState, ScrollArea, ScrollState, Shadow,
+    Sparkline, Split, SplitState, Text, TextInput, TextInputState, Tint, Title, TuiContext, Ui, UniformList,
     color::Color,
     interact,
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, pad, wrap},
     text::{HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign},
-    widget::{
-        Block, Performance, PerformanceState, Popover, PopoverClose, PopoverState, Resize, ResizeEdge, ResizeGrip,
-        ResizeState, ScrollArea, ScrollState, Split, SplitState, Text, TextInput, TextInputState, Title, UniformList,
-    },
 };
 
 fn main() -> io::Result<()> {
@@ -64,7 +61,7 @@ impl Demo {
             _ => None,
         }));
         if !self.modal.open && quit.is_some() {
-            ui.context_mut().quit();
+            ui.context_mut().should_quit = true;
             return;
         }
         let mut root = ui.layout(flex::column().gap(1).pad(1));
@@ -125,7 +122,7 @@ impl Demo {
                         }
                         let reset = popup.child().build(Button::new(" reset ", false));
                         if popup.child().build(Button::new(" quit ", false)) {
-                            popup.context_mut().quit();
+                            popup.context_mut().should_quit = true;
                         }
                         reset
                     }),
@@ -142,7 +139,7 @@ impl Demo {
             Page::Scroll => root.child().item(flex::item().grow()).build(&mut self.scroll),
             Page::Animation => root.child().item(flex::item().grow()).build(&mut self.animation),
         };
-        root.context_mut().profiler_mut().set_enabled(self.show_performance);
+        root.context_mut().profiler.set_enabled(self.show_performance);
         if self.show_performance {
             root.child()
                 .layout(

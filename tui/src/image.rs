@@ -1,5 +1,3 @@
-//! image data and Kitty graphics resources
-
 use std::rc::Rc;
 
 use blit::{PhysicalRect, PhysicalSize};

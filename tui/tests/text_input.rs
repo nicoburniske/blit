@@ -4,10 +4,7 @@ use blit::{
     Frame, FrameInfo, Id, Input, Point, Size,
     TouchPhase::{Down, Move, Up},
 };
-use blit_tui::{
-    RendererConfig, TuiContext, TuiRenderer, Ui,
-    widget::{TextInput, TextInputState},
-};
+use blit_tui::{RendererConfig, TextInput, TextInputState, TuiContext, TuiRenderer, Ui};
 
 #[test]
 fn selection_ignores_other_contacts() {

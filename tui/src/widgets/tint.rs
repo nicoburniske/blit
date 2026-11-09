@@ -12,12 +12,19 @@ blit::builder! {
     }
 }
 
-impl<C: Context> Atom<C> for Tint {
+impl<C> Atom<C> for Tint
+where
+    C: Context,
+{
     fn measure(&self, _: &mut AtomCx<'_, C>, _: Constraints<i32>) -> Size<i32> {
         Size::ZERO
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
-        cx.context_mut().as_mut().cells(area).tint(self.color, self.opacity);
+        cx.context_mut()
+            .as_mut()
+            .renderer
+            .cells(area)
+            .tint(self.color, self.opacity);
     }
 }
