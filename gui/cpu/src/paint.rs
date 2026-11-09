@@ -228,10 +228,8 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                     target.metadata.pop();
                     target.entries.pop();
                     let removed = target.len();
-                    for indices in [&mut target.meshes, &mut target.passes] {
-                        if indices.last() == Some(&removed) {
-                            indices.pop();
-                        }
+                    if target.passes.last() == Some(&removed) {
+                        target.passes.pop();
                     }
                 }
                 target
@@ -365,10 +363,17 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                     return;
                 };
                 let target = &mut *context.commands;
-                let call = ErasedCommand::ready(&mut target.prepared, Payload::Mesh(Offset::new(mesh_offset)));
-                let index = target.len();
+                let index = target.mesh_count;
+                if index == target.meshes.len() {
+                    target
+                        .meshes
+                        .push(crate::render::mesh::Prepared::new(Offset::new(mesh_offset)));
+                } else {
+                    target.meshes[index].source = Offset::new(mesh_offset);
+                }
+                target.mesh_count += 1;
+                let call = ErasedCommand::ready(&mut target.prepared, Payload::Mesh(index as u32));
                 target.push(call, bounds, record.clip);
-                target.meshes.push(index);
             },
         );
     }

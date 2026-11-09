@@ -22,7 +22,7 @@ pub fn draw_line<B: PixelBuffer>(
     }
     let bounds = commands.bounds(command);
     match commands.get(command) {
-        Payload::Pending | Payload::Empty | Payload::Mesh(..) => {}
+        Payload::Pending | Payload::Empty => {}
         Payload::Custom => {
             let call = &mut commands.entries[command as usize];
             if call.reads.is_some() {
@@ -119,9 +119,11 @@ pub fn draw_line<B: PixelBuffer>(
                 clip,
             );
         }
-        Payload::Triangle(triangle) => {
+        Payload::Mesh(index) => {
+            let index = *index as usize;
             let x = buffer.x_offset() as i32;
-            triangle.draw_line(
+            commands.meshes[index].draw_line(
+                list,
                 line,
                 clip,
                 coverage,

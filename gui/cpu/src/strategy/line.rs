@@ -22,7 +22,7 @@ pub struct Scanline {
 
 impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
     fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker) {
-        context.raster.expand_meshes(&context.list, damage);
+        context.raster.prepare_meshes(&context.list, damage);
         let width = context.buffer.width();
         let height = context.buffer.height();
         let screen = PhysicalRect::new(0, 0, width as i32, height as i32);

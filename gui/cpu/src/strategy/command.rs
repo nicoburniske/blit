@@ -1,19 +1,16 @@
 use std::{ops::Range, ptr::NonNull};
 
-use blit::{
-    PhysicalRect,
-    internal::bump::{Bump, Offset},
-};
+use blit::{PhysicalRect, internal::bump::Bump};
 use blit_gui::{color::Color, display_list::DisplayList};
 
 use super::clip::ClipId;
 use crate::{
     DamageTracker, DrawContext, Pixel, StoredImage,
-    paint::{ErasedCommand, StoredMesh},
+    paint::ErasedCommand,
     raster::DrawTarget,
     render::{
         fill::{Gradients, PreparedFill},
-        image_patch, rectangle, triangle,
+        image_patch, mesh, rectangle,
     },
     text::{PreparedRuns, TextRenderer},
 };
@@ -27,7 +24,8 @@ pub struct RasterCommands<P> {
     pub prepared: Bump,
     pub range: Range<CommandId>,
     pub gradients: Gradients,
-    pub meshes: Vec<CommandId>,
+    pub meshes: Vec<mesh::Prepared>,
+    pub mesh_count: usize,
     pub passes: Vec<CommandId>,
 }
 
@@ -41,6 +39,7 @@ impl<P> Default for RasterCommands<P> {
             range: 0..0,
             gradients: Gradients::default(),
             meshes: Vec::new(),
+            mesh_count: 0,
             passes: Vec::new(),
         }
     }
@@ -179,12 +178,7 @@ impl<P: Pixel> RasterCommands<P> {
                 image.opaque_span(line, area, &texture.data, &texture.alpha_rows)?
             }
             Payload::Image(_) => bounds.clone(),
-            Payload::Pending
-            | Payload::Empty
-            | Payload::Text(..)
-            | Payload::Triangle(_)
-            | Payload::Mesh(..)
-            | Payload::Custom => {
+            Payload::Pending | Payload::Empty | Payload::Text(..) | Payload::Mesh(..) | Payload::Custom => {
                 return None;
             }
         };
@@ -193,12 +187,11 @@ impl<P: Pixel> RasterCommands<P> {
         (start < end).then_some(start..end)
     }
 
-    pub fn expand_meshes(&mut self, list: &DisplayList, damage: &impl DamageTracker) {
+    pub fn prepare_meshes(&mut self, list: &DisplayList, damage: &impl DamageTracker) {
         let range = self.range.clone();
-        if !self.meshes.iter().any(|id| range.contains(id)) {
+        if self.mesh_count == 0 {
             return;
         }
-        let start = self.len();
         for id in range.clone() {
             let metadata = Metadata {
                 ..self.metadata[id as usize]
@@ -206,13 +199,9 @@ impl<P: Pixel> RasterCommands<P> {
             if !damage.intersects(metadata.bounds, metadata.clip) {
                 continue;
             }
-            let mesh_offset = match self.get(id) {
-                Payload::Mesh(mesh_offset) => *mesh_offset,
-                _ => {
-                    self.entries.push(self.entries[id as usize]);
-                    self.metadata.push(metadata);
-                    continue;
-                }
+            let index = match self.get(id) {
+                Payload::Mesh(index) => *index as usize,
+                _ => continue,
             };
             if (id + 1..range.end).rev().any(|next| {
                 self.metadata[next as usize].clip == 0
@@ -220,41 +209,35 @@ impl<P: Pixel> RasterCommands<P> {
                         .opaque_bounds(next, list)
                         .is_some_and(|bounds| bounds.intersection(metadata.bounds) == Some(metadata.bounds))
             }) {
+                self.metadata[id as usize].bounds = PhysicalRect::default();
                 continue;
             }
+            let mesh = &mut self.meshes[index];
             // safety: mesh recording stores an offset to StoredMesh in this list
-            let mesh = unsafe { list.data().get(mesh_offset) };
-            let view = mesh.view(list);
+            let source = unsafe { list.data().get(mesh.source) };
+            let view = source.view(list);
             for (triangle_index, indices) in view.indices.as_chunks::<3>().0.iter().enumerate() {
                 let points = indices.map(|vertex_index| {
                     let position = view.vertices[vertex_index as usize].position;
-                    [position.x * mesh.scale, position.y * mesh.scale]
+                    [position.x * source.scale, position.y * source.scale]
                 });
                 let Some(bounds) = crate::render::triangle::bounds(points).intersection(metadata.bounds) else {
                     continue;
                 };
                 if damage.intersects(bounds, metadata.clip) {
-                    self.record(
-                        bounds,
-                        metadata.clip,
-                        (mesh_offset, triangle_index as u32),
-                        |_, (mesh_offset, triangle_index), cx| {
-                            // safety: mesh recording stores an offset to StoredMesh in this list
-                            let mesh = unsafe { cx.list.data().get(*mesh_offset) };
-                            let view = mesh.view(cx.list);
-                            let vertices = view.indices.as_chunks::<3>().0[*triangle_index as usize]
-                                .map(|vertex_index| view.vertices[vertex_index as usize]);
-                            let points =
-                                vertices.map(|vertex| [vertex.position.x * mesh.scale, vertex.position.y * mesh.scale]);
-                            triangle::Prepared::new(points, vertices.map(|vertex| vertex.color))
-                                .map(Payload::Triangle)
-                                .unwrap_or(Payload::Empty)
-                        },
-                    );
+                    mesh.starts.push(mesh.triangles.len() as u32);
+                    mesh.triangles
+                        .push((bounds, mesh::Triangle::Pending(triangle_index as u32)));
                 }
             }
+            mesh.starts.sort_unstable_by(|left, right| {
+                mesh.triangles[*left as usize]
+                    .0
+                    .y
+                    .cmp(&mesh.triangles[*right as usize].0.y)
+                    .then(left.cmp(right))
+            });
         }
-        self.range = start..self.len();
     }
 
     pub fn clear(&mut self) {
@@ -265,7 +248,10 @@ impl<P: Pixel> RasterCommands<P> {
         self.range = 0..0;
         self.gradients.entries.clear();
         self.gradients.stops.clear();
-        self.meshes.clear();
+        for mesh in &mut self.meshes[..self.mesh_count] {
+            mesh.clear();
+        }
+        self.mesh_count = 0;
         self.passes.clear();
     }
 
@@ -303,8 +289,7 @@ pub enum Payload {
     SolidPair(rectangle::SolidPair),
     Image(image_patch::Prepared),
     Text(PreparedText, PhysicalRect),
-    Triangle(triangle::Prepared),
-    Mesh(Offset<StoredMesh>),
+    Mesh(u32),
     Custom,
 }
 

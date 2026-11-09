@@ -864,106 +864,78 @@ fn renderer_supports_custom_pixel_layouts() {
 }
 
 #[test]
-fn mesh_interpolates_colors_without_shared_edge_overdraw() {
-    use crate::strategy::command::Payload;
-
-    #[derive(Default)]
-    struct Check(Scanline, usize);
-
-    impl RenderStrategy<VecBuffer<BgrPixel>> for Check {
-        fn render(&mut self, context: &mut RenderContext<VecBuffer<BgrPixel>>, damage: &impl DamageTracker) {
-            let range = context.raster.range.clone();
-            context.raster.expand_meshes(&context.list, damage);
-            for id in range {
-                assert!(matches!(context.raster.get(id), Payload::Pending | Payload::Mesh(..)));
+fn meshes_preserve_interpolation_shared_edges_and_order() {
+    fn check<S: RenderStrategy<VecBuffer<BgrPixel>> + Default>() {
+        let mut renderer = new_renderer(VecBuffer::new(32, 16), renderer_config()).strategy(S::default());
+        let mut reference = new_renderer(VecBuffer::new(32, 16), renderer_config()).strategy(S::default());
+        let bounds = LogicalRect::new(0.0, 0.0, 32.0, 16.0);
+        let red = Color::rgba(255, 0, 0, 128);
+        let green = Color::rgba(0, 255, 0, 128);
+        let vertices = [
+            MeshVertex::new(0.0, 0.0, red),
+            MeshVertex::new(8.0, 0.0, red),
+            MeshVertex::new(0.0, 8.0, red),
+            MeshVertex::new(8.0, 8.0, red),
+            MeshVertex::new(8.0, 0.0, Color::rgb(255, 0, 0)),
+            MeshVertex::new(16.0, 0.0, Color::rgb(0, 255, 0)),
+            MeshVertex::new(8.0, 8.0, Color::rgb(0, 0, 255)),
+            MeshVertex::new(16.0, 4.0, red),
+            MeshVertex::new(32.0, 4.0, red),
+            MeshVertex::new(24.0, 16.0, red),
+            MeshVertex::new(16.0, 0.0, green),
+            MeshVertex::new(32.0, 0.0, green),
+            MeshVertex::new(24.0, 12.0, green),
+        ];
+        for frame in [0, 1, 1, 0] {
+            let mut indices = [0, 1, 2, 2, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+            if frame == 1 {
+                indices[9..].rotate_left(3);
             }
-            self.0.render(context, damage);
-            assert_eq!(context.raster.range.len(), [3, 1, 3, 2, 1][self.1]);
-            self.1 += 1;
+            for split in [false, true] {
+                let target = if split { &mut reference } else { &mut renderer };
+                target.paint(bounds, Rectangle::new(bounds).background(Color::BLACK));
+                target.push_clip(bounds, BorderRadius::uniform(frame as f32 * 2.0));
+                for indices in [&indices[..9], &indices[9..]] {
+                    for indices in indices.chunks(if split { 3 } else { indices.len() }) {
+                        target.paint(
+                            bounds,
+                            Mesh {
+                                vertices: &vertices,
+                                indices,
+                            },
+                        );
+                    }
+                    let overlay = LogicalRect::new(20.0, 4.0, 4.0, 8.0);
+                    target.paint(overlay, Rectangle::new(overlay).background(Color::rgba(0, 0, 255, 96)));
+                }
+                target.pop_clip();
+            }
+            indices.fill(0);
+            renderer.render(1);
+            reference.render(0);
+            let pixels = renderer.buffer().pixels();
+            assert_eq!(pixels, reference.buffer().pixels());
+            if frame == 0 {
+                assert!(
+                    pixels
+                        .chunks_exact(32)
+                        .take(8)
+                        .all(|row| row[..8].iter().all(|pixel| *pixel
+                            == BgrPixel {
+                                red: 128,
+                                green: 0,
+                                blue: 0
+                            }))
+                );
+                assert!(pixels[32 + 9].red > pixels[32 + 9].green);
+                assert!(pixels[32 + 13].green > pixels[32 + 13].red);
+                assert!(pixels[5 * 32 + 9].blue > pixels[5 * 32 + 9].red);
+            }
         }
     }
 
-    let mut renderer = new_renderer(VecBuffer::<BgrPixel>::new(16, 8), renderer_config()).strategy(Check::default());
-    let bounds = PhysicalRect {
-        x: 0,
-        y: 0,
-        width: 16,
-        height: 8,
-    };
-    let color = Color::rgba(255, 0, 0, 128);
-    let vertices = [
-        MeshVertex::new(0.0, 0.0, color),
-        MeshVertex::new(8.0, 0.0, color),
-        MeshVertex::new(0.0, 8.0, color),
-        MeshVertex::new(8.0, 8.0, color),
-        MeshVertex::new(8.0, 0.0, Color::rgb(255, 0, 0)),
-        MeshVertex::new(16.0, 0.0, Color::rgb(0, 255, 0)),
-        MeshVertex::new(8.0, 8.0, Color::rgb(0, 0, 255)),
-    ];
-
-    let mut indices = [0, 1, 2, 2, 1, 3, 4, 5, 6];
-    renderer.paint(
-        renderer.screen().to_logical(SCALE),
-        Mesh {
-            vertices: &vertices,
-            indices: &indices,
-        },
-    );
-    assert_eq!(renderer.context.list.commands().len(), 1);
-    assert_eq!(renderer.context.raster.len(), 0);
-    indices.fill(0);
-    renderer.render(0);
-
-    let expected: [BgrPixel; 128] = renderer.buffer().pixels().try_into().unwrap();
-
-    renderer.paint(
-        bounds.to_logical(SCALE),
-        Rectangle::new(LogicalRect::new(0.0, 0.0, 16.0, 8.0)).background(Color::BLACK),
-    );
-    renderer.render(0);
-    renderer.paint(
-        bounds.to_logical(SCALE),
-        Mesh {
-            vertices: &vertices,
-            indices: &[0, 1, 2, 2, 1, 3, 4, 5, 6],
-        },
-    );
-    renderer.render(0);
-    assert_eq!(renderer.buffer().pixels(), expected);
-
-    let pixels = renderer.buffer().pixels();
-    assert!(pixels.chunks_exact(16).all(|row| row[..8].iter().all(|pixel| *pixel
-        == BgrPixel {
-            red: 128,
-            green: 0,
-            blue: 0
-        })));
-    assert!(pixels[16 + 9].red > pixels[16 + 9].green);
-    assert!(pixels[16 + 13].green > pixels[16 + 13].red);
-    assert!(pixels[5 * 16 + 9].blue > pixels[5 * 16 + 9].red);
-
-    for radius in [2.0, 0.0] {
-        renderer.paint(
-            LogicalRect::new(0.0, 0.0, 15.0, 8.0),
-            Mesh {
-                vertices: &vertices,
-                indices: &[0, 1, 2],
-            },
-        );
-        renderer.paint(
-            bounds.to_logical(SCALE),
-            Rectangle::new(bounds.to_logical(SCALE))
-                .background(Color::WHITE)
-                .radius(BorderRadius::uniform(radius)),
-        );
-        renderer.render(0);
-    }
-    assert!(renderer.buffer().pixels().iter().all(|pixel| *pixel
-        == BgrPixel {
-            red: 255,
-            green: 255,
-            blue: 255
-        }));
+    check::<Direct>();
+    check::<Scanline>();
 }
 
 #[test]
@@ -973,7 +945,7 @@ fn mesh_occlusion_uses_screen_and_ancestor_clip_bounds() {
     impl RenderStrategy<VecBuffer<Xrgb8888>> for Check {
         fn render(&mut self, context: &mut RenderContext<VecBuffer<Xrgb8888>>, damage: &impl DamageTracker) {
             self.0.render(context, damage);
-            assert_eq!(context.raster.range.len(), if self.1 { 3 } else { 5 });
+            assert_eq!(context.raster.meshes[0].triangles.len(), if self.1 { 0 } else { 2 });
         }
     }
 
