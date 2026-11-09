@@ -16,6 +16,7 @@ use crate::{
 };
 
 pub struct DrawContext<'a, P> {
+    pub scale: f32,
     /// physical drawing bounds independent of the current span
     pub bounds: PhysicalRect,
     pub(crate) list: &'a DisplayList,

@@ -7,6 +7,7 @@ use blit::{LogicalPoint, LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_gui::{
     FontData, FontStack, TextConfig, TextSystem,
     color::Color,
+    display_list::Compare,
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageSampling, ImageTiling},
     paint::{ImageRequest, Mesh, MeshVertex, Rectangle, TextRequest},
     style::{Border, BorderRadius, Fill, GradientStop, LinearGradient},
@@ -31,7 +32,8 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
         rc::Rc,
     };
 
-    use blit_gui::display_list::Command;
+    use blit::internal::hash::FxHasher;
+    use blit_gui::display_list::{Command, Slice};
 
     #[derive(Default)]
     struct Counts {
@@ -41,6 +43,17 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
 
     #[derive(Clone)]
     struct Key(u8, Rc<Counts>);
+
+    struct Keyed<T>(Key, T);
+
+    impl<T: 'static> Compare for Keyed<T> {
+        fn equal(a: &Self, _: &DisplayList, b: &Self, _: &DisplayList) -> bool {
+            a.0 == b.0
+        }
+        fn hash(input: &Self, _: &DisplayList, state: &mut impl Hasher) {
+            input.0.hash(state);
+        }
+    }
 
     impl PartialEq for Key {
         fn eq(&self, other: &Self) -> bool {
@@ -59,13 +72,6 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
     impl Handler<Key, Xrgb8888> for () {
         type Prepared = u8;
 
-        fn equal(a: &Key, _: &DisplayList, b: &Key, _: &DisplayList) -> bool {
-            a == b
-        }
-        fn hash(input: &Key, _: &DisplayList, state: &mut impl Hasher) {
-            input.hash(state);
-        }
-
         fn prepare(&mut self, key: &Key, _: &mut DrawContext<'_, Xrgb8888>) -> u8 {
             key.0
         }
@@ -75,15 +81,9 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
         }
     }
 
-    impl<T: 'static> Handler<(Key, T), Xrgb8888> for () {
+    impl<T: 'static> Handler<Keyed<T>, Xrgb8888> for () {
         type Prepared = ();
-        fn equal(a: &(Key, T), _: &DisplayList, b: &(Key, T), _: &DisplayList) -> bool {
-            a.0 == b.0
-        }
-        fn hash(input: &(Key, T), _: &DisplayList, state: &mut impl Hasher) {
-            input.0.hash(state);
-        }
-        fn prepare(&mut self, _: &(Key, T), _: &mut DrawContext<'_, Xrgb8888>) {}
+        fn prepare(&mut self, _: &Keyed<T>, _: &mut DrawContext<'_, Xrgb8888>) {}
         fn draw(&mut self, _: &(), _: &mut DrawContext<'_, Xrgb8888>) {}
     }
 
@@ -106,7 +106,7 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
         T: 'static,
     {
         fn paint(&mut self, bounds: LogicalRect, command: (Key, T)) {
-            self.record::<()>(bounds).draw(command, None);
+            self.record::<()>(bounds).draw(Keyed(command.0, command.1), None);
         }
     }
 
@@ -147,6 +147,20 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
     assert!(!left.context.list.equivalent(0, &right.context.list, 0));
     assert_eq!(counts.comparisons.get(), 0);
     assert_eq!(size_of::<Command>(), 32);
+
+    let left = &mut left.context.list;
+    let right = &mut right.context.list;
+    let a = left.store_slice([1u8, 2, 3].into_iter());
+    right.store_slice([0u8; 64].into_iter());
+    let b = right.store_slice([1u8, 2, 3].into_iter());
+    let changed = right.store_slice([1u8, 2, 4].into_iter());
+    assert!(<Slice<u8> as Compare>::equal(&a, left, &b, right));
+    assert!(!<Slice<u8> as Compare>::equal(&a, left, &changed, right));
+    let mut left_hash = FxHasher::new();
+    let mut right_hash = FxHasher::new();
+    <Slice<u8> as Compare>::hash(&a, left, &mut left_hash);
+    <Slice<u8> as Compare>::hash(&b, right, &mut right_hash);
+    assert_eq!(left_hash.finish(), right_hash.finish());
 }
 
 #[test]
@@ -215,10 +229,6 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
 
     impl<const VALUE: u8> Handler<(), Xrgb8888> for Fill<VALUE> {
         type Prepared = ();
-        fn equal(_: &(), _: &DisplayList, _: &(), _: &DisplayList) -> bool {
-            true
-        }
-        fn hash(_: &(), _: &DisplayList, _: &mut impl Hasher) {}
         fn prepare(&mut self, _: &(), _: &mut DrawContext<'_, Xrgb8888>) {}
         fn draw(&mut self, _: &(), cx: &mut DrawContext<'_, Xrgb8888>) {
             cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(self.0, 0, 0)));
@@ -275,6 +285,13 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
 
     struct Under(Rc<Cell<usize>>);
 
+    impl Compare for Under {
+        fn equal(_: &Self, _: &DisplayList, _: &Self, _: &DisplayList) -> bool {
+            true
+        }
+        fn hash(_: &Self, _: &DisplayList, _: &mut impl Hasher) {}
+    }
+
     #[derive(Clone)]
     struct Cover {
         area: PhysicalRect,
@@ -282,6 +299,15 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
         report: bool,
         prepared: bool,
         prepares: Rc<Cell<usize>>,
+    }
+
+    impl Compare for Cover {
+        fn equal(a: &Self, _: &DisplayList, b: &Self, _: &DisplayList) -> bool {
+            a.area == b.area && a.value == b.value
+        }
+        fn hash(input: &Self, _: &DisplayList, state: &mut impl Hasher) {
+            (input.value, input.area).hash(state);
+        }
     }
 
     impl<B, S, D> Paint<Under> for Renderer<B, S, D>
@@ -297,11 +323,6 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
 
     impl Handler<Under, Xrgb8888> for () {
         type Prepared = ();
-
-        fn equal(_: &Under, _: &DisplayList, _: &Under, _: &DisplayList) -> bool {
-            true
-        }
-        fn hash(_: &Under, _: &DisplayList, _: &mut impl Hasher) {}
 
         fn prepare(&mut self, under: &Under, _: &mut DrawContext<'_, Xrgb8888>) {
             under.0.set(under.0.get() + 1);
@@ -332,13 +353,6 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
 
     impl Handler<Cover, Xrgb8888> for () {
         type Prepared = Cover;
-
-        fn equal(a: &Cover, _: &DisplayList, b: &Cover, _: &DisplayList) -> bool {
-            a.area == b.area && a.value == b.value
-        }
-        fn hash(input: &Cover, _: &DisplayList, state: &mut impl Hasher) {
-            (input.value, input.area).hash(state);
-        }
 
         fn prepare(&mut self, cover: &Cover, _: &mut DrawContext<'_, Xrgb8888>) -> Cover {
             cover.prepares.set(cover.prepares.get() + 1);
@@ -454,6 +468,17 @@ fn prepared_draws_capture_data_and_drop_results_once() {
 
     struct Samples<'a>(&'a [u8], Rc<Counts>);
 
+    struct SamplesData(Slice<u8>, Rc<Counts>);
+
+    impl Compare for SamplesData {
+        fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
+            left.slice(a.0) == right.slice(b.0)
+        }
+        fn hash(input: &Self, list: &DisplayList, state: &mut impl Hasher) {
+            list.slice(input.0).hash(state);
+        }
+    }
+
     impl<B, S, D> Paint<Samples<'_>> for Renderer<B, S, D>
     where
         B: PixelBuffer<Pixel = Xrgb8888>,
@@ -463,28 +488,16 @@ fn prepared_draws_capture_data_and_drop_results_once() {
         fn paint(&mut self, bounds: LogicalRect, samples: Samples<'_>) {
             let mut cx = self.record::<()>(bounds);
             let values = cx.store_slice(samples.0.iter().copied());
-            cx.draw((values, samples.1), None);
+            cx.draw(SamplesData(values, samples.1), None);
         }
     }
 
-    impl Handler<(Slice<u8>, Rc<Counts>), Xrgb8888> for () {
+    impl Handler<SamplesData, Xrgb8888> for () {
         type Prepared = Prepared;
-
-        fn equal(
-            a: &(Slice<u8>, Rc<Counts>),
-            left: &DisplayList,
-            b: &(Slice<u8>, Rc<Counts>),
-            right: &DisplayList,
-        ) -> bool {
-            left.slice(a.0) == right.slice(b.0)
-        }
-        fn hash(input: &(Slice<u8>, Rc<Counts>), list: &DisplayList, state: &mut impl Hasher) {
-            list.slice(input.0).hash(state);
-        }
 
         fn prepare(
             &mut self,
-            (values, counts): &(Slice<u8>, Rc<Counts>),
+            SamplesData(values, counts): &SamplesData,
             cx: &mut DrawContext<'_, Xrgb8888>,
         ) -> Prepared {
             counts.prepares.set(counts.prepares.get() + 1);

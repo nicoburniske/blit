@@ -166,6 +166,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         assert!(self.paint_clips.is_empty(), "unbalanced paint clips");
         let screen = self.screen();
         let scale = self.context.scale_factor;
+        self.context.raster.scale = scale;
         self.damage.update(&self.context.list, screen, scale, buffer_age);
         if !self.damage.is_empty() {
             let context = &mut self.context;
@@ -248,6 +249,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                         &context.raster.data,
                         &mut context.raster.prepared,
                         &mut DrawContext {
+                            scale,
                             bounds: node.bounds,
                             list: &context.list,
                             text: &mut context.text,

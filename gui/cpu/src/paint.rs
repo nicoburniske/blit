@@ -1,9 +1,4 @@
-use std::{
-    hash::{Hash, Hasher},
-    marker::PhantomData,
-    mem::offset_of,
-    ptr::NonNull,
-};
+use std::{hash::Hash, marker::PhantomData, mem::offset_of, ptr::NonNull};
 
 use blit::{
     LogicalRect, Paint, PhysicalRect, Scale2,
@@ -14,7 +9,7 @@ use blit::{
 };
 use blit_gui::{
     damage::DamageTracker,
-    display_list::{Command, DisplayList, Slice},
+    display_list::{Command, Compare, DisplayList, Slice},
     image::{ImageData, ImageHandle, prepare_image_patches},
     paint::{ImageRequest, Mesh, MeshVertex, Rectangle, TextRequest},
     style::{Border, Fill, GradientStop, LinearGradient},
@@ -32,8 +27,6 @@ use crate::{
 /// use blit_gui::damage::DamageTracker;
 /// use blit_cpu::{DrawContext, Handler, Pixel, PixelBuffer, PremultipliedRgbaColor, Renderer, RenderStrategy};
 /// use blit_gui::color::Color;
-/// use blit_gui::display_list::DisplayList;
-/// use std::hash::{Hash, Hasher};
 ///
 /// struct Swatch(Color);
 /// #[derive(Default)]
@@ -41,9 +34,6 @@ use crate::{
 ///
 /// impl<P: Pixel> Handler<Color, P> for Painter {
 ///     type Prepared = Color;
-///
-///     fn equal(a: &Color, _: &DisplayList, b: &Color, _: &DisplayList) -> bool { a == b }
-///     fn hash(color: &Color, _: &DisplayList, state: &mut impl Hasher) { color.hash(state); }
 ///
 ///     fn prepare(&mut self, color: &Color, _: &mut DrawContext<'_, P>) -> Color { *color }
 ///
@@ -74,11 +64,6 @@ where
     P: Pixel,
 {
     type Prepared: 'static;
-
-    /// compares drawing inputs including any referenced frame storage
-    fn equal(a: &T, left: &DisplayList, b: &T, right: &DisplayList) -> bool;
-    /// hashes the same drawing data compared by equal
-    fn hash(input: &T, list: &DisplayList, state: &mut impl Hasher);
 
     fn prepare(&mut self, input: &T, cx: &mut DrawContext<'_, P>) -> Self::Prepared;
     fn draw(&mut self, prepared: &Self::Prepared, cx: &mut DrawContext<'_, P>);
@@ -119,8 +104,10 @@ where
 
     /// records an already prepared value without running preparation
     /// opaque guarantees fully opaque output inside a physical rectangle intersected with bounds and clip
-    pub fn draw_ready<T: 'static>(&mut self, value: T, opaque: Option<PhysicalRect>)
+    #[inline]
+    pub fn draw_ready<T>(&mut self, value: T, opaque: Option<PhysicalRect>)
     where
+        T: Compare,
         H: Handler<T, P, Prepared = T>,
     {
         let handler = self.handler::<T>();
@@ -129,8 +116,9 @@ where
 
     /// prepares once on the first visible span and reuses the result for the frame
     /// opaque guarantees fully opaque output inside a physical rectangle intersected with bounds and clip
-    pub fn draw<T: 'static>(&mut self, value: T, opaque: Option<PhysicalRect>)
+    pub fn draw<T>(&mut self, value: T, opaque: Option<PhysicalRect>)
     where
+        T: Compare,
         H: Handler<T, P>,
     {
         let handler = self.handler::<T>();
@@ -158,8 +146,9 @@ where
     }
 
     /// records a framebuffer effect with its source footprint for each output region
-    pub fn pass<T: 'static>(&mut self, value: T)
+    pub fn pass<T>(&mut self, value: T)
     where
+        T: Compare,
         H: Handler<T, P, Prepared = T>,
     {
         let handler = self.handler::<T>();
@@ -175,8 +164,9 @@ where
         self.images.get(id).unwrap().handle.clone()
     }
 
-    fn record_draw<T: 'static>(&mut self, value: T, opaque: Option<PhysicalRect>, handler: NonNull<()>, reads: bool)
+    fn record_draw<T>(&mut self, value: T, opaque: Option<PhysicalRect>, handler: NonNull<()>, reads: bool)
     where
+        T: Compare,
         H: Handler<T, P, Prepared = T>,
     {
         self.record(
@@ -222,8 +212,9 @@ where
         handler.value
     }
 
-    fn record<T: 'static, F>(&mut self, bounds: PhysicalRect, clip: u32, value: T, opaque: PhysicalRect, prepare: F)
+    fn record<T, F>(&mut self, bounds: PhysicalRect, clip: u32, value: T, opaque: PhysicalRect, prepare: F)
     where
+        T: Compare,
         H: Handler<T, P>,
         F: Fn(&T, u32, &Command, &DisplayList, f32, &blit_arena::Arena<StoredImage>, &mut RasterCommands<P>) + 'static,
     {
@@ -231,8 +222,8 @@ where
             bounds,
             clip,
             (value, prepare, opaque),
-            |(a, _, _), left, (b, _, _), right| H::equal(a, left, b, right),
-            |(input, _, _), list, state| H::hash(input, list, state),
+            |(a, _, _), left, (b, _, _), right| <T as Compare>::equal(a, left, b, right),
+            |(input, _, _), list, state| <T as Compare>::hash(input, list, state),
             |(value, prepare, opaque), offset, command, list, context| {
                 let index = context.commands.len() as usize;
                 let value_offset = offset + offset_of!((T, F, PhysicalRect), 0) as u32;

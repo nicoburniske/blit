@@ -15,7 +15,7 @@ use blit_gui::{
     TextConfig, TextSystem,
     color::Color,
     damage::DamageTracker,
-    display_list::{DisplayList, Slice},
+    display_list::{Compare, DisplayList, Slice},
     image::{ImageData, ImageFormat, ImageHandle, ImagePixels},
     paint::Rectangle,
     style::BorderRadius,
@@ -67,6 +67,22 @@ struct PreparedPath {
     color: Color,
 }
 
+impl Compare for PreparedPath {
+    fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
+        a.radius == b.radius && a.color == b.color && left.slice(a.segments) == right.slice(b.segments)
+    }
+
+    fn hash(path: &Self, list: &DisplayList, state: &mut impl Hasher) {
+        path.radius.to_bits().hash(state);
+        path.color.hash(state);
+        let segments = list.slice(path.segments);
+        segments.len().hash(state);
+        for coordinate in segments.iter().flatten().flatten() {
+            (if *coordinate == 0.0 { 0 } else { coordinate.to_bits() }).hash(state);
+        }
+    }
+}
+
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Path<'_>> for Renderer<B, S, D> {
     fn paint(&mut self, bounds: LogicalRect, path: Path<'_>) {
         let mut cx = self.record::<()>(bounds);
@@ -85,20 +101,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Path<'_>> for
 
 impl<P: Pixel> Handler<PreparedPath, P> for () {
     type Prepared = PreparedPath;
-
-    fn equal(a: &PreparedPath, left: &DisplayList, b: &PreparedPath, right: &DisplayList) -> bool {
-        a.radius == b.radius && a.color == b.color && left.slice(a.segments) == right.slice(b.segments)
-    }
-
-    fn hash(path: &PreparedPath, list: &DisplayList, state: &mut impl Hasher) {
-        path.radius.to_bits().hash(state);
-        path.color.hash(state);
-        let segments = list.slice(path.segments);
-        segments.len().hash(state);
-        for coordinate in segments.iter().flatten().flatten() {
-            (if *coordinate == 0.0 { 0 } else { coordinate.to_bits() }).hash(state);
-        }
-    }
 
     fn prepare(&mut self, path: &PreparedPath, _: &mut DrawContext<'_, P>) -> PreparedPath {
         *path
@@ -154,13 +156,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<SoftShadow> f
 
 impl<P: Pixel> Handler<(i32, Color), P> for ShadowHandler {
     type Prepared = PreparedShadow;
-
-    fn equal(a: &(i32, Color), _: &DisplayList, b: &(i32, Color), _: &DisplayList) -> bool {
-        a == b
-    }
-    fn hash(input: &(i32, Color), _: &DisplayList, state: &mut impl Hasher) {
-        input.hash(state);
-    }
 
     fn prepare(&mut self, (radius, color): &(i32, Color), cx: &mut DrawContext<'_, P>) -> PreparedShadow {
         self.stats.prepares.set(self.stats.prepares.get() + 1);
@@ -228,12 +223,6 @@ impl<B: PixelBuffer<Pixel = Xrgb8888>, S: RenderStrategy<B>, D: DamageTracker> P
 
 impl Handler<usize, Xrgb8888> for BlurHandler {
     type Prepared = usize;
-    fn equal(a: &usize, _: &DisplayList, b: &usize, _: &DisplayList) -> bool {
-        a == b
-    }
-    fn hash(input: &usize, _: &DisplayList, state: &mut impl Hasher) {
-        input.hash(state);
-    }
     fn prepare(&mut self, radius: &usize, _: &mut DrawContext<'_, Xrgb8888>) -> usize {
         *radius
     }
@@ -608,12 +597,6 @@ mod tests {
         struct BadRead;
         impl Handler<BadRead, Xrgb8888> for () {
             type Prepared = BadRead;
-            fn equal(a: &BadRead, _: &DisplayList, b: &BadRead, _: &DisplayList) -> bool {
-                a == b
-            }
-            fn hash(input: &BadRead, _: &DisplayList, state: &mut impl Hasher) {
-                input.hash(state);
-            }
             fn prepare(&mut self, command: &BadRead, _: &mut DrawContext<'_, Xrgb8888>) -> BadRead {
                 *command
             }
@@ -648,12 +631,6 @@ mod tests {
         struct CopyArea(bool);
         impl Handler<CopyArea, Xrgb8888> for () {
             type Prepared = CopyArea;
-            fn equal(a: &CopyArea, _: &DisplayList, b: &CopyArea, _: &DisplayList) -> bool {
-                a == b
-            }
-            fn hash(input: &CopyArea, _: &DisplayList, state: &mut impl Hasher) {
-                input.hash(state);
-            }
             fn prepare(&mut self, command: &CopyArea, _: &mut DrawContext<'_, Xrgb8888>) -> CopyArea {
                 *command
             }
@@ -866,12 +843,6 @@ mod tests {
         struct Shift;
         impl Handler<Shift, Xrgb8888> for () {
             type Prepared = Shift;
-            fn equal(a: &Shift, _: &DisplayList, b: &Shift, _: &DisplayList) -> bool {
-                a == b
-            }
-            fn hash(input: &Shift, _: &DisplayList, state: &mut impl Hasher) {
-                input.hash(state);
-            }
             fn prepare(&mut self, command: &Shift, _: &mut DrawContext<'_, Xrgb8888>) -> Shift {
                 *command
             }

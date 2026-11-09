@@ -1,10 +1,7 @@
-use std::hash::{Hash, Hasher};
-
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
 use blit_gui::{
     color::Color,
-    display_list::DisplayList,
     image::{ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageSampling, ImageTiling, NineSlice},
     paint::{BoxShadow, ImageRequest},
     style::BorderRadius,
@@ -43,27 +40,19 @@ impl Default for Handler {
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<BoxShadow> for Renderer<B, S, D> {
     fn paint(&mut self, bounds: LogicalRect, shadow: BoxShadow) {
         let mut cx = self.record::<Handler>(bounds);
-        cx.draw((shadow, cx.scale), None);
+        cx.draw(shadow, None);
     }
 }
 
-impl<P: Pixel> crate::Handler<(BoxShadow, f32), P> for Handler {
+impl<P: Pixel> crate::Handler<BoxShadow, P> for Handler {
     type Prepared = Option<crate::raster::Image>;
-
-    fn equal(a: &(BoxShadow, f32), _: &DisplayList, b: &(BoxShadow, f32), _: &DisplayList) -> bool {
-        a == b
-    }
-    fn hash(input: &(BoxShadow, f32), _: &DisplayList, state: &mut impl Hasher) {
-        input.0.hash(state);
-        input.1.to_bits().hash(state);
-    }
 
     fn finish_frame(&mut self) {
         self.entries.trim_to_weight();
     }
 
-    fn prepare(&mut self, (shadow, scale): &(BoxShadow, f32), cx: &mut crate::DrawContext<'_, P>) -> Self::Prepared {
-        let scale_factor = *scale;
+    fn prepare(&mut self, shadow: &BoxShadow, cx: &mut crate::DrawContext<'_, P>) -> Self::Prepared {
+        let scale_factor = cx.scale;
         if shadow.color.alpha == 0 {
             return None;
         }

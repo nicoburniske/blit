@@ -34,6 +34,7 @@ pub fn draw_line<B: PixelBuffer>(
                 &commands.data,
                 &mut commands.prepared,
                 &mut DrawContext {
+                    scale: commands.scale,
                     bounds,
                     list,
                     text,

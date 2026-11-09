@@ -1,6 +1,6 @@
 use std::{
     any::TypeId,
-    hash::Hash,
+    hash::{Hash, Hasher},
     mem::offset_of,
     ptr::NonNull,
     sync::atomic::{AtomicU32, Ordering},
@@ -23,6 +23,39 @@ pub struct DisplayList {
     clips: Vec<Clip>,
     data: Bump,
     epoch: u32,
+}
+
+/// content comparison for recorded drawing inputs
+///
+/// equal values must hash identically
+/// resolve stored slices through their corresponding display lists
+pub trait Compare: 'static {
+    fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool;
+    fn hash(input: &Self, list: &DisplayList, state: &mut impl Hasher);
+}
+
+impl<T> Compare for T
+where
+    T: PartialEq + Hash + 'static,
+{
+    fn equal(a: &Self, _: &DisplayList, b: &Self, _: &DisplayList) -> bool {
+        a == b
+    }
+    fn hash(input: &Self, _: &DisplayList, state: &mut impl Hasher) {
+        Hash::hash(input, state);
+    }
+}
+
+impl<T> Compare for Slice<T>
+where
+    T: Copy + PartialEq + Hash + 'static,
+{
+    fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
+        left.slice(*a) == right.slice(*b)
+    }
+    fn hash(input: &Self, list: &DisplayList, state: &mut impl Hasher) {
+        list.slice(*input).hash(state);
+    }
 }
 
 impl DisplayList {

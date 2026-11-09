@@ -18,6 +18,7 @@ use crate::{
 pub type CommandId = u32;
 
 pub struct RasterCommands<P> {
+    pub scale: f32,
     pub metadata: Vec<Metadata>,
     pub entries: Vec<ErasedCommand<P>>,
     pub data: Bump,
@@ -32,6 +33,7 @@ pub struct RasterCommands<P> {
 impl<P> Default for RasterCommands<P> {
     fn default() -> Self {
         Self {
+            scale: 1.0,
             metadata: Vec::new(),
             entries: Vec::new(),
             data: Bump::default(),
@@ -71,6 +73,7 @@ impl<P: Pixel> RasterCommands<P> {
             &self.data,
             &mut self.prepared,
             &mut DrawContext {
+                scale: self.scale,
                 bounds: command.bounds,
                 list,
                 text,
