@@ -1,7 +1,7 @@
 use std::{any::TypeId, hash::Hash, marker::PhantomData, mem::offset_of, ptr::NonNull};
 
 use blit::{
-    LogicalRect, Paint, PhysicalRect, Scale2,
+    PhysicalRect, Scale2,
     internal::{
         bump::{Bump, Offset},
         hash::FxHasher,
@@ -9,21 +9,14 @@ use blit::{
 };
 use blit_gui::{
     display_list::{Command, DisplayList, Ops, Slice},
-    image::{ImageData, ImageHandle, ImageRequest, prepare_image_patches},
-    paint::{Mesh, MeshVertex, Rectangle},
+    image::{ImageData, ImageHandle, prepare_image_patches},
+    paint::{ImageRequest, Mesh, MeshVertex, Rectangle, TextRequest},
     style::{Border, Fill, GradientStop, LinearGradient},
-    text::TextRequest,
 };
 
 use crate::{
-    DamageTracker, DrawContext, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderStrategy, Renderer, Span,
-    StoredImage, Surface,
-    damage::region::Region,
-    raster::PrepareContext,
-    strategy::{
-        clip::ClipStack,
-        command::{Coverage, Payload, RasterCommands},
-    },
+    DrawContext, Pixel, PremultipliedRgbaColor, StoredImage,
+    strategy::command::{Coverage, Payload, RasterCommands},
 };
 
 /// consumes drawing data and records cpu work before its borrows expire
@@ -70,140 +63,19 @@ pub trait Handler<T, P: Pixel>: Sized + 'static {
 pub struct PaintContext<'a, H, P: Pixel> {
     pub scale: f32,
     pub bounds: PhysicalRect,
-    clip: u32,
-    handler: NonNull<()>,
-    marker: PhantomData<fn(H, P) -> (H, P)>,
-    list: &'a mut DisplayList,
+    pub(crate) clip: u32,
+    pub(crate) handler: NonNull<()>,
+    pub(crate) marker: PhantomData<fn(H, P) -> (H, P)>,
+    pub(crate) list: &'a mut DisplayList,
     pub(crate) images: &'a mut blit_arena::Arena<StoredImage>,
 }
 
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
-    /// configures one handler before recording begins
-    pub fn handler<H: 'static>(mut self, handler: H) -> Self {
-        assert!(
-            self.context.list.commands().is_empty(),
-            "cannot replace a handler during a frame"
-        );
-        let kind = TypeId::of::<H>();
-        if let Some(value) = self.handlers.iter_mut().find(|value| value.kind == kind) {
-            *value = ErasedHandler::new(handler);
-        } else {
-            self.handlers.push(ErasedHandler::new(handler));
-        }
-        self.damage.invalidate();
-        self
-    }
-
-    /// returns a handler and invalidates retained pixels
-    pub fn handler_mut<H: Default + 'static>(&mut self) -> &mut H {
-        assert!(
-            self.context.list.commands().is_empty(),
-            "cannot configure a handler during a frame"
-        );
-        self.damage.invalidate();
-        let index = self.handler_index::<H>();
-        // safety: the lookup selects the entry created for H
-        unsafe { self.handlers[index].cast::<H>() }
-    }
-
-    /// dispatches drawing data to its handler and creates its default on first use
-    pub fn handle<H: Handler<T, B::Pixel> + Default, T>(&mut self, bounds: LogicalRect, command: T) {
-        let index = self.handler_index::<H>();
-        let handler = &mut self.handlers[index];
-        handler.finish = |handler| {
-            // safety: dispatch pairs this callback with the entry created for H
-            unsafe { handler.cast::<H>() }.finish_frame();
-        };
-        let pointer = handler.value;
-        let context = &mut self.context;
-        // safety: the lookup selects the entry created for H
-        unsafe { handler.cast::<H>() }.handle(
-            command,
-            &mut PaintContext {
-                scale: context.scale_factor,
-                bounds: bounds.to_physical(Scale2::uniform(context.scale_factor)),
-                clip: self.paint_clip,
-                handler: pointer,
-                marker: PhantomData,
-                list: &mut context.list,
-                images: &mut context.images,
-            },
-        );
-    }
-
-    fn handler_index<H: Default + 'static>(&mut self) -> usize {
-        let kind = TypeId::of::<H>();
-        if let Some(index) = self.handlers.iter().position(|value| value.kind == kind) {
-            index
-        } else {
-            let index = self.handlers.len();
-            self.handlers.push(ErasedHandler::new(H::default()));
-            index
-        }
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Rectangle<'_>> for Renderer<B, S, D> {
-    fn paint(&mut self, bounds: LogicalRect, command: Rectangle<'_>) {
-        self.handle::<(), _>(bounds, command);
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<ImageRequest> for Renderer<B, S, D> {
-    fn paint(&mut self, bounds: LogicalRect, command: ImageRequest) {
-        self.handle::<(), _>(bounds, command);
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<TextRequest<'_>> for Renderer<B, S, D> {
-    fn paint(&mut self, bounds: LogicalRect, command: TextRequest<'_>) {
-        self.handle::<(), _>(bounds, command);
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Mesh<'_>> for Renderer<B, S, D> {
-    fn paint(&mut self, bounds: LogicalRect, command: Mesh<'_>) {
-        self.handle::<(), _>(bounds, command);
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<blit_gui::atom::Clear> for Renderer<B, S, D> {
-    fn paint(&mut self, bounds: LogicalRect, command: blit_gui::atom::Clear) {
-        self.handle::<(), _>(bounds, command);
-    }
-}
-
-impl<P: Pixel> Handler<Rectangle<'_>, P> for () {
-    fn handle(&mut self, command: Rectangle<'_>, cx: &mut PaintContext<'_, Self, P>) {
-        cx.rectangle(command);
-    }
-}
-
-impl<P: Pixel> Handler<ImageRequest, P> for () {
-    fn handle(&mut self, command: ImageRequest, cx: &mut PaintContext<'_, Self, P>) {
-        cx.image(command);
-    }
-}
-
-impl<P: Pixel> Handler<TextRequest<'_>, P> for () {
-    fn handle(&mut self, command: TextRequest<'_>, cx: &mut PaintContext<'_, Self, P>) {
-        cx.text(command);
-    }
-}
-
-impl<P: Pixel> Handler<Mesh<'_>, P> for () {
-    fn handle(&mut self, command: Mesh<'_>, cx: &mut PaintContext<'_, Self, P>) {
-        cx.mesh(command);
-    }
-}
-
-impl<P: Pixel> Handler<blit_gui::atom::Clear, P> for () {
-    fn handle(&mut self, _: blit_gui::atom::Clear, cx: &mut PaintContext<'_, Self, P>) {
-        cx.clear();
-    }
-}
-
 impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
+    /// prepares an image with an explicit logical to physical scale
+    pub fn prepare_image(&self, request: &ImageRequest, scale: f32) -> Option<crate::raster::Image> {
+        crate::raster::Image::new(request, scale, self.bounds, self.images)
+    }
+
     pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> Slice<T> {
         self.list.store_slice(values)
     }
@@ -269,46 +141,6 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
         reads: fn(&H, &T, PhysicalRect) -> PhysicalRect,
     ) {
         self.record_draw(key, value, None, draw, Some(reads));
-    }
-
-    fn record_draw<T: 'static>(
-        &mut self,
-        key: impl PartialEq + Hash + 'static,
-        value: T,
-        opaque: Option<PhysicalRect>,
-        draw: fn(&mut H, &T, &mut DrawContext<'_, P>),
-        reads: Option<fn(&H, &T, PhysicalRect) -> PhysicalRect>,
-    ) {
-        let handler = self.handler;
-        self.record(
-            self.bounds,
-            self.clip,
-            key,
-            Call { value, draw, reads },
-            opaque.unwrap_or_default(),
-            move |input, offset, command, _, _, _, target| {
-                let call = ErasedCommand {
-                    handler,
-                    value: offset,
-                    opaque: Offset::new(0),
-                    prepare: None,
-                    draw: Some(|handler, offset, _, cx| {
-                        // safety: recording pairs this offset with Call and this handler with H
-                        let call = unsafe { cx.list.data().get(Offset::<Call<H, T, P>>::new(offset)) };
-                        (call.draw)(unsafe { handler.cast::<H>().as_mut() }, &call.value, cx);
-                    }),
-                    reads: input.reads.map(|_| {
-                        (|handler: NonNull<()>, offset, list: &DisplayList, output| {
-                            // safety: recording pairs this offset with Call
-                            let call = unsafe { list.data().get(Offset::<Call<H, T, P>>::new(offset)) };
-                            // safety: recording selects the handler for H
-                            call.reads.unwrap()(unsafe { handler.cast::<H>().as_ref() }, &call.value, output)
-                        }) as _
-                    }),
-                };
-                target.push(call, command.bounds, command.clip);
-            },
-        );
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
@@ -542,6 +374,46 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
         );
     }
 
+    fn record_draw<T: 'static>(
+        &mut self,
+        key: impl PartialEq + Hash + 'static,
+        value: T,
+        opaque: Option<PhysicalRect>,
+        draw: fn(&mut H, &T, &mut DrawContext<'_, P>),
+        reads: Option<fn(&H, &T, PhysicalRect) -> PhysicalRect>,
+    ) {
+        let handler = self.handler;
+        self.record(
+            self.bounds,
+            self.clip,
+            key,
+            Call { value, draw, reads },
+            opaque.unwrap_or_default(),
+            move |input, offset, command, _, _, _, target| {
+                let call = ErasedCommand {
+                    handler,
+                    value: offset,
+                    opaque: Offset::new(0),
+                    prepare: None,
+                    draw: Some(|handler, offset, _, cx| {
+                        // safety: recording pairs this offset with Call and this handler with H
+                        let call = unsafe { cx.list.data().get(Offset::<Call<H, T, P>>::new(offset)) };
+                        (call.draw)(unsafe { handler.cast::<H>().as_mut() }, &call.value, cx);
+                    }),
+                    reads: input.reads.map(|_| {
+                        (|handler: NonNull<()>, offset, list: &DisplayList, output| {
+                            // safety: recording pairs this offset with Call
+                            let call = unsafe { list.data().get(Offset::<Call<H, T, P>>::new(offset)) };
+                            // safety: recording selects the handler for H
+                            call.reads.unwrap()(unsafe { handler.cast::<H>().as_ref() }, &call.value, output)
+                        }) as _
+                    }),
+                };
+                target.push(call, command.bounds, command.clip);
+            },
+        );
+    }
+
     fn record<T: 'static, K: PartialEq + Hash + 'static, F>(
         &mut self,
         bounds: PhysicalRect,
@@ -680,13 +552,16 @@ pub struct ErasedCommand<P> {
     pub reads: Option<fn(NonNull<()>, u32, &DisplayList, PhysicalRect) -> PhysicalRect>,
 }
 
-impl<P: Pixel> ErasedCommand<P> {
+impl<P> ErasedCommand<P> {
     pub fn prepared<H: 'static, T: 'static, R: 'static, F: Fn(&mut H, &T, &mut DrawContext<'_, P>) -> R + 'static>(
         data: &mut Bump,
         handler: NonNull<()>,
         value: T,
         prepare: F,
-    ) -> Self {
+    ) -> Self
+    where
+        P: Pixel,
+    {
         Self {
             handler,
             draw: None,
@@ -703,9 +578,7 @@ impl<P: Pixel> ErasedCommand<P> {
             }),
         }
     }
-}
 
-impl<P> ErasedCommand<P> {
     pub fn ready<T: 'static>(handler: NonNull<()>, prepared: &mut Bump, value: T) -> Self {
         Self {
             handler,
@@ -761,155 +634,38 @@ impl<H: 'static, T: 'static, P: Pixel> Call<H, T, P> {
     }
 }
 
-pub struct ErasedHandler {
-    kind: TypeId,
-    value: NonNull<()>,
-    drop: fn(NonNull<()>),
-    pub finish: fn(&mut Self),
-}
-
-impl ErasedHandler {
-    fn new<H: 'static>(handler: H) -> Self {
-        Self {
-            kind: TypeId::of::<H>(),
-            value: NonNull::from(Box::leak(Box::new(handler))).cast(),
-            finish: |_| {},
-            drop: |value| {
-                // safety: new transfers ownership of one boxed H to this entry
-                unsafe { drop(Box::from_raw(value.cast::<H>().as_ptr())) };
-            },
-        }
-    }
-
-    unsafe fn cast<H>(&mut self) -> &mut H {
-        // safety: callers select the type used to create this entry
-        unsafe { self.value.cast::<H>().as_mut() }
+impl<P: Pixel> Handler<Rectangle<'_>, P> for () {
+    fn handle(&mut self, command: Rectangle<'_>, cx: &mut PaintContext<'_, Self, P>) {
+        cx.rectangle(command);
     }
 }
 
-impl Drop for ErasedHandler {
-    fn drop(&mut self) {
-        (self.drop)(self.value);
+impl<P: Pixel> Handler<ImageRequest, P> for () {
+    fn handle(&mut self, command: ImageRequest, cx: &mut PaintContext<'_, Self, P>) {
+        cx.image(command);
     }
 }
 
-impl<'a, P: Pixel> DrawContext<'a, P> {
-    pub fn slice<T: Copy + 'static>(&self, slice: Slice<T>) -> &'a [T] {
-        self.list.slice(slice)
-    }
-
-    pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        data.validate();
-        let id = self
-            .images
-            .insert_with(|id| StoredImage::new(ImageHandle::new(id.into(), data.size), data));
-        self.images.get(id).unwrap().handle.clone()
-    }
-
-    pub fn source(&self) -> Option<&'a Surface<P>> {
-        self.source
-    }
-
-    pub fn output_regions(&self) -> impl Iterator<Item = PhysicalRect> + '_ {
-        let (span, pass) = match &self.target {
-            DrawTarget::Prepare => (None, None),
-            DrawTarget::Span { x, y, pixels, .. } => (Some(PhysicalRect::new(*x, *y, pixels.len() as i32, 1)), None),
-            DrawTarget::Pass { output, .. } => (None, Some((*output, self.bounds))),
-        };
-        span.into_iter().chain(
-            pass.into_iter()
-                .flat_map(|(output, bounds)| output.rects().filter_map(move |region| region.intersection(bounds))),
-        )
-    }
-
-    pub fn for_each_span(&mut self, mut draw: impl FnMut(Span<'_, P>)) {
-        match &mut self.target {
-            DrawTarget::Prepare => {}
-            DrawTarget::Span { x, y, pixels, coverage } => draw(Span {
-                x: *x,
-                y: *y,
-                pixels,
-                coverage: *coverage,
-                list: self.list,
-                images: self.images,
-            }),
-            DrawTarget::Pass {
-                target,
-                clips,
-                clip,
-                output,
-            } => {
-                for bounds in output.rects().filter_map(|region| region.intersection(self.bounds)) {
-                    for y in bounds.y..bounds.y + bounds.height {
-                        clips.for_each(*clip, y, bounds.x..bounds.x + bounds.width, |range, coverage| {
-                            target.process_line(y as usize, range.start as usize..range.end as usize, &mut |pixels| {
-                                draw(Span {
-                                    x: range.start,
-                                    y,
-                                    coverage,
-                                    list: self.list,
-                                    images: self.images,
-                                    pixels,
-                                })
-                            });
-                        });
-                    }
-                }
-            }
-        }
+impl<P: Pixel> Handler<TextRequest<'_>, P> for () {
+    fn handle(&mut self, command: TextRequest<'_>, cx: &mut PaintContext<'_, Self, P>) {
+        cx.text(command);
     }
 }
 
-impl<'a, P> Span<'a, P> {
-    pub fn slice<T: Copy + 'static>(&self, slice: Slice<T>) -> &'a [T] {
-        self.list.slice(slice)
-    }
-
-    pub fn image(&self, image: &ImageHandle) -> Option<&'a ImageData> {
-        self.images.get(image.id().into()).map(|image| &image.data)
+impl<P: Pixel> Handler<Mesh<'_>, P> for () {
+    fn handle(&mut self, command: Mesh<'_>, cx: &mut PaintContext<'_, Self, P>) {
+        cx.mesh(command);
     }
 }
 
-impl<P> Surface<P> {
-    pub fn width(&self) -> usize {
-        self.width
-    }
-    pub fn height(&self) -> usize {
-        self.height
-    }
-    pub fn row(&self, y: usize, range: std::ops::Range<usize>) -> &[P] {
-        assert!(range.start <= range.end && range.end <= self.width && y < self.height);
-        assert!(
-            self.valid
-                .contains(PhysicalRect::new(range.start as i32, y as i32, range.len() as i32, 1)),
-            "pass read outside its declared source footprint"
-        );
-        &self.pixels[y * self.width + range.start..y * self.width + range.end]
+impl<P: Pixel> Handler<blit_gui::paint::Clear, P> for () {
+    fn handle(&mut self, _: blit_gui::paint::Clear, cx: &mut PaintContext<'_, Self, P>) {
+        cx.clear();
     }
 }
 
-pub enum DrawTarget<'a, P> {
-    Prepare,
-    Span {
-        x: i32,
-        y: i32,
-        pixels: &'a mut [P],
-        coverage: u8,
-    },
-    Pass {
-        target: &'a mut dyn Target<P>,
-        clips: &'a ClipStack,
-        clip: u32,
-        output: &'a Region,
-    },
-}
-
-pub trait Target<P> {
-    fn process_line(&mut self, y: usize, range: std::ops::Range<usize>, draw: &mut dyn FnMut(&mut [P]));
-}
-
-impl<B: PixelBuffer> Target<B::Pixel> for B {
-    fn process_line(&mut self, y: usize, range: std::ops::Range<usize>, draw: &mut dyn FnMut(&mut [B::Pixel])) {
-        PixelBuffer::process_line(self, y, range, |pixels| draw(pixels));
-    }
+pub struct PrepareContext<'a, P: Pixel> {
+    pub scale: f32,
+    pub images: &'a blit_arena::Arena<StoredImage>,
+    pub commands: &'a mut RasterCommands<P>,
 }

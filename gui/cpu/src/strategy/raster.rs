@@ -3,7 +3,7 @@ use blit_arena::Arena;
 use blit_gui::display_list::DisplayList;
 
 use super::command::{CommandId, Payload, RasterCommands};
-use crate::{DrawContext, Pixel, PixelBuffer, PixelSpan, StoredImage, TextRenderer, paint::DrawTarget};
+use crate::{DrawContext, Pixel, PixelBuffer, PixelSpan, StoredImage, TextRenderer, raster::DrawTarget};
 
 #[inline(always)]
 pub fn draw_line<B: PixelBuffer>(

@@ -20,107 +20,6 @@ pub struct Scanline {
     clip_ranges: Vec<Option<ClipLine>>,
 }
 
-struct LineBuffer<'a, P> {
-    pixels: &'a mut [P],
-    x: usize,
-    height: usize,
-    line: usize,
-}
-
-impl<P: Pixel> PixelBuffer for LineBuffer<'_, P> {
-    type Pixel = P;
-
-    fn x_offset(&self) -> usize {
-        self.x
-    }
-
-    fn width(&self) -> usize {
-        self.pixels.len()
-    }
-
-    fn height(&self) -> usize {
-        self.height
-    }
-
-    fn line_mut(&mut self, line: usize) -> &mut [P] {
-        assert_eq!(line, self.line);
-        self.pixels
-    }
-}
-
-fn draw_commands<const CLIPPED: bool, P: Pixel>(
-    commands: &mut RasterCommands<P>,
-    list: &DisplayList,
-    active: &[CommandId],
-    clip_ranges: &[Option<ClipLine>],
-    images: &mut Arena<StoredImage>,
-    text: &mut TextRenderer,
-    buffer: &mut LineBuffer<'_, P>,
-) {
-    let line = buffer.line as i32;
-    let range = buffer.x..buffer.x + buffer.pixels.len();
-    for command in active {
-        let bounds = commands.horizontal_bounds(*command);
-        if bounds.end <= range.start as i32 || bounds.start >= range.end as i32 {
-            continue;
-        }
-        let mut start = bounds.start.max(range.start as i32);
-        let mut end = bounds.end.min(range.end as i32);
-        if CLIPPED {
-            let clip_id = commands.clip(*command);
-            if clip_id != 0 {
-                let Some(clipped) = &clip_ranges[clip_id as usize - 1] else {
-                    continue;
-                };
-                start = start.max(clipped.start);
-                end = end.min(clipped.end);
-                if start >= end {
-                    continue;
-                }
-                if start < clipped.full_start || end > clipped.full_end {
-                    ClipSpan {
-                        start,
-                        end,
-                        full_start: clipped.full_start,
-                        full_end: clipped.full_end,
-                    }
-                    .for_each(
-                        |x| {
-                            let mut id = clip_id;
-                            let mut coverage = 255u32;
-                            while id != 0 {
-                                let Some(line) = &clip_ranges[id as usize - 1] else {
-                                    return 0;
-                                };
-                                coverage = (coverage * line.rounded.coverage(x) as u32 + 127) / 255;
-                                id = line.parent;
-                            }
-                            coverage as u8
-                        },
-                        |range, coverage| {
-                            let clip = PhysicalRect {
-                                x: range.start,
-                                y: line,
-                                width: range.end - range.start,
-                                height: 1,
-                            };
-                            raster::draw_line(commands, list, *command, line, clip, coverage, images, text, buffer);
-                        },
-                    );
-                    continue;
-                }
-            }
-        }
-        let clip = PhysicalRect {
-            x: start,
-            y: line,
-            width: end - start,
-            height: 1,
-        };
-        raster::draw_line(commands, list, *command, line, clip, 255, images, text, buffer);
-    }
-}
-
 impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
     fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker) {
         context.raster.expand_meshes(&context.list, damage);
@@ -322,5 +221,106 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         self.active.clear();
         self.ranges.clear();
         self.clip_ranges.clear();
+    }
+}
+
+struct LineBuffer<'a, P> {
+    pixels: &'a mut [P],
+    x: usize,
+    height: usize,
+    line: usize,
+}
+
+impl<P: Pixel> PixelBuffer for LineBuffer<'_, P> {
+    type Pixel = P;
+
+    fn x_offset(&self) -> usize {
+        self.x
+    }
+
+    fn width(&self) -> usize {
+        self.pixels.len()
+    }
+
+    fn height(&self) -> usize {
+        self.height
+    }
+
+    fn line_mut(&mut self, line: usize) -> &mut [P] {
+        assert_eq!(line, self.line);
+        self.pixels
+    }
+}
+
+fn draw_commands<const CLIPPED: bool, P: Pixel>(
+    commands: &mut RasterCommands<P>,
+    list: &DisplayList,
+    active: &[CommandId],
+    clip_ranges: &[Option<ClipLine>],
+    images: &mut Arena<StoredImage>,
+    text: &mut TextRenderer,
+    buffer: &mut LineBuffer<'_, P>,
+) {
+    let line = buffer.line as i32;
+    let range = buffer.x..buffer.x + buffer.pixels.len();
+    for command in active {
+        let bounds = commands.horizontal_bounds(*command);
+        if bounds.end <= range.start as i32 || bounds.start >= range.end as i32 {
+            continue;
+        }
+        let mut start = bounds.start.max(range.start as i32);
+        let mut end = bounds.end.min(range.end as i32);
+        if CLIPPED {
+            let clip_id = commands.clip(*command);
+            if clip_id != 0 {
+                let Some(clipped) = &clip_ranges[clip_id as usize - 1] else {
+                    continue;
+                };
+                start = start.max(clipped.start);
+                end = end.min(clipped.end);
+                if start >= end {
+                    continue;
+                }
+                if start < clipped.full_start || end > clipped.full_end {
+                    ClipSpan {
+                        start,
+                        end,
+                        full_start: clipped.full_start,
+                        full_end: clipped.full_end,
+                    }
+                    .for_each(
+                        |x| {
+                            let mut id = clip_id;
+                            let mut coverage = 255u32;
+                            while id != 0 {
+                                let Some(line) = &clip_ranges[id as usize - 1] else {
+                                    return 0;
+                                };
+                                coverage = (coverage * line.rounded.coverage(x) as u32 + 127) / 255;
+                                id = line.parent;
+                            }
+                            coverage as u8
+                        },
+                        |range, coverage| {
+                            let clip = PhysicalRect {
+                                x: range.start,
+                                y: line,
+                                width: range.end - range.start,
+                                height: 1,
+                            };
+                            raster::draw_line(commands, list, *command, line, clip, coverage, images, text, buffer);
+                        },
+                    );
+                    continue;
+                }
+            }
+        }
+        let clip = PhysicalRect {
+            x: start,
+            y: line,
+            width: end - start,
+            height: 1,
+        };
+        raster::draw_line(commands, list, *command, line, clip, 255, images, text, buffer);
     }
 }

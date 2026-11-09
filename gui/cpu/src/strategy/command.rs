@@ -10,13 +10,9 @@ use blit_gui::{
 use super::clip::ClipId;
 use crate::{
     DamageTracker, DrawContext, Pixel, StoredImage,
-    paint::{DrawTarget, ErasedCommand},
-    render::{
-        fill::Gradients,
-        image_patch::Prepared as PreparedImage,
-        rectangle::{Prepared as PreparedRectangle, SolidPair as PreparedSolidPair},
-        triangle::Prepared as PreparedTriangle,
-    },
+    paint::ErasedCommand,
+    raster::DrawTarget,
+    render::{fill::Gradients, image_patch, rectangle, triangle},
     text::{PreparedRuns, TextRenderer},
 };
 
@@ -46,29 +42,6 @@ impl<P> Default for RasterCommands<P> {
             passes: Vec::new(),
         }
     }
-}
-
-pub enum Payload {
-    Pending,
-    Empty,
-    Clear,
-    Rectangle(PreparedRectangle),
-    SolidPair(PreparedSolidPair),
-    Image(PreparedImage),
-    Text(PreparedText, PhysicalRect),
-    Triangle(PreparedTriangle),
-    Mesh(Slice<MeshVertex>, Slice<u32>, f32),
-    Custom,
-}
-
-#[derive(Clone, Copy)]
-#[repr(C)]
-pub struct PreparedText {
-    pub glyph_start: u32,
-    pub glyph_end: u32,
-    pub runs: PreparedRuns,
-    pub area: PhysicalRect,
-    pub color: Color,
 }
 
 impl<P: Pixel> RasterCommands<P> {
@@ -265,7 +238,7 @@ impl<P: Pixel> RasterCommands<P> {
                         metadata.clip,
                         (points, vertices.map(|vertex| vertex.color)),
                         |_, (points, colors), _| {
-                            PreparedTriangle::new(*points, *colors)
+                            triangle::Prepared::new(*points, *colors)
                                 .map(Payload::Triangle)
                                 .unwrap_or(Payload::Empty)
                         },
@@ -287,9 +260,7 @@ impl<P: Pixel> RasterCommands<P> {
         self.meshes.clear();
         self.passes.clear();
     }
-}
 
-impl<P: Pixel> RasterCommands<P> {
     pub fn record<T: 'static>(
         &mut self,
         bounds: PhysicalRect,
@@ -314,6 +285,29 @@ impl<P: Pixel> RasterCommands<P> {
         });
         self.metadata.last_mut().unwrap()
     }
+}
+
+pub enum Payload {
+    Pending,
+    Empty,
+    Clear,
+    Rectangle(rectangle::Prepared),
+    SolidPair(rectangle::SolidPair),
+    Image(image_patch::Prepared),
+    Text(PreparedText, PhysicalRect),
+    Triangle(triangle::Prepared),
+    Mesh(Slice<MeshVertex>, Slice<u32>, f32),
+    Custom,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct PreparedText {
+    pub glyph_start: u32,
+    pub glyph_end: u32,
+    pub runs: PreparedRuns,
+    pub area: PhysicalRect,
+    pub color: Color,
 }
 
 pub struct Metadata {

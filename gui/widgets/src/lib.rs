@@ -1,7 +1,7 @@
 mod performance;
 pub mod text_input;
 
-pub use blit_gui::widget::{RichText, Text};
+pub use blit_gui::{RichText, Text};
 pub use blit_widgets::{
     Popover, PopoverClose, PopoverState, Resize, ResizeEdge, ScrollArea, Split, SplitDivider, UniformList,
     UniformListResponse, VirtualList, VirtualListResponse, interact,

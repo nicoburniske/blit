@@ -4,12 +4,11 @@ use blit::{LogicalPoint, LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_gui::{
     FontData, FontStack, TextConfig, TextSystem,
     color::Color,
-    image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
-    paint::{Mesh, MeshVertex, Rectangle},
+    image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageSampling, ImageTiling},
+    paint::{ImageRequest, Mesh, MeshVertex, Rectangle, TextRequest},
     style::{Border, BorderRadius, Fill, GradientStop, LinearGradient},
     text::{
-        FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextRequest, TextStyle, TextWrap,
-        VerticalAlign,
+        FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextStyle, TextWrap, VerticalAlign,
     },
 };
 use blit_text::{
@@ -135,7 +134,7 @@ fn panicking_damage_tracker_cannot_leave_foreign_commands() {
     }
 
     let mut other = new_renderer(VecBuffer::<Rgba8888>::new(8, 8), renderer_config());
-    other.paint(LogicalRect::new(0.0, 0.0, 8.0, 8.0), blit_gui::atom::Clear);
+    other.paint(LogicalRect::new(0.0, 0.0, 8.0, 8.0), blit_gui::paint::Clear);
     let foreign = Some(std::mem::take(&mut other.context.list));
     let mut renderer =
         new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config()).damage_tracker(Swap { foreign });
@@ -215,7 +214,7 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
 #[should_panic(expected = "cannot replace a handler during a frame")]
 fn pending_commands_prevent_handler_replacement() {
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
-    let shadow = blit_gui::shadow::BoxShadow::new(LogicalRect::new(0.0, 0.0, 8.0, 8.0), Color::BLACK);
+    let shadow = blit_gui::paint::BoxShadow::new(LogicalRect::new(0.0, 0.0, 8.0, 8.0), Color::BLACK);
     renderer.paint(shadow.bounds(), shadow);
     let _ = renderer.handler(shadow::Handler::default());
 }
@@ -472,7 +471,7 @@ fn builtin_preparation_follows_damage_and_occlusion() {
         (false, Color::BLACK),
         (false, Color::BLACK),
     ] {
-        renderer.paint(bounds, blit_gui::atom::Clear);
+        renderer.paint(bounds, blit_gui::paint::Clear);
         renderer.paint(area, Rectangle::new(area).background(color));
         renderer.paint(unrelated, Rectangle::new(unrelated).background(Color::WHITE));
         if covered {
@@ -499,11 +498,11 @@ fn shadow_masks_are_lazy_and_shared_until_frame_end() {
         .handler(shadow::Handler::new(0))
         .strategy(Check(Scanline::default(), 0));
     let bounds = LogicalRect::new(0.0, 0.0, 32.0, 20.0);
-    let shadow = blit_gui::shadow::BoxShadow::new(LogicalRect::new(8.0, 6.0, 8.0, 6.0), Color::WHITE).blur(2.0);
+    let shadow = blit_gui::paint::BoxShadow::new(LogicalRect::new(8.0, 6.0, 8.0, 6.0), Color::WHITE).blur(2.0);
     for covered in [true, false] {
         renderer.paint(bounds, Rectangle::new(bounds).background(Color::BLACK));
         renderer.paint(shadow.bounds(), shadow);
-        let second = blit_gui::shadow::BoxShadow {
+        let second = blit_gui::paint::BoxShadow {
             area: LogicalRect::new(18.0, 6.0, 8.0, 6.0),
             ..shadow
         };
@@ -522,7 +521,7 @@ fn atoms_record_into_the_renderer_context() {
     use std::time::Duration;
 
     use blit::{Frame, FrameInfo, Input, LogicalSize};
-    use blit_gui::{BoundsClip, atom, widget};
+    use blit_gui::{BoundsClip, Rectangle, Shadow, Text};
 
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(64, 48), text_system(), renderer_config());
     let mut frame = Frame::default();
@@ -534,9 +533,9 @@ fn atoms_record_into_the_renderer_context() {
             Input::None,
             |ui: blit::Ui<'_, _>| {
                 let mut panel = ui.layout(()).clip(BoundsClip);
-                panel.insert(atom::Rectangle::new().background(Color::WHITE));
-                panel.insert(atom::Shadow::new(Color::BLACK).blur(4.0).inset(true));
-                panel.insert(widget::Text::new("paint"));
+                panel.insert(Rectangle::new().background(Color::WHITE));
+                panel.insert(Shadow::new(Color::BLACK).blur(4.0).inset(true));
+                panel.insert(Text::new("paint"));
             },
         );
         frame.layout(&mut renderer);
@@ -586,7 +585,7 @@ fn scattered_tiles_stay_local_across_command_reorders() {
 
         renderer.paint(
             (PhysicalRect::new(0, 0, 643, 53)).to_logical(SCALE),
-            blit_gui::atom::Clear,
+            blit_gui::paint::Clear,
         );
         renderer.push_clip(
             LogicalRect::new(0.0, 0.0, if frame == 2 { 635.0 } else { 643.0 }, 53.0),
@@ -695,7 +694,7 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
 
             renderer.paint(
                 (PhysicalRect::new(0, 0, 37, 21)).to_logical(SCALE),
-                blit_gui::atom::Clear,
+                blit_gui::paint::Clear,
             );
             let area = LogicalRect::new(left as f32, 2.0, 6.0, 16.0);
             renderer.paint(area, Rectangle::new(area).background(Color::WHITE));
@@ -1034,7 +1033,7 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
             let text = renderer.text().text_run("M", TextStyle::default());
             for (frame, color) in [Color::BLACK, Color::WHITE, Color::WHITE].into_iter().enumerate() {
                 renderer.buffer_mut().ranges.clear();
-                renderer.paint(area, blit_gui::atom::Clear);
+                renderer.paint(area, blit_gui::paint::Clear);
                 match case {
                     "fill" | "border" => {
                         let stops = [GradientStop::new(0.0, Color::BLACK), GradientStop::new(1.0, color)];
@@ -1070,10 +1069,9 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
                             vertical_tiling: ImageTiling::None,
                         },
                     ),
-                    "shadow" => renderer.paint(
-                        area,
-                        blit_gui::shadow::BoxShadow::new(area, color).blur(2.0).inset(true),
-                    ),
+                    "shadow" => {
+                        renderer.paint(area, blit_gui::paint::BoxShadow::new(area, color).blur(2.0).inset(true))
+                    }
                     "mesh" => renderer.paint(
                         area,
                         Mesh {
@@ -1120,7 +1118,7 @@ fn text_placement_tracks_physical_clip_size() {
                 options: TextOptions::default(),
             };
             let screen = renderer.screen();
-            renderer.paint(screen.to_logical(SCALE), blit_gui::atom::Clear);
+            renderer.paint(screen.to_logical(SCALE), blit_gui::paint::Clear);
             renderer.paint(request.area, request);
             renderer.render(0);
         }
@@ -1369,7 +1367,7 @@ fn clear_resets_stale_pixels_before_drawing() {
         .radius(BorderRadius::uniform(5.0));
 
         if clear {
-            renderer.paint(screen.to_logical(SCALE), blit_gui::atom::Clear);
+            renderer.paint(screen.to_logical(SCALE), blit_gui::paint::Clear);
         }
         renderer.paint(screen.to_logical(SCALE), rectangle);
         renderer.render(0);
@@ -1391,7 +1389,7 @@ fn clear_resets_stale_pixels_before_drawing() {
     renderer.buffer_mut().pixels_mut().fill(stale);
     let screen = renderer.screen();
 
-    renderer.paint(screen.to_logical(SCALE), blit_gui::atom::Clear);
+    renderer.paint(screen.to_logical(SCALE), blit_gui::paint::Clear);
     renderer.render(0);
     assert!(renderer.buffer().pixels().iter().all(|pixel| *pixel == transparent));
 }
@@ -1985,7 +1983,7 @@ fn dropped_image_remains_valid_until_frame_end() {
     let image = renderer.create_image(ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgba8, 1, 1));
     let screen = renderer.screen();
 
-    renderer.paint(screen.to_logical(SCALE), blit_gui::atom::Clear);
+    renderer.paint(screen.to_logical(SCALE), blit_gui::paint::Clear);
     renderer.paint(
         screen.to_logical(SCALE),
         ImageRequest {
@@ -2020,7 +2018,7 @@ fn dropped_image_remains_valid_until_frame_end() {
         1,
     ));
     assert_ne!(replacement.id(), image_id);
-    renderer.paint(screen.to_logical(SCALE), blit_gui::atom::Clear);
+    renderer.paint(screen.to_logical(SCALE), blit_gui::paint::Clear);
     renderer.render(0);
     assert_eq!(renderer.buffer().pixels()[0].raw(), 0);
 }
@@ -2121,7 +2119,7 @@ fn damage_trackers_preserve_overlapping_reorders() {
             for renderer in [&mut incremental, &mut reference] {
                 renderer.paint(
                     (PhysicalRect::new(0, 0, 16, 16)).to_logical(SCALE),
-                    blit_gui::atom::Clear,
+                    blit_gui::paint::Clear,
                 );
                 for &index in *frame {
                     let rectangle = Rectangle::new(LogicalRect::new(index as f32, index as f32, 10.0, 10.0))

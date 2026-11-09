@@ -4,8 +4,7 @@ use blit_gui::{
     Context, TextConfig, TextSystem,
     color::Color,
     damage::{DamageTracker, command::CommandDiff, tile::TileDamage},
-    paint::Rectangle,
-    shadow::BoxShadow,
+    paint::{BoxShadow, Rectangle},
     style::BorderRadius,
 };
 

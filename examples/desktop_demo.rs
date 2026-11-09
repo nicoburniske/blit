@@ -14,8 +14,7 @@ use blit_desktop::cpu;
 use blit_desktop::gpu;
 use blit_desktop::{Application, Config, EventLoopProxy, Scope};
 use blit_gui::{
-    BoundsClip, Family, FontData, FontStack, TextConfig, TextSystem,
-    atom::{Rectangle, Shadow},
+    BoundsClip, Family, FontData, FontStack, Rectangle, Shadow, TextConfig, TextSystem,
     color::Color,
     paint::{Mesh, MeshVertex},
     style::{Border, BorderRadius},

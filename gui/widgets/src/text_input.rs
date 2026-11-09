@@ -12,8 +12,8 @@ pub type TextInputState = blit_widgets::TextInputState<f32>;
 use blit_gui::{
     Context,
     color::Color,
-    paint::Rectangle,
-    text::{TextLayoutRequest, TextOptions, TextRequest, TextRun, TextStyle, TextWrap},
+    paint::{Rectangle, TextRequest},
+    text::{TextLayoutRequest, TextOptions, TextRun, TextStyle, TextWrap},
 };
 
 blit::builder! {

@@ -1,7 +1,7 @@
 use std::ptr::NonNull;
 
 use blit::{PhysicalRect, Point, Scale2};
-use blit_gui::{TextSystem, color::Color, text::TextRequest};
+use blit_gui::{TextSystem, color::Color, paint::TextRequest};
 use blit_text::GlyphRequest;
 
 use crate::{Pixel, PixelSpan, RendererConfig, glyph::GlyphCache, strategy::command::PreparedText};
@@ -12,36 +12,6 @@ pub struct TextRenderer {
     prepared: Vec<PreparedGlyph>,
     runs: Vec<PreparedRun>,
     coverage: Vec<u8>,
-}
-
-pub struct PreparedGlyph {
-    pixels: NonNull<u8>,
-    color: bool,
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-}
-
-struct PreparedRun {
-    glyph_start: u32,
-    glyph_end: u32,
-    top: i32,
-    bottom: i32,
-    color: Color,
-}
-
-#[derive(Clone, Copy)]
-pub struct PreparedRuns {
-    start: u32,
-    end: u32,
-}
-
-impl PreparedRuns {
-    const NONE: Self = Self {
-        start: u32::MAX,
-        end: u32::MAX,
-    };
 }
 
 impl TextRenderer {
@@ -259,6 +229,36 @@ impl TextRenderer {
         self.glyphs.finish_frame(&mut self.system);
         self.system.finish_frame();
     }
+}
+
+pub struct PreparedGlyph {
+    pixels: NonNull<u8>,
+    color: bool,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+struct PreparedRun {
+    glyph_start: u32,
+    glyph_end: u32,
+    top: i32,
+    bottom: i32,
+    color: Color,
+}
+
+#[derive(Clone, Copy)]
+pub struct PreparedRuns {
+    start: u32,
+    end: u32,
+}
+
+impl PreparedRuns {
+    const NONE: Self = Self {
+        start: u32::MAX,
+        end: u32::MAX,
+    };
 }
 
 #[cfg(test)]

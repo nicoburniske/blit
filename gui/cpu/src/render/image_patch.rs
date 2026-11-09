@@ -3,7 +3,8 @@ use std::ops::Range;
 use blit::PhysicalRect;
 use blit_gui::{
     color::Color,
-    image::{ImageData, ImageFormat, ImageId, ImagePatch, ImageRequest, ImageSampling, ImageTiling},
+    image::{ImageData, ImageFormat, ImageId, ImagePatch, ImageSampling, ImageTiling},
+    paint::ImageRequest,
 };
 
 use crate::{Pixel, PremultipliedRgbaColor, Rgb8Pixel};
@@ -128,9 +129,7 @@ impl Prepared {
             self.draw_bilinear(row, pixels, texture, clip, screen_x, y)
         }
     }
-}
 
-impl Prepared {
     fn draw_nearest<P: Pixel>(
         &self,
         row: &mut [P],

@@ -2,12 +2,12 @@ use std::fmt::Write as _;
 
 use blit::{Paint, Sides, Size, Widget};
 use blit_gui::{
-    Context,
-    atom::Rectangle,
+    Context, Rectangle,
     color::Color,
     paint,
+    paint::TextRequest,
     style::{Border, BorderRadius},
-    text::{TextRequest, TextStyle},
+    text::TextStyle,
 };
 use blit_widgets::{FrameProfiler, interact};
 

@@ -1,9 +1,108 @@
 use blit::PhysicalRect;
-use blit_gui::image::{
-    ImageData, ImageFormat, ImagePatch, ImageRequest, ImageSampling, ImageTiling, prepare_image_patches,
+use blit_gui::{
+    image::{ImageData, ImageFormat, ImageHandle, ImagePatch, ImageSampling, ImageTiling, prepare_image_patches},
+    paint::ImageRequest,
 };
 
-use super::image_patch::Prepared;
+use super::image_patch::{AlphaRows, Prepared};
+
+pub struct StoredImage {
+    pub handle: ImageHandle,
+    pub data: ImageData,
+    pub alpha_rows: AlphaRows,
+    pub has_opaque_spans: bool,
+    pub opaque: bool,
+}
+
+impl StoredImage {
+    pub fn new(handle: ImageHandle, data: ImageData) -> Self {
+        let width = data.texture_rect.width as usize;
+        let height = data.texture_rect.height as usize;
+        let bytes = data.pixels.bytes();
+        let mut has_opaque_spans = false;
+        let rgba_opaque = || {
+            (0..height).all(|line| {
+                bytes[line * data.stride_bytes..][..width * 4]
+                    .chunks_exact(4)
+                    .all(|pixel| pixel[3] == 255)
+            })
+        };
+        let (alpha_rows, opaque) = match data.format {
+            ImageFormat::Rgb8 | ImageFormat::Luma8 => (AlphaRows::default(), true),
+            ImageFormat::Rgba8 => (AlphaRows::default(), rgba_opaque()),
+            ImageFormat::Rgba8Premultiplied if rgba_opaque() => (AlphaRows::default(), true),
+            ImageFormat::Rgba8Premultiplied if width > u16::MAX as usize => (AlphaRows::default(), false),
+            ImageFormat::Rgba8Premultiplied => {
+                let mut rows = Vec::with_capacity(height * 4);
+                for y in 0..height {
+                    let row = &bytes[y * data.stride_bytes..][..width * 4];
+                    let mut visible_start = width;
+                    let mut visible_end = 0;
+                    let mut run_start = 0;
+                    let mut opaque_start = 0;
+                    let mut opaque_end = 0;
+                    for (x, alpha) in row.chunks_exact(4).map(|pixel| pixel[3]).chain([0]).enumerate() {
+                        if alpha != 0 {
+                            visible_start = visible_start.min(x);
+                            visible_end = x + 1;
+                        }
+                        if alpha == 255 {
+                            continue;
+                        }
+                        if x - run_start > opaque_end - opaque_start {
+                            opaque_start = run_start;
+                            opaque_end = x;
+                        }
+                        run_start = x + 1;
+                    }
+                    visible_start = visible_start.min(visible_end);
+                    has_opaque_spans |= opaque_start < opaque_end;
+                    rows.extend([
+                        visible_start as u16,
+                        visible_end as u16,
+                        opaque_start as u16,
+                        opaque_end as u16,
+                    ]);
+                }
+                (AlphaRows(rows.into_boxed_slice()), false)
+            }
+            ImageFormat::Alpha8(_)
+                if (0..height).all(|line| {
+                    bytes[line * data.stride_bytes..][..width]
+                        .iter()
+                        .all(|alpha| *alpha == 255)
+                }) =>
+            {
+                (AlphaRows::default(), true)
+            }
+            ImageFormat::Alpha8(_) if width > u16::MAX as usize => (AlphaRows::default(), false),
+            ImageFormat::Alpha8(_) => {
+                let mut rows = Vec::with_capacity(height * 2);
+                for y in 0..height {
+                    let row = &bytes[y * data.stride_bytes..][..width];
+                    let mut visible_start = width;
+                    let mut visible_end = 0;
+                    for (x, alpha) in row.iter().enumerate() {
+                        if *alpha != 0 {
+                            visible_start = visible_start.min(x);
+                            visible_end = x + 1;
+                        }
+                    }
+                    visible_start = visible_start.min(visible_end);
+                    rows.extend([visible_start as u16, visible_end as u16]);
+                }
+                (AlphaRows(rows.into_boxed_slice()), false)
+            }
+        };
+        Self {
+            handle,
+            data,
+            alpha_rows,
+            has_opaque_spans,
+            opaque,
+        }
+    }
+}
 
 pub fn prepare(
     request: &ImageRequest,

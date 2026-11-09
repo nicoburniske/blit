@@ -2,10 +2,8 @@ use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
 use blit_gui::{
     color::Color,
-    image::{
-        ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageRequest, ImageSampling, ImageTiling, NineSlice,
-    },
-    shadow::BoxShadow,
+    image::{ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageSampling, ImageTiling, NineSlice},
+    paint::{BoxShadow, ImageRequest},
     style::BorderRadius,
 };
 
