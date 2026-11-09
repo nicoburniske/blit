@@ -1,6 +1,6 @@
 use std::{ops::Range, ptr::NonNull};
 
-use blit::{PhysicalRect, Scale2};
+use blit::PhysicalRect;
 use blit_gui::{color::Color, paint::MeshVertex};
 
 use super::clip::ClipId;
@@ -229,10 +229,11 @@ impl<P: Pixel> CommandList<P> {
             }
             for triangle in 0..self.data.slice(indices).len() / 3 {
                 let indices: [u32; 3] = self.data.slice(indices)[triangle * 3..][..3].try_into().unwrap();
-                let points = indices.map(|index| {
-                    let vertex = self.data.slice(vertices)[index as usize];
-                    [vertex.position.x * scale, vertex.position.y * scale]
-                });
+                let vertices = {
+                    let vertices = self.data.slice(vertices);
+                    indices.map(|index| vertices[index as usize])
+                };
+                let points = vertices.map(|vertex| [vertex.position.x * scale, vertex.position.y * scale]);
                 let Some(bounds) = crate::render::triangle::bounds(points).intersection(metadata.bounds) else {
                     continue;
                 };
@@ -240,12 +241,10 @@ impl<P: Pixel> CommandList<P> {
                     self.record(
                         bounds,
                         metadata.clip,
-                        (vertices, indices, scale),
-                        |_, (vertices, indices, scale), cx| {
-                            let vertices = cx.data.slice(*vertices);
-                            let vertices = indices.map(|index| vertices[index as usize]);
-                            PreparedTriangle::new(vertices, Scale2::uniform(*scale), cx.bounds)
-                                .map(|(triangle, _)| Payload::Triangle(triangle))
+                        (points, vertices.map(|vertex| vertex.color)),
+                        |_, (points, colors), _| {
+                            PreparedTriangle::new(*points, *colors)
+                                .map(Payload::Triangle)
                                 .unwrap_or(Payload::Empty)
                         },
                     );
@@ -274,12 +273,13 @@ impl<P: Pixel> CommandList<P> {
         bounds: PhysicalRect,
         clip: ClipId,
         value: T,
-        prepare: fn(&mut (), &T, &mut DrawContext<'_, P>) -> Payload,
+        prepare: impl Fn(&mut (), &T, &mut DrawContext<'_, P>) -> Payload + 'static,
     ) -> &mut Metadata {
         let input = ErasedCommand::prepared(&mut self.data, NonNull::<()>::dangling(), value, prepare);
         self.push(input, bounds, clip)
     }
 
+    #[inline(always)]
     pub fn push(&mut self, input: ErasedCommand<P>, bounds: PhysicalRect, clip: ClipId) -> &mut Metadata {
         if input.reads.is_some() {
             self.passes.push(self.len());

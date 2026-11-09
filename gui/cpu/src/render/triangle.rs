@@ -1,5 +1,5 @@
-use blit::{PhysicalRect, Scale2};
-use blit_gui::paint::MeshVertex;
+use blit::PhysicalRect;
+use blit_gui::color::Color;
 
 use crate::{Pixel, PixelSpan, PremultipliedRgbaColor};
 
@@ -22,10 +22,8 @@ enum ColorKind {
 
 impl Prepared {
     #[inline(always)]
-    pub fn new(vertices: [MeshVertex; 3], scale: Scale2, clip: PhysicalRect) -> Option<(Self, PhysicalRect)> {
-        let mut points = vertices.map(|vertex| [vertex.position.x * scale.x, vertex.position.y * scale.y]);
-        let bounds = bounds(points).intersection(clip)?;
-        let mut colors = vertices.map(|vertex| PremultipliedRgbaColor::new(vertex.color, 255));
+    pub fn new(mut points: [[f32; 2]; 3], colors: [Color; 3]) -> Option<Self> {
+        let mut colors = colors.map(|color| PremultipliedRgbaColor::new(color, 255));
         let mut area = (points[1][0] - points[0][0]) * (points[2][1] - points[0][1])
             - (points[1][1] - points[0][1]) * (points[2][0] - points[0][0]);
         if area == 0.0 || !area.is_finite() {
@@ -47,41 +45,40 @@ impl Prepared {
         } else {
             ColorKind::Translucent
         };
-        let components = colors.map(|color| {
-            [
-                color.red as f32,
-                color.green as f32,
-                color.blue as f32,
-                color.alpha as f32,
-            ]
-        });
-        let second_color = std::array::from_fn::<_, 4, _>(|channel| components[1][channel] - components[0][channel]);
-        let third_color = std::array::from_fn::<_, 4, _>(|channel| components[2][channel] - components[0][channel]);
-        let second = [points[1][0] - points[0][0], points[1][1] - points[0][1]];
-        let third = [points[2][0] - points[0][0], points[2][1] - points[0][1]];
-        let color_step_x = std::array::from_fn(|channel| {
-            (second_color[channel] * third[1] - third_color[channel] * second[1]) * inverse_area
-        });
-        let color_step_y = std::array::from_fn(|channel| {
-            (third_color[channel] * second[0] - second_color[channel] * third[0]) * inverse_area
-        });
+        let mut color_step_x = [0.0; 4];
+        let mut color_step_y = [0.0; 4];
+        if color_kind != ColorKind::Solid {
+            let components = colors.map(|color| {
+                [
+                    color.red as f32,
+                    color.green as f32,
+                    color.blue as f32,
+                    color.alpha as f32,
+                ]
+            });
+            let second = [points[1][0] - points[0][0], points[1][1] - points[0][1]];
+            let third = [points[2][0] - points[0][0], points[2][1] - points[0][1]];
+            for channel in 0..4 {
+                let second_color = components[1][channel] - components[0][channel];
+                let third_color = components[2][channel] - components[0][channel];
+                color_step_x[channel] = (second_color * third[1] - third_color * second[1]) * inverse_area;
+                color_step_y[channel] = (third_color * second[0] - second_color * third[0]) * inverse_area;
+            }
+        }
         let inclusive = |start: [f32; 2], end: [f32; 2]| start[1] < end[1] || (start[1] == end[1] && start[0] < end[0]);
         let inclusive = [
             inclusive(points[1], points[2]),
             inclusive(points[2], points[0]),
             inclusive(points[0], points[1]),
         ];
-        (bounds.width > 0 && bounds.height > 0).then_some((
-            Self {
-                points,
-                color: colors[0],
-                color_step_x,
-                color_step_y,
-                color_kind,
-                inclusive,
-            },
-            bounds,
-        ))
+        Some(Self {
+            points,
+            color: colors[0],
+            color_step_x,
+            color_step_y,
+            color_kind,
+            inclusive,
+        })
     }
 
     pub fn draw_line<P: Pixel>(&self, line: i32, clip: PhysicalRect, coverage: u8, row: PixelSpan<'_, P>) {

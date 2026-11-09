@@ -15,7 +15,9 @@ pub fn draw_line<B: PixelBuffer>(
     text: &mut TextRenderer,
     buffer: &mut B,
 ) {
-    commands.prepare(command, images, text);
+    if commands.entries[command as usize].is_pending() {
+        commands.prepare(command, images, text);
+    }
     let bounds = commands.bounds(command);
     match commands.get(command) {
         Payload::Pending | Payload::Empty | Payload::Mesh(..) => {}

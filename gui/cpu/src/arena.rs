@@ -25,7 +25,7 @@ pub struct Writer<'a>(&'a mut Arena);
 /// let _: Handle<fn(&'static str)> = handle;
 /// ```
 pub struct Handle<T> {
-    offset: u32,
+    pub(crate) offset: u32,
     owner: u64,
     marker: PhantomData<fn(T) -> T>,
 }
@@ -95,10 +95,10 @@ impl Arena {
         Some(unsafe { self.bump.get(Offset::new(value.offset)) })
     }
 
-    pub(crate) unsafe fn value_unchecked<T: 'static>(&self, value: Value) -> &T {
-        debug_assert!(self.value::<T>(value).is_some());
+    pub(crate) unsafe fn value_unchecked<T: 'static>(&self, offset: u32) -> &T {
+        debug_assert!(offset as usize <= self.bump.used());
         // safety: the caller pairs the value with its recorded type and arena
-        unsafe { self.bump.get(Offset::new(value.offset)) }
+        unsafe { self.bump.get(Offset::new(offset)) }
     }
 
     pub fn slice<T: Copy + 'static>(&self, slice: Slice<T>) -> &[T] {

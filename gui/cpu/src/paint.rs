@@ -16,7 +16,7 @@ use blit_gui::{
 use crate::{
     DamageTracker, DrawContext, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderStrategy, Renderer, Span,
     StoredImage, Surface,
-    arena::{Arena, Value},
+    arena::Arena,
     damage::{DamageInput, Record, region::Region},
     strategy::{
         clip::ClipStack,
@@ -258,7 +258,8 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             draw: Some(Call::<H, T, P>::draw),
             reads: reads.map(|_| {
                 (|handler: NonNull<()>, value, data: &Arena, output| {
-                    let call = data.value::<Call<H, T, P>>(value).unwrap();
+                    // safety: recording pairs this callback with its typed value
+                    let call = unsafe { data.value_unchecked::<Call<H, T, P>>(value) };
                     // safety: the context records the pointer selected for H
                     call.reads.unwrap()(unsafe { handler.cast::<H>().as_ref() }, &call.value, output)
                 }) as _
@@ -565,32 +566,31 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
 #[derive(Clone, Copy)]
 pub struct ErasedCommand<P> {
     handler: NonNull<()>,
-    value: Value,
-    prepare: Option<fn(NonNull<()>, Value, &Arena, &mut Arena, &mut DrawContext<'_, P>) -> Value>,
-    pub draw: Option<fn(NonNull<()>, Value, &Arena, &mut DrawContext<'_, P>)>,
-    pub reads: Option<fn(NonNull<()>, Value, &Arena, PhysicalRect) -> PhysicalRect>,
+    value: u32,
+    prepare: Option<fn(NonNull<()>, u32, &Arena, &mut Arena, &mut DrawContext<'_, P>) -> u32>,
+    pub draw: Option<fn(NonNull<()>, u32, &Arena, &mut DrawContext<'_, P>)>,
+    pub reads: Option<fn(NonNull<()>, u32, &Arena, PhysicalRect) -> PhysicalRect>,
 }
 
 impl<P: Pixel> ErasedCommand<P> {
-    pub fn prepared<H: 'static, T: 'static, R: 'static>(
+    pub fn prepared<H: 'static, T: 'static, R: 'static, F: Fn(&mut H, &T, &mut DrawContext<'_, P>) -> R + 'static>(
         data: &mut Arena,
         handler: NonNull<()>,
         value: T,
-        prepare: fn(&mut H, &T, &mut DrawContext<'_, P>) -> R,
+        prepare: F,
     ) -> Self {
         Self {
             handler,
             draw: None,
             reads: None,
-            value: data.push((value, prepare)).erase(),
+            value: data.push((value, prepare)).offset,
             prepare: Some(|handler, value, data, prepared, cx| {
-                let (value, prepare) = data
-                    .value::<(T, fn(&mut H, &T, &mut DrawContext<'_, P>) -> R)>(value)
-                    .unwrap();
+                // safety: recording pairs this callback with its typed value
+                let (value, prepare) = unsafe { data.value_unchecked::<(T, F)>(value) };
                 // safety: recording pairs the handler pointer with its typed preparation
                 prepared
                     .push(prepare(unsafe { handler.cast::<H>().as_mut() }, value, cx))
-                    .erase()
+                    .offset
             }),
         }
     }
@@ -600,7 +600,7 @@ impl<P> ErasedCommand<P> {
     pub fn ready<T: 'static>(handler: NonNull<()>, prepared: &mut Arena, value: T) -> Self {
         Self {
             handler,
-            value: prepared.push(value).erase(),
+            value: prepared.push(value).offset,
             prepare: None,
             draw: None,
             reads: None,
@@ -643,7 +643,7 @@ struct Call<H, T, P> {
 }
 
 impl<H: 'static, T: 'static, P: Pixel> Call<H, T, P> {
-    fn draw(handler: NonNull<()>, value: Value, data: &Arena, cx: &mut DrawContext<'_, P>) {
+    fn draw(handler: NonNull<()>, value: u32, data: &Arena, cx: &mut DrawContext<'_, P>) {
         // safety: recording pairs this callback with its typed value
         let call = unsafe { data.value_unchecked::<Self>(value) };
         // safety: recording pairs the handler pointer with this typed callback

@@ -198,13 +198,15 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     .enumerate()
                     .rev()
                     .find(|(_, command)| {
+                        if !matches!(
+                            commands.metadata[**command as usize].coverage,
+                            Coverage::Full | Coverage::Rounded
+                        ) {
+                            return false;
+                        }
                         let bounds = commands.horizontal_bounds(**command);
                         bounds.start <= range.start as i32
                             && bounds.end >= range.end as i32
-                            && matches!(
-                                commands.metadata[**command as usize].coverage,
-                                Coverage::Full | Coverage::Rounded
-                            )
                             && commands
                                 .overwrite_span(**command, line, images, text)
                                 .and_then(|span| clip_span(commands.clip(**command), span))
@@ -236,6 +238,9 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     .enumerate()
                     .rev()
                     .find_map(|(offset, command)| {
+                        if commands.metadata[*command as usize].coverage == Coverage::None {
+                            return None;
+                        }
                         let bounds = commands.horizontal_bounds(*command);
                         if bounds.end <= range.start as i32 || bounds.start >= range.end as i32 {
                             return None;
