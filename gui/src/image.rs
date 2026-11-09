@@ -1,16 +1,47 @@
 //! image data, display options, and renderer resources
 
-use std::{
-    hash::{Hash, Hasher},
-    rc::Rc,
-};
+use std::rc::Rc;
 
 use blit::{
-    Scale2,
+    Atom, AtomCx, Constraints, Paint, Scale2, Size,
     geometry::{LogicalRect, PhysicalRect, PhysicalSize},
 };
 
-use crate::color::Color;
+use crate::{color::Color, paint::ImageRequest};
+
+#[derive(Clone, Copy)]
+pub struct Image {
+    pub image: ImageId,
+    pub intrinsic: Size<f32>,
+    pub fit: ImageFit,
+    pub sampling: ImageSampling,
+    pub opacity: f32,
+    pub colorize: Option<Color>,
+    pub nine_slice: Option<NineSlice>,
+    pub horizontal_tiling: ImageTiling,
+    pub vertical_tiling: ImageTiling,
+}
+
+impl<C: Paint<ImageRequest, Scalar = f32>> Atom<C> for Image {
+    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
+        constraints.constrain(self.intrinsic)
+    }
+
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
+        let request = ImageRequest {
+            image: self.image,
+            area,
+            fit: self.fit,
+            sampling: self.sampling,
+            opacity: self.opacity,
+            colorize: self.colorize,
+            nine_slice: self.nine_slice,
+            horizontal_tiling: self.horizontal_tiling,
+            vertical_tiling: self.vertical_tiling,
+        };
+        cx.context_mut().paint(area, request);
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct ImageHandle(Rc<ImageInner>);
@@ -129,40 +160,54 @@ impl ImageFormat {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ImageRequest {
-    pub image: ImageId,
-    pub area: LogicalRect,
-    pub fit: ImageFit,
-    pub sampling: ImageSampling,
-    pub opacity: f32,
-    pub colorize: Option<Color>,
-    pub nine_slice: Option<NineSlice>,
-    pub horizontal_tiling: ImageTiling,
-    pub vertical_tiling: ImageTiling,
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NineSlice {
+    pub top: u16,
+    pub right: u16,
+    pub bottom: u16,
+    pub left: u16,
 }
 
-impl Hash for ImageRequest {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.image.hash(state);
-        [
-            self.area.x,
-            self.area.y,
-            self.area.width,
-            self.area.height,
-            self.opacity,
-        ]
-        .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
-        .hash(state);
-        std::mem::discriminant(&self.fit).hash(state);
-        std::mem::discriminant(&self.sampling).hash(state);
-        std::mem::discriminant(&self.horizontal_tiling).hash(state);
-        std::mem::discriminant(&self.vertical_tiling).hash(state);
-        self.colorize.hash(state);
-        self.nine_slice
-            .map(|slice| [slice.top, slice.right, slice.bottom, slice.left])
-            .hash(state);
+impl NineSlice {
+    pub const fn uniform(value: u16) -> Self {
+        Self {
+            top: value,
+            right: value,
+            bottom: value,
+            left: value,
+        }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ImageFit {
+    #[default]
+    Fill,
+    Contain,
+    Cover,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ImageSampling {
+    #[default]
+    Nearest,
+    Bilinear,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ImageTiling {
+    #[default]
+    None,
+    Repeat,
+    Round,
+}
+
+pub type ImageId = u64;
+
+#[derive(Debug)]
+struct ImageInner {
+    id: ImageId,
+    size: PhysicalSize,
 }
 
 #[doc(hidden)]
@@ -312,54 +357,4 @@ pub fn prepare_image_patches(
         horizontal_tiling: request.horizontal_tiling,
         vertical_tiling: request.vertical_tiling,
     });
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct NineSlice {
-    pub top: u16,
-    pub right: u16,
-    pub bottom: u16,
-    pub left: u16,
-}
-
-impl NineSlice {
-    pub const fn uniform(value: u16) -> Self {
-        Self {
-            top: value,
-            right: value,
-            bottom: value,
-            left: value,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ImageFit {
-    #[default]
-    Fill,
-    Contain,
-    Cover,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ImageSampling {
-    #[default]
-    Nearest,
-    Bilinear,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ImageTiling {
-    #[default]
-    None,
-    Repeat,
-    Round,
-}
-
-pub type ImageId = u64;
-
-#[derive(Debug)]
-struct ImageInner {
-    id: ImageId,
-    size: PhysicalSize,
 }

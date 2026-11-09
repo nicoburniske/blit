@@ -21,35 +21,6 @@ pub struct DisplayList {
     epoch: u32,
 }
 
-pub struct Command {
-    pub bounds: PhysicalRect,
-    pub clip: u32,
-    value: u32,
-    ops: &'static Ops,
-}
-
-/// shared comparison operations and backend dispatch for one input type
-pub struct Ops {
-    pub kind: TypeId,
-    pub equal: unsafe fn(&DisplayList, u32, &DisplayList, u32) -> bool,
-    pub hash: unsafe fn(&DisplayList, u32, &mut FxHasher),
-    pub dispatch: unsafe fn(&Command, &DisplayList, NonNull<()>),
-}
-
-/// slices stored until their display list is cleared
-#[derive(Clone, Copy)]
-pub struct Slice<T> {
-    slice: blit::internal::bump::Slice<T>,
-    epoch: u32,
-}
-
-#[derive(Clone, Copy)]
-pub struct Clip {
-    pub parent: u32,
-    pub area: LogicalRect,
-    pub radius: BorderRadius,
-}
-
 impl DisplayList {
     pub fn commands(&self) -> &[Command] {
         &self.commands
@@ -150,6 +121,13 @@ impl DisplayList {
     }
 }
 
+pub struct Command {
+    pub bounds: PhysicalRect,
+    pub clip: u32,
+    value: u32,
+    ops: &'static Ops,
+}
+
 impl Command {
     /// # Safety
     /// list must contain this command and context must match its backend
@@ -162,4 +140,26 @@ impl Command {
     pub fn offset(&self) -> u32 {
         self.value
     }
+}
+
+/// shared comparison operations and backend dispatch for one input type
+pub struct Ops {
+    pub kind: TypeId,
+    pub equal: unsafe fn(&DisplayList, u32, &DisplayList, u32) -> bool,
+    pub hash: unsafe fn(&DisplayList, u32, &mut FxHasher),
+    pub dispatch: unsafe fn(&Command, &DisplayList, NonNull<()>),
+}
+
+/// slices stored until their display list is cleared
+#[derive(Clone, Copy)]
+pub struct Slice<T> {
+    slice: blit::internal::bump::Slice<T>,
+    epoch: u32,
+}
+
+#[derive(Clone, Copy)]
+pub struct Clip {
+    pub parent: u32,
+    pub area: LogicalRect,
+    pub radius: BorderRadius,
 }

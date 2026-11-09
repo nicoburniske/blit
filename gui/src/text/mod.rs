@@ -1,13 +1,63 @@
-use std::{
-    fmt,
-    hash::{Hash, Hasher},
-    ops::Range,
-};
+use std::{fmt, ops::Range};
 
-use blit::geometry::LogicalRect;
+use blit::{Atom, AtomCx, Constraints, FrameSlice, LogicalRect, Paint, Size, Widget, state};
 pub use blit_text::{FontSettings, FontStyle, OpticalSize};
 
-use crate::color::Color;
+use crate::{Context, color::Color, paint::TextRequest};
+
+mod system;
+
+pub use system::{FontStack, GlyphImageId, ResolvedTextLayout, TextConfig, TextSystem};
+
+blit::builder! {
+    #[derive(Clone, Copy, Debug)]
+    pub struct Text<'a> {
+        new(#[into] text: TextSource<'a>),
+        style: TextStyle<'a> = TextStyle::new(),
+        offset_x: f32 = 0.0,
+        options: TextOptions = TextOptions::new(),
+    }
+}
+
+impl<C: Context + for<'a> Paint<TextRequest<'a>>> Widget<C, state::Node> for Text<'_> {
+    type Response = ();
+
+    fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
+        let run = ui.context_mut().text().text_run(self.text, self.style);
+        let colors = ui.store_slice(std::iter::once(self.style.color));
+        ui.insert(TextAtom::new(run, colors).offset_x(self.offset_x).options(self.options));
+    }
+}
+
+blit::builder! {
+    /// text partitioned by ordered, contiguous spans
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct RichText<'a> {
+        new(text: &'a str, spans: &'a [Span<'a>]),
+        style: TextStyle<'a> = TextStyle::new(),
+        offset_x: f32 = 0.0,
+        options: TextOptions = TextOptions::new(),
+    }
+}
+
+impl<C: Context + for<'a> Paint<TextRequest<'a>>> Widget<C, state::Node> for RichText<'_> {
+    type Response = ();
+
+    fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
+        let run = ui.context_mut().text().rich_text(self.text, self.spans, self.style);
+        // empty spans lay out as one span in the base color
+        let colors = if self.spans.is_empty() {
+            ui.store_slice(std::iter::once(self.style.color))
+        } else {
+            ui.store_slice(
+                self.spans
+                    .iter()
+                    .map(|span| span.style.color.unwrap_or(self.style.color)),
+            )
+        };
+        ui.insert(TextAtom::new(run, colors).offset_x(self.offset_x).options(self.options));
+    }
+}
 
 /// cached text geometry
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -97,47 +147,6 @@ pub enum VerticalAlign {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextRequest<'a> {
-    pub text: TextRun,
-    /// one color per span, missing spans repeat the last color
-    pub colors: &'a [Color],
-    pub area: LogicalRect,
-    pub offset_x: f32,
-    pub options: TextOptions,
-}
-
-impl TextRequest<'_> {
-    pub fn span_color(&self, span: usize) -> Color {
-        self.colors
-            .get(span)
-            .or(self.colors.last())
-            .copied()
-            .unwrap_or(Color::TRANSPARENT)
-    }
-}
-
-impl Hash for TextRequest<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.text.hash(state);
-        self.colors.hash(state);
-        [
-            self.area.x,
-            self.area.y,
-            self.area.width,
-            self.area.height,
-            self.offset_x,
-        ]
-        .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
-        .hash(state);
-        self.options.wrap.hash(state);
-        self.options.overflow.hash(state);
-        self.options.horizontal_align.hash(state);
-        self.options.vertical_align.hash(state);
-        self.options.max_lines.hash(state);
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextLayoutRequest {
     pub text: TextRun,
     pub wrap: TextWrap,
@@ -181,3 +190,40 @@ pub enum TextOverflow {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct FontId(pub u16);
+
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct TextAtom {
+        // one color per span
+        new(text: TextRun, colors: FrameSlice<Color>),
+        offset_x: f32 = 0.0,
+        options: TextOptions = TextOptions::new(),
+    }
+}
+
+impl<C: Context + for<'a> Paint<TextRequest<'a>>> Atom<C> for TextAtom {
+    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
+        let measured = cx.context_mut().text().measure(&TextLayoutRequest {
+            text: self.text,
+            wrap: self.options.wrap,
+            max_width: (self.options.wrap != TextWrap::None && constraints.max.width.is_finite())
+                .then_some(constraints.max.width),
+            max_lines: self.options.max_lines,
+        });
+        constraints.constrain(measured)
+    }
+
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
+        let colors = cx.slice(self.colors);
+        cx.context_mut().paint(
+            area,
+            TextRequest {
+                text: self.text,
+                colors,
+                area,
+                offset_x: self.offset_x,
+                options: self.options,
+            },
+        );
+    }
+}
