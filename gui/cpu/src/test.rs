@@ -54,17 +54,43 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
     }
 
     impl Handler<Key, Xrgb8888> for () {
-        fn handle(&mut self, key: Key, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
-            let value = key.0;
-            cx.draw(key, value, None, |_, value, cx| {
-                cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(*value, 0, 0)));
-            });
+        type Prepared = u8;
+
+        fn prepare(&mut self, key: &Key, _: &mut DrawContext<'_, Xrgb8888>) -> u8 {
+            key.0
+        }
+
+        fn draw(&mut self, value: &u8, cx: &mut DrawContext<'_, Xrgb8888>) {
+            cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(*value, 0, 0)));
         }
     }
 
     impl<T: 'static> Handler<(Key, T), Xrgb8888> for () {
-        fn handle(&mut self, (key, value): (Key, T), cx: &mut PaintContext<'_, Self, Xrgb8888>) {
-            cx.draw(key, value, None, |_, _, _| {});
+        type Prepared = ();
+        fn prepare(&mut self, _: &(Key, T), _: &mut DrawContext<'_, Xrgb8888>) {}
+        fn draw(&mut self, _: &(), _: &mut DrawContext<'_, Xrgb8888>) {}
+    }
+
+    impl<B, S, D> Paint<Key> for Renderer<B, S, D>
+    where
+        B: PixelBuffer<Pixel = Xrgb8888>,
+        S: RenderStrategy<B>,
+        D: DamageTracker,
+    {
+        fn paint(&mut self, bounds: LogicalRect, key: Key) {
+            self.record::<()>(bounds).draw(key.clone(), key, None);
+        }
+    }
+
+    impl<B, S, D, T> Paint<(Key, T)> for Renderer<B, S, D>
+    where
+        B: PixelBuffer<Pixel = Xrgb8888>,
+        S: RenderStrategy<B>,
+        D: DamageTracker,
+        T: 'static,
+    {
+        fn paint(&mut self, bounds: LogicalRect, command: (Key, T)) {
+            self.record::<()>(bounds).draw(command.0.clone(), command, None);
         }
     }
 
@@ -77,10 +103,10 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
             visible.hashes.set(0);
             visible.comparisons.set(0);
             hidden.hashes.set(0);
-            renderer.handle::<(), _>(area, Key(value, visible.clone()));
-            renderer.handle::<(), _>(LogicalRect::new(32.0, 0.0, 8.0, 8.0), Key(255, hidden.clone()));
+            renderer.paint(area, Key(value, visible.clone()));
+            renderer.paint(LogicalRect::new(32.0, 0.0, 8.0, 8.0), Key(255, hidden.clone()));
             renderer.push_clip(LogicalRect::new(8.0, 0.0, 8.0, 8.0), BorderRadius::default());
-            renderer.handle::<(), _>(area, Key(255, hidden.clone()));
+            renderer.paint(area, Key(255, hidden.clone()));
             renderer.pop_clip();
             assert_eq!(visible.hashes.get(), 0);
             assert_eq!(visible.comparisons.get(), 0);
@@ -100,8 +126,8 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
     let bounds = LogicalRect::new(0.0, 0.0, 8.0, 8.0);
     let mut left = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
     let mut right = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
-    left.handle::<(), _>(bounds, (Key(1, counts.clone()), 0u8));
-    right.handle::<(), _>(bounds, (Key(1, counts.clone()), 0u16));
+    left.paint(bounds, (Key(1, counts.clone()), 0u8));
+    right.paint(bounds, (Key(1, counts.clone()), 0u16));
     assert!(!left.context.list.equivalent(0, &right.context.list, 0));
     assert_eq!(counts.comparisons.get(), 0);
     assert_eq!(size_of::<Command>(), 32);
@@ -172,10 +198,10 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
     }
 
     impl<const VALUE: u8> Handler<(), Xrgb8888> for Fill<VALUE> {
-        fn handle(&mut self, _: (), cx: &mut PaintContext<'_, Self, Xrgb8888>) {
-            cx.draw((), (), None, |handler, _, cx| {
-                cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(handler.0, 0, 0)));
-            });
+        type Prepared = ();
+        fn prepare(&mut self, _: &(), _: &mut DrawContext<'_, Xrgb8888>) {}
+        fn draw(&mut self, _: &(), cx: &mut DrawContext<'_, Xrgb8888>) {
+            cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(self.0, 0, 0)));
         }
 
         fn finish_frame(&mut self) {
@@ -191,12 +217,24 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
         } else if frame == 2 {
             renderer = renderer.handler(Fill::<0>(red, 0, drops.clone()));
         }
-        renderer.handle::<Fill<0>, _>(LogicalRect::new(0.0, 0.0, 1.0, 1.0), ());
-        renderer.handle::<Fill<1>, _>(LogicalRect::default(), ());
-        renderer.handle::<Fill<2>, _>(LogicalRect::default(), ());
-        renderer.handle::<Fill<3>, _>(LogicalRect::default(), ());
-        renderer.handle::<Fill<4>, _>(LogicalRect::default(), ());
-        renderer.handle::<Fill<16>, _>(LogicalRect::new(1.0, 0.0, 1.0, 1.0), ());
+        renderer
+            .record::<Fill<0>>(LogicalRect::new(0.0, 0.0, 1.0, 1.0))
+            .draw_ready((), (), None);
+        renderer
+            .record::<Fill<1>>(LogicalRect::default())
+            .draw_ready((), (), None);
+        renderer
+            .record::<Fill<2>>(LogicalRect::default())
+            .draw_ready((), (), None);
+        renderer
+            .record::<Fill<3>>(LogicalRect::default())
+            .draw_ready((), (), None);
+        renderer
+            .record::<Fill<4>>(LogicalRect::default())
+            .draw_ready((), (), None);
+        renderer
+            .record::<Fill<16>>(LogicalRect::new(1.0, 0.0, 1.0, 1.0))
+            .draw_ready((), (), None);
         renderer.render(1);
         assert_eq!(
             renderer.buffer().pixels(),
@@ -234,52 +272,69 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
         prepares: Rc<Cell<usize>>,
     }
 
-    impl Handler<Under, Xrgb8888> for () {
-        fn handle(&mut self, under: Under, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
-            cx.draw_prepared(
-                (),
-                under.0,
-                None,
-                |_, count, _| count.set(count.get() + 1),
-                |_, _, cx| cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(255, 0, 0))),
-            );
+    impl<B, S, D> Paint<Under> for Renderer<B, S, D>
+    where
+        B: PixelBuffer<Pixel = Xrgb8888>,
+        S: RenderStrategy<B>,
+        D: DamageTracker,
+    {
+        fn paint(&mut self, bounds: LogicalRect, under: Under) {
+            self.record::<()>(bounds).draw((), under, None);
         }
     }
 
-    impl Handler<Cover, Xrgb8888> for () {
-        fn handle(&mut self, cover: Cover, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+    impl Handler<Under, Xrgb8888> for () {
+        type Prepared = ();
+
+        fn prepare(&mut self, under: &Under, _: &mut DrawContext<'_, Xrgb8888>) {
+            under.0.set(under.0.get() + 1);
+        }
+
+        fn draw(&mut self, _: &(), cx: &mut DrawContext<'_, Xrgb8888>) {
+            cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(255, 0, 0)));
+        }
+    }
+
+    impl<B, S, D> Paint<Cover> for Renderer<B, S, D>
+    where
+        B: PixelBuffer<Pixel = Xrgb8888>,
+        S: RenderStrategy<B>,
+        D: DamageTracker,
+    {
+        fn paint(&mut self, bounds: LogicalRect, cover: Cover) {
+            let mut cx = self.record::<()>(bounds);
             let area = cover.area;
             let opaque = cover.report.then_some(area);
             let key = (cover.value, [area.x, area.y, area.width, area.height]);
             if cover.prepared {
-                cx.draw_prepared(
-                    key,
-                    cover,
-                    opaque,
-                    |_, cover, _| {
-                        cover.prepares.set(cover.prepares.get() + 1);
-                        cover.clone()
-                    },
-                    draw_cover,
-                )
+                cx.draw(key, cover, opaque)
             } else {
-                cx.draw(key, cover, opaque, draw_cover)
+                cx.draw_ready(key, cover, opaque)
             }
         }
     }
 
-    fn draw_cover(_: &mut (), cover: &Cover, cx: &mut DrawContext<'_, Xrgb8888>) {
-        cx.for_each_span(|span| {
-            let row = PhysicalRect::new(span.x, span.y, span.pixels.len() as i32, 1);
-            if let Some(area) = row.intersection(cover.area) {
-                let color =
-                    PremultipliedRgbaColor::new(Color::rgb(cover.value, cover.value, cover.value), span.coverage);
-                let start = (area.x - span.x) as usize;
-                for pixel in &mut span.pixels[start..start + area.width as usize] {
-                    pixel.blend(color);
+    impl Handler<Cover, Xrgb8888> for () {
+        type Prepared = Cover;
+
+        fn prepare(&mut self, cover: &Cover, _: &mut DrawContext<'_, Xrgb8888>) -> Cover {
+            cover.prepares.set(cover.prepares.get() + 1);
+            cover.clone()
+        }
+
+        fn draw(&mut self, cover: &Cover, cx: &mut DrawContext<'_, Xrgb8888>) {
+            cx.for_each_span(|span| {
+                let row = PhysicalRect::new(span.x, span.y, span.pixels.len() as i32, 1);
+                if let Some(area) = row.intersection(cover.area) {
+                    let color =
+                        PremultipliedRgbaColor::new(Color::rgb(cover.value, cover.value, cover.value), span.coverage);
+                    let start = (area.x - span.x) as usize;
+                    for pixel in &mut span.pixels[start..start + area.width as usize] {
+                        pixel.blend(color);
+                    }
                 }
-            }
-        });
+            });
+        }
     }
 
     fn check<D: DamageTracker>(make_damage: fn() -> D) {
@@ -298,8 +353,8 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
                     cover.set(0);
                     renderer.paint(screen, Rectangle::new(screen).background(Color::BLACK));
                     reference.paint(screen, Rectangle::new(screen).background(Color::BLACK));
-                    renderer.handle::<(), _>(area.to_logical(SCALE), Under(under.clone()));
-                    reference.handle::<(), _>(area.to_logical(SCALE), Under(Rc::default()));
+                    renderer.paint(area.to_logical(SCALE), Under(under.clone()));
+                    reference.paint(area.to_logical(SCALE), Under(Rc::default()));
                     let clip = match mode {
                         1 => Some((LogicalRect::new(16.0, 4.0, 24.0, 16.0), BorderRadius::default())),
                         2 => Some((area.to_logical(SCALE), BorderRadius::uniform(6.0))),
@@ -321,7 +376,7 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
                         prepared,
                         prepares: cover.clone(),
                     };
-                    reference.handle::<(), _>(
+                    reference.paint(
                         bounds,
                         Cover {
                             report: false,
@@ -329,7 +384,7 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
                             ..command.clone()
                         },
                     );
-                    renderer.handle::<(), _>(bounds, command);
+                    renderer.paint(bounds, command);
                     if clip.is_some() {
                         renderer.pop_clip();
                         reference.pop_clip();
@@ -374,22 +429,34 @@ fn prepared_draws_capture_data_and_drop_results_once() {
 
     struct Samples<'a>(&'a [u8], Rc<Counts>);
 
-    impl Handler<Samples<'_>, Xrgb8888> for () {
-        fn handle(&mut self, samples: Samples<'_>, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+    impl<B, S, D> Paint<Samples<'_>> for Renderer<B, S, D>
+    where
+        B: PixelBuffer<Pixel = Xrgb8888>,
+        S: RenderStrategy<B>,
+        D: DamageTracker,
+    {
+        fn paint(&mut self, bounds: LogicalRect, samples: Samples<'_>) {
+            let mut cx = self.record::<()>(bounds);
             let values = cx.store_slice(samples.0.iter().copied());
-            cx.draw_prepared(
-                samples.0.to_vec(),
-                (values, samples.1),
-                None,
-                |_, (values, counts), cx| {
-                    counts.prepares.set(counts.prepares.get() + 1);
-                    Prepared([cx.slice(*values)[0]; 1024], counts.clone())
-                },
-                |_, prepared, cx| {
-                    let value = prepared.0[0];
-                    cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(value, value, value)));
-                },
-            );
+            cx.draw(samples.0.to_vec(), (values, samples.1), None);
+        }
+    }
+
+    impl Handler<(blit_gui::display_list::Slice<u8>, Rc<Counts>), Xrgb8888> for () {
+        type Prepared = Prepared;
+
+        fn prepare(
+            &mut self,
+            (values, counts): &(blit_gui::display_list::Slice<u8>, Rc<Counts>),
+            cx: &mut DrawContext<'_, Xrgb8888>,
+        ) -> Prepared {
+            counts.prepares.set(counts.prepares.get() + 1);
+            Prepared([cx.slice(*values)[0]; 1024], counts.clone())
+        }
+
+        fn draw(&mut self, prepared: &Prepared, cx: &mut DrawContext<'_, Xrgb8888>) {
+            let value = prepared.0[0];
+            cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(value, value, value)));
         }
     }
 
@@ -399,7 +466,7 @@ fn prepared_draws_capture_data_and_drop_results_once() {
     for (covered, expected) in [(true, 0), (false, 1), (false, 1)] {
         renderer.paint(bounds, Rectangle::new(bounds).background(Color::BLACK));
         let mut values = [64];
-        renderer.handle::<(), _>(bounds, Samples(&values, counts.clone()));
+        renderer.paint(bounds, Samples(&values, counts.clone()));
         values.fill(128);
         assert_eq!(renderer.context.raster.prepared.used(), 0);
         renderer.paint(
@@ -547,6 +614,7 @@ fn atoms_record_into_the_renderer_context() {
         frame.paint(&mut renderer);
         renderer.render(1);
         assert!(renderer.context.list.commands().is_empty());
+        assert_eq!(renderer.handlers.len(), 1);
         assert!(renderer.buffer().pixels().iter().any(|pixel| pixel.raw() != 0xffffff));
     }
 }

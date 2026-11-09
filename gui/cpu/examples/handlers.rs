@@ -2,7 +2,7 @@ use std::{cell::Cell, collections::HashMap, io::Write, rc::Rc};
 
 use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_cpu::{
-    Handler, PaintContext, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderStrategy, Renderer, RendererConfig,
+    DrawContext, Handler, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderStrategy, Renderer, RendererConfig,
     Scanline, VecBuffer, Xrgb8888,
 };
 use blit_gui::{
@@ -54,6 +54,7 @@ struct Path<'a> {
     color: Color,
 }
 
+#[derive(Clone, Copy)]
 struct PreparedPath {
     segments: Slice<[[f32; 2]; 2]>,
     radius: f32,
@@ -62,12 +63,7 @@ struct PreparedPath {
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Path<'_>> for Renderer<B, S, D> {
     fn paint(&mut self, bounds: LogicalRect, path: Path<'_>) {
-        self.handle::<(), _>(bounds, path);
-    }
-}
-
-impl<P: Pixel> Handler<Path<'_>, P> for () {
-    fn handle(&mut self, path: Path<'_>, cx: &mut PaintContext<'_, Self, P>) {
+        let mut cx = self.record::<()>(bounds);
         let scale = cx.scale;
         let prepared =
             PreparedPath {
@@ -78,26 +74,35 @@ impl<P: Pixel> Handler<Path<'_>, P> for () {
                 color: path.color,
             };
         let key = (path.points.to_vec(), path.width, path.color);
-        cx.draw(key, prepared, None, |_, path, cx| {
-            cx.for_each_span(|span| {
-                let segments = span.slice(path.segments);
-                for (index, pixel) in span.pixels.iter_mut().enumerate() {
-                    let point = [span.x as f32 + index as f32 + 0.5, span.y as f32 + 0.5];
-                    let mut distance = f32::INFINITY;
-                    for [a, b] in segments {
-                        let delta = [b[0] - a[0], b[1] - a[1]];
-                        let length = delta[0] * delta[0] + delta[1] * delta[1];
-                        let t = (((point[0] - a[0]) * delta[0] + (point[1] - a[1]) * delta[1])
-                            / length.max(f32::MIN_POSITIVE))
-                        .clamp(0.0, 1.0);
-                        let dx = point[0] - a[0] - t * delta[0];
-                        let dy = point[1] - a[1] - t * delta[1];
-                        distance = distance.min(dx * dx + dy * dy);
-                    }
-                    let coverage = ((path.radius + 0.5 - distance.sqrt()).clamp(0.0, 1.0) * span.coverage as f32) as u8;
-                    pixel.blend(PremultipliedRgbaColor::new(path.color, coverage));
+
+        cx.draw_ready(key, prepared, None);
+    }
+}
+
+impl<P: Pixel> Handler<PreparedPath, P> for () {
+    type Prepared = PreparedPath;
+    fn prepare(&mut self, path: &PreparedPath, _: &mut DrawContext<'_, P>) -> PreparedPath {
+        *path
+    }
+    fn draw(&mut self, path: &PreparedPath, cx: &mut DrawContext<'_, P>) {
+        cx.for_each_span(|span| {
+            let segments = span.slice(path.segments);
+            for (index, pixel) in span.pixels.iter_mut().enumerate() {
+                let point = [span.x as f32 + index as f32 + 0.5, span.y as f32 + 0.5];
+                let mut distance = f32::INFINITY;
+                for [a, b] in segments {
+                    let delta = [b[0] - a[0], b[1] - a[1]];
+                    let length = delta[0] * delta[0] + delta[1] * delta[1];
+                    let t = (((point[0] - a[0]) * delta[0] + (point[1] - a[1]) * delta[1])
+                        / length.max(f32::MIN_POSITIVE))
+                    .clamp(0.0, 1.0);
+                    let dx = point[0] - a[0] - t * delta[0];
+                    let dy = point[1] - a[1] - t * delta[1];
+                    distance = distance.min(dx * dx + dy * dy);
                 }
-            });
+                let coverage = ((path.radius + 0.5 - distance.sqrt()).clamp(0.0, 1.0) * span.coverage as f32) as u8;
+                pixel.blend(PremultipliedRgbaColor::new(path.color, coverage));
+            }
         });
     }
 }
@@ -122,67 +127,61 @@ struct PreparedShadow {
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<SoftShadow> for Renderer<B, S, D> {
     fn paint(&mut self, bounds: LogicalRect, shadow: SoftShadow) {
-        self.handle::<ShadowHandler, _>(bounds, shadow);
+        let mut cx = self.record::<ShadowHandler>(bounds);
+        let radius = (shadow.blur as f32 * cx.scale).round().max(1.0) as i32;
+        cx.draw(shadow, (radius, shadow.color), None);
     }
 }
 
-impl<P: Pixel> Handler<SoftShadow, P> for ShadowHandler {
-    fn handle(&mut self, shadow: SoftShadow, cx: &mut PaintContext<'_, Self, P>) {
-        let radius = (shadow.blur as f32 * cx.scale).round().max(1.0) as i32;
-        cx.draw_prepared(
-            shadow,
-            (radius, shadow.color),
-            None,
-            |handler, (radius, color), cx| {
-                handler.stats.prepares.set(handler.stats.prepares.get() + 1);
-                let bounds = cx.bounds;
-                let radius = *radius;
-                let key = [bounds.width, bounds.height, radius];
-                let image = if let Some(image) = handler.masks.get(&key) {
-                    image.clone()
-                } else {
-                    handler.masks.clear();
-                    handler.stats.builds.set(handler.stats.builds.get() + 1);
-                    let mut alpha = vec![0; bounds.width as usize * bounds.height as usize];
-                    for y in 0..bounds.height {
-                        for x in 0..bounds.width {
-                            let horizontal =
-                                ((x + radius + 1).min(bounds.width - radius) - (x - radius).max(radius)).max(0);
-                            let vertical =
-                                ((y + radius + 1).min(bounds.height - radius) - (y - radius).max(radius)).max(0);
-                            alpha[(y * bounds.width + x) as usize] =
-                                (horizontal * vertical * 255 / (2 * radius + 1).pow(2)) as u8;
-                        }
-                    }
-                    let image = cx.create_image(ImageData::new(
-                        ImagePixels::Owned(alpha.into_boxed_slice()),
-                        ImageFormat::Alpha8(Color::WHITE),
-                        bounds.width as usize,
-                        bounds.height as usize,
-                    ));
-                    handler.masks.insert(key, image.clone());
-                    image
-                };
-                PreparedShadow {
-                    image,
-                    bounds,
-                    color: *color,
+impl<P: Pixel> Handler<(i32, Color), P> for ShadowHandler {
+    type Prepared = PreparedShadow;
+
+    fn prepare(&mut self, (radius, color): &(i32, Color), cx: &mut DrawContext<'_, P>) -> PreparedShadow {
+        self.stats.prepares.set(self.stats.prepares.get() + 1);
+        let bounds = cx.bounds;
+        let radius = *radius;
+        let key = [bounds.width, bounds.height, radius];
+        let image = if let Some(image) = self.masks.get(&key) {
+            image.clone()
+        } else {
+            self.masks.clear();
+            self.stats.builds.set(self.stats.builds.get() + 1);
+            let mut alpha = vec![0; bounds.width as usize * bounds.height as usize];
+            for y in 0..bounds.height {
+                for x in 0..bounds.width {
+                    let horizontal = ((x + radius + 1).min(bounds.width - radius) - (x - radius).max(radius)).max(0);
+                    let vertical = ((y + radius + 1).min(bounds.height - radius) - (y - radius).max(radius)).max(0);
+                    alpha[(y * bounds.width + x) as usize] =
+                        (horizontal * vertical * 255 / (2 * radius + 1).pow(2)) as u8;
                 }
-            },
-            |_, shadow, cx| {
-                cx.for_each_span(|span| {
-                    let image = span.image(&shadow.image).unwrap();
-                    let start =
-                        (span.y - shadow.bounds.y) as usize * image.stride_bytes + (span.x - shadow.bounds.x) as usize;
-                    for (pixel, alpha) in span.pixels.iter_mut().zip(&image.pixels.bytes()[start..]) {
-                        pixel.blend(PremultipliedRgbaColor::new(
-                            shadow.color,
-                            (*alpha as u16 * span.coverage as u16 / 255) as u8,
-                        ));
-                    }
-                });
-            },
-        );
+            }
+            let image = cx.create_image(ImageData::new(
+                ImagePixels::Owned(alpha.into_boxed_slice()),
+                ImageFormat::Alpha8(Color::WHITE),
+                bounds.width as usize,
+                bounds.height as usize,
+            ));
+            self.masks.insert(key, image.clone());
+            image
+        };
+        PreparedShadow {
+            image,
+            bounds,
+            color: *color,
+        }
+    }
+
+    fn draw(&mut self, shadow: &PreparedShadow, cx: &mut DrawContext<'_, P>) {
+        cx.for_each_span(|span| {
+            let image = span.image(&shadow.image).unwrap();
+            let start = (span.y - shadow.bounds.y) as usize * image.stride_bytes + (span.x - shadow.bounds.x) as usize;
+            for (pixel, alpha) in span.pixels.iter_mut().zip(&image.pixels.bytes()[start..]) {
+                pixel.blend(PremultipliedRgbaColor::new(
+                    shadow.color,
+                    (*alpha as u16 * span.coverage as u16 / 255) as u8,
+                ));
+            }
+        });
     }
 }
 
@@ -195,66 +194,65 @@ impl<B: PixelBuffer<Pixel = Xrgb8888>, S: RenderStrategy<B>, D: DamageTracker> P
     for Renderer<B, S, D>
 {
     fn paint(&mut self, bounds: LogicalRect, blur: BackdropBlur) {
-        self.handle::<BlurHandler, _>(bounds, blur);
+        let mut cx = self.record::<BlurHandler>(bounds);
+        let radius = (blur.radius as f32 * cx.scale).round() as usize;
+        cx.pass(blur, radius);
     }
 }
 
-impl Handler<BackdropBlur, Xrgb8888> for BlurHandler {
-    fn handle(&mut self, blur: BackdropBlur, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
-        let radius = (blur.radius as f32 * cx.scale).round() as usize;
-        cx.pass(
-            blur,
-            radius,
-            |handler, radius, cx| {
-                handler.calls.set(handler.calls.get() + 1);
-                let source = cx.source().unwrap();
-                let width = source.width();
-                let height = source.height();
-                handler.scratch.resize(width * height, [0; 3]);
-                for bounds in cx.output_regions() {
-                    for y in (bounds.y as usize).saturating_sub(*radius)
-                        ..(bounds.y as usize + bounds.height as usize + radius).min(height)
-                    {
-                        for x in bounds.x as usize..(bounds.x + bounds.width) as usize {
-                            let start = x.saturating_sub(*radius);
-                            let end = (x + radius + 1).min(width);
-                            let mut channels = [0; 3];
-                            for pixel in source.row(y, start..end) {
-                                let pixel = pixel.raw();
-                                for (channel, shift) in channels.iter_mut().zip([16, 8, 0]) {
-                                    *channel += (pixel >> shift) & 255;
-                                }
-                            }
-                            handler.scratch[y * width + x] = channels.map(|channel| channel / (end - start) as u32);
+impl Handler<usize, Xrgb8888> for BlurHandler {
+    type Prepared = usize;
+    fn prepare(&mut self, radius: &usize, _: &mut DrawContext<'_, Xrgb8888>) -> usize {
+        *radius
+    }
+    fn draw(&mut self, radius: &usize, cx: &mut DrawContext<'_, Xrgb8888>) {
+        self.calls.set(self.calls.get() + 1);
+        let source = cx.source().unwrap();
+        let width = source.width();
+        let height = source.height();
+        self.scratch.resize(width * height, [0; 3]);
+        for bounds in cx.output_regions() {
+            for y in (bounds.y as usize).saturating_sub(*radius)
+                ..(bounds.y as usize + bounds.height as usize + radius).min(height)
+            {
+                for x in bounds.x as usize..(bounds.x + bounds.width) as usize {
+                    let start = x.saturating_sub(*radius);
+                    let end = (x + radius + 1).min(width);
+                    let mut channels = [0; 3];
+                    for pixel in source.row(y, start..end) {
+                        let pixel = pixel.raw();
+                        for (channel, shift) in channels.iter_mut().zip([16, 8, 0]) {
+                            *channel += (pixel >> shift) & 255;
                         }
+                    }
+                    self.scratch[y * width + x] = channels.map(|channel| channel / (end - start) as u32);
+                }
+            }
+        }
+        cx.for_each_span(|span| {
+            let start = (span.y as usize).saturating_sub(*radius);
+            let end = (span.y as usize + radius + 1).min(height);
+            for (offset, pixel) in span.pixels.iter_mut().enumerate() {
+                let x = span.x as usize + offset;
+                let mut channels = [0; 3];
+                for y in start..end {
+                    for (channel, sample) in channels.iter_mut().zip(self.scratch[y * width + x]) {
+                        *channel += sample;
                     }
                 }
-                cx.for_each_span(|span| {
-                    let start = (span.y as usize).saturating_sub(*radius);
-                    let end = (span.y as usize + radius + 1).min(height);
-                    for (offset, pixel) in span.pixels.iter_mut().enumerate() {
-                        let x = span.x as usize + offset;
-                        let mut channels = [0; 3];
-                        for y in start..end {
-                            for (channel, sample) in channels.iter_mut().zip(handler.scratch[y * width + x]) {
-                                *channel += sample;
-                            }
-                        }
-                        let [red, green, blue] = channels.map(|channel| (channel / (end - start) as u32) as u8);
-                        pixel.blend(PremultipliedRgbaColor::new(Color::rgb(red, green, blue), span.coverage));
-                    }
-                });
-            },
-            |_, radius, output| {
-                let radius = *radius as i32;
-                PhysicalRect::new(
-                    output.x.saturating_sub(radius),
-                    output.y.saturating_sub(radius),
-                    output.width.saturating_add(radius.saturating_mul(2)),
-                    output.height.saturating_add(radius.saturating_mul(2)),
-                )
-            },
-        );
+                let [red, green, blue] = channels.map(|channel| (channel / (end - start) as u32) as u8);
+                pixel.blend(PremultipliedRgbaColor::new(Color::rgb(red, green, blue), span.coverage));
+            }
+        });
+    }
+    fn reads(&self, radius: &usize, output: PhysicalRect) -> PhysicalRect {
+        let radius = *radius as i32;
+        PhysicalRect::new(
+            output.x.saturating_sub(radius),
+            output.y.saturating_sub(radius),
+            output.width.saturating_add(radius.saturating_mul(2)),
+            output.height.saturating_add(radius.saturating_mul(2)),
+        )
     }
 }
 
@@ -573,15 +571,22 @@ mod tests {
         #[derive(Clone, Copy, Hash, PartialEq)]
         struct BadRead;
         impl Handler<BadRead, Xrgb8888> for () {
-            fn handle(&mut self, command: BadRead, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
-                cx.pass(
-                    command,
-                    (),
-                    |_, _, cx| {
-                        let _ = cx.source().unwrap().row(220, 340..341);
-                    },
-                    |_, _, output| output,
-                );
+            type Prepared = BadRead;
+            fn prepare(&mut self, command: &BadRead, _: &mut DrawContext<'_, Xrgb8888>) -> BadRead {
+                *command
+            }
+            fn draw(&mut self, _: &BadRead, cx: &mut DrawContext<'_, Xrgb8888>) {
+                let _ = cx.source().unwrap().row(220, 340..341);
+            }
+        }
+        impl<B, S, D> Paint<BadRead> for Renderer<B, S, D>
+        where
+            B: PixelBuffer<Pixel = Xrgb8888>,
+            S: RenderStrategy<B>,
+            D: DamageTracker,
+        {
+            fn paint(&mut self, bounds: LogicalRect, command: BadRead) {
+                self.record::<()>(bounds).pass(command, command);
             }
         }
         let mut renderer = new_renderer(
@@ -591,7 +596,7 @@ mod tests {
                 ..RendererConfig::default()
             },
         );
-        renderer.handle::<(), _>(LogicalRect::new(64.0, 64.0, 8.0, 8.0), BadRead);
+        renderer.paint(LogicalRect::new(64.0, 64.0, 8.0, 8.0), BadRead);
         renderer.render(0);
     }
 
@@ -600,40 +605,47 @@ mod tests {
         #[derive(Clone, Copy, Hash, PartialEq)]
         struct CopyArea(bool);
         impl Handler<CopyArea, Xrgb8888> for () {
-            fn handle(&mut self, command: CopyArea, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
-                if !command.0 {
-                    cx.rectangle(
-                        Rectangle::new(cx.bounds.to_logical(blit::Scale2::uniform(cx.scale))).background(Color::WHITE),
-                    );
+            type Prepared = CopyArea;
+            fn prepare(&mut self, command: &CopyArea, _: &mut DrawContext<'_, Xrgb8888>) -> CopyArea {
+                *command
+            }
+            fn draw(&mut self, _: &CopyArea, cx: &mut DrawContext<'_, Xrgb8888>) {
+                let Some(source) = cx.source() else {
+                    cx.for_each_span(|span| {
+                        Xrgb8888::blend_slice(span.pixels, PremultipliedRgbaColor::new(Color::WHITE, span.coverage));
+                    });
                     return;
+                };
+                cx.for_each_span(|span| {
+                    let x = (span.x - 140) as usize;
+                    let source = source.row((span.y + 116) as usize, x..x + span.pixels.len());
+                    for (pixel, source) in span.pixels.iter_mut().zip(source) {
+                        let source = source.raw();
+                        pixel.blend(PremultipliedRgbaColor::new(
+                            Color::rgb((source >> 16) as u8, (source >> 8) as u8, source as u8),
+                            span.coverage,
+                        ));
+                    }
+                });
+            }
+
+            fn reads(&self, _: &CopyArea, output: PhysicalRect) -> PhysicalRect {
+                PhysicalRect::new(output.x - 140, output.y + 116, output.width, output.height)
+            }
+        }
+        impl<B, S, D> Paint<CopyArea> for Renderer<B, S, D>
+        where
+            B: PixelBuffer<Pixel = Xrgb8888>,
+            S: RenderStrategy<B>,
+            D: DamageTracker,
+        {
+            fn paint(&mut self, bounds: LogicalRect, command: CopyArea) {
+                let mut cx = self.record::<()>(bounds);
+                if !command.0 {
+                    cx.rectangle(Rectangle::new(bounds).background(Color::WHITE));
+                } else {
+                    cx.pass(command, command);
                 }
-                cx.pass(
-                    command,
-                    (),
-                    |_, _, cx| {
-                        let Some(source) = cx.source() else {
-                            cx.for_each_span(|span| {
-                                Xrgb8888::blend_slice(
-                                    span.pixels,
-                                    PremultipliedRgbaColor::new(Color::WHITE, span.coverage),
-                                );
-                            });
-                            return;
-                        };
-                        cx.for_each_span(|span| {
-                            let x = (span.x - 140) as usize;
-                            let source = source.row((span.y + 116) as usize, x..x + span.pixels.len());
-                            for (pixel, source) in span.pixels.iter_mut().zip(source) {
-                                let source = source.raw();
-                                pixel.blend(PremultipliedRgbaColor::new(
-                                    Color::rgb((source >> 16) as u8, (source >> 8) as u8, source as u8),
-                                    span.coverage,
-                                ));
-                            }
-                        });
-                    },
-                    |_, _, output| PhysicalRect::new(output.x - 140, output.y + 116, output.width, output.height),
-                );
             }
         }
         let mut renderer = new_renderer(
@@ -656,7 +668,7 @@ mod tests {
             renderer.paint(background.area, background);
             let source = Rectangle::new(LogicalRect::new(20.0, 180.0, 2.0, 2.0)).background(color);
             renderer.paint(source.area, source);
-            renderer.handle::<(), _>(LogicalRect::new(160.0, 64.0, 16.0, 16.0), CopyArea(backdrop));
+            renderer.paint(LogicalRect::new(160.0, 64.0, 16.0, 16.0), CopyArea(backdrop));
             let overlay = Rectangle::new(LogicalRect::new(20.0, 180.0, 2.0, 2.0)).background(Color::WHITE);
             renderer.paint(overlay.area, overlay);
             renderer.render(1);
@@ -806,25 +818,34 @@ mod tests {
         #[derive(Clone, Copy, Hash, PartialEq)]
         struct Shift;
         impl Handler<Shift, Xrgb8888> for () {
-            fn handle(&mut self, command: Shift, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
-                cx.pass(
-                    command,
-                    (),
-                    |_, _, cx| {
-                        let source = cx.source().unwrap();
-                        cx.for_each_span(|span| {
-                            for (offset, pixel) in span.pixels.iter_mut().enumerate() {
-                                let x = span.x as usize + offset;
-                                let sample = source.row(span.y.saturating_sub(1) as usize, x..x + 1)[0].raw();
-                                let color = Color::rgb((sample >> 16) as u8, (sample >> 8) as u8, sample as u8);
-                                pixel.blend(PremultipliedRgbaColor::new(color, span.coverage));
-                            }
-                        });
-                    },
-                    |_, _, output| {
-                        PhysicalRect::new(output.x, output.y.saturating_sub(1).max(0), output.width, output.height)
-                    },
-                );
+            type Prepared = Shift;
+            fn prepare(&mut self, command: &Shift, _: &mut DrawContext<'_, Xrgb8888>) -> Shift {
+                *command
+            }
+            fn draw(&mut self, _: &Shift, cx: &mut DrawContext<'_, Xrgb8888>) {
+                let source = cx.source().unwrap();
+                cx.for_each_span(|span| {
+                    for (offset, pixel) in span.pixels.iter_mut().enumerate() {
+                        let x = span.x as usize + offset;
+                        let sample = source.row(span.y.saturating_sub(1) as usize, x..x + 1)[0].raw();
+                        let color = Color::rgb((sample >> 16) as u8, (sample >> 8) as u8, sample as u8);
+                        pixel.blend(PremultipliedRgbaColor::new(color, span.coverage));
+                    }
+                });
+            }
+
+            fn reads(&self, _: &Shift, output: PhysicalRect) -> PhysicalRect {
+                PhysicalRect::new(output.x, output.y.saturating_sub(1).max(0), output.width, output.height)
+            }
+        }
+        impl<B, S, D> Paint<Shift> for Renderer<B, S, D>
+        where
+            B: PixelBuffer<Pixel = Xrgb8888>,
+            S: RenderStrategy<B>,
+            D: DamageTracker,
+        {
+            fn paint(&mut self, bounds: LogicalRect, command: Shift) {
+                self.record::<()>(bounds).pass(command, command);
             }
         }
         let mut renderer =
@@ -841,12 +862,12 @@ mod tests {
         .enumerate()
         {
             let source = Rectangle::new(LogicalRect::new(0.0, 0.0, 12.0, 1.0)).background(color);
-            renderer.handle::<(), _>(source.area, Shift);
+            renderer.paint(source.area, Shift);
             renderer.paint(source.area, source);
-            renderer.handle::<(), _>(LogicalRect::new(0.0, 1.0, 12.0, 1.0), Shift);
+            renderer.paint(LogicalRect::new(0.0, 1.0, 12.0, 1.0), Shift);
             renderer.push_clip(LogicalRect::new(1.0, 0.0, 9.0, 8.0), BorderRadius::uniform(3.0));
             renderer.push_clip(LogicalRect::new(2.0, 0.0, 6.0, 8.0), BorderRadius::default());
-            renderer.handle::<(), _>(LogicalRect::new(0.0, 2.0, 12.0, 1.0), Shift);
+            renderer.paint(LogicalRect::new(0.0, 2.0, 12.0, 1.0), Shift);
             renderer.pop_clip();
             renderer.pop_clip();
             renderer.render(if index < 2 { 0 } else { 2 });

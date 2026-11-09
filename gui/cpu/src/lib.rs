@@ -102,45 +102,26 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             "cannot configure a handler during a frame"
         );
         self.damage.invalidate();
-        let index = self.handler_index::<H>();
+        let index = handler_index::<H>(&mut self.handlers);
         // safety: the lookup selects the entry created for H
         unsafe { self.handlers[index].cast::<H>() }
     }
 
-    /// dispatches drawing data to its handler and creates its default on first use
-    pub fn handle<H: Handler<T, B::Pixel> + Default, T>(&mut self, bounds: LogicalRect, command: T) {
-        let index = self.handler_index::<H>();
-        let handler = &mut self.handlers[index];
-        handler.finish = |handler| {
-            // safety: dispatch pairs this callback with the entry created for H
-            unsafe { handler.cast::<H>() }.finish_frame();
-        };
-        let pointer = handler.value;
+    /// records drawing inputs and creates handler state when a custom draw needs it
+    pub fn record<H>(&mut self, bounds: LogicalRect) -> PaintContext<'_, H, B::Pixel>
+    where
+        H: Default + 'static,
+    {
         let context = &mut self.context;
-        // safety: the lookup selects the entry created for H
-        unsafe { handler.cast::<H>() }.handle(
-            command,
-            &mut PaintContext {
-                scale: context.scale_factor,
-                bounds: bounds.to_physical(Scale2::uniform(context.scale_factor)),
-                clip: self.paint_clip,
-                handler: pointer,
-                marker: PhantomData,
-                list: &mut context.list,
-                reads_framebuffer: &mut context.reads_framebuffer,
-                images: &mut context.images,
-            },
-        );
-    }
-
-    fn handler_index<H: Default + 'static>(&mut self) -> usize {
-        let kind = TypeId::of::<H>();
-        if let Some(index) = self.handlers.iter().position(|value| value.kind == kind) {
-            index
-        } else {
-            let index = self.handlers.len();
-            self.handlers.push(ErasedHandler::new(H::default()));
-            index
+        PaintContext {
+            scale: context.scale_factor,
+            bounds: bounds.to_physical(Scale2::uniform(context.scale_factor)),
+            clip: self.paint_clip,
+            handlers: &mut self.handlers,
+            marker: PhantomData,
+            list: &mut context.list,
+            reads_framebuffer: &mut context.reads_framebuffer,
+            images: &mut context.images,
         }
     }
 
@@ -351,31 +332,31 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Rectangle<'_>> for Renderer<B, S, D> {
     fn paint(&mut self, bounds: LogicalRect, command: Rectangle<'_>) {
-        self.handle::<(), _>(bounds, command);
+        self.record::<()>(bounds).rectangle(command);
     }
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<ImageRequest> for Renderer<B, S, D> {
     fn paint(&mut self, bounds: LogicalRect, command: ImageRequest) {
-        self.handle::<(), _>(bounds, command);
+        self.record::<()>(bounds).image(command);
     }
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<TextRequest<'_>> for Renderer<B, S, D> {
     fn paint(&mut self, bounds: LogicalRect, command: TextRequest<'_>) {
-        self.handle::<(), _>(bounds, command);
+        self.record::<()>(bounds).text(command);
     }
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Mesh<'_>> for Renderer<B, S, D> {
     fn paint(&mut self, bounds: LogicalRect, command: Mesh<'_>) {
-        self.handle::<(), _>(bounds, command);
+        self.record::<()>(bounds).mesh(command);
     }
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<blit_gui::paint::Clear> for Renderer<B, S, D> {
-    fn paint(&mut self, bounds: LogicalRect, command: blit_gui::paint::Clear) {
-        self.handle::<(), _>(bounds, command);
+    fn paint(&mut self, bounds: LogicalRect, _: blit_gui::paint::Clear) {
+        self.record::<()>(bounds).clear();
     }
 }
 
@@ -466,6 +447,20 @@ impl ErasedHandler {
 impl Drop for ErasedHandler {
     fn drop(&mut self) {
         (self.drop)(self.value);
+    }
+}
+
+fn handler_index<H>(handlers: &mut Vec<ErasedHandler>) -> usize
+where
+    H: Default + 'static,
+{
+    let kind = TypeId::of::<H>();
+    if let Some(index) = handlers.iter().position(|value| value.kind == kind) {
+        index
+    } else {
+        let index = handlers.len();
+        handlers.push(ErasedHandler::new(H::default()));
+        index
     }
 }
 
