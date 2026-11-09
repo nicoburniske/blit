@@ -12,12 +12,11 @@ use blit_cpu::{
     Scanline, VecBuffer, Xrgb8888,
 };
 use blit_gui::{
-    TextConfig, TextSystem,
+    Rectangle, TextConfig, TextSystem,
     color::Color,
     damage::DamageTracker,
     display_list::{Compare, DisplayList, Slice},
     image::{ImageData, ImageFormat, ImageHandle, ImagePixels},
-    paint::Rectangle,
     style::BorderRadius,
 };
 
@@ -281,9 +280,9 @@ fn scene<C>(renderer: &mut C, frame: usize, pass: bool)
 where
     C: for<'a> Paint<Rectangle<'a>, Scalar = f32> + Paint<SoftShadow> + for<'a> Paint<Path<'a>> + Paint<BackdropBlur>,
 {
-    let background =
-        Rectangle::new(LogicalRect::new(0.0, 0.0, WIDTH as f32, HEIGHT as f32)).background(Color::rgb(18, 22, 30));
-    renderer.paint(background.area, background);
+    let background_area = LogicalRect::new(0.0, 0.0, WIDTH as f32, HEIGHT as f32);
+    let background = Rectangle::new().background(Color::rgb(18, 22, 30));
+    renderer.paint(background_area, background);
     renderer.paint(
         LogicalRect::new(12.0, 10.0, 76.0, 48.0),
         SoftShadow {
@@ -291,10 +290,11 @@ where
             color: Color::rgba(0, 180, 255, 190),
         },
     );
-    let panel = Rectangle::new(LogicalRect::new(22.0, 20.0, 56.0, 28.0))
+    let panel_area = LogicalRect::new(22.0, 20.0, 56.0, 28.0);
+    let panel = Rectangle::new()
         .background(Color::rgb(35, 45, 65))
         .radius(BorderRadius::uniform(6.0));
-    renderer.paint(panel.area, panel);
+    renderer.paint(panel_area, panel);
     renderer.paint(
         LogicalRect::new(6.0, 5.0, 144.0, 60.0),
         Path {
@@ -304,18 +304,20 @@ where
         },
     );
     for x in (0..WIDTH).step_by(8) {
-        let stripe = Rectangle::new(LogicalRect::new(x as f32, 67.0, 4.0, 28.0)).background(if x == 16 && frame != 0 {
+        let stripe_area = LogicalRect::new(x as f32, 67.0, 4.0, 28.0);
+        let stripe = Rectangle::new().background(if x == 16 && frame != 0 {
             Color::WHITE
         } else {
             Color::rgb((x * 7) as u8, 80, 150)
         });
-        renderer.paint(stripe.area, stripe);
+        renderer.paint(stripe_area, stripe);
     }
     if pass {
         renderer.paint(LogicalRect::new(20.0, 65.0, 120.0, 28.0), BackdropBlur { radius: 4 });
     }
-    let overlay = Rectangle::new(LogicalRect::new(34.0, 18.0, 8.0, 8.0)).background(Color::WHITE);
-    renderer.paint(overlay.area, overlay);
+    let overlay_area = LogicalRect::new(34.0, 18.0, 8.0, 8.0);
+    let overlay = Rectangle::new().background(Color::WHITE);
+    renderer.paint(overlay_area, overlay);
 }
 
 fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B> {
@@ -348,7 +350,7 @@ mod tests {
                 .damage_tracker(make_damage());
             let bounds = LogicalRect::new(0.0, 0.0, 20.0, 12.0);
             for y in [4, 4, 8] {
-                renderer.paint(bounds, Rectangle::new(bounds).background(Color::BLACK));
+                renderer.paint(bounds, Rectangle::new().background(Color::BLACK));
                 let mut points = [[2, y], [18, y]];
                 renderer.paint(
                     bounds,
@@ -375,9 +377,9 @@ mod tests {
     where
         C: for<'a> Paint<Rectangle<'a>, Scalar = f32> + for<'a> Paint<Mesh<'a>> + Paint<BackdropBlur> + Context,
     {
-        let background = Rectangle::new(LogicalRect::new(0.0, 0.0, DAMAGE_WIDTH as f32, DAMAGE_HEIGHT as f32))
-            .background(Color::rgb(18, 30, 50));
-        renderer.paint(background.area, background);
+        let background_area = LogicalRect::new(0.0, 0.0, DAMAGE_WIDTH as f32, DAMAGE_HEIGHT as f32);
+        let background = Rectangle::new().background(Color::rgb(18, 30, 50));
+        renderer.paint(background_area, background);
         let edit = LogicalRect::new(60.0, 80.0, 2.0, 2.0);
         let color = if frame == 0 {
             Color::rgb(240, 20, 10)
@@ -413,22 +415,18 @@ mod tests {
                 },
             );
             renderer.pop_clip();
-            let overlay =
-                Rectangle::new(LogicalRect::new(67.0, 80.0, 2.0, 2.0)).background(Color::rgba(100, 220, 40, 170));
-            renderer.paint(overlay.area, overlay);
+            let overlay_area = LogicalRect::new(67.0, 80.0, 2.0, 2.0);
+            let overlay = Rectangle::new().background(Color::rgba(100, 220, 40, 170));
+            renderer.paint(overlay_area, overlay);
             renderer.push_clip(outer, BorderRadius::uniform(12.0));
             renderer.push_clip(bounds, BorderRadius::default());
             renderer.paint(bounds, BackdropBlur { radius: 3 });
             renderer.pop_clip();
             renderer.pop_clip();
         }
-        let overlay = Rectangle::new(LogicalRect::new(68.0, 80.0, 1.0, 1.0)).background(Color::rgba(
-            255,
-            180,
-            0,
-            if frame >= 7 { 128 } else { 255 },
-        ));
-        renderer.paint(overlay.area, overlay);
+        let overlay_area = LogicalRect::new(68.0, 80.0, 1.0, 1.0);
+        let overlay = Rectangle::new().background(Color::rgba(255, 180, 0, if frame >= 7 { 128 } else { 255 }));
+        renderer.paint(overlay_area, overlay);
         renderer.paint(
             LogicalRect::new(340.0, 220.0, 2.0, 2.0),
             Mesh {
@@ -440,8 +438,9 @@ mod tests {
                 indices: &[0, 1, 2],
             },
         );
-        let overlay = Rectangle::new(LogicalRect::new(84.0, 80.0, 2.0, 2.0)).background(Color::rgba(255, 0, 255, 200));
-        renderer.paint(overlay.area, overlay);
+        let overlay_area = LogicalRect::new(84.0, 80.0, 2.0, 2.0);
+        let overlay = Rectangle::new().background(Color::rgba(255, 0, 255, 200));
+        renderer.paint(overlay_area, overlay);
     }
 
     struct TrackedBuffer {
@@ -666,7 +665,7 @@ mod tests {
         {
             fn paint(&mut self, bounds: LogicalRect, command: CopyArea) {
                 if !command.0 {
-                    self.paint(bounds, Rectangle::new(bounds).background(Color::WHITE));
+                    self.paint(bounds, Rectangle::new().background(Color::WHITE));
                 } else {
                     self.record::<()>(bounds).pass(command);
                 }
@@ -687,14 +686,16 @@ mod tests {
             (false, Color::rgb(0, 0, 255)),
             (true, Color::rgb(0, 0, 255)),
         ] {
-            let background = Rectangle::new(LogicalRect::new(0.0, 0.0, DAMAGE_WIDTH as f32, DAMAGE_HEIGHT as f32))
-                .background(Color::BLACK);
-            renderer.paint(background.area, background);
-            let source = Rectangle::new(LogicalRect::new(20.0, 180.0, 2.0, 2.0)).background(color);
-            renderer.paint(source.area, source);
+            let background_area = LogicalRect::new(0.0, 0.0, DAMAGE_WIDTH as f32, DAMAGE_HEIGHT as f32);
+            let background = Rectangle::new().background(Color::BLACK);
+            renderer.paint(background_area, background);
+            let source_area = LogicalRect::new(20.0, 180.0, 2.0, 2.0);
+            let source = Rectangle::new().background(color);
+            renderer.paint(source_area, source);
             renderer.paint(LogicalRect::new(160.0, 64.0, 16.0, 16.0), CopyArea(backdrop));
-            let overlay = Rectangle::new(LogicalRect::new(20.0, 180.0, 2.0, 2.0)).background(Color::WHITE);
-            renderer.paint(overlay.area, overlay);
+            let overlay_area = LogicalRect::new(20.0, 180.0, 2.0, 2.0);
+            let overlay = Rectangle::new().background(Color::WHITE);
+            renderer.paint(overlay_area, overlay);
             renderer.render(1);
             let expected = if backdrop { color } else { Color::WHITE };
             assert_eq!(
@@ -741,7 +742,7 @@ mod tests {
             let bounds = LogicalRect::new(0.0, 0.0, 20.0, 10.0);
             for (case, expected) in [(0, 1), (0, 1), (1, covered), (2, covered), (0, covered + 1)] {
                 let previous = stats.prepares.get();
-                renderer.paint(bounds, Rectangle::new(bounds).background(Color::BLACK));
+                renderer.paint(bounds, Rectangle::new().background(Color::BLACK));
                 if case == 2 {
                     renderer.push_clip(LogicalRect::new(30.0, 30.0, 1.0, 1.0), BorderRadius::default());
                 }
@@ -756,7 +757,7 @@ mod tests {
                     renderer.pop_clip();
                 }
                 if case == 1 {
-                    renderer.paint(bounds, Rectangle::new(bounds).background(Color::WHITE));
+                    renderer.paint(bounds, Rectangle::new().background(Color::WHITE));
                 }
                 assert_eq!(stats.prepares.get(), previous);
                 renderer.render(1);
@@ -885,9 +886,10 @@ mod tests {
         .into_iter()
         .enumerate()
         {
-            let source = Rectangle::new(LogicalRect::new(0.0, 0.0, 12.0, 1.0)).background(color);
-            renderer.paint(source.area, Shift);
-            renderer.paint(source.area, source);
+            let source_area = LogicalRect::new(0.0, 0.0, 12.0, 1.0);
+            let source = Rectangle::new().background(color);
+            renderer.paint(source_area, Shift);
+            renderer.paint(source_area, source);
             renderer.paint(LogicalRect::new(0.0, 1.0, 12.0, 1.0), Shift);
             renderer.push_clip(LogicalRect::new(1.0, 0.0, 9.0, 8.0), BorderRadius::uniform(3.0));
             renderer.push_clip(LogicalRect::new(2.0, 0.0, 6.0, 8.0), BorderRadius::default());

@@ -1,7 +1,7 @@
-use blit::PhysicalRect;
+use blit::{LogicalRect, PhysicalRect};
 use blit_gui::{
+    Image,
     image::{ImageData, ImageFormat, ImageHandle, ImagePatch, ImageSampling, ImageTiling, prepare_image_patches},
-    paint::ImageRequest,
 };
 
 use super::image_patch::{AlphaRows, Prepared};
@@ -105,13 +105,14 @@ impl StoredImage {
 }
 
 pub fn prepare(
-    request: &ImageRequest,
+    area: LogicalRect,
+    request: &Image,
     texture: &ImageData,
     clip: PhysicalRect,
     scale_factor: f32,
     mut emit: impl FnMut(Prepared, PhysicalRect),
 ) {
-    prepare_image_patches(request, texture.size, scale_factor, |patch| {
+    prepare_image_patches(area, request, texture.size, scale_factor, |patch| {
         if let Some(prepared) = Prepared::new(request, patch, scale_factor)
             && let Some(bounds) = patch.bounds.intersection(clip)
         {
@@ -121,7 +122,7 @@ pub fn prepare(
 }
 
 pub fn coverage(
-    request: &ImageRequest,
+    request: &Image,
     patch: ImagePatch,
     texture: &ImageData,
     pixels_opaque: bool,
@@ -158,15 +159,18 @@ mod tests {
     use super::*;
     use crate::{PixelBuffer, VecBuffer, Xrgb8888, render::image_patch::AlphaRows};
 
-    fn draw<B: PixelBuffer>(
+    fn draw<B>(
         buffer: &mut B,
-        request: &ImageRequest,
+        area: LogicalRect,
+        request: &Image,
         texture: &ImageData,
         clip: PhysicalRect,
         scale_factor: f32,
-    ) {
+    ) where
+        B: PixelBuffer,
+    {
         let alpha_rows = AlphaRows::default();
-        prepare(request, texture, clip, scale_factor, |image, clip| {
+        prepare(area, request, texture, clip, scale_factor, |image, clip| {
             let screen = PhysicalRect {
                 x: buffer.x_offset() as i32,
                 y: 0,
@@ -185,14 +189,13 @@ mod tests {
     fn nearest_scaled_image_respects_clip() {
         static PIXELS: [u8; 16] = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8, 2, 2);
-        let request = ImageRequest {
-            image: ImageId::default(),
-            area: LogicalRect {
-                x: 0.0,
-                y: 0.0,
-                width: 4.0,
-                height: 4.0,
-            },
+        let area = LogicalRect {
+            x: 0.0,
+            y: 0.0,
+            width: 4.0,
+            height: 4.0,
+        };
+        let request = Image {
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
@@ -200,11 +203,13 @@ mod tests {
             nine_slice: None,
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
+            ..Image::new(ImageId::default())
         };
         let mut buffer = VecBuffer::<Xrgb8888>::new(4, 4);
 
         draw(
             &mut buffer,
+            area,
             &request,
             &texture,
             PhysicalRect {
@@ -228,14 +233,13 @@ mod tests {
     fn colorize_uses_rgba_alpha() {
         static PIXELS: [u8; 4] = [16, 8, 4, 128];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8Premultiplied, 1, 1);
-        let request = ImageRequest {
-            image: ImageId::default(),
-            area: LogicalRect {
-                x: 0.0,
-                y: 0.0,
-                width: 1.0,
-                height: 1.0,
-            },
+        let area = LogicalRect {
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+        };
+        let request = Image {
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
@@ -243,11 +247,13 @@ mod tests {
             nine_slice: None,
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
+            ..Image::new(ImageId::default())
         };
         let mut buffer = VecBuffer::<Xrgb8888>::new(1, 1);
 
         draw(
             &mut buffer,
+            area,
             &request,
             &texture,
             PhysicalRect {
@@ -268,8 +274,8 @@ mod tests {
             2,
             1,
         );
-        let request = ImageRequest {
-            area: LogicalRect::new(0.0, 0.0, 3.0, 1.0),
+        let area = LogicalRect::new(0.0, 0.0, 3.0, 1.0);
+        let request = Image {
             colorize: Some(Color::rgb(255, 0, 0)),
             ..request
         };
@@ -281,11 +287,11 @@ mod tests {
             height: 1,
         };
 
-        draw(&mut buffer, &request, &texture, clip, 1.0);
+        draw(&mut buffer, area, &request, &texture, clip, 1.0);
 
         assert_eq!(buffer.pixels(), [0x800000, 0x800000, 0x800000].map(Xrgb8888::from_raw));
         let mut opaque = None;
-        prepare_image_patches(&request, texture.size, 1.0, |patch| {
+        prepare_image_patches(area, &request, texture.size, 1.0, |patch| {
             opaque = Some(coverage(&request, patch, &texture, true, false).0);
         });
         assert_eq!(opaque, Some(false));
@@ -295,14 +301,13 @@ mod tests {
     fn bilinear_image_interpolates_source_pixels() {
         static PIXELS: [u8; 8] = [255, 0, 0, 255, 0, 0, 255, 255];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8, 2, 1);
-        let request = ImageRequest {
-            image: ImageId::default(),
-            area: LogicalRect {
-                x: 0.0,
-                y: 0.0,
-                width: 3.0,
-                height: 1.0,
-            },
+        let area = LogicalRect {
+            x: 0.0,
+            y: 0.0,
+            width: 3.0,
+            height: 1.0,
+        };
+        let request = Image {
             fit: ImageFit::Fill,
             sampling: ImageSampling::Bilinear,
             opacity: 1.0,
@@ -310,11 +315,13 @@ mod tests {
             nine_slice: None,
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
+            ..Image::new(ImageId::default())
         };
         let mut buffer = VecBuffer::<Xrgb8888>::new(3, 1);
 
         draw(
             &mut buffer,
+            area,
             &request,
             &texture,
             PhysicalRect {
@@ -333,14 +340,13 @@ mod tests {
     fn unscaled_premultiplied_image_applies_opacity() {
         static PIXELS: [u8; 8] = [255, 0, 0, 255, 0, 128, 0, 128];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgba8Premultiplied, 2, 1);
-        let request = ImageRequest {
-            image: ImageId::default(),
-            area: LogicalRect {
-                x: 0.0,
-                y: 0.0,
-                width: 2.0,
-                height: 1.0,
-            },
+        let area = LogicalRect {
+            x: 0.0,
+            y: 0.0,
+            width: 2.0,
+            height: 1.0,
+        };
+        let request = Image {
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 0.5,
@@ -348,11 +354,13 @@ mod tests {
             nine_slice: None,
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
+            ..Image::new(ImageId::default())
         };
         let mut buffer = VecBuffer::<Xrgb8888>::new(2, 1);
 
         draw(
             &mut buffer,
+            area,
             &request,
             &texture,
             PhysicalRect {
@@ -371,14 +379,13 @@ mod tests {
     fn image_repeats_horizontally() {
         static PIXELS: [u8; 6] = [255, 0, 0, 0, 0, 255];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgb8, 2, 1);
-        let request = ImageRequest {
-            image: ImageId::default(),
-            area: LogicalRect {
-                x: 0.0,
-                y: 0.0,
-                width: 5.0,
-                height: 1.0,
-            },
+        let area = LogicalRect {
+            x: 0.0,
+            y: 0.0,
+            width: 5.0,
+            height: 1.0,
+        };
+        let request = Image {
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
@@ -386,11 +393,13 @@ mod tests {
             nine_slice: None,
             horizontal_tiling: ImageTiling::Repeat,
             vertical_tiling: ImageTiling::None,
+            ..Image::new(ImageId::default())
         };
         let mut buffer = VecBuffer::<Xrgb8888>::new(5, 1);
 
         draw(
             &mut buffer,
+            area,
             &request,
             &texture,
             PhysicalRect {
@@ -412,14 +421,13 @@ mod tests {
     fn round_tiling_fits_complete_tiles() {
         static PIXELS: [u8; 9] = [255, 0, 0, 0, 255, 0, 0, 0, 255];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgb8, 3, 1);
-        let request = ImageRequest {
-            image: ImageId::default(),
-            area: LogicalRect {
-                x: 0.0,
-                y: 0.0,
-                width: 8.0,
-                height: 1.0,
-            },
+        let area = LogicalRect {
+            x: 0.0,
+            y: 0.0,
+            width: 8.0,
+            height: 1.0,
+        };
+        let request = Image {
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
@@ -427,11 +435,13 @@ mod tests {
             nine_slice: None,
             horizontal_tiling: ImageTiling::Round,
             vertical_tiling: ImageTiling::None,
+            ..Image::new(ImageId::default())
         };
         let mut buffer = VecBuffer::<Xrgb8888>::new(8, 1);
 
         draw(
             &mut buffer,
+            area,
             &request,
             &texture,
             PhysicalRect {
@@ -458,14 +468,13 @@ mod tests {
             255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0, 255, 0, 255, 0, 255, 255, 128, 0, 0, 0, 128, 0, 0, 0, 128,
         ];
         let texture = ImageData::new(ImagePixels::Static(&PIXELS), ImageFormat::Rgb8, 3, 3);
-        let request = ImageRequest {
-            image: ImageId::default(),
-            area: LogicalRect {
-                x: 0.0,
-                y: 0.0,
-                width: 5.0,
-                height: 5.0,
-            },
+        let area = LogicalRect {
+            x: 0.0,
+            y: 0.0,
+            width: 5.0,
+            height: 5.0,
+        };
+        let request = Image {
             fit: ImageFit::Fill,
             sampling: ImageSampling::Nearest,
             opacity: 1.0,
@@ -473,11 +482,13 @@ mod tests {
             nine_slice: Some(NineSlice::uniform(1)),
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
+            ..Image::new(ImageId::default())
         };
         let mut buffer = VecBuffer::<Xrgb8888>::new(5, 5);
 
         draw(
             &mut buffer,
+            area,
             &request,
             &texture,
             PhysicalRect {

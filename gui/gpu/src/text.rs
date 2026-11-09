@@ -345,14 +345,14 @@ mod tests {
         )
         .unwrap();
         let run = text.text_run(TextSource::Borrowed("a "), TextStyle::new());
+        let area = blit::LogicalRect::new(0.0, 0.0, 100.0, 100.0);
         let mut request = TextRequest {
             text: run,
             colors: &[],
-            area: blit::LogicalRect::new(0.0, 0.0, 100.0, 100.0),
             offset_x: 0.0,
             options: TextOptions::new(),
         };
-        let mut resolved = text.paint_layout(&request);
+        let mut resolved = text.paint_layout(area, &request);
         let font = resolved.layout.runs[0].font;
         let keys = [1, 2].map(|glyph| {
             resolved
@@ -366,7 +366,7 @@ mod tests {
         });
         text.finish_frame();
         request.text = text.text_run(TextSource::Borrowed("another"), TextStyle::new());
-        let mut resolved = text.paint_layout(&request);
+        let mut resolved = text.paint_layout(area, &request);
         let font = resolved.layout.runs[0].font;
         assert_eq!(
             keys[0],
@@ -458,7 +458,7 @@ mod tests {
                     0
                 }
             );
-            let mut resolved = text.paint_layout(&request);
+            let mut resolved = text.paint_layout(area, &request);
             for (glyph, previous) in [1, 2].into_iter().zip(keys) {
                 let id = resolved
                     .prepare_glyph(blit_text::GlyphRequest {

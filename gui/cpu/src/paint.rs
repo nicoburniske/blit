@@ -8,10 +8,11 @@ use blit::{
     },
 };
 use blit_gui::{
+    Image, Rectangle,
     damage::DamageTracker,
     display_list::{Command, Compare, DisplayList, Slice},
     image::{ImageData, ImageHandle, prepare_image_patches},
-    paint::{ImageRequest, Mesh, MeshVertex, Rectangle, TextRequest},
+    paint::{Mesh, MeshVertex, TextRequest},
     style::{Border, Fill, GradientStop, LinearGradient},
 };
 
@@ -94,8 +95,8 @@ where
     P: Pixel,
 {
     /// prepares an image with an explicit logical to physical scale
-    pub fn prepare_image(&self, request: &ImageRequest, scale: f32) -> Option<crate::raster::Image> {
-        crate::raster::Image::new(request, scale, self.bounds, self.images)
+    pub fn prepare_image(&self, area: LogicalRect, request: &Image, scale: f32) -> Option<crate::raster::Image> {
+        crate::raster::Image::new(area, request, scale, self.bounds, self.images)
     }
 
     pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> Slice<T> {
@@ -269,8 +270,8 @@ where
     S: RenderStrategy<B>,
     D: DamageTracker,
 {
-    fn paint(&mut self, bounds: LogicalRect, rectangle: Rectangle<'_>) {
-        let mut recording = self.record::<()>(bounds);
+    fn paint(&mut self, area: LogicalRect, rectangle: Rectangle<'_>) {
+        let mut recording = self.record::<()>(area);
         let mut stops = [None; 2];
         let fills = [rectangle.background, rectangle.border.fill];
         let fills = [0, 1].map(|index| match fills[index] {
@@ -294,6 +295,7 @@ where
             }
         });
         let value = StoredRectangle {
+            area,
             rectangle: Rectangle {
                 background: fills[0],
                 border: Border {
@@ -308,13 +310,18 @@ where
             recording.bounds,
             recording.clip,
             value,
-            |a, left, b, right| a.view(left) == b.view(right),
-            |value, list, state| value.view(list).hash(state),
+            |a, left, b, right| a.area == b.area && a.view(left) == b.view(right),
+            |value, list, state| {
+                [value.area.x, value.area.y, value.area.width, value.area.height]
+                    .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+                    .hash(state);
+                value.view(list).hash(state);
+            },
             |input, offset, record, list, context| {
                 let scale = context.scale;
                 let target = &mut *context.commands;
                 let rectangle = input.view(list);
-                let Some(bounds) = rectangle
+                let Some(bounds) = input
                     .area
                     .to_physical(Scale2::uniform(scale))
                     .intersection(record.bounds)
@@ -355,7 +362,7 @@ where
                     .record(bounds, record.clip, (scale, offset), |_, (scale, value), cx| {
                         // safety: recording stores this offset as StoredRectangle
                         let input = unsafe { cx.list.data().get(Offset::<StoredRectangle>::new(*value)) };
-                        crate::render::rectangle::Prepared::new(&input.view(cx.list), *scale, cx.gradients)
+                        crate::render::rectangle::Prepared::new(input.area, &input.view(cx.list), *scale, cx.gradients)
                             .map(Payload::Rectangle)
                             .unwrap_or(Payload::Empty)
                     })
@@ -365,25 +372,30 @@ where
     }
 }
 
-impl<B, S, D> Paint<ImageRequest> for Renderer<B, S, D>
+impl<B, S, D> Paint<Image> for Renderer<B, S, D>
 where
     B: PixelBuffer,
     S: RenderStrategy<B>,
     D: DamageTracker,
 {
-    fn paint(&mut self, bounds: LogicalRect, request: ImageRequest) {
-        let mut recording = self.record::<()>(bounds);
+    fn paint(&mut self, area: LogicalRect, request: Image) {
+        let mut recording = self.record::<()>(area);
         recording.record_input(
             recording.bounds,
             recording.clip,
-            request,
+            (area, request),
             |a, _, b, _| a == b,
-            |value, _, state| value.hash(state),
-            |request, offset, record, _, context| {
+            |(area, image), _, state| {
+                [area.x, area.y, area.width, area.height]
+                    .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+                    .hash(state);
+                image.hash(state);
+            },
+            |(area, request), offset, record, _, context| {
                 let scale = context.scale;
                 let target = &mut *context.commands;
                 if let Some(texture) = context.images.get(request.image.into()) {
-                    prepare_image_patches(request, texture.data.size, scale, |patch| {
+                    prepare_image_patches(*area, request, texture.data.size, scale, |patch| {
                         if let Some(bounds) = patch.bounds.intersection(record.bounds) {
                             let (opaque, partial) = crate::render::image::coverage(
                                 request,
@@ -398,9 +410,9 @@ where
                                     record.clip,
                                     (scale, offset, patch),
                                     |_, (scale, value, patch), cx| {
-                                        // safety: recording stores this offset as ImageRequest
-                                        let request =
-                                            unsafe { cx.list.data().get(Offset::<ImageRequest>::new(*value)) };
+                                        // safety: recording stores this offset as placed image data
+                                        let (_, request) =
+                                            unsafe { cx.list.data().get(Offset::<(LogicalRect, Image)>::new(*value)) };
                                         crate::render::image_patch::Prepared::new(request, *patch, *scale)
                                             .map(Payload::Image)
                                             .unwrap_or(Payload::Empty)
@@ -427,10 +439,11 @@ where
     S: RenderStrategy<B>,
     D: DamageTracker,
 {
-    fn paint(&mut self, bounds: LogicalRect, request: TextRequest<'_>) {
-        let mut recording = self.record::<()>(bounds);
+    fn paint(&mut self, area: LogicalRect, request: TextRequest<'_>) {
+        let mut recording = self.record::<()>(area);
         let colors = recording.list.store_slice(request.colors.iter().copied());
         let value = StoredText {
+            area,
             request: TextRequest { colors: &[], ..request },
             colors,
         };
@@ -438,17 +451,22 @@ where
             recording.bounds,
             recording.clip,
             value,
-            |a, left, b, right| a.view(left) == b.view(right),
-            |value, list, state| value.view(list).hash(state),
+            |a, left, b, right| a.area == b.area && a.view(left) == b.view(right),
+            |value, list, state| {
+                [value.area.x, value.area.y, value.area.width, value.area.height]
+                    .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+                    .hash(state);
+                value.view(list).hash(state);
+            },
             |input, offset, record, _, context| {
                 let scale = context.scale;
                 let target = &mut *context.commands;
-                let area = input.request.area.to_physical(Scale2::uniform(scale));
+                let area = input.area.to_physical(Scale2::uniform(scale));
                 if let Some(bounds) = area.intersection(record.bounds) {
                     target.record(bounds, record.clip, (scale, offset), |_, (scale, value), cx| {
                         // safety: recording stores this offset as StoredText
                         let input = unsafe { cx.list.data().get(Offset::<StoredText>::new(*value)) };
-                        let (text, bounds) = cx.text.prepare(&input.view(cx.list), *scale);
+                        let (text, bounds) = cx.text.prepare(input.area, &input.view(cx.list), *scale);
                         Payload::Text(text, bounds)
                     });
                 }
@@ -546,6 +564,7 @@ where
 }
 
 struct StoredRectangle {
+    area: LogicalRect,
     rectangle: Rectangle<'static>,
     stops: [Option<Slice<GradientStop>>; 2],
 }
@@ -566,6 +585,7 @@ impl StoredRectangle {
 }
 
 struct StoredText {
+    area: LogicalRect,
     request: TextRequest<'static>,
     colors: Slice<blit_gui::color::Color>,
 }

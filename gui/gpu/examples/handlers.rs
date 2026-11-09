@@ -2,12 +2,7 @@ use std::{error::Error, io::Write, sync::mpsc};
 
 use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_gpu::{DrawContext, Handler, PrepareContext, Renderer, RendererConfig};
-use blit_gui::{
-    Context, TextConfig, TextSystem,
-    color::Color,
-    paint::{Clear, Rectangle},
-    style::BorderRadius,
-};
+use blit_gui::{Context, Rectangle, TextConfig, TextSystem, color::Color, paint::Clear, style::BorderRadius};
 use bytemuck::{Pod, Zeroable};
 
 const WIDTH: u32 = 192;
@@ -538,7 +533,7 @@ fn render() -> Result<Vec<u8>, Box<dyn Error>> {
     );
     for frame in 0..4 {
         let bounds = LogicalRect::new(0.0, 0.0, WIDTH as f32, HEIGHT as f32);
-        renderer.paint(bounds, Rectangle::new(bounds).background(Color::BLACK));
+        renderer.paint(bounds, Rectangle::new().background(Color::BLACK));
         renderer.paint(
             LogicalRect::new(8.0, 8.0, 48.0, 40.0),
             Checker {
@@ -573,14 +568,11 @@ fn render() -> Result<Vec<u8>, Box<dyn Error>> {
             (LogicalRect::new(64.0, 72.0, 48.0, 40.0), Color::WHITE),
             (LogicalRect::new(80.0, 72.0, 8.0, 40.0), Color::BLACK),
         ] {
-            renderer.paint(bounds, Rectangle::new(bounds).background(color));
+            renderer.paint(bounds, Rectangle::new().background(color));
         }
         let translucent = LogicalRect::new(120.0, 72.0, 48.0, 40.0);
         renderer.paint(translucent, Clear);
-        renderer.paint(
-            translucent,
-            Rectangle::new(translucent).background(Color::rgba(200, 100, 50, 128)),
-        );
+        renderer.paint(translucent, Rectangle::new().background(Color::rgba(200, 100, 50, 128)));
         renderer.push_clip(LogicalRect::new(28.0, 80.0, 12.0, 24.0), BorderRadius::uniform(6.0));
         renderer.paint(LogicalRect::new(16.0, 80.0, 32.0, 24.0), BackdropBlur { radius: 4 });
         renderer.pop_clip();
@@ -591,7 +583,7 @@ fn render() -> Result<Vec<u8>, Box<dyn Error>> {
             (LogicalRect::new(36.0, 84.0, 8.0, 8.0), Color::rgb(0, 255, 0)),
             (LogicalRect::new(176.0, 112.0, 8.0, 8.0), Color::rgb(255, 255, 0)),
         ] {
-            renderer.paint(bounds, Rectangle::new(bounds).background(color));
+            renderer.paint(bounds, Rectangle::new().background(color));
         }
         renderer.render(if frame == 0 { &larger } else { &target });
     }

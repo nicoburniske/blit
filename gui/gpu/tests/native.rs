@@ -5,10 +5,10 @@ use std::{sync::mpsc, time::Duration};
 use blit::{Clip, LogicalRect, Paint, PhysicalRect, PhysicalSize};
 use blit_gpu::{Renderer, RendererConfig};
 use blit_gui::{
-    BoundsClip, Context, FontData, FontStack, TextConfig, TextSystem,
+    BoundsClip, Context, FontData, FontStack, Image, Rectangle, Shadow, TextConfig, TextSystem,
     color::Color,
     image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageSampling, ImageTiling},
-    paint::{BoxShadow, ImageRequest, Mesh, MeshVertex, Rectangle, TextRequest},
+    paint::{Mesh, MeshVertex, TextRequest},
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::{FontId, TextOptions, TextStyle},
 };
@@ -71,24 +71,24 @@ fn renders_primitives_and_rebuilds_frames() {
     );
     let bounds = LogicalRect::new(0.0, 0.0, 64.0, 64.0);
     renderer.push_clip(LogicalRect::new(0.0, 0.0, 1.0, 1.0), BorderRadius::default());
-    renderer.paint(bounds, Rectangle::new(bounds).background(Color::rgb(255, 255, 255)));
+    renderer.paint(bounds, Rectangle::new().background(Color::rgb(255, 255, 255)));
     renderer.discard_frame();
     renderer.set_scale(2.0);
     renderer.paint(
-        bounds,
-        Rectangle::new(LogicalRect::new(0.5, 8.0, 0.5, 0.5)).background(Color::rgb(255, 255, 255)),
+        LogicalRect::new(0.5, 8.0, 0.5, 0.5),
+        Rectangle::new().background(Color::rgb(255, 255, 255)),
     );
     renderer.render(&target);
 
     renderer.paint(
-        bounds,
-        Rectangle::new(LogicalRect::new(0.0, 0.0, 7.0, 7.0))
+        LogicalRect::new(0.0, 0.0, 7.0, 7.0),
+        Rectangle::new()
             .background(Color::rgb(255, 0, 0))
             .radius(BorderRadius::uniform(3.0)),
     );
     renderer.paint(
-        LogicalRect::new(0.0, 0.0, 7.0, 7.0),
-        Rectangle::new(LogicalRect::new(2.0, 2.0, 2.0, 2.0)).background(Color::rgba(0, 0, 255, 128)),
+        LogicalRect::new(2.0, 2.0, 2.0, 2.0),
+        Rectangle::new().background(Color::rgba(0, 0, 255, 128)),
     );
     let image = renderer.create_image(ImageData::new(
         ImagePixels::Static(&[255, 255, 0, 255, 0, 255, 255, 255, 255, 0, 255, 255, 255, 255, 255, 255]),
@@ -96,9 +96,8 @@ fn renders_primitives_and_rebuilds_frames() {
         2,
         2,
     ));
-    let nearest = ImageRequest {
+    let nearest = Image {
         image: image.id(),
-        area: LogicalRect::new(8.0, 5.0, 4.0, 4.0),
         fit: ImageFit::Fill,
         sampling: ImageSampling::Nearest,
         opacity: 1.0,
@@ -106,6 +105,7 @@ fn renders_primitives_and_rebuilds_frames() {
         nine_slice: None,
         horizontal_tiling: ImageTiling::Repeat,
         vertical_tiling: ImageTiling::Repeat,
+        ..Image::new(image.id())
     };
     let sparse_x = i32::MAX / 3 - 1;
     let mut sparse = ImageData::new(
@@ -135,74 +135,66 @@ fn renders_primitives_and_rebuilds_frames() {
     partial.texture_rect.x = 1;
     let partial = renderer.create_image(partial);
     renderer.paint(
-        bounds,
-        ImageRequest {
-            area: LogicalRect::new(8.0, 0.0, 4.0, 4.0),
+        LogicalRect::new(8.0, 0.0, 4.0, 4.0),
+        Image {
             sampling: ImageSampling::Bilinear,
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
             ..nearest
         },
     );
-    renderer.paint(bounds, nearest);
+    renderer.paint(LogicalRect::new(8.0, 5.0, 4.0, 4.0), nearest);
     renderer.paint(
-        bounds,
-        ImageRequest {
+        LogicalRect::new(-0.5, 8.0, 1.5, 0.5),
+        Image {
             image: sparse.id(),
-            area: LogicalRect::new(-0.5, 8.0, 1.5, 0.5),
             horizontal_tiling: ImageTiling::None,
             vertical_tiling: ImageTiling::None,
             ..nearest
         },
     );
     renderer.paint(
-        bounds,
-        ImageRequest {
+        LogicalRect::new(-0.5, 8.5, 1.5, 0.5),
+        Image {
             image: sparse.id(),
-            area: LogicalRect::new(-0.5, 8.5, 1.5, 0.5),
             horizontal_tiling: ImageTiling::Round,
             vertical_tiling: ImageTiling::None,
             ..nearest
         },
     );
-    let partial_request = ImageRequest {
+    let partial_request = Image {
         image: partial.id(),
-        area: LogicalRect::new(20.0, 0.0, 3.0, 1.0),
         horizontal_tiling: ImageTiling::None,
         vertical_tiling: ImageTiling::None,
         ..nearest
     };
-    renderer.paint(bounds, partial_request);
+    renderer.paint(LogicalRect::new(20.0, 0.0, 3.0, 1.0), partial_request);
     renderer.paint(
-        bounds,
-        ImageRequest {
-            area: LogicalRect::new(20.0, 1.0, 3.0, 1.0),
+        LogicalRect::new(20.0, 1.0, 3.0, 1.0),
+        Image {
             sampling: ImageSampling::Bilinear,
             ..partial_request
         },
     );
-    let shadow = BoxShadow::new(LogicalRect::new(14.0, 9.0, 1.0, 1.0), Color::rgb(255, 0, 0)).blur(1.0);
-    renderer.paint(shadow.bounds(), shadow);
+    let shadow = Shadow::new(Color::rgb(255, 0, 0)).blur(1.0);
+    renderer.paint(LogicalRect::new(14.0, 9.0, 1.0, 1.0), shadow);
     let text = renderer.text().text_run("M", TextStyle::new());
     renderer.paint(
-        bounds,
+        LogicalRect::new(1.0, 20.0, 12.0, 20.0),
         TextRequest {
             text,
             colors: &[Color::rgb(255, 0, 0)],
-            area: LogicalRect::new(1.0, 20.0, 12.0, 20.0),
             offset_x: 0.0,
             options: TextOptions::default(),
         },
     );
     renderer.paint(
-        bounds,
-        Rectangle::new(LogicalRect::new(14.0, 14.0, 50.0, 50.0))
-            .background(Color::rgb(0, 255, 0))
-            .radius(BorderRadius {
-                top_left: 40.0,
-                top_right: 10.0,
-                ..BorderRadius::default()
-            }),
+        LogicalRect::new(14.0, 14.0, 50.0, 50.0),
+        Rectangle::new().background(Color::rgb(0, 255, 0)).radius(BorderRadius {
+            top_left: 40.0,
+            top_right: 10.0,
+            ..BorderRadius::default()
+        }),
     );
     let mesh_vertices = [
         MeshVertex::new(40.0, 40.0, Color::rgb(255, 0, 0)),
@@ -224,12 +216,12 @@ fn renders_primitives_and_rebuilds_frames() {
         GradientStop::new(1.0, Color::rgb(0, 0, 255)),
     ];
     renderer.paint(
-        bounds,
-        Rectangle::new(LogicalRect::new(24.0, 1.0, 8.0, 8.0)).background(LinearGradient::new(&stops)),
+        LogicalRect::new(24.0, 1.0, 8.0, 8.0),
+        Rectangle::new().background(LinearGradient::new(&stops)),
     );
     renderer.paint(
-        bounds,
-        Rectangle::new(LogicalRect::new(32.0, 1.0, 8.0, 8.0))
+        LogicalRect::new(32.0, 1.0, 8.0, 8.0),
+        Rectangle::new()
             .background(LinearGradient::new(&stops))
             .border(Border::solid(1.0, Color::rgba(0, 255, 0, 128))),
     );
@@ -238,8 +230,8 @@ fn renders_primitives_and_rebuilds_frames() {
         GradientStop::new(1.0, Color::rgba(255, 255, 255, 128)),
     ];
     renderer.paint(
-        bounds,
-        Rectangle::new(LogicalRect::new(40.0, 1.0, 8.0, 8.0))
+        LogicalRect::new(40.0, 1.0, 8.0, 8.0),
+        Rectangle::new()
             .background(LinearGradient::new(&stops))
             .border(Border::gradient(1.0, LinearGradient::new(&border_stops).angle(90.0)))
             .radius(BorderRadius::uniform(2.0)),
@@ -250,23 +242,22 @@ fn renders_primitives_and_rebuilds_frames() {
         GradientStop::new(1.0, Color::rgba(0, 0, 255, 192)),
     ];
     renderer.paint(
-        bounds,
-        Rectangle::new(LogicalRect::new(48.0, 1.0, 8.0, 8.0))
+        LogicalRect::new(48.0, 1.0, 8.0, 8.0),
+        Rectangle::new()
             .background(LinearGradient::new(&translucent_stops).angle(-45.0))
             .opacity(0.5),
     );
     BoundsClip.push(&mut renderer, LogicalRect::new(58.0, 1.0, 6.0, 8.0));
     renderer.paint(
-        bounds,
-        Rectangle::new(LogicalRect::new(56.0, 1.0, 8.0, 8.0)).background(LinearGradient::new(&stops)),
+        LogicalRect::new(56.0, 1.0, 8.0, 8.0),
+        Rectangle::new().background(LinearGradient::new(&stops)),
     );
     BoundsClip.pop(&mut renderer);
     renderer.push_clip(LogicalRect::new(12.5, 1.0, 3.5, 4.0), BorderRadius::default());
     renderer.push_clip(LogicalRect::new(12.0, 1.5, 3.5, 3.5), BorderRadius::default());
     renderer.paint(
-        bounds,
-        Rectangle::new(LogicalRect::new(12.0, 1.0, 4.0, 4.0))
-            .border(Border::gradient(1.0, LinearGradient::new(&stops))),
+        LogicalRect::new(12.0, 1.0, 4.0, 4.0),
+        Rectangle::new().border(Border::gradient(1.0, LinearGradient::new(&stops))),
     );
     renderer.pop_clip();
     renderer.pop_clip();

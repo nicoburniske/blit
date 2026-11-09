@@ -2,9 +2,9 @@ use std::ops::Range;
 
 use blit::PhysicalRect;
 use blit_gui::{
+    Image,
     color::Color,
     image::{ImageData, ImageFormat, ImageId, ImagePatch, ImageSampling, ImageTiling},
-    paint::ImageRequest,
 };
 
 use crate::{Pixel, PremultipliedRgbaColor, Rgb8Pixel};
@@ -58,7 +58,7 @@ pub struct Prepared {
 }
 
 impl Prepared {
-    pub fn new(request: &ImageRequest, patch: ImagePatch, scale_factor: f32) -> Option<Self> {
+    pub fn new(request: &Image, patch: ImagePatch, scale_factor: f32) -> Option<Self> {
         let ImagePatch {
             source,
             display,

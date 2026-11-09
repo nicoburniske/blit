@@ -1,9 +1,11 @@
+use std::hash::{Hash, Hasher};
+
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
 use blit_gui::{
+    Image, Shadow,
     color::Color,
     image::{ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageSampling, ImageTiling, NineSlice},
-    paint::{BoxShadow, ImageRequest},
     style::BorderRadius,
 };
 
@@ -37,27 +39,43 @@ impl Default for Handler {
     }
 }
 
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<BoxShadow> for Renderer<B, S, D> {
-    fn paint(&mut self, bounds: LogicalRect, shadow: BoxShadow) {
-        let mut cx = self.record::<Handler>(bounds);
-        cx.draw(shadow, None);
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Shadow> for Renderer<B, S, D> {
+    fn paint(&mut self, area: LogicalRect, shadow: Shadow) {
+        let mut cx = self.record::<Handler>(shadow.bounds(area));
+        cx.draw(Input { area, shadow }, None);
     }
 }
 
-impl<P: Pixel> crate::Handler<BoxShadow, P> for Handler {
+#[derive(PartialEq)]
+struct Input {
+    area: LogicalRect,
+    shadow: Shadow,
+}
+
+impl Hash for Input {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        [self.area.x, self.area.y, self.area.width, self.area.height]
+            .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+            .hash(state);
+        self.shadow.hash(state);
+    }
+}
+
+impl<P: Pixel> crate::Handler<Input, P> for Handler {
     type Prepared = Option<crate::raster::Image>;
 
     fn finish_frame(&mut self) {
         self.entries.trim_to_weight();
     }
 
-    fn prepare(&mut self, shadow: &BoxShadow, cx: &mut crate::DrawContext<'_, P>) -> Self::Prepared {
+    fn prepare(&mut self, input: &Input, cx: &mut crate::DrawContext<'_, P>) -> Self::Prepared {
+        let shadow = &input.shadow;
         let scale_factor = cx.scale;
         if shadow.color.alpha == 0 {
             return None;
         }
         let (key, bounds) = if shadow.inset {
-            let shape = shadow.area.to_physical(Scale2::uniform(scale_factor));
+            let shape = input.area.to_physical(Scale2::uniform(scale_factor));
             if shape.width <= 0 || shape.height <= 0 {
                 return None;
             }
@@ -76,10 +94,10 @@ impl<P: Pixel> crate::Handler<BoxShadow, P> for Handler {
             )
         } else {
             let area = LogicalRect {
-                x: shadow.area.x + shadow.offset_x - shadow.spread,
-                y: shadow.area.y + shadow.offset_y - shadow.spread,
-                width: shadow.area.width + shadow.spread * 2.0,
-                height: shadow.area.height + shadow.spread * 2.0,
+                x: input.area.x + shadow.offset_x - shadow.spread,
+                y: input.area.y + shadow.offset_y - shadow.spread,
+                width: input.area.width + shadow.spread * 2.0,
+                height: input.area.height + shadow.spread * 2.0,
             };
             if area.width <= 0.0 || area.height <= 0.0 {
                 return None;
@@ -243,9 +261,10 @@ impl<P: Pixel> crate::Handler<BoxShadow, P> for Handler {
             (cached.image.id(), cached.nine_slice)
         };
         cx.prepare_image(
-            &ImageRequest {
+            bounds.to_logical(Scale2::IDENTITY),
+            &Image {
                 image,
-                area: bounds.to_logical(Scale2::IDENTITY),
+                intrinsic: blit::Size::ZERO,
                 fit: ImageFit::Fill,
                 sampling: ImageSampling::Nearest,
                 opacity: 1.0,

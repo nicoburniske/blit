@@ -1,45 +1,57 @@
 //! image data, display options, and renderer resources
 
-use std::rc::Rc;
+use std::{
+    hash::{Hash, Hasher},
+    rc::Rc,
+};
 
 use blit::{
     Atom, AtomCx, Constraints, Paint, Scale2, Size,
     geometry::{LogicalRect, PhysicalRect, PhysicalSize},
 };
 
-use crate::{color::Color, paint::ImageRequest};
+use crate::color::Color;
 
-#[derive(Clone, Copy)]
-pub struct Image {
-    pub image: ImageId,
-    pub intrinsic: Size<f32>,
-    pub fit: ImageFit,
-    pub sampling: ImageSampling,
-    pub opacity: f32,
-    pub colorize: Option<Color>,
-    pub nine_slice: Option<NineSlice>,
-    pub horizontal_tiling: ImageTiling,
-    pub vertical_tiling: ImageTiling,
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Image {
+        new(image: ImageId),
+        intrinsic: Size<f32> = Size::ZERO,
+        fit: ImageFit = ImageFit::Fill,
+        sampling: ImageSampling = ImageSampling::Nearest,
+        opacity: f32 = 1.0,
+        colorize: Option<Color> = None,
+        nine_slice: Option<NineSlice> = None,
+        horizontal_tiling: ImageTiling = ImageTiling::None,
+        vertical_tiling: ImageTiling = ImageTiling::None,
+    }
 }
 
-impl<C: Paint<ImageRequest, Scalar = f32>> Atom<C> for Image {
+impl<C> Atom<C> for Image
+where
+    C: Paint<Self, Scalar = f32>,
+{
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(self.intrinsic)
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        let request = ImageRequest {
-            image: self.image,
-            area,
-            fit: self.fit,
-            sampling: self.sampling,
-            opacity: self.opacity,
-            colorize: self.colorize,
-            nine_slice: self.nine_slice,
-            horizontal_tiling: self.horizontal_tiling,
-            vertical_tiling: self.vertical_tiling,
-        };
-        cx.context_mut().paint(area, request);
+        cx.context_mut().paint(area, *self);
+    }
+}
+
+impl Hash for Image {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.image.hash(state);
+        (if self.opacity == 0.0 { 0 } else { self.opacity.to_bits() }).hash(state);
+        std::mem::discriminant(&self.fit).hash(state);
+        std::mem::discriminant(&self.sampling).hash(state);
+        std::mem::discriminant(&self.horizontal_tiling).hash(state);
+        std::mem::discriminant(&self.vertical_tiling).hash(state);
+        self.colorize.hash(state);
+        self.nine_slice
+            .map(|slice| [slice.top, slice.right, slice.bottom, slice.left])
+            .hash(state);
     }
 }
 
@@ -222,12 +234,13 @@ pub struct ImagePatch {
 
 #[doc(hidden)]
 pub fn prepare_image_patches(
-    request: &ImageRequest,
+    area: LogicalRect,
+    request: &Image,
     source_size: PhysicalSize,
     scale_factor: f32,
     mut emit: impl FnMut(ImagePatch),
 ) {
-    let geometry = request.area.to_physical(Scale2::uniform(scale_factor));
+    let geometry = area.to_physical(Scale2::uniform(scale_factor));
     let source = PhysicalRect {
         x: 0,
         y: 0,

@@ -1446,7 +1446,7 @@ fn scroll_thumb(mut ui: Ui<'_>, active: bool) {
     );
 }
 
-fn panel(background: Color) -> Rectangle {
+fn panel(background: Color) -> Rectangle<'static> {
     Rectangle::new()
         .background(background)
         .border(Border::solid(sz::BORDER, colors::BORDER))

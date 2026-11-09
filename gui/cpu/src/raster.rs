@@ -1,9 +1,8 @@
-use blit::PhysicalRect;
+use blit::{LogicalRect, PhysicalRect};
 use blit_arena::Arena;
 use blit_gui::{
     display_list::{DisplayList, Slice},
     image::{ImageData, ImageHandle},
-    paint::ImageRequest,
 };
 
 pub use crate::render::{blur, rounded};
@@ -29,8 +28,8 @@ pub struct DrawContext<'a, P> {
 
 impl<'a, P: Pixel> DrawContext<'a, P> {
     /// prepares an image with an explicit logical to physical scale
-    pub fn prepare_image(&self, request: &ImageRequest, scale: f32) -> Option<Image> {
-        Image::new(request, scale, self.bounds, self.images)
+    pub fn prepare_image(&self, area: LogicalRect, request: &blit_gui::Image, scale: f32) -> Option<Image> {
+        Image::new(area, request, scale, self.bounds, self.images)
     }
 
     pub fn slice<T: Copy + 'static>(&self, slice: Slice<T>) -> &'a [T] {
@@ -152,7 +151,8 @@ pub struct Image {
 
 impl Image {
     pub(crate) fn new(
-        request: &ImageRequest,
+        area: LogicalRect,
+        request: &blit_gui::Image,
         scale: f32,
         bounds: PhysicalRect,
         images: &blit_arena::Arena<StoredImage>,
@@ -160,7 +160,7 @@ impl Image {
         let texture = images.get(request.image.into())?;
         let mut patches = [None; 9];
         let mut count = 0;
-        image::prepare(request, &texture.data, bounds, scale, |image, bounds| {
+        image::prepare(area, request, &texture.data, bounds, scale, |image, bounds| {
             patches[count] = Some((image, bounds));
             count += 1;
         });

@@ -1,7 +1,7 @@
 use std::ops::Range;
 
-use blit::{PhysicalRect, Scale2};
-use blit_gui::paint::Rectangle;
+use blit::{LogicalRect, PhysicalRect, Scale2};
+use blit_gui::Rectangle;
 
 use super::{
     fill::{Gradients, PreparedFill},
@@ -21,8 +21,8 @@ pub struct Prepared {
 
 impl Prepared {
     #[inline]
-    pub fn new(rectangle: &Rectangle<'_>, scale: f32, gradients: &mut Gradients) -> Option<Self> {
-        let geometry = rectangle.area.to_physical(Scale2::uniform(scale));
+    pub fn new(area: LogicalRect, rectangle: &Rectangle<'_>, scale: f32, gradients: &mut Gradients) -> Option<Self> {
+        let geometry = area.to_physical(Scale2::uniform(scale));
         if geometry.width <= 0 || geometry.height <= 0 || rectangle.opacity <= 0.0 {
             return None;
         }

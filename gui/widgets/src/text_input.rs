@@ -10,9 +10,9 @@ pub use blit_widgets::{
 pub type TextInputState = blit_widgets::TextInputState<f32>;
 
 use blit_gui::{
-    Context,
+    Context, Rectangle,
     color::Color,
-    paint::{Rectangle, TextRequest},
+    paint::TextRequest,
     text::{TextLayoutRequest, TextOptions, TextRun, TextStyle, TextWrap},
 };
 
@@ -109,16 +109,15 @@ where
             let request = TextRequest {
                 text,
                 colors: &[style.color],
-                area,
                 offset_x: state.offset_x,
                 options,
             };
             if let Some((position, extend)) = pointer {
-                let offset = ui.context_mut().text().offset_at_position(&request, position);
+                let offset = ui.context_mut().text().offset_at_position(area, &request, position);
                 state.move_to(value, offset, extend);
             }
             if area.width > 0.0 {
-                let cursor = ui.context_mut().text().cursor_rect(&request, state.cursor, 1.0);
+                let cursor = ui.context_mut().text().cursor_rect(area, &request, state.cursor, 1.0);
                 if cursor.x < area.x {
                     state.offset_x = (state.offset_x - area.x + cursor.x).max(0.0);
                 } else if cursor.x + cursor.width > area.x + area.width {
@@ -180,36 +179,32 @@ where
         let context = cx.context_mut();
         let area = area.inset(self.padding);
         if self.background != Color::TRANSPARENT {
-            context.paint(area, Rectangle::new(area).background(self.background));
+            context.paint(area, Rectangle::new().background(self.background));
         }
         let request = TextRequest {
             text: self.text,
             colors: std::slice::from_ref(&self.color),
-            area,
             offset_x: self.state.offset_x,
             options: self.options,
         };
         let start_offset = self.state.cursor.min(self.state.anchor);
         let end_offset = self.state.cursor.max(self.state.anchor);
         if start_offset != end_offset {
-            let start = context.text().cursor_rect(&request, start_offset, 1.0);
-            let end = context.text().cursor_rect(&request, end_offset, 1.0);
+            let start = context.text().cursor_rect(area, &request, start_offset, 1.0);
+            let end = context.text().cursor_rect(area, &request, end_offset, 1.0);
             if let Some(selection) =
                 LogicalRect::new(start.x, start.y, end.x - start.x, start.height).intersection(area)
             {
-                context.paint(
-                    selection,
-                    Rectangle::new(selection).background(self.selection_background),
-                );
+                context.paint(selection, Rectangle::new().background(self.selection_background));
             }
         }
         if self.focused
             && let Some(cursor) = context
                 .text()
-                .cursor_rect(&request, self.state.cursor, 1.0)
+                .cursor_rect(area, &request, self.state.cursor, 1.0)
                 .intersection(area)
         {
-            context.paint(cursor, Rectangle::new(cursor).background(self.cursor_background));
+            context.paint(cursor, Rectangle::new().background(self.cursor_background));
         }
         let request = TextRequest {
             text: self.display,

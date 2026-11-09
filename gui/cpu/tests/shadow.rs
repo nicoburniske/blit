@@ -1,10 +1,9 @@
 use blit::{LogicalRect, Paint};
 use blit_cpu::{Direct, RenderStrategy, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888, shadow};
 use blit_gui::{
-    Context, TextConfig, TextSystem,
+    Context, Rectangle, Shadow, TextConfig, TextSystem,
     color::Color,
     damage::{DamageTracker, command::CommandDiff, tile::TileDamage},
-    paint::{BoxShadow, Rectangle},
     style::BorderRadius,
 };
 
@@ -55,7 +54,7 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
                 for (step, frame) in [0, 0, 1, 2, 3, 3, 0].into_iter().enumerate() {
                     renderer.paint(
                         LogicalRect::new(0.0, 0.0, 128.0 / scale, 96.0 / scale),
-                        Rectangle::new(LogicalRect::new(0.0, 0.0, 128.0, 96.0)).background(Color::rgb(30, 45, 60)),
+                        Rectangle::new().background(Color::rgb(30, 45, 60)),
                     );
                     renderer.push_clip(LogicalRect::new(1.0, 2.0, 118.0, 88.0), BorderRadius::uniform(7.0));
                     renderer.push_clip(
@@ -72,10 +71,12 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
                             20.0,
                             17.0,
                         );
-                        let shadow = BoxShadow::new(
-                            area,
-                            Color::rgba(150 + frame as u8 * 20, 40, 180, if index == 5 { 0 } else { 170 }),
-                        )
+                        let shadow = Shadow::new(Color::rgba(
+                            150 + frame as u8 * 20,
+                            40,
+                            180,
+                            if index == 5 { 0 } else { 170 },
+                        ))
                         .radius(BorderRadius {
                             top_left: 3.0,
                             top_right: 8.0,
@@ -86,7 +87,7 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
                         .blur(if index % 3 == 0 { 0.0 } else { 3.25 })
                         .spread(if index == 6 { -20.0 } else { index as f32 - 2.0 })
                         .inset(index % 2 != 0);
-                        renderer.paint(shadow.bounds(), shadow);
+                        renderer.paint(area, shadow);
                     }
                     renderer.pop_clip();
                     renderer.pop_clip();

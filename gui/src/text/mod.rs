@@ -220,7 +220,6 @@ impl<C: Context + for<'a> Paint<TextRequest<'a>>> Atom<C> for TextAtom {
             TextRequest {
                 text: self.text,
                 colors,
-                area,
                 offset_x: self.offset_x,
                 options: self.options,
             },

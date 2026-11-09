@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use blit::{PhysicalRect, Point, Scale2};
+use blit::{LogicalRect, PhysicalRect, Point, Scale2};
 use blit_gui::{TextSystem, color::Color, paint::TextRequest};
 use blit_text::GlyphRequest;
 
@@ -25,9 +25,14 @@ impl TextRenderer {
         }
     }
 
-    pub fn prepare(&mut self, request: &TextRequest<'_>, scale_factor: f32) -> (PreparedText, PhysicalRect) {
-        let area = request.area.to_physical(Scale2::uniform(scale_factor));
-        let mut resolved = self.system.paint_layout(request);
+    pub fn prepare(
+        &mut self,
+        placement: LogicalRect,
+        request: &TextRequest<'_>,
+        scale_factor: f32,
+    ) -> (PreparedText, PhysicalRect) {
+        let area = placement.to_physical(Scale2::uniform(scale_factor));
+        let mut resolved = self.system.paint_layout(placement, request);
         let layout = resolved.layout;
         let glyph_start = self.prepared.len() as u32;
         let run_start = self.runs.len() as u32;
@@ -47,8 +52,8 @@ impl TextRenderer {
                     glyph: glyph.id,
                     scale: scale_factor,
                     origin: Point::new(
-                        (request.area.x + glyph.position.x + offset.x - request.offset_x) * scale_factor,
-                        (request.area.y + glyph.position.y + offset.y) * scale_factor,
+                        (placement.x + glyph.position.x + offset.x - request.offset_x) * scale_factor,
+                        (placement.y + glyph.position.y + offset.y) * scale_factor,
                     ),
                 });
                 let Some(index) = self.glyphs.glyph(&mut resolved, prepared.key) else {

@@ -144,8 +144,8 @@ impl TextSystem {
         TextRun(self.sources.get_index(source_index).id)
     }
 
-    pub fn paint_layout(&mut self, request: &TextRequest<'_>) -> ResolvedTextLayout<'_> {
-        let (layout_request, placement) = paint_request(request);
+    pub fn paint_layout(&mut self, area: LogicalRect, request: &TextRequest<'_>) -> ResolvedTextLayout<'_> {
+        let (layout_request, placement) = paint_request(area, request);
         let (index, shape) = self.layout(request.text, layout_request);
         let cached = self.layouts.get_index(index);
         ResolvedTextLayout {
@@ -183,12 +183,17 @@ impl TextSystem {
         self.layouts.get_index(index).layout.size
     }
 
-    pub fn offset_at_position(&mut self, request: &TextRequest<'_>, position: LogicalPoint) -> usize {
-        let (layout_request, placement) = paint_request(request);
+    pub fn offset_at_position(
+        &mut self,
+        area: LogicalRect,
+        request: &TextRequest<'_>,
+        position: LogicalPoint,
+    ) -> usize {
+        let (layout_request, placement) = paint_request(area, request);
         let (layout_index, shape_index) = self.layout(request.text, layout_request);
         let position = LogicalPoint {
-            x: position.x - request.area.x + request.offset_x,
-            y: position.y - request.area.y,
+            x: position.x - area.x + request.offset_x,
+            y: position.y - area.y,
         };
         let Some(line) = ({
             let layout = &self.layouts.get_index(layout_index).layout;
@@ -231,8 +236,14 @@ impl TextSystem {
             .map_or(0, |caret| caret.byte_offset as usize)
     }
 
-    pub fn cursor_rect(&mut self, request: &TextRequest<'_>, byte_offset: usize, width: f32) -> LogicalRect {
-        let (layout_request, placement) = paint_request(request);
+    pub fn cursor_rect(
+        &mut self,
+        area: LogicalRect,
+        request: &TextRequest<'_>,
+        byte_offset: usize,
+        width: f32,
+    ) -> LogicalRect {
+        let (layout_request, placement) = paint_request(area, request);
         let (layout_index, shape_index) = self.layout(request.text, layout_request);
         let Some(line) = ({
             let layout = &self.layouts.get_index(layout_index).layout;
@@ -252,8 +263,8 @@ impl TextSystem {
                 .map(|(index, _)| index)
         }) else {
             return LogicalRect {
-                x: request.area.x - request.offset_x,
-                y: request.area.y,
+                x: area.x - request.offset_x,
+                y: area.y,
                 width,
                 height: 0.0,
             };
@@ -270,8 +281,8 @@ impl TextSystem {
             .min_by_key(|caret| (caret.byte_offset as usize).abs_diff(byte_offset));
         let offset = placement_offset(placement, &cached.layout, line);
         LogicalRect {
-            x: request.area.x + caret.map_or(0.0, |caret| caret.position.x) + offset.x - request.offset_x,
-            y: request.area.y + caret.map_or(0.0, |caret| caret.position.y) + offset.y,
+            x: area.x + caret.map_or(0.0, |caret| caret.position.x) + offset.x - request.offset_x,
+            y: area.y + caret.map_or(0.0, |caret| caret.position.y) + offset.y,
             width,
             height: caret.map_or(0.0, |caret| caret.height),
         }
@@ -732,7 +743,7 @@ impl Scale<LayoutKey, CachedLayout> for LayoutScale {
     }
 }
 
-fn paint_request(request: &TextRequest<'_>) -> (LayoutRequest, Placement) {
+fn paint_request(area: LogicalRect, request: &TextRequest<'_>) -> (LayoutRequest, Placement) {
     let TextOptions {
         wrap,
         overflow,
@@ -749,8 +760,8 @@ fn paint_request(request: &TextRequest<'_>) -> (LayoutRequest, Placement) {
         TextOverflow::Clip => blit_text::TextOverflow::Clip,
         TextOverflow::Ellipsis => blit_text::TextOverflow::Ellipsis,
     };
-    let width = request.area.width.max(0.0);
-    let height = request.area.height.max(0.0);
+    let width = area.width.max(0.0);
+    let height = area.height.max(0.0);
     (
         LayoutRequest {
             max_width: (wrap != blit_text::TextWrap::None || overflow == blit_text::TextOverflow::Ellipsis)

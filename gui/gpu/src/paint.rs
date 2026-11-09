@@ -2,10 +2,10 @@ use std::hash::Hash;
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2, internal::hash::FxHasher};
 use blit_gui::{
-    TextSystem,
+    Image, Rectangle, Shadow, TextSystem,
     display_list::{self, DisplayList, Slice},
     image::{ImageSampling, prepare_image_patches},
-    paint::{BoxShadow, Clear, ImageRequest, Mesh, MeshVertex, Rectangle, TextRequest},
+    paint::{Clear, Mesh, MeshVertex, TextRequest},
     style::{Border, BorderRadius, Fill, LinearGradient},
 };
 use bytemuck::Zeroable;
@@ -39,7 +39,7 @@ impl blit_gui::Context for Renderer {
 }
 
 impl Paint<Rectangle<'_>> for Renderer {
-    fn paint(&mut self, bounds: LogicalRect, rectangle: Rectangle<'_>) {
+    fn paint(&mut self, area: LogicalRect, rectangle: Rectangle<'_>) {
         let mut stops = [None; 2];
         let fills = [rectangle.background, rectangle.border.fill];
         let fills = [0, 1].map(|index| match fills[index] {
@@ -63,6 +63,7 @@ impl Paint<Rectangle<'_>> for Renderer {
             }
         });
         let value = StoredRectangle {
+            area,
             rectangle: Rectangle {
                 background: fills[0],
                 border: Border {
@@ -73,20 +74,23 @@ impl Paint<Rectangle<'_>> for Renderer {
             },
             stops,
         };
-        self.record::<Builtins>(bounds).draw(value);
+        self.record::<Builtins>(area).draw(value);
     }
 }
 
-impl Paint<ImageRequest> for Renderer {
-    fn paint(&mut self, bounds: LogicalRect, request: ImageRequest) {
+impl Paint<Image> for Renderer {
+    fn paint(&mut self, area: LogicalRect, request: Image) {
         self.record_native(
-            bounds,
+            area,
             self.paint_clip,
-            request,
+            (area, request),
             |a, _, b, _| a == b,
-            |value, _, state| value.hash(state),
+            |(area, value), _, state| {
+                hash_area(*area, state);
+                value.hash(state);
+            },
             |value, _, renderer, bounds, clip| {
-                let request = *value;
+                let (area, request) = *value;
 
                 let scale = renderer.scale;
                 let start = renderer.instances.len() as u32;
@@ -100,7 +104,7 @@ impl Paint<ImageRequest> for Renderer {
                 let image_size = image.handle.size();
                 let mask_color = image.mask_color.map(|color| premultiplied(color, 1.0));
                 let colorize = request.colorize.map(|color| premultiplied(color, 1.0));
-                prepare_image_patches(&request, image_size, scale, |patch| {
+                prepare_image_patches(area, &request, image_size, scale, |patch| {
                     let Some(draw) = patch.bounds.intersection(bounds) else {
                         return;
                     };
@@ -181,27 +185,31 @@ impl Paint<ImageRequest> for Renderer {
 }
 
 impl Paint<TextRequest<'_>> for Renderer {
-    fn paint(&mut self, bounds: LogicalRect, request: TextRequest<'_>) {
+    fn paint(&mut self, area: LogicalRect, request: TextRequest<'_>) {
         let colors = self.list.store_slice(request.colors.iter().copied());
         let value = StoredText {
+            area,
             request: TextRequest { colors: &[], ..request },
             colors,
         };
         self.record_native(
-            bounds,
+            area,
             self.paint_clip,
             value,
-            |a, left, b, right| a.view(left) == b.view(right),
-            |value, list, state| value.view(list).hash(state),
+            |a, left, b, right| a.area == b.area && a.view(left) == b.view(right),
+            |value, list, state| {
+                hash_area(value.area, state);
+                value.view(list).hash(state);
+            },
             |value, list, renderer, bounds, clip| {
                 let request = value.view(list);
 
                 let scale = renderer.scale;
-                let area = request.area.to_physical(Scale2::uniform(scale));
+                let area = value.area.to_physical(Scale2::uniform(scale));
                 let Some(visible_area) = area.intersection(bounds) else {
                     return;
                 };
-                let mut resolved = renderer.text.paint_layout(&request);
+                let mut resolved = renderer.text.paint_layout(value.area, &request);
                 let layout = resolved.layout;
                 for run in &layout.runs {
                     let offset = resolved.line_offset(run.line as usize);
@@ -216,8 +224,8 @@ impl Paint<TextRequest<'_>> for Renderer {
                             glyph: glyph.id,
                             scale,
                             origin: blit::Point::new(
-                                (request.area.x + glyph.position.x + offset.x - request.offset_x) * scale,
-                                (request.area.y + glyph.position.y + offset.y) * scale,
+                                (value.area.x + glyph.position.x + offset.x - request.offset_x) * scale,
+                                (value.area.y + glyph.position.y + offset.y) * scale,
                             ),
                         });
                         let cached =
@@ -315,9 +323,10 @@ impl Paint<Mesh<'_>> for Renderer {
     }
 }
 
-impl Paint<BoxShadow> for Renderer {
-    fn paint(&mut self, bounds: LogicalRect, shadow: BoxShadow) {
-        self.record::<Builtins>(bounds).draw(shadow);
+impl Paint<Shadow> for Renderer {
+    fn paint(&mut self, area: LogicalRect, shadow: Shadow) {
+        self.record::<Builtins>(shadow.bounds(area))
+            .draw(StoredShadow { area, shadow });
     }
 }
 
@@ -385,6 +394,7 @@ pub struct Dispatch<'a> {
 }
 
 struct StoredRectangle {
+    area: LogicalRect,
     rectangle: Rectangle<'static>,
     stops: [Option<Slice<blit_gui::style::GradientStop>>; 2],
 }
@@ -405,6 +415,7 @@ impl StoredRectangle {
 }
 
 struct StoredText {
+    area: LogicalRect,
     request: TextRequest<'static>,
     colors: Slice<blit_gui::color::Color>,
 }
@@ -452,7 +463,7 @@ impl crate::Handler<StoredRectangle> for Builtins {
         if opacity == 0.0 {
             return None;
         }
-        let area = rectangle.area.to_physical(Scale2::uniform(scale));
+        let area = value.area.to_physical(Scale2::uniform(scale));
         let draw = area.intersection(bounds)?;
         if let Fill::Solid(background) = rectangle.background
             && opacity == 1.0
@@ -526,18 +537,18 @@ impl crate::Handler<StoredRectangle> for Builtins {
     fn draw(&mut self, _: &[()], _: &mut crate::DrawContext<'_>) {}
 }
 
-impl crate::Handler<BoxShadow> for Builtins {
+impl crate::Handler<StoredShadow> for Builtins {
     type Prepared = ();
     fn new(_: &crate::PrepareContext<'_>) -> Self {
         Self
     }
     #[inline]
-    fn prepare(&mut self, value: &BoxShadow, context: &mut crate::PrepareContext<'_>) -> Option<()> {
+    fn prepare(&mut self, value: &StoredShadow, context: &mut crate::PrepareContext<'_>) -> Option<()> {
         let bounds = context.bounds;
         let clip = context.clip;
         let renderer = &mut *context.renderer;
 
-        let shadow = *value;
+        let shadow = value.shadow;
 
         let scale = renderer.scale;
         let start = renderer.instances.len() as u32;
@@ -545,7 +556,7 @@ impl crate::Handler<BoxShadow> for Builtins {
             return None;
         }
         if shadow.inset {
-            let shape = shadow.area.to_physical(Scale2::uniform(scale));
+            let shape = value.area.to_physical(Scale2::uniform(scale));
             if shape.width <= 0 || shape.height <= 0 {
                 return None;
             }
@@ -565,10 +576,10 @@ impl crate::Handler<BoxShadow> for Builtins {
             });
         } else {
             let area = LogicalRect {
-                x: shadow.area.x + shadow.offset_x - shadow.spread,
-                y: shadow.area.y + shadow.offset_y - shadow.spread,
-                width: shadow.area.width + shadow.spread * 2.0,
-                height: shadow.area.height + shadow.spread * 2.0,
+                x: value.area.x + shadow.offset_x - shadow.spread,
+                y: value.area.y + shadow.offset_y - shadow.spread,
+                width: value.area.width + shadow.spread * 2.0,
+                height: value.area.height + shadow.spread * 2.0,
             };
             if area.width <= 0.0 || area.height <= 0.0 {
                 return None;
@@ -622,9 +633,31 @@ struct Builtins;
 
 impl blit_gui::display_list::Compare for StoredRectangle {
     fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
-        a.view(left) == b.view(right)
+        a.area == b.area && a.view(left) == b.view(right)
     }
     fn hash(value: &Self, list: &DisplayList, state: &mut impl std::hash::Hasher) {
+        hash_area(value.area, state);
         value.view(list).hash(state);
     }
+}
+
+struct StoredShadow {
+    area: LogicalRect,
+    shadow: Shadow,
+}
+
+impl blit_gui::display_list::Compare for StoredShadow {
+    fn equal(a: &Self, _: &DisplayList, b: &Self, _: &DisplayList) -> bool {
+        a.area == b.area && a.shadow == b.shadow
+    }
+    fn hash(value: &Self, _: &DisplayList, state: &mut impl std::hash::Hasher) {
+        hash_area(value.area, state);
+        value.shadow.hash(state);
+    }
+}
+
+fn hash_area(area: LogicalRect, state: &mut impl std::hash::Hasher) {
+    [area.x, area.y, area.width, area.height]
+        .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+        .hash(state);
 }

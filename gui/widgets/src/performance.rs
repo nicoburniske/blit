@@ -4,7 +4,6 @@ use blit::{Paint, Sides, Size, Widget};
 use blit_gui::{
     Context, Rectangle,
     color::Color,
-    paint,
     paint::TextRequest,
     style::{Border, BorderRadius},
     text::TextStyle,
@@ -48,7 +47,7 @@ blit::builder! {
 impl<C> Widget<C> for Performance<'_>
 where
     C: Context + blit_widgets::Context + AsRef<FrameProfiler>,
-    for<'a> C: Paint<paint::Rectangle<'a>> + Paint<TextRequest<'a>>,
+    for<'a> C: Paint<Rectangle<'a>> + Paint<TextRequest<'a>>,
 {
     type Response = ();
 
