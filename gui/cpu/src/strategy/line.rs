@@ -121,6 +121,9 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
 
 impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
     fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker) {
+        context
+            .commands
+            .expand_meshes(damage, &mut context.images, &mut context.text);
         let width = context.buffer.width();
         let height = context.buffer.height();
         let screen = PhysicalRect::new(0, 0, width as i32, height as i32);
@@ -192,7 +195,10 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     .enumerate()
                     .rev()
                     .find(|(_, command)| {
-                        commands.overwrites(**command)
+                        let bounds = commands.horizontal_bounds(**command);
+                        bounds.start <= range.start as i32
+                            && bounds.end >= range.end as i32
+                            && commands.overwrites(**command)
                             && commands
                                 .overwrite_span(**command, line, images, text)
                                 .and_then(|span| clip_span(commands.clip(**command), span))
@@ -224,6 +230,10 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     .enumerate()
                     .rev()
                     .find_map(|(offset, command)| {
+                        let bounds = commands.horizontal_bounds(*command);
+                        if bounds.end <= range.start as i32 || bounds.start >= range.end as i32 {
+                            return None;
+                        }
                         let command_first = first + 1 + offset;
                         // rounded commands and partially opaque images can hide a scanline center
                         let span = if commands.overwrites(*command) {

@@ -244,7 +244,7 @@ impl<P: Pixel> crate::Handler<BoxShadow, P> for Handler {
                     let (cached, _) = handler.entries.get_or_insert(key, |key| (key, cached));
                     (cached.image.id(), cached.nine_slice)
                 };
-                let image = cx.prepare_image(
+                cx.prepare_image(
                     &ImageRequest {
                         image,
                         area: bounds.to_logical(Scale2::IDENTITY),
@@ -257,9 +257,7 @@ impl<P: Pixel> crate::Handler<BoxShadow, P> for Handler {
                         vertical_tiling: ImageTiling::None,
                     },
                     1.0,
-                );
-                handler.entries.trim_to_weight();
-                image
+                )
             },
             |_, prepared, cx| {
                 let Some(image) = prepared else {
@@ -268,6 +266,10 @@ impl<P: Pixel> crate::Handler<BoxShadow, P> for Handler {
                 cx.for_each_span(|mut span| image.draw(&mut span));
             },
         );
+    }
+
+    fn finish_frame(&mut self) {
+        self.entries.trim_to_weight();
     }
 }
 

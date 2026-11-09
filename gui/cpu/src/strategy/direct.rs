@@ -12,6 +12,9 @@ pub struct Direct {
 
 impl<B: PixelBuffer> RenderStrategy<B> for Direct {
     fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker) {
+        context
+            .commands
+            .expand_meshes(damage, &mut context.images, &mut context.text);
         let screen = PhysicalRect {
             x: context.buffer.x_offset() as i32,
             y: 0,

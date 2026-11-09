@@ -59,6 +59,9 @@ use crate::{
 /// ```
 pub trait Handler<T, P: Pixel>: Sized + 'static {
     fn handle(&mut self, command: T, cx: &mut PaintContext<'_, Self, P>);
+
+    /// called once per handler after the frame data is dropped
+    fn finish_frame(&mut self) {}
 }
 
 pub struct PaintContext<'a, H, P: Pixel> {
@@ -104,6 +107,10 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
     /// dispatches drawing data to its handler and creates its default on first use
     pub fn handle<H: Handler<T, B::Pixel> + Default, T>(&mut self, bounds: LogicalRect, command: T) {
         let index = self.handler_index::<H>();
+        self.handlers[index].finish = Some(|handler| {
+            // safety: dispatch pairs this callback with the entry created for H
+            unsafe { handler.value.cast::<H>().as_mut() }.finish_frame();
+        });
         let handler = self.handlers[index].value;
         let context = &mut self.context;
         // safety: the lookup selects the entry created for H
@@ -490,6 +497,13 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
 
     pub fn mesh(&mut self, mesh: Mesh<'_>) {
         assert_eq!(mesh.indices.len() % 3, 0, "mesh index count must be divisible by three");
+        if mesh.indices.is_empty() {
+            return;
+        }
+        assert!(
+            mesh.indices.iter().all(|index| (*index as usize) < mesh.vertices.len()),
+            "mesh index out of bounds"
+        );
         let mut hash = FxHasher::default();
         hash.write_u8(3);
         mesh.vertices.len().hash(&mut hash);
@@ -508,26 +522,14 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             fingerprint: hash.finish(),
         });
         let vertices = self.commands.data.extend(mesh.vertices.iter().copied());
-        for indices in mesh.indices.as_chunks::<3>().0 {
-            let points = indices.map(|index| {
-                let vertex = mesh.vertices[index as usize];
-                [vertex.position.x * self.scale, vertex.position.y * self.scale]
-            });
-            if let Some(bounds) = crate::render::triangle::bounds(points).intersection(self.bounds) {
-                self.commands.record(
-                    bounds,
-                    self.clip,
-                    (vertices, *indices, self.scale),
-                    |_, (vertices, indices, scale), cx| {
-                        let vertices = cx.data.slice(*vertices);
-                        let vertices = indices.map(|index| vertices[index as usize]);
-                        crate::render::triangle::Prepared::new(vertices, Scale2::uniform(*scale), cx.bounds)
-                            .map(|(triangle, _)| Payload::Triangle(triangle))
-                            .unwrap_or(Payload::Empty)
-                    },
-                );
-            }
-        }
+        let indices = self.commands.data.extend(mesh.indices.iter().copied());
+        let call = ErasedCommand::ready(
+            NonNull::<()>::dangling(),
+            &mut self.commands.prepared,
+            Payload::Mesh(vertices, indices, self.scale),
+        );
+        self.commands.push(call, self.bounds, self.clip);
+        self.commands.has_meshes = true;
     }
 
     pub fn clear(&mut self) {
@@ -541,6 +543,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct ErasedCommand<P> {
     handler: NonNull<()>,
     value: Value,
@@ -637,6 +640,7 @@ pub struct ErasedHandler {
     kind: TypeId,
     value: NonNull<()>,
     drop: unsafe fn(NonNull<()>),
+    pub finish: Option<fn(&mut Self)>,
 }
 
 impl ErasedHandler {
@@ -644,6 +648,7 @@ impl ErasedHandler {
         Self {
             kind: TypeId::of::<H>(),
             value: NonNull::from(Box::leak(Box::new(handler))).cast(),
+            finish: None,
             drop: |value| {
                 // safety: new transfers ownership of one boxed H to this entry
                 unsafe { drop(Box::from_raw(value.cast::<H>().as_ptr())) };

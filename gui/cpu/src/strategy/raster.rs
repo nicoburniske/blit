@@ -20,7 +20,7 @@ pub fn draw_line<B: PixelBuffer>(
     }
     let bounds = commands.bounds(command);
     match commands.get(command) {
-        Payload::Pending | Payload::Empty => {}
+        Payload::Pending | Payload::Empty | Payload::Mesh(..) => {}
         Payload::Custom => {
             let call = &mut commands.entries[command as usize];
             if call.reads.is_some() {

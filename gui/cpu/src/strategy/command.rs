@@ -1,12 +1,12 @@
 use std::{ops::Range, ptr::NonNull};
 
-use blit::PhysicalRect;
-use blit_gui::color::Color;
+use blit::{PhysicalRect, Scale2};
+use blit_gui::{color::Color, paint::MeshVertex};
 
 use super::clip::ClipId;
 use crate::{
-    DrawContext, Pixel, StoredImage,
-    arena::Arena,
+    DamageTracker, DrawContext, Pixel, StoredImage,
+    arena::{Arena, Slice},
     paint::{DrawTarget, ErasedCommand},
     render::{
         fill::Gradients,
@@ -28,6 +28,8 @@ pub struct CommandList<P> {
     pub gradients: Gradients,
     pub has_partial_opaque: bool,
     pub has_clips: bool,
+    pub has_meshes: bool,
+    pub has_passes: bool,
 }
 
 impl<P> Default for CommandList<P> {
@@ -41,6 +43,8 @@ impl<P> Default for CommandList<P> {
             gradients: Gradients::default(),
             has_partial_opaque: false,
             has_clips: false,
+            has_meshes: false,
+            has_passes: false,
         }
     }
 }
@@ -54,6 +58,7 @@ pub enum Payload {
     Image(PreparedImage),
     Text(PreparedText, PhysicalRect),
     Triangle(PreparedTriangle),
+    Mesh(Slice<MeshVertex>, Slice<u32>, f32),
     Custom,
 }
 
@@ -107,7 +112,7 @@ impl<P: Pixel> CommandList<P> {
             && first.radii.is_zero()
             && first.border_width == 0
             && self.clip(id) == 0
-            && next < self.len()
+            && next < self.offsets().end
             && self.clip(next) == 0
             && self.bounds(id) == self.bounds(next)
             && !matches!(self.get(next), Payload::Custom)
@@ -185,7 +190,12 @@ impl<P: Pixel> CommandList<P> {
             Payload::Rectangle(rectangle) => rectangle.overwrite_span(line)?,
             Payload::SolidPair(_) => bounds.clone(),
             Payload::Image(_) => bounds.clone(),
-            Payload::Pending | Payload::Empty | Payload::Text(..) | Payload::Triangle(_) | Payload::Custom => {
+            Payload::Pending
+            | Payload::Empty
+            | Payload::Text(..)
+            | Payload::Triangle(_)
+            | Payload::Mesh(..)
+            | Payload::Custom => {
                 return None;
             }
         };
@@ -198,6 +208,76 @@ impl<P: Pixel> CommandList<P> {
         self.range.clone().unwrap_or_else(|| 0..self.len())
     }
 
+    pub fn expand_meshes(
+        &mut self,
+        damage: &impl DamageTracker,
+        images: &mut blit_arena::Arena<StoredImage>,
+        text: &mut TextRenderer,
+    ) {
+        let range = self.offsets();
+        if !self.has_meshes || !range.clone().any(|id| matches!(self.get(id), Payload::Mesh(..))) {
+            return;
+        }
+        let start = self.len();
+        for id in range.clone() {
+            let metadata = Metadata {
+                ..self.metadata[id as usize]
+            };
+            if !damage.intersects(metadata.bounds, metadata.clip) {
+                continue;
+            }
+            let (vertices, indices, scale) = match self.get(id) {
+                Payload::Mesh(vertices, indices, scale) => (*vertices, *indices, *scale),
+                _ => {
+                    self.entries.push(self.entries[id as usize]);
+                    self.metadata.push(metadata);
+                    continue;
+                }
+            };
+            if (id + 1..range.end).rev().any(|next| {
+                if !self.overwrites(next)
+                    || self.clip(next) != 0
+                    || self.bounds(next).intersection(metadata.bounds) != Some(metadata.bounds)
+                {
+                    return false;
+                }
+                self.prepare(next, images, text);
+                match self.get(next) {
+                    Payload::Clear | Payload::SolidPair(_) | Payload::Image(_) => true,
+                    Payload::Rectangle(rectangle) => rectangle.radii.is_zero() && rectangle.overwrites(),
+                    _ => false,
+                }
+            }) {
+                continue;
+            }
+            for triangle in 0..self.data.slice(indices).len() / 3 {
+                let indices: [u32; 3] = self.data.slice(indices)[triangle * 3..][..3].try_into().unwrap();
+                let points = indices.map(|index| {
+                    let vertex = self.data.slice(vertices)[index as usize];
+                    [vertex.position.x * scale, vertex.position.y * scale]
+                });
+                let Some(bounds) = crate::render::triangle::bounds(points).intersection(metadata.bounds) else {
+                    continue;
+                };
+                if damage.intersects(bounds, metadata.clip) {
+                    self.record(
+                        bounds,
+                        metadata.clip,
+                        (vertices, indices, scale),
+                        |_, (vertices, indices, scale), cx| {
+                            let vertices = cx.data.slice(*vertices);
+                            let vertices = indices.map(|index| vertices[index as usize]);
+                            PreparedTriangle::new(vertices, Scale2::uniform(*scale), cx.bounds)
+                                .map(|(triangle, _)| Payload::Triangle(triangle))
+                                .unwrap_or(Payload::Empty)
+                        },
+                    );
+                }
+            }
+        }
+        self.range = Some(start..self.len());
+    }
+
     pub fn clear(&mut self) {
         self.metadata.clear();
         self.entries.clear();
@@ -208,6 +288,8 @@ impl<P: Pixel> CommandList<P> {
         self.gradients.stops.clear();
         self.has_partial_opaque = false;
         self.has_clips = false;
+        self.has_meshes = false;
+        self.has_passes = false;
     }
 }
 
@@ -225,6 +307,7 @@ impl<P: Pixel> CommandList<P> {
 
     pub fn push(&mut self, input: ErasedCommand<P>, bounds: PhysicalRect, clip: ClipId) -> &mut Metadata {
         self.has_clips |= clip != 0;
+        self.has_passes |= input.reads.is_some();
         self.entries.push(input);
         self.metadata.push(Metadata {
             bounds,

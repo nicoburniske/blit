@@ -130,6 +130,17 @@ fn prepared_draws_capture_data_and_drop_results_once() {
         renderer.handle::<(), _>(bounds, Samples(&values, counts.clone()));
         values.fill(128);
         assert_eq!(renderer.context.commands.prepared.used(), 0);
+        renderer.paint(
+            bounds,
+            Mesh {
+                vertices: &[
+                    MeshVertex::new(1.0, 1.0, Color::TRANSPARENT),
+                    MeshVertex::new(3.0, 1.0, Color::TRANSPARENT),
+                    MeshVertex::new(1.0, 3.0, Color::TRANSPARENT),
+                ],
+                indices: &[0, 1, 2],
+            },
+        );
         if covered {
             renderer.paint(bounds, Rectangle::new(bounds).background(Color::WHITE));
         }
@@ -149,7 +160,7 @@ fn prepared_draws_capture_data_and_drop_results_once() {
 }
 
 #[test]
-fn builtin_preparation_skips_covered_and_unchanged_work() {
+fn builtin_preparation_follows_damage_and_occlusion() {
     use std::{cell::Cell, rc::Rc};
 
     use crate::strategy::command::Payload;
@@ -162,49 +173,77 @@ fn builtin_preparation_skips_covered_and_unchanged_work() {
     impl RenderStrategy<VecBuffer<Xrgb8888>> for Check {
         fn render(&mut self, context: &mut RenderContext<VecBuffer<Xrgb8888>>, damage: &impl DamageTracker) {
             assert!(matches!(context.commands.get(1), Payload::Pending));
+            assert!(matches!(context.commands.get(2), Payload::Pending));
             self.scanline.render(context, damage);
             if self.calls.get() == 0 {
                 assert!(matches!(context.commands.get(1), Payload::Pending));
             } else {
                 assert!(matches!(context.commands.get(1), Payload::Rectangle(_)));
             }
+            assert_eq!(
+                matches!(context.commands.get(2), Payload::Pending),
+                self.calls.get() != 1
+            );
             self.calls.set(self.calls.get() + 1);
         }
     }
 
     let calls = Rc::new(Cell::new(0));
-    let mut renderer = new_renderer(VecBuffer::new(32, 24), renderer_config()).strategy(Check {
+    let mut renderer = new_renderer(VecBuffer::new(64, 24), renderer_config()).strategy(Check {
         scanline: Scanline::default(),
         calls: calls.clone(),
     });
-    let bounds = LogicalRect::new(0.0, 0.0, 32.0, 24.0);
+    let bounds = LogicalRect::new(0.0, 0.0, 64.0, 24.0);
     let area = LogicalRect::new(1.0, 1.0, 30.0, 22.0);
-    for covered in [true, false, false] {
+    let unrelated = LogicalRect::new(33.0, 1.0, 30.0, 22.0);
+    for (covered, color) in [
+        (true, Color::WHITE),
+        (false, Color::WHITE),
+        (false, Color::BLACK),
+        (false, Color::BLACK),
+    ] {
         renderer.paint(bounds, blit_gui::atom::Clear);
-        renderer.paint(area, Rectangle::new(area).background(Color::WHITE));
+        renderer.paint(area, Rectangle::new(area).background(color));
+        renderer.paint(unrelated, Rectangle::new(unrelated).background(Color::WHITE));
         if covered {
             renderer.paint(bounds, Rectangle::new(bounds).background(Color::WHITE));
         }
         renderer.render(1);
     }
-    assert_eq!(calls.get(), 2);
+    assert_eq!(calls.get(), 3);
 }
 
 #[test]
-fn shadow_resources_are_created_only_when_visible() {
+fn shadow_masks_are_lazy_and_shared_until_frame_end() {
+    struct Check(Scanline, usize);
+
+    impl RenderStrategy<VecBuffer<Xrgb8888>> for Check {
+        fn render(&mut self, context: &mut RenderContext<VecBuffer<Xrgb8888>>, damage: &impl DamageTracker) {
+            self.0.render(context, damage);
+            assert_eq!(context.images.len(), self.1);
+            self.1 += 1;
+        }
+    }
+
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 20), text_system(), renderer_config())
-        .strategy(Scanline::default());
+        .handler(shadow::Handler::new(0))
+        .strategy(Check(Scanline::default(), 0));
     let bounds = LogicalRect::new(0.0, 0.0, 32.0, 20.0);
     let shadow = blit_gui::shadow::BoxShadow::new(LogicalRect::new(8.0, 6.0, 8.0, 6.0), Color::WHITE).blur(2.0);
     for covered in [true, false] {
         renderer.paint(bounds, Rectangle::new(bounds).background(Color::BLACK));
         renderer.paint(shadow.bounds(), shadow);
+        let second = blit_gui::shadow::BoxShadow {
+            area: LogicalRect::new(18.0, 6.0, 8.0, 6.0),
+            ..shadow
+        };
+        renderer.paint(second.bounds(), second);
         assert!(renderer.context.images.is_empty());
         if covered {
             renderer.paint(bounds, Rectangle::new(bounds).background(Color::WHITE));
         }
         renderer.render(1);
-        assert_eq!(renderer.context.images.is_empty(), covered);
+        assert!(renderer.context.images.is_empty());
     }
 }
 
@@ -557,7 +596,18 @@ fn renderer_supports_custom_pixel_layouts() {
 
 #[test]
 fn mesh_interpolates_colors_without_shared_edge_overdraw() {
-    let mut renderer = new_renderer(VecBuffer::<BgrPixel>::new(16, 8), renderer_config()).strategy(Scanline::default());
+    #[derive(Default)]
+    struct Check(Scanline, usize);
+
+    impl RenderStrategy<VecBuffer<BgrPixel>> for Check {
+        fn render(&mut self, context: &mut RenderContext<VecBuffer<BgrPixel>>, damage: &impl DamageTracker) {
+            self.0.render(context, damage);
+            assert_eq!(context.commands.offsets().len(), [3, 1, 3, 1][self.1]);
+            self.1 += 1;
+        }
+    }
+
+    let mut renderer = new_renderer(VecBuffer::<BgrPixel>::new(16, 8), renderer_config()).strategy(Check::default());
     let bounds = PhysicalRect {
         x: 0,
         y: 0,
@@ -575,14 +625,16 @@ fn mesh_interpolates_colors_without_shared_edge_overdraw() {
         MeshVertex::new(8.0, 8.0, Color::rgb(0, 0, 255)),
     ];
 
+    let mut indices = [0, 1, 2, 2, 1, 3, 4, 5, 6];
     renderer.paint(
         renderer.screen().to_logical(SCALE),
         Mesh {
             vertices: &vertices,
-            indices: &[0, 1, 2, 2, 1, 3, 4, 5, 6],
+            indices: &indices,
         },
     );
-
+    assert_eq!(renderer.context.commands.len(), 1);
+    indices.fill(0);
     renderer.render(0);
 
     let expected: [BgrPixel; 128] = renderer.buffer().pixels().try_into().unwrap();
@@ -612,6 +664,25 @@ fn mesh_interpolates_colors_without_shared_edge_overdraw() {
     assert!(pixels[16 + 9].red > pixels[16 + 9].green);
     assert!(pixels[16 + 13].green > pixels[16 + 13].red);
     assert!(pixels[5 * 16 + 9].blue > pixels[5 * 16 + 9].red);
+
+    renderer.paint(
+        LogicalRect::new(0.0, 0.0, 15.0, 8.0),
+        Mesh {
+            vertices: &vertices,
+            indices: &[0, 1, 2],
+        },
+    );
+    renderer.paint(
+        bounds.to_logical(SCALE),
+        Rectangle::new(bounds.to_logical(SCALE)).background(Color::WHITE),
+    );
+    renderer.render(0);
+    assert!(renderer.buffer().pixels().iter().all(|pixel| *pixel
+        == BgrPixel {
+            red: 255,
+            green: 255,
+            blue: 255
+        }));
 }
 
 #[test]

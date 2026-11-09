@@ -307,7 +307,10 @@ fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B
 #[cfg(test)]
 mod tests {
     use blit_cpu::{DamageTracker, Direct, PixelBuffer, RenderStrategy, TileDamage, damage::command::CommandDiff};
-    use blit_gui::Context;
+    use blit_gui::{
+        Context,
+        paint::{Mesh, MeshVertex},
+    };
 
     use super::*;
 
@@ -343,17 +346,29 @@ mod tests {
 
     fn damage_scene<C>(renderer: &mut C, frame: usize)
     where
-        C: for<'a> Paint<Rectangle<'a>, Scalar = f32> + Paint<BackdropBlur> + Context,
+        C: for<'a> Paint<Rectangle<'a>, Scalar = f32> + for<'a> Paint<Mesh<'a>> + Paint<BackdropBlur> + Context,
     {
         let background = Rectangle::new(LogicalRect::new(0.0, 0.0, DAMAGE_WIDTH as f32, DAMAGE_HEIGHT as f32))
             .background(Color::rgb(18, 30, 50));
         renderer.paint(background.area, background);
-        let edit = Rectangle::new(LogicalRect::new(60.0, 80.0, 2.0, 2.0)).background(if frame == 0 {
+        let edit = LogicalRect::new(60.0, 80.0, 2.0, 2.0);
+        let color = if frame == 0 {
             Color::rgb(240, 20, 10)
         } else {
             Color::WHITE
-        });
-        renderer.paint(edit.area, edit);
+        };
+        renderer.paint(
+            edit,
+            Mesh {
+                vertices: &[
+                    MeshVertex::new(60.0, 80.0, color),
+                    MeshVertex::new(62.0, 80.0, color),
+                    MeshVertex::new(62.0, 82.0, color),
+                    MeshVertex::new(60.0, 82.0, color),
+                ],
+                indices: &[0, 1, 2, 0, 2, 3],
+            },
+        );
         if frame != 4 {
             let offset = if frame >= 5 { 12 } else { 0 };
             let bounds = LogicalRect::new((64 + offset) as f32, 48.0, 192.0, 128.0);
@@ -387,12 +402,17 @@ mod tests {
             if frame >= 7 { 128 } else { 255 },
         ));
         renderer.paint(overlay.area, overlay);
-        let unrelated = Rectangle::new(LogicalRect::new(340.0, 220.0, 2.0, 2.0)).background(if frame >= 2 {
-            Color::rgb(50, 100, 255)
-        } else {
-            Color::rgb(10, 200, 30)
-        });
-        renderer.paint(unrelated.area, unrelated);
+        renderer.paint(
+            LogicalRect::new(340.0, 220.0, 2.0, 2.0),
+            Mesh {
+                vertices: &[
+                    MeshVertex::new(340.0, 220.0, Color::WHITE),
+                    MeshVertex::new(342.0, 220.0, Color::WHITE),
+                    MeshVertex::new(340.0, 222.0, if frame >= 2 { Color::BLACK } else { Color::WHITE }),
+                ],
+                indices: &[0, 1, 2],
+            },
+        );
         let overlay = Rectangle::new(LogicalRect::new(84.0, 80.0, 2.0, 2.0)).background(Color::rgba(255, 0, 255, 200));
         renderer.paint(overlay.area, overlay);
     }

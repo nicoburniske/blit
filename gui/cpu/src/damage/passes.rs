@@ -32,6 +32,11 @@ impl PassDamage {
         shift: u32,
     ) {
         let commands = &context.commands;
+        if !commands.has_passes || tracker.is_empty() {
+            self.passes.clear();
+            self.stages.clear();
+            return;
+        }
         let scale = context.scale_factor;
         self.clips.clear();
         self.clips.push(screen);
