@@ -1,6 +1,9 @@
 use std::{any::TypeId, hash::Hash, marker::PhantomData, mem::offset_of, ptr::NonNull};
 
-use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
+use blit::{
+    LogicalRect, Paint, PhysicalRect, Scale2,
+    internal::bump::{Bump, Offset},
+};
 use blit_gui::{
     arena::{Arena, Slice},
     display_list::{Command, DisplayList},
@@ -199,8 +202,8 @@ impl<P: Pixel> Handler<blit_gui::atom::Clear, P> for () {
 }
 
 impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
-    pub fn data(&mut self) -> blit_gui::arena::Writer<'_> {
-        self.list.writer()
+    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> Slice<T> {
+        self.list.store_slice(values)
     }
 
     /// records a raster callback with an owned snapshot of its visual inputs
@@ -236,7 +239,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                         (offset, prepare, draw),
                         |handler, (offset, prepare, draw), cx| {
                             // safety: recording pairs this offset with T
-                            let value = unsafe { cx.data.value_unchecked::<T>(*offset) };
+                            let value = unsafe { cx.data.load::<T>(*offset) };
                             Call {
                                 value: prepare(handler, value, cx),
                                 draw: *draw,
@@ -280,12 +283,14 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                     value: offset,
                     prepare: None,
                     draw: Some(|handler, offset, _, cx| {
-                        Call::<H, T, P>::draw(handler, offset, cx.data, cx);
+                        // safety: recording pairs this offset with Call and this handler with H
+                        let call = unsafe { cx.data.load::<Call<H, T, P>>(offset) };
+                        (call.draw)(unsafe { handler.cast::<H>().as_mut() }, &call.value, cx);
                     }),
                     reads: input.reads.map(|_| {
                         (|handler: NonNull<()>, offset, data: &Arena, output| {
                             // safety: recording pairs this offset with Call
-                            let call = unsafe { data.value_unchecked::<Call<H, T, P>>(offset) };
+                            let call = unsafe { data.load::<Call<H, T, P>>(offset) };
                             // safety: recording selects the handler for H
                             call.reads.unwrap()(unsafe { handler.cast::<H>().as_ref() }, &call.value, output)
                         }) as _
@@ -323,7 +328,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                             .all(|stops| stops[0].position < stops[1].position),
                     "invalid linear gradient"
                 );
-                stops[index] = Some(self.list.writer().extend(gradient.stops.iter().copied()));
+                stops[index] = Some(self.list.store_slice(gradient.stops.iter().copied()));
                 Fill::LinearGradient(LinearGradient { stops: &[], ..gradient })
             }
         });
@@ -342,18 +347,18 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             &crate::raster::ops::<StoredRectangle>(
                 |left, a, right, b| {
                     // safety: insertion pairs this table with StoredRectangle
-                    let a = unsafe { left.value_unchecked::<StoredRectangle>(a) };
-                    let b = unsafe { right.value_unchecked::<StoredRectangle>(b) };
+                    let a = unsafe { left.load::<StoredRectangle>(a) };
+                    let b = unsafe { right.load::<StoredRectangle>(b) };
                     a.view(left) == b.view(right)
                 },
                 |data, offset, state| {
                     // safety: insertion pairs this table with StoredRectangle
-                    let value = unsafe { data.value_unchecked::<StoredRectangle>(offset) };
+                    let value = unsafe { data.load::<StoredRectangle>(offset) };
                     value.view(data).hash(state);
                 },
                 |record, data, context| {
                     // safety: recording pairs this operation with its input and pixel type
-                    let input = unsafe { data.value_unchecked::<StoredRectangle>(record.offset()) };
+                    let input = unsafe { data.load::<StoredRectangle>(record.offset()) };
                     let context = unsafe { context.cast::<PrepareContext<'_, P>>().as_mut() };
                     let scale = context.scale;
                     let target = &mut *context.commands;
@@ -402,7 +407,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                             (scale, record.offset()),
                             |_, (scale, value), cx| {
                                 // safety: recording stores this offset as StoredRectangle
-                                let input = unsafe { cx.data.value_unchecked::<StoredRectangle>(*value) };
+                                let input = unsafe { cx.data.load::<StoredRectangle>(*value) };
                                 crate::render::rectangle::Prepared::new(&input.view(cx.data), *scale, cx.gradients)
                                     .map(Payload::Rectangle)
                                     .unwrap_or(Payload::Empty)
@@ -423,18 +428,18 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             &crate::raster::ops::<ImageRequest>(
                 |left, a, right, b| {
                     // safety: insertion pairs this table with ImageRequest
-                    let a = unsafe { left.value_unchecked::<ImageRequest>(a) };
-                    let b = unsafe { right.value_unchecked::<ImageRequest>(b) };
+                    let a = unsafe { left.load::<ImageRequest>(a) };
+                    let b = unsafe { right.load::<ImageRequest>(b) };
                     a == b
                 },
                 |data, offset, state| {
                     // safety: insertion pairs this table with ImageRequest
-                    let value = unsafe { data.value_unchecked::<ImageRequest>(offset) };
+                    let value = unsafe { data.load::<ImageRequest>(offset) };
                     value.hash(state);
                 },
                 |record, data, context| {
                     // safety: recording pairs this operation with its input and pixel type
-                    let request = unsafe { data.value_unchecked::<ImageRequest>(record.offset()) };
+                    let request = unsafe { data.load::<ImageRequest>(record.offset()) };
                     let context = unsafe { context.cast::<PrepareContext<'_, P>>().as_mut() };
                     let scale = context.scale;
                     let target = &mut *context.commands;
@@ -455,7 +460,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                                         (scale, record.offset(), patch),
                                         |_, (scale, value, patch), cx| {
                                             // safety: recording stores this offset as ImageRequest
-                                            let request = unsafe { cx.data.value_unchecked::<ImageRequest>(*value) };
+                                            let request = unsafe { cx.data.load::<ImageRequest>(*value) };
                                             crate::render::image_patch::Prepared::new(request, *patch, *scale)
                                                 .map(Payload::Image)
                                                 .unwrap_or(Payload::Empty)
@@ -481,7 +486,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
     }
 
     pub fn text(&mut self, request: TextRequest<'_>) {
-        let colors = self.list.writer().extend(request.colors.iter().copied());
+        let colors = self.list.store_slice(request.colors.iter().copied());
         let value = StoredText {
             request: TextRequest { colors: &[], ..request },
             colors,
@@ -490,18 +495,18 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             &crate::raster::ops::<StoredText>(
                 |left, a, right, b| {
                     // safety: insertion pairs this table with StoredText
-                    let a = unsafe { left.value_unchecked::<StoredText>(a) };
-                    let b = unsafe { right.value_unchecked::<StoredText>(b) };
+                    let a = unsafe { left.load::<StoredText>(a) };
+                    let b = unsafe { right.load::<StoredText>(b) };
                     a.view(left) == b.view(right)
                 },
                 |data, offset, state| {
                     // safety: insertion pairs this table with StoredText
-                    let value = unsafe { data.value_unchecked::<StoredText>(offset) };
+                    let value = unsafe { data.load::<StoredText>(offset) };
                     value.view(data).hash(state);
                 },
                 |record, data, context| {
                     // safety: recording pairs this operation with its input and pixel type
-                    let input = unsafe { data.value_unchecked::<StoredText>(record.offset()) };
+                    let input = unsafe { data.load::<StoredText>(record.offset()) };
                     let context = unsafe { context.cast::<PrepareContext<'_, P>>().as_mut() };
                     let scale = context.scale;
                     let target = &mut *context.commands;
@@ -513,7 +518,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                             (scale, record.offset()),
                             |_, (scale, value), cx| {
                                 // safety: recording stores this offset as StoredText
-                                let input = unsafe { cx.data.value_unchecked::<StoredText>(*value) };
+                                let input = unsafe { cx.data.load::<StoredText>(*value) };
                                 let (text, bounds) = cx.text.prepare(&input.view(cx.data), *scale);
                                 Payload::Text(text, bounds)
                             },
@@ -543,25 +548,25 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
                 .all(|vertex| vertex.position.x.is_finite() && vertex.position.y.is_finite()),
             "mesh positions must be finite"
         );
-        let vertices = self.list.writer().extend(mesh.vertices.iter().copied());
-        let indices = self.list.writer().extend(mesh.indices.iter().copied());
+        let vertices = self.list.store_slice(mesh.vertices.iter().copied());
+        let indices = self.list.store_slice(mesh.indices.iter().copied());
         let value = StoredMesh { vertices, indices };
         let ops = const {
             &crate::raster::ops::<StoredMesh>(
                 |left, a, right, b| {
                     // safety: insertion pairs this table with StoredMesh
-                    let a = unsafe { left.value_unchecked::<StoredMesh>(a) };
-                    let b = unsafe { right.value_unchecked::<StoredMesh>(b) };
+                    let a = unsafe { left.load::<StoredMesh>(a) };
+                    let b = unsafe { right.load::<StoredMesh>(b) };
                     a.view(left) == b.view(right)
                 },
                 |data, offset, state| {
                     // safety: insertion pairs this table with StoredMesh
-                    let value = unsafe { data.value_unchecked::<StoredMesh>(offset) };
+                    let value = unsafe { data.load::<StoredMesh>(offset) };
                     value.view(data).hash(state);
                 },
                 |record, data, context| {
                     // safety: recording pairs this operation with its input and pixel type
-                    let input = unsafe { data.value_unchecked::<StoredMesh>(record.offset()) };
+                    let input = unsafe { data.load::<StoredMesh>(record.offset()) };
                     let context = unsafe { context.cast::<PrepareContext<'_, P>>().as_mut() };
                     let scale = context.scale;
                     let target = &mut *context.commands;
@@ -603,18 +608,18 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             &crate::raster::ops::<(K, T, F)>(
                 |left, a, right, b| {
                     // safety: insertion pairs this table with (K, T, F)
-                    let a = unsafe { left.value_unchecked::<(K, T, F)>(a) };
-                    let b = unsafe { right.value_unchecked::<(K, T, F)>(b) };
+                    let a = unsafe { left.load::<(K, T, F)>(a) };
+                    let b = unsafe { right.load::<(K, T, F)>(b) };
                     a.0 == b.0
                 },
                 |data, offset, state| {
                     // safety: insertion pairs this table with (K, T, F)
-                    let value = unsafe { data.value_unchecked::<(K, T, F)>(offset) };
+                    let value = unsafe { data.load::<(K, T, F)>(offset) };
                     value.0.hash(state);
                 },
                 |command, data, context| {
                     // safety: recording pairs this operation with its input and pixel type
-                    let (_, value, prepare) = unsafe { data.value_unchecked::<(K, T, F)>(command.offset()) };
+                    let (_, value, prepare) = unsafe { data.load::<(K, T, F)>(command.offset()) };
                     let offset = command.offset() + offset_of!((K, T, F), 1) as u32;
                     let context = unsafe { context.cast::<PrepareContext<'_, P>>().as_mut() };
                     let scale = context.scale;
@@ -682,14 +687,14 @@ impl StoredMesh {
 pub struct ErasedCommand<P> {
     handler: NonNull<()>,
     value: u32,
-    prepare: Option<fn(NonNull<()>, u32, &Arena, &mut Arena, &mut DrawContext<'_, P>) -> u32>,
-    pub draw: Option<fn(NonNull<()>, u32, &Arena, &mut DrawContext<'_, P>)>,
+    prepare: Option<fn(NonNull<()>, u32, &Bump, &mut Bump, &mut DrawContext<'_, P>) -> u32>,
+    pub draw: Option<fn(NonNull<()>, u32, &Bump, &mut DrawContext<'_, P>)>,
     pub reads: Option<fn(NonNull<()>, u32, &Arena, PhysicalRect) -> PhysicalRect>,
 }
 
 impl<P: Pixel> ErasedCommand<P> {
     pub fn prepared<H: 'static, T: 'static, R: 'static, F: Fn(&mut H, &T, &mut DrawContext<'_, P>) -> R + 'static>(
-        data: &mut Arena,
+        data: &mut Bump,
         handler: NonNull<()>,
         value: T,
         prepare: F,
@@ -698,22 +703,24 @@ impl<P: Pixel> ErasedCommand<P> {
             handler,
             draw: None,
             reads: None,
-            value: data.push_erased((value, prepare)),
+            value: data.push((value, prepare)).byte(),
             prepare: Some(|handler, value, data, prepared, cx| {
                 // safety: recording pairs this callback with its typed value
-                let (value, prepare) = unsafe { data.value_unchecked::<(T, F)>(value) };
+                let (value, prepare) = unsafe { data.get(Offset::<(T, F)>::new(value)) };
                 // safety: recording pairs the handler pointer with its typed preparation
-                prepared.push_erased(prepare(unsafe { handler.cast::<H>().as_mut() }, value, cx))
+                prepared
+                    .push(prepare(unsafe { handler.cast::<H>().as_mut() }, value, cx))
+                    .byte()
             }),
         }
     }
 }
 
 impl<P> ErasedCommand<P> {
-    pub fn ready<T: 'static>(handler: NonNull<()>, prepared: &mut Arena, value: T) -> Self {
+    pub fn ready<T: 'static>(handler: NonNull<()>, prepared: &mut Bump, value: T) -> Self {
         Self {
             handler,
-            value: prepared.push_erased(value),
+            value: prepared.push(value).byte(),
             prepare: None,
             draw: None,
             reads: None,
@@ -724,20 +731,20 @@ impl<P> ErasedCommand<P> {
         self.prepare.is_some()
     }
 
-    pub unsafe fn get<'a, T: 'static>(&self, prepared: &'a Arena) -> &'a T {
+    pub unsafe fn get<'a, T: 'static>(&self, prepared: &'a Bump) -> &'a T {
         // safety: the caller selects the output type of this command
-        unsafe { prepared.value_unchecked::<T>(self.value) }
+        unsafe { prepared.get(Offset::<T>::new(self.value)) }
     }
 
     #[inline(always)]
-    pub fn prepare(&mut self, data: &Arena, prepared: &mut Arena, cx: &mut DrawContext<'_, P>) {
+    pub fn prepare(&mut self, data: &Bump, prepared: &mut Bump, cx: &mut DrawContext<'_, P>) {
         if let Some(prepare) = self.prepare {
             self.value = prepare(self.handler, self.value, data, prepared, cx);
             self.prepare = None;
         }
     }
 
-    pub fn draw(&mut self, data: &Arena, prepared: &mut Arena, cx: &mut DrawContext<'_, P>) {
+    pub fn draw(&mut self, data: &Bump, prepared: &mut Bump, cx: &mut DrawContext<'_, P>) {
         self.prepare(data, prepared, cx);
         if let Some(draw) = self.draw {
             draw(self.handler, self.value, prepared, cx);
@@ -756,9 +763,9 @@ struct Call<H, T, P> {
 }
 
 impl<H: 'static, T: 'static, P: Pixel> Call<H, T, P> {
-    fn draw(handler: NonNull<()>, value: u32, data: &Arena, cx: &mut DrawContext<'_, P>) {
+    fn draw(handler: NonNull<()>, value: u32, data: &Bump, cx: &mut DrawContext<'_, P>) {
         // safety: recording pairs this callback with its typed value
-        let call = unsafe { data.value_unchecked::<Self>(value) };
+        let call = unsafe { data.get(Offset::<Self>::new(value)) };
         // safety: recording pairs the handler pointer with this typed callback
         (call.draw)(unsafe { handler.cast::<H>().as_mut() }, &call.value, cx);
     }

@@ -1,6 +1,6 @@
 use std::{ops::Range, ptr::NonNull};
 
-use blit::PhysicalRect;
+use blit::{PhysicalRect, internal::bump::Bump};
 use blit_gui::{
     arena::{Arena, Slice},
     color::Color,
@@ -25,8 +25,8 @@ pub type CommandId = u32;
 pub struct RasterCommands<P> {
     pub metadata: Vec<Metadata>,
     pub entries: Vec<ErasedCommand<P>>,
-    pub data: Arena,
-    pub prepared: Arena,
+    pub data: Bump,
+    pub prepared: Bump,
     pub range: Range<CommandId>,
     pub gradients: Gradients,
     pub meshes: Vec<CommandId>,
@@ -38,8 +38,8 @@ impl<P> Default for RasterCommands<P> {
         Self {
             metadata: Vec::new(),
             entries: Vec::new(),
-            data: Arena::default(),
-            prepared: Arena::default(),
+            data: Bump::default(),
+            prepared: Bump::default(),
             range: 0..0,
             gradients: Gradients::default(),
             meshes: Vec::new(),

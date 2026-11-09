@@ -14,15 +14,15 @@ fn damage_tracking_and_backend_dispatch_share_a_display_list() {
                 kind: TypeId::of::<String>(),
                 equal: |left, a, right, b| {
                     // safety: insertion pairs this table with String
-                    unsafe { left.value_unchecked::<String>(a) == right.value_unchecked::<String>(b) }
+                    unsafe { left.load::<String>(a) == right.load::<String>(b) }
                 },
                 hash: |data, offset, state| {
                     // safety: insertion pairs this table with String
-                    unsafe { data.value_unchecked::<String>(offset) }.hash(state);
+                    unsafe { data.load::<String>(offset) }.hash(state);
                 },
                 dispatch: |command, data, context| {
                     // safety: the test pairs String inputs with a usize output
-                    let value = unsafe { data.value_unchecked::<String>(command.offset()) };
+                    let value = unsafe { data.load::<String>(command.offset()) };
                     unsafe { *context.cast::<usize>().as_mut() = value.len() };
                 },
             }

@@ -3,7 +3,7 @@ use std::{any::TypeId, hash::Hash, ptr::NonNull};
 use blit::{LogicalRect, PhysicalRect, internal::hash::FxHasher};
 
 use crate::{
-    arena::{Arena, Writer},
+    arena::{Arena, Slice},
     style::BorderRadius,
 };
 
@@ -50,8 +50,8 @@ impl DisplayList {
         &self.data
     }
 
-    pub fn writer(&mut self) -> Writer<'_> {
-        self.data.writer()
+    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> Slice<T> {
+        self.data.store_slice(values)
     }
 
     /// # Safety
@@ -63,7 +63,7 @@ impl DisplayList {
         self.commands.push(Command {
             bounds,
             clip,
-            value: self.data.push_erased(value),
+            value: self.data.store(value),
             ops,
         });
     }

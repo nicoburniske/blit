@@ -71,7 +71,7 @@ impl<P: Pixel> Handler<Path<'_>, P> for () {
         let scale = cx.scale;
         let prepared =
             PreparedPath {
-                segments: cx.data().extend(path.points.windows(2).map(|points| {
+                segments: cx.store_slice(path.points.windows(2).map(|points| {
                     std::array::from_fn(|point| points[point].map(|coordinate| coordinate as f32 * scale))
                 })),
                 radius: path.width as f32 * cx.scale * 0.5,

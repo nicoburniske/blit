@@ -242,7 +242,7 @@ fn prepared_draws_capture_data_and_drop_results_once() {
 
     impl Handler<Samples<'_>, Xrgb8888> for () {
         fn handle(&mut self, samples: Samples<'_>, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
-            let values = cx.data().extend(samples.0.iter().copied());
+            let values = cx.store_slice(samples.0.iter().copied());
             cx.draw_prepared(
                 samples.0.to_vec(),
                 (values, samples.1),
