@@ -56,6 +56,7 @@ impl<B: PixelBuffer> Renderer<B> {
                 images: Arena::new(),
                 text: TextRenderer::new(&config, text),
                 list: DisplayList::default(),
+                reads_framebuffer: false,
                 raster: RasterCommands::default(),
                 clips: ClipStack::default(),
                 snapshot: Surface {
@@ -126,6 +127,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                 handler: pointer,
                 marker: PhantomData,
                 list: &mut context.list,
+                reads_framebuffer: &mut context.reads_framebuffer,
                 images: &mut context.images,
             },
         );
@@ -194,9 +196,12 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                 commands: &mut context.raster,
             };
             for command in context.list.commands() {
-                // safety: recording pairs dispatch with this renderer's preparation context
-                unsafe {
-                    command.dispatch(&context.list, std::ptr::NonNull::from(&mut preparation).cast());
+                // todo: restrict effect frame dispatch to damage and required source regions
+                if context.reads_framebuffer || self.damage.intersects(command.bounds, command.clip) {
+                    // safety: recording pairs dispatch with this renderer's preparation context
+                    unsafe {
+                        command.dispatch(&context.list, std::ptr::NonNull::from(&mut preparation).cast());
+                    }
                 }
             }
         }
@@ -298,6 +303,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             }
         }
         context.raster.clear();
+        context.reads_framebuffer = false;
         context.clips.clear();
         let mut list = std::mem::take(&mut context.list);
         self.damage.finish_frame(&mut list);
@@ -424,6 +430,7 @@ pub struct RenderContext<B: PixelBuffer> {
     images: Arena<StoredImage>,
     text: TextRenderer,
     list: DisplayList,
+    reads_framebuffer: bool,
     raster: RasterCommands<B::Pixel>,
     clips: ClipStack,
     snapshot: Surface<B::Pixel>,

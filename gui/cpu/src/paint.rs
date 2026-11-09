@@ -67,6 +67,7 @@ pub struct PaintContext<'a, H, P: Pixel> {
     pub(crate) handler: NonNull<()>,
     pub(crate) marker: PhantomData<fn(H, P) -> (H, P)>,
     pub(crate) list: &'a mut DisplayList,
+    pub(crate) reads_framebuffer: &'a mut bool,
     pub(crate) images: &'a mut blit_arena::Arena<StoredImage>,
 }
 
@@ -140,6 +141,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
         draw: fn(&mut H, &T, &mut DrawContext<'_, P>),
         reads: fn(&H, &T, PhysicalRect) -> PhysicalRect,
     ) {
+        *self.reads_framebuffer = true;
         self.record_draw(key, value, None, draw, Some(reads));
     }
 

@@ -444,15 +444,20 @@ fn builtin_preparation_follows_damage_and_occlusion() {
 
     impl RenderStrategy<VecBuffer<Xrgb8888>> for Check {
         fn render(&mut self, context: &mut RenderContext<VecBuffer<Xrgb8888>>, damage: &impl DamageTracker) {
+            assert_eq!(context.raster.len(), [4, 3, 2][self.calls.get()]);
             assert!(matches!(context.raster.get(1), Payload::Pending));
-            assert!(matches!(context.raster.get(2), Payload::Pending));
+            if self.calls.get() < 2 {
+                assert!(matches!(context.raster.get(2), Payload::Pending));
+            }
             self.scanline.render(context, damage);
             if self.calls.get() == 0 {
                 assert!(matches!(context.raster.get(1), Payload::Pending));
             } else {
                 assert!(matches!(context.raster.get(1), Payload::Rectangle(_)));
             }
-            assert_eq!(matches!(context.raster.get(2), Payload::Pending), self.calls.get() != 1);
+            if self.calls.get() < 2 {
+                assert_eq!(matches!(context.raster.get(2), Payload::Pending), self.calls.get() == 0);
+            }
             self.calls.set(self.calls.get() + 1);
         }
     }
