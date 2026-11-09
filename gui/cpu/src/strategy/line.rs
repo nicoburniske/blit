@@ -34,7 +34,12 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         let buffer = &mut context.buffer;
         let mut clipped = false;
         let mut partial_opaque = false;
-        self.starts.extend(commands.range.clone());
+        self.starts.extend(
+            commands
+                .range
+                .clone()
+                .filter(|id| damage.intersects(commands.bounds(*id), commands.clip(*id))),
+        );
         for &id in &self.starts {
             let metadata = &commands.metadata[id as usize];
             clipped |= metadata.clip != 0;

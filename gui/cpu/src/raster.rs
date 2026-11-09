@@ -174,11 +174,23 @@ impl Image {
         let texture = span.images.get(self.image.id().into()).unwrap();
         let row = PhysicalRect::new(span.x, span.y, span.pixels.len() as i32, 1);
         for (image, bounds) in self.patches.iter().flatten() {
+            if span.y < bounds.y || span.y >= bounds.y + bounds.height {
+                continue;
+            }
             let Some(clip) = bounds.intersection(row) else {
                 continue;
             };
-            let mut image = *image;
-            image.opacity = (image.opacity as u16 * span.coverage as u16 / 255) as u8;
+            let covered;
+            let image = if span.coverage == 255 {
+                image
+            } else {
+                covered = {
+                    let mut image = *image;
+                    image.opacity = (image.opacity as u16 * span.coverage as u16 / 255) as u8;
+                    image
+                };
+                &covered
+            };
             image.draw_line(span.pixels, &texture.data, &texture.alpha_rows, clip, span.x, span.y);
         }
     }
