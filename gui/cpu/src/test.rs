@@ -57,7 +57,7 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
     impl Handler<Key, Xrgb8888> for () {
         fn handle(&mut self, key: Key, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
             let value = key.0;
-            cx.draw(key, value, |_, value, cx| {
+            cx.draw(key, value, None, |_, value, cx| {
                 cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(*value, 0, 0)));
             });
         }
@@ -65,7 +65,7 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
 
     impl<T: 'static> Handler<(Key, T), Xrgb8888> for () {
         fn handle(&mut self, (key, value): (Key, T), cx: &mut PaintContext<'_, Self, Xrgb8888>) {
-            cx.draw(key, value, |_, _, _| {});
+            cx.draw(key, value, None, |_, _, _| {});
         }
     }
 
@@ -174,7 +174,7 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
 
     impl<const VALUE: u8> Handler<(), Xrgb8888> for Fill<VALUE> {
         fn handle(&mut self, _: (), cx: &mut PaintContext<'_, Self, Xrgb8888>) {
-            cx.draw((), (), |handler, _, cx| {
+            cx.draw((), (), None, |handler, _, cx| {
                 cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(handler.0, 0, 0)));
             });
         }
@@ -221,6 +221,141 @@ fn pending_commands_prevent_handler_replacement() {
 }
 
 #[test]
+fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
+    use std::{cell::Cell, rc::Rc};
+
+    struct Under(Rc<Cell<usize>>);
+
+    #[derive(Clone)]
+    struct Cover {
+        area: PhysicalRect,
+        value: u8,
+        report: bool,
+        prepared: bool,
+        prepares: Rc<Cell<usize>>,
+    }
+
+    impl Handler<Under, Xrgb8888> for () {
+        fn handle(&mut self, under: Under, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+            cx.draw_prepared(
+                (),
+                under.0,
+                None,
+                |_, count, _| count.set(count.get() + 1),
+                |_, _, cx| cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(255, 0, 0))),
+            );
+        }
+    }
+
+    impl Handler<Cover, Xrgb8888> for () {
+        fn handle(&mut self, cover: Cover, cx: &mut PaintContext<'_, Self, Xrgb8888>) {
+            let area = cover.area;
+            let opaque = cover.report.then_some(area);
+            let key = (cover.value, [area.x, area.y, area.width, area.height]);
+            if cover.prepared {
+                cx.draw_prepared(
+                    key,
+                    cover,
+                    opaque,
+                    |_, cover, _| {
+                        cover.prepares.set(cover.prepares.get() + 1);
+                        cover.clone()
+                    },
+                    draw_cover,
+                )
+            } else {
+                cx.draw(key, cover, opaque, draw_cover)
+            }
+        }
+    }
+
+    fn draw_cover(_: &mut (), cover: &Cover, cx: &mut DrawContext<'_, Xrgb8888>) {
+        cx.for_each_span(|span| {
+            let row = PhysicalRect::new(span.x, span.y, span.pixels.len() as i32, 1);
+            if let Some(area) = row.intersection(cover.area) {
+                let color =
+                    PremultipliedRgbaColor::new(Color::rgb(cover.value, cover.value, cover.value), span.coverage);
+                let start = (area.x - span.x) as usize;
+                for pixel in &mut span.pixels[start..start + area.width as usize] {
+                    pixel.blend(color);
+                }
+            }
+        });
+    }
+
+    fn check<D: DamageTracker>(make_damage: fn() -> D) {
+        for prepared in [false, true] {
+            for mode in 0..4 {
+                let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(64, 24), renderer_config())
+                    .strategy(Scanline::default())
+                    .damage_tracker(make_damage());
+                let mut reference = new_renderer(VecBuffer::<Xrgb8888>::new(64, 24), renderer_config());
+                let under = Rc::new(Cell::new(0));
+                let cover = Rc::new(Cell::new(0));
+                let area = PhysicalRect::new(8, 4, 40, 16);
+                let screen = LogicalRect::new(0.0, 0.0, 64.0, 24.0);
+                for (frame, value) in [64, 128, 128].into_iter().enumerate() {
+                    under.set(0);
+                    cover.set(0);
+                    renderer.paint(screen, Rectangle::new(screen).background(Color::BLACK));
+                    reference.paint(screen, Rectangle::new(screen).background(Color::BLACK));
+                    renderer.handle::<(), _>(area.to_logical(SCALE), Under(under.clone()));
+                    reference.handle::<(), _>(area.to_logical(SCALE), Under(Rc::default()));
+                    let clip = match mode {
+                        1 => Some((LogicalRect::new(16.0, 4.0, 24.0, 16.0), BorderRadius::default())),
+                        2 => Some((area.to_logical(SCALE), BorderRadius::uniform(6.0))),
+                        _ => None,
+                    };
+                    if let Some((area, radius)) = clip {
+                        renderer.push_clip(area, radius);
+                        reference.push_clip(area, radius);
+                    }
+                    let bounds = if mode == 3 {
+                        LogicalRect::new(16.0, 4.0, 24.0, 16.0)
+                    } else {
+                        screen
+                    };
+                    let command = Cover {
+                        area,
+                        value,
+                        report: true,
+                        prepared,
+                        prepares: cover.clone(),
+                    };
+                    reference.handle::<(), _>(
+                        bounds,
+                        Cover {
+                            report: false,
+                            prepares: Rc::default(),
+                            ..command.clone()
+                        },
+                    );
+                    renderer.handle::<(), _>(bounds, command);
+                    if clip.is_some() {
+                        renderer.pop_clip();
+                        reference.pop_clip();
+                    }
+                    renderer.render(1);
+                    reference.render(0);
+                    assert_eq!(renderer.buffer().pixels(), reference.buffer().pixels());
+                    if mode == 0 || frame == 2 {
+                        assert_eq!(under.get(), 0);
+                    } else if frame == 0 {
+                        assert_eq!(under.get(), 1);
+                    }
+                    assert_eq!(cover.get(), usize::from(frame != 2 && prepared));
+                }
+            }
+        }
+    }
+
+    check(|| TileDamage::new(8));
+    check(blit_gui::damage::command::CommandDiff::default);
+    assert_eq!(size_of::<paint::ErasedCommand<Xrgb8888>>(), 40);
+    assert_eq!(size_of::<strategy::command::Metadata>(), 24);
+}
+
+#[test]
 fn prepared_draws_capture_data_and_drop_results_once() {
     use std::{cell::Cell, rc::Rc};
 
@@ -246,6 +381,7 @@ fn prepared_draws_capture_data_and_drop_results_once() {
             cx.draw_prepared(
                 samples.0.to_vec(),
                 (values, samples.1),
+                None,
                 |_, (values, counts), cx| {
                     counts.prepares.set(counts.prepares.get() + 1);
                     Prepared([cx.slice(*values)[0]; 1024], counts.clone())

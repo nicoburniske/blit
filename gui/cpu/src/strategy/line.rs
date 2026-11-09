@@ -139,7 +139,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         for &id in &self.starts {
             let metadata = &commands.metadata[id as usize];
             clipped |= metadata.clip != 0;
-            partial_opaque |= metadata.coverage == Coverage::PartialImage;
+            partial_opaque |= matches!(metadata.coverage, Coverage::PartialImage | Coverage::Rect);
         }
         self.starts.sort_unstable_by(|left, right| {
             commands
@@ -203,7 +203,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     .find(|(_, command)| {
                         if !matches!(
                             commands.metadata[**command as usize].coverage,
-                            Coverage::Full | Coverage::Rounded
+                            Coverage::Full | Coverage::Rounded | Coverage::Rect
                         ) {
                             return false;
                         }
@@ -265,7 +265,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                             return None;
                         }
                         let command_first = first + 1 + offset;
-                        // rounded commands and partially opaque images can hide a scanline center
+                        // partial coverage can hide a scanline center
                         let span = commands.overwrite_span(*command, line, list, images, text)?;
                         let span = clip_span(commands.clip(*command), span)?;
                         let start = span.start.max(range.start as i32);

@@ -209,20 +209,24 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
     }
 
     /// records a raster callback with an owned snapshot of its visual inputs
+    /// opaque guarantees fully opaque output inside a physical rectangle intersected with bounds and clip
     pub fn draw<T: 'static>(
         &mut self,
         key: impl PartialEq + Hash + 'static,
         value: T,
+        opaque: Option<PhysicalRect>,
         draw: fn(&mut H, &T, &mut DrawContext<'_, P>),
     ) {
-        self.record_draw(key, value, draw, None);
+        self.record_draw(key, value, opaque, draw, None);
     }
 
     /// prepares once on the first visible span and reuses the result for the frame
+    /// opaque guarantees fully opaque output inside a physical rectangle intersected with bounds and clip
     pub fn draw_prepared<T: 'static, R: 'static>(
         &mut self,
         key: impl PartialEq + Hash + 'static,
         value: T,
+        opaque: Option<PhysicalRect>,
         prepare: fn(&mut H, &T, &mut DrawContext<'_, P>) -> R,
         draw: fn(&mut H, &R, &mut DrawContext<'_, P>),
     ) {
@@ -232,6 +236,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             self.clip,
             key,
             value,
+            opaque.unwrap_or_default(),
             move |_, offset, command, _, _, _, target| {
                 let call = ErasedCommand {
                     draw: Some(Call::<H, R, P>::draw),
@@ -263,13 +268,14 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
         draw: fn(&mut H, &T, &mut DrawContext<'_, P>),
         reads: fn(&H, &T, PhysicalRect) -> PhysicalRect,
     ) {
-        self.record_draw(key, value, draw, Some(reads));
+        self.record_draw(key, value, None, draw, Some(reads));
     }
 
     fn record_draw<T: 'static>(
         &mut self,
         key: impl PartialEq + Hash + 'static,
         value: T,
+        opaque: Option<PhysicalRect>,
         draw: fn(&mut H, &T, &mut DrawContext<'_, P>),
         reads: Option<fn(&H, &T, PhysicalRect) -> PhysicalRect>,
     ) {
@@ -279,10 +285,12 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
             self.clip,
             key,
             Call { value, draw, reads },
+            opaque.unwrap_or_default(),
             move |input, offset, command, _, _, _, target| {
                 let call = ErasedCommand {
                     handler,
                     value: offset,
+                    opaque: Offset::new(0),
                     prepare: None,
                     draw: Some(|handler, offset, _, cx| {
                         // safety: recording pairs this offset with Call and this handler with H
@@ -521,10 +529,17 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
     }
 
     pub fn clear(&mut self) {
-        self.record(self.bounds, 0, (), (), |_, _, record, _, _, _, target| {
-            let call = ErasedCommand::ready(NonNull::<()>::dangling(), &mut target.prepared, Payload::Clear);
-            target.push(call, record.bounds, 0).coverage = Coverage::Full;
-        });
+        self.record(
+            self.bounds,
+            0,
+            (),
+            (),
+            PhysicalRect::default(),
+            |_, _, record, _, _, _, target| {
+                let call = ErasedCommand::ready(NonNull::<()>::dangling(), &mut target.prepared, Payload::Clear);
+                target.push(call, record.bounds, 0).coverage = Coverage::Full;
+            },
+        );
     }
 
     fn record<T: 'static, K: PartialEq + Hash + 'static, F>(
@@ -533,6 +548,7 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
         clip: u32,
         key: K,
         value: T,
+        opaque: PhysicalRect,
         prepare: F,
     ) where
         F: Fn(&T, u32, &Command, &DisplayList, f32, &blit_arena::Arena<StoredImage>, &mut RasterCommands<P>) + 'static,
@@ -540,20 +556,26 @@ impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
         self.record_input(
             bounds,
             clip,
-            (key, value, prepare),
-            |(a, _, _), _, (b, _, _), _| a == b,
-            |(key, _, _), _, state| key.hash(state),
-            |(_, value, prepare), offset, command, list, context| {
-                let offset = offset + offset_of!((K, T, F), 1) as u32;
+            (key, value, prepare, opaque),
+            |(a, _, _, _), _, (b, _, _, _), _| a == b,
+            |(key, _, _, _), _, state| key.hash(state),
+            |(_, value, prepare, opaque), offset, command, list, context| {
+                let index = context.commands.len() as usize;
+                let value_offset = offset + offset_of!((K, T, F, PhysicalRect), 1) as u32;
                 prepare(
                     value,
-                    offset,
+                    value_offset,
                     command,
                     list,
                     context.scale,
                     context.images,
                     context.commands,
                 );
+                if opaque.intersection(command.bounds).is_some() {
+                    context.commands.metadata[index].coverage = Coverage::Rect;
+                    context.commands.entries[index].opaque =
+                        Offset::new(offset + offset_of!((K, T, F, PhysicalRect), 3) as u32);
+                }
             },
         );
     }
@@ -652,6 +674,7 @@ impl StoredMesh {
 pub struct ErasedCommand<P> {
     handler: NonNull<()>,
     value: u32,
+    pub opaque: Offset<PhysicalRect>,
     prepare: Option<fn(NonNull<()>, u32, &Bump, &mut Bump, &mut DrawContext<'_, P>) -> u32>,
     pub draw: Option<fn(NonNull<()>, u32, &Bump, &mut DrawContext<'_, P>)>,
     pub reads: Option<fn(NonNull<()>, u32, &DisplayList, PhysicalRect) -> PhysicalRect>,
@@ -669,6 +692,7 @@ impl<P: Pixel> ErasedCommand<P> {
             draw: None,
             reads: None,
             value: data.push((value, prepare)).byte(),
+            opaque: Offset::new(0),
             prepare: Some(|handler, value, data, prepared, cx| {
                 // safety: recording pairs this callback with its typed value
                 let (value, prepare) = unsafe { data.get(Offset::<(T, F)>::new(value)) };
@@ -686,6 +710,7 @@ impl<P> ErasedCommand<P> {
         Self {
             handler,
             value: prepared.push(value).byte(),
+            opaque: Offset::new(0),
             prepare: None,
             draw: None,
             reads: None,

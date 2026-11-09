@@ -78,7 +78,7 @@ impl<P: Pixel> Handler<Path<'_>, P> for () {
                 color: path.color,
             };
         let key = (path.points.to_vec(), path.width, path.color);
-        cx.draw(key, prepared, |_, path, cx| {
+        cx.draw(key, prepared, None, |_, path, cx| {
             cx.for_each_span(|span| {
                 let segments = span.slice(path.segments);
                 for (index, pixel) in span.pixels.iter_mut().enumerate() {
@@ -132,6 +132,7 @@ impl<P: Pixel> Handler<SoftShadow, P> for ShadowHandler {
         cx.draw_prepared(
             shadow,
             (radius, shadow.color),
+            None,
             |handler, (radius, color), cx| {
                 handler.stats.prepares.set(handler.stats.prepares.get() + 1);
                 let bounds = cx.bounds;

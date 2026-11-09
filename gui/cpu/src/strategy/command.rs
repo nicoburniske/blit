@@ -165,6 +165,19 @@ impl<P: Pixel> RasterCommands<P> {
         self.metadata[id as usize].clip
     }
 
+    pub fn opaque_bounds(&self, id: CommandId, list: &DisplayList) -> Option<PhysicalRect> {
+        let metadata = &self.metadata[id as usize];
+        match metadata.coverage {
+            Coverage::Full => Some(metadata.bounds),
+            Coverage::Rect => {
+                // safety: rectangular coverage stores the offset of its recorded PhysicalRect
+                let bounds = unsafe { list.data().get(self.entries[id as usize].opaque) };
+                bounds.intersection(metadata.bounds)
+            }
+            _ => None,
+        }
+    }
+
     pub fn overwrite_span(
         &mut self,
         id: CommandId,
@@ -176,6 +189,10 @@ impl<P: Pixel> RasterCommands<P> {
         let metadata = &self.metadata[id as usize];
         if metadata.coverage == Coverage::None {
             return None;
+        }
+        if metadata.coverage == Coverage::Rect {
+            let bounds = self.opaque_bounds(id, list)?;
+            return (line >= bounds.y && line < bounds.y + bounds.height).then_some(bounds.x..bounds.x + bounds.width);
         }
         let partial_image = metadata.coverage == Coverage::PartialImage;
         let area = metadata.bounds;
@@ -225,10 +242,10 @@ impl<P: Pixel> RasterCommands<P> {
                 }
             };
             if (id + 1..range.end).rev().any(|next| {
-                let next = &self.metadata[next as usize];
-                next.coverage == Coverage::Full
-                    && next.clip == 0
-                    && next.bounds.intersection(metadata.bounds) == Some(metadata.bounds)
+                self.metadata[next as usize].clip == 0
+                    && self
+                        .opaque_bounds(next, list)
+                        .is_some_and(|bounds| bounds.intersection(metadata.bounds) == Some(metadata.bounds))
             }) {
                 continue;
             }
@@ -311,4 +328,5 @@ pub enum Coverage {
     Full,
     Rounded,
     PartialImage,
+    Rect,
 }

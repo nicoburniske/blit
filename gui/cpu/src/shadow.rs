@@ -51,6 +51,7 @@ impl<P: Pixel> crate::Handler<BoxShadow, P> for Handler {
         cx.draw_prepared(
             shadow,
             (shadow, scale),
+            None,
             |handler, (shadow, scale), cx| {
                 let scale_factor = *scale;
                 if shadow.color.alpha == 0 {

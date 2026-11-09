@@ -20,6 +20,7 @@ pub struct Image {
     patches: [Option<(image_patch::Prepared, PhysicalRect)>; 9],
 }
 
+// todo: this should never be split up like this. it's very hard to understand what methods you can call
 impl<H: 'static, P: Pixel> PaintContext<'_, H, P> {
     /// prepares an image with an explicit logical to physical scale
     pub fn prepare_image(&self, request: &ImageRequest, scale: f32) -> Option<Image> {
