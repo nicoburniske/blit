@@ -14,10 +14,10 @@ use blit_desktop::cpu;
 use blit_desktop::gpu;
 use blit_desktop::{Application, Config, EventLoopProxy, Scope};
 use blit_gui::{
-    BoundsClip, Family, FontData, FontStack, Rectangle, Shadow, TextConfig, TextSystem,
+    BoundsClip, Family, FontData, FontStack, Rectangle, TextConfig, TextSystem,
     color::Color,
     mesh::{Mesh, MeshVertex},
-    style::{Border, BorderRadius},
+    style::{Border, BorderRadius, LinearGradient},
     text::{
         FontId, FontStyle, HorizontalAlign, Span, SpanStyle, TextOptions, TextOverflow, TextStyle, TextWrap,
         VerticalAlign,
@@ -57,7 +57,7 @@ pub fn run() {
     #[cfg(feature = "gpu")]
     let graphics = gpu::Backend::new(text, gpu::Config::default());
     blit_desktop::run::<App>(Config {
-        title: "Blit layout playground".into(),
+        title: "blit / demo".into(),
         width: 1120,
         height: 800,
         graphics,
@@ -73,13 +73,12 @@ type Ui<'a> = blit::Ui<'a, DesktopContext>;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Page {
-    #[default]
     Layout,
     Text,
     Input,
-    Styles,
     Scroll,
     Animation,
+    #[default]
     Graphics,
 }
 
@@ -88,7 +87,6 @@ struct App {
     layout: LayoutPage,
     text: TextPage,
     input: InputPage,
-    styles: StylesPage,
     scroll: ScrollPage,
     animation: AnimationPage,
     graphics: graphics::View,
@@ -104,7 +102,6 @@ impl Default for App {
             layout: LayoutPage::default(),
             text: TextPage::default(),
             input: InputPage::default(),
-            styles: StylesPage::default(),
             scroll: ScrollPage::default(),
             animation: AnimationPage::default(),
             graphics: graphics::View::default(),
@@ -130,44 +127,43 @@ impl Application for App {
     fn input(&mut self, _: Self::Input) {}
 
     fn render(&mut self, ui: Ui<'_>) {
-        let mut root = ui.layout(flex::column().gap(sz::LG).pad(sz::XL));
+        let mut root = ui.layout(flex::column().gap(sz::SM).pad(sz::XL));
         root.insert(Rectangle::new().background(colors::BACKGROUND));
         {
-            let mut header = root.child().layout(
-                flex::row()
-                    .gap(sz::XS)
-                    .align(Align::Center)
-                    .pad(Sides::xy(sz::SM, sz::XS)),
-            );
-            header.insert(
-                Rectangle::new()
-                    .background(colors::SURFACE)
-                    .border(Border::solid(sz::BORDER, colors::BORDER))
-                    .radius(BorderRadius::uniform(sz::XS)),
-            );
-            header.child().build(|ui: Ui<'_>| {
-                let mut logo = ui.layout(flex::row().align(Align::Center).pad(Sides::xy(sz::SM, sz::XXS)));
-                logo.insert(
-                    Rectangle::new()
-                        .background(colors::ACCENT)
-                        .radius(BorderRadius::uniform(sz::XXS)),
-                );
-                logo.child().insert(Text::new("blit").style(TextStyle {
-                    size: sz::LG,
-                    color: colors::BACKGROUND,
-                    ..TextStyle::default()
-                }));
-            });
+            let mut masthead = root.child().layout(flex::row().gap(3.0).align(Align::Start));
+            masthead
+                .child()
+                .insert(Text::new("blit.").style(TextStyle::new().size(40.0).weight(700).color(colors::TEXT)));
+            #[cfg(not(feature = "gpu"))]
+            let backend = "CPU";
+            #[cfg(feature = "gpu")]
+            let backend = "GPU";
+            masthead
+                .child()
+                .layout(flex::column().pad(Sides {
+                    top: 6.0,
+                    ..Sides::all(0.0)
+                }))
+                .child()
+                .insert(Text::new(backend).style(TextStyle::new().size(sz::SM).color(colors::ACCENT)));
+        }
+        {
+            let mut header = root
+                .child()
+                .layout(flex::row().gap(sz::XS).align(Align::Center).pad(sz::XXS));
+            header.insert(Rectangle::new().background(colors::SURFACE).border(Border::gradient(
+                sz::BORDER,
+                LinearGradient::new(&colors::RIM).angle(90.0),
+            )));
             header.child().build(select(
                 &mut self.page,
                 &[
-                    ("layout", Page::Layout),
-                    ("text", Page::Text),
-                    ("input", Page::Input),
-                    ("styles", Page::Styles),
-                    ("scroll", Page::Scroll),
-                    ("animation", Page::Animation),
-                    ("graphics", Page::Graphics),
+                    ("01 layout", Page::Layout),
+                    ("02 type", Page::Text),
+                    ("03 input", Page::Input),
+                    ("04 scroll", Page::Scroll),
+                    ("05 motion", Page::Animation),
+                    ("06 graphics", Page::Graphics),
                 ],
                 flex::row().gap(sz::XS),
                 draw_button,
@@ -208,7 +204,6 @@ impl Application for App {
             Page::Layout => root.child().item(flex::item().grow()).build(&mut self.layout),
             Page::Text => root.child().item(flex::item().grow()).build(&mut self.text),
             Page::Input => root.child().item(flex::item().grow()).build(&mut self.input),
-            Page::Styles => root.child().item(flex::item().grow()).build(&mut self.styles),
             Page::Scroll => root.child().item(flex::item().grow()).build(&mut self.scroll),
             Page::Animation => root.child().item(flex::item().grow()).build(&mut self.animation),
             Page::Graphics => root.child().item(flex::item().grow()).build(&mut self.graphics),
@@ -231,7 +226,9 @@ impl Application for App {
                         .graph_background(colors::CANVAS)
                         .color(colors::TEXT)
                         .muted_color(colors::TEXT_DIM)
-                        .accent(colors::ACCENT),
+                        .accent(colors::ACCENT)
+                        .border(Border::solid(1.0, colors::BORDER))
+                        .radius(BorderRadius::uniform(2.0)),
                 );
         }
     }
@@ -273,7 +270,7 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                     sidebar.insert(panel(colors::SURFACE));
                     sidebar
                         .child()
-                        .insert(Text::new("config").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
+                        .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
                     sidebar
                         .child()
                         .item(flex::item().grow())
@@ -312,7 +309,7 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                     preview.insert(panel(colors::SURFACE));
                     preview
                         .child()
-                        .insert(Text::new("preview").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
+                        .insert(Text::new("LIVE VIEW").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
                     if !show_drag {
                         {
                             let mut action = preview
@@ -423,7 +420,7 @@ impl Default for TextPage {
         let mut spans = Vec::new();
         for (value, style) in [
             (
-                "Rich text\n",
+                "Type specimen / 02\n",
                 SpanStyle::new()
                     .size(sz::XXL)
                     .weight(700)
@@ -504,7 +501,7 @@ impl Widget<DesktopContext> for &mut TextPage {
                     controls.insert(panel(colors::SURFACE));
                     controls
                         .child()
-                        .insert(Text::new("config").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
+                        .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
                     controls.child().build(|ui: Ui<'_>| {
                         choices(
                             ui,
@@ -616,34 +613,43 @@ impl Widget<DesktopContext> for &mut InputPage {
         let mut body = ui.layout(flex::column().gap(sz::SM).pad(sz::LG));
         body.insert(panel(colors::SURFACE));
         body.child()
-            .insert(Text::new("input").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
+            .insert(Text::new("input").style(TextStyle::new().size(sz::MD).color(colors::TEXT_MUTED)));
         body.child().build(|ui: Ui<'_>| {
             let mut field = ui
-                .constrain(Constraints::tight(Size::new(560.0, sz::XXXL)))
+                .constrain(Constraints::tight(Size::new(420.0, 40.0)))
                 .id(Id::new("desktop text input"));
+            let focused = field.interact(interact::focus());
+            let hovered = field.interact(interact::press()).hovered;
+            let border = if focused {
+                Border::solid(sz::BORDER, colors::ACCENT_DARK)
+            } else if hovered {
+                Border::solid(sz::BORDER, colors::CANVAS_BORDER)
+            } else {
+                Border::solid(sz::BORDER, colors::BORDER)
+            };
             field.insert(
                 Rectangle::new()
-                    .background(colors::TRACK)
-                    .border(Border::solid(sz::BORDER, colors::BORDER))
-                    .radius(BorderRadius::uniform(sz::XS)),
+                    .background(LinearGradient::new(&colors::INPUT).angle(90.0))
+                    .border(border)
+                    .radius(BorderRadius::uniform(6.0)),
             );
             field.build(
                 TextInput::new(&mut self.state, &mut self.value)
                     .style(TextStyle {
-                        size: sz::LG,
+                        size: sz::MD,
                         color: colors::TEXT,
                         ..TextStyle::default()
                     })
-                    .padding(Sides::all(sz::SM))
+                    .padding(Sides::xy(sz::SM, 10.0))
                     .placeholder("Type here")
-                    .placeholder_color(colors::TEXT_DIM)
+                    .placeholder_color(colors::TEXT_MUTED)
                     .selection_background(colors::ACCENT_DARK)
                     .cursor_background(colors::ACCENT),
             )
         });
         body.child().insert(Text::new("esc to unfocus").style(TextStyle {
-            size: sz::MD,
-            color: colors::TEXT_MUTED,
+            size: sz::SM,
+            color: colors::TEXT_DIM,
             ..TextStyle::default()
         }));
     }
@@ -682,7 +688,7 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                     sidebar.insert(panel(colors::SURFACE));
                     sidebar
                         .child()
-                        .insert(Text::new("config").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
+                        .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
                     sidebar
                         .child()
                         .item(flex::item().grow())
@@ -793,7 +799,7 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                     preview.insert(panel(colors::SURFACE));
                     preview
                         .child()
-                        .insert(Text::new("preview").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
+                        .insert(Text::new("LIVE VIEW").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
                     preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
                         let mut viewport = ui.layout(flex::column().pad(sz::SM)).clip(BoundsClip);
                         viewport.insert(
@@ -814,165 +820,6 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                                 })
                                 .grip(draw_grip),
                         );
-                    });
-                },
-            ));
-    }
-}
-
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum ShadowKind {
-    None,
-    #[default]
-    Outer,
-    Inset,
-}
-
-struct StylesPage {
-    shadow: ShadowKind,
-    radius: f32,
-    blur: f32,
-    spread: f32,
-    offset: (f32, f32),
-    scroll: ScrollState,
-    split: SplitState,
-}
-
-impl Default for StylesPage {
-    fn default() -> Self {
-        Self {
-            shadow: ShadowKind::Outer,
-            radius: sz::LG,
-            blur: sz::LG,
-            spread: sz::BORDER_STRONG,
-            offset: (0.0, sz::SM),
-            scroll: ScrollState::default(),
-            split: SplitState::default(),
-        }
-    }
-}
-
-impl Widget<DesktopContext> for &mut StylesPage {
-    type Response = ();
-
-    fn build(self, ui: Ui<'_>) {
-        let StylesPage {
-            shadow,
-            radius,
-            blur,
-            spread,
-            offset,
-            scroll: controls_scroll,
-            split: split_state,
-        } = self;
-        let shadow_kind = *shadow;
-        let preview_radius = *radius;
-        let shadow_blur = *blur;
-        let shadow_spread = *spread;
-        let shadow_offset = *offset;
-        let mut body = ui.layout(flex::row());
-        body.child()
-            .item(flex::item().grow())
-            .id(Id::new("styles page split"))
-            .build(split(
-                split_state,
-                sz::SIDEBAR,
-                |ui: Ui<'_>| {
-                    let mut sidebar = ui.layout(flex::column().gap(sz::SM).pad(sz::LG));
-                    sidebar.insert(panel(colors::SURFACE));
-                    sidebar
-                        .child()
-                        .insert(Text::new("config").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-                    sidebar
-                        .child()
-                        .item(flex::item().grow())
-                        .build(scroll_area(controls_scroll, |ui: Ui<'_>| {
-                            let mut controls = ui.layout(flex::column().gap(sz::LG));
-                            controls.child().build(|ui: Ui<'_>| {
-                                choices(
-                                    ui,
-                                    "shadow",
-                                    shadow,
-                                    &[
-                                        ("Outer", ShadowKind::Outer),
-                                        ("Inset", ShadowKind::Inset),
-                                        ("None", ShadowKind::None),
-                                    ],
-                                );
-                            });
-                            controls.child().build(|ui: Ui<'_>| {
-                                choices(ui, "radius", radius, &[("0", 0.0), ("18", sz::LG), ("32", sz::XXL)]);
-                            });
-                            controls.child().build(|ui: Ui<'_>| {
-                                choices(ui, "blur", blur, &[("0", 0.0), ("8", sz::XS), ("18", sz::LG)]);
-                            });
-                            controls.child().build(|ui: Ui<'_>| {
-                                choices(
-                                    ui,
-                                    "spread",
-                                    spread,
-                                    &[("0", 0.0), ("2", sz::BORDER_STRONG), ("8", sz::XS)],
-                                );
-                            });
-                            controls.child().build(|ui: Ui<'_>| {
-                                choices(
-                                    ui,
-                                    "offset",
-                                    offset,
-                                    &[
-                                        ("None", (0.0, 0.0)),
-                                        ("Down", (0.0, sz::SM)),
-                                        ("Side", (sz::SM, sz::SM)),
-                                    ],
-                                );
-                            });
-                        }));
-                },
-                |ui: Ui<'_>| {
-                    let mut preview = ui.layout(flex::column().gap(sz::SM).pad(sz::LG));
-                    preview.insert(panel(colors::SURFACE));
-                    preview
-                        .child()
-                        .insert(Text::new("preview").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-                    preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
-                        let mut stage =
-                            ui.layout(flex::row().align(Align::Center).justify(Justify::Center).pad(sz::XXXL));
-                        stage
-                            .child()
-                            .item(flex::item().fixed(sz::CARD_WIDTH, sz::CARD_HEIGHT))
-                            .build(|ui: Ui<'_>| {
-                                let mut card = ui.layout(
-                                    flex::column()
-                                        .gap(sz::SM)
-                                        .align(Align::Center)
-                                        .justify(Justify::Center)
-                                        .pad(sz::XXL),
-                                );
-                                let border_radius = BorderRadius::uniform(preview_radius);
-                                let shadow = Shadow::new(colors::SHADOW)
-                                    .radius(border_radius)
-                                    .offset(shadow_offset.0, shadow_offset.1)
-                                    .blur(shadow_blur)
-                                    .spread(shadow_spread)
-                                    .inset(shadow_kind == ShadowKind::Inset);
-                                if shadow_kind == ShadowKind::Outer {
-                                    card.insert(shadow);
-                                }
-                                card.insert(
-                                    Rectangle::new()
-                                        .background(colors::SURFACE_HIGH)
-                                        .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
-                                        .radius(border_radius),
-                                );
-                                if shadow_kind == ShadowKind::Inset {
-                                    card.insert(shadow);
-                                }
-                                card.child().insert(Text::new("shadow").style(TextStyle {
-                                    size: sz::XL,
-                                    color: colors::TEXT,
-                                    ..TextStyle::default()
-                                }));
-                            });
                     });
                 },
             ));
@@ -1082,94 +929,6 @@ impl Widget<DesktopContext> for &mut ScrollPage {
     }
 }
 
-struct Terrain {
-    columns: usize,
-    rows: usize,
-    phase: f32,
-    buffers: Rc<RefCell<TerrainBuffers>>,
-}
-
-#[derive(Default)]
-struct TerrainBuffers {
-    points: Vec<(f32, f32, f32, f32)>,
-    vertices: Vec<MeshVertex>,
-    indices: Vec<u32>,
-}
-
-impl Atom<DesktopContext> for Terrain {
-    fn measure(&self, _: &mut AtomCx<'_, DesktopContext>, constraints: Constraints<f32>) -> Size<f32> {
-        constraints.constrain(Size::ZERO)
-    }
-
-    fn paint(&self, cx: &mut AtomCx<'_, DesktopContext>, area: LogicalRect) {
-        let travel = self.phase * std::f32::consts::TAU;
-        let mut buffers = self.buffers.borrow_mut();
-        let TerrainBuffers {
-            points,
-            vertices,
-            indices,
-        } = &mut *buffers;
-        points.clear();
-        vertices.clear();
-        indices.clear();
-        for row in 0..=self.rows {
-            let depth = row as f32 / self.rows as f32;
-            let perspective = depth * depth;
-            let z = depth * 9.0 + travel;
-            let span = area.width * (0.3 + perspective);
-            for column in 0..=self.columns {
-                let x = column as f32 / self.columns as f32;
-                let world_x = (x - 0.5) * 8.0;
-                let elevation = (world_x * 0.8 + z).sin() * 0.55
-                    + (world_x * 1.9 - z * 0.7).cos() * 0.28
-                    + (world_x * 4.7 + z * 1.3).sin() * 0.12
-                    + (world_x * 11.3 - z * 2.7).cos() * 0.04;
-                points.push((
-                    area.x + area.width * 0.5 + (x - 0.5) * span,
-                    area.y + area.height * (0.28 + perspective * 0.78) - elevation * (6.0 + perspective * 72.0),
-                    elevation,
-                    depth,
-                ));
-            }
-        }
-        let shade = |elevation: f32, depth: f32, slope: f32| {
-            let strata = (elevation * 17.0 + depth * 8.0).sin().abs().powi(10);
-            let light = (0.48 + slope * 1.8 + strata * 0.12).clamp(0.08, 1.0);
-            let fog = (1.0 - depth).powi(2);
-            Color::rgb(
-                ((42.0 + light * 196.0) * (1.0 - fog) + 104.0 * fog) as u8,
-                ((16.0 + light * 102.0) * (1.0 - fog) + 67.0 * fog) as u8,
-                ((31.0 + light * 54.0) * (1.0 - fog) + 105.0 * fog) as u8,
-            )
-        };
-        let stride = self.columns + 1;
-        for row in 0..self.rows {
-            for column in 0..self.columns {
-                let top = row * stride + column;
-                let a = points[top];
-                let b = points[top + 1];
-                let c = points[top + stride];
-                let d = points[top + stride + 1];
-                for (triangle, slope) in [
-                    ([a, b, c], (a.2 - b.2) * 0.7 + (a.2 - c.2) * 0.3),
-                    ([b, d, c], (c.2 - d.2) * 0.7 + (b.2 - d.2) * 0.3),
-                ] {
-                    let elevation = (triangle[0].2 + triangle[1].2 + triangle[2].2) / 3.0;
-                    let depth = (triangle[0].3 + triangle[1].3 + triangle[2].3) / 3.0;
-                    let color = shade(elevation, depth, slope);
-                    let first = u32::try_from(vertices.len()).expect("terrain mesh is too large");
-                    vertices.extend(triangle.map(|point| MeshVertex::new(point.0, point.1, color)));
-                    indices.extend(first..first + 3);
-                }
-            }
-        }
-        let bounds = vertices.iter().fold(area, |bounds, vertex| {
-            bounds.union(LogicalRect::new(vertex.position.x, vertex.position.y, 0.0, 0.0))
-        });
-        cx.context_mut().paint(bounds, Mesh { vertices, indices });
-    }
-}
-
 fn split(
     state: &mut SplitState,
     initial_extent: f32,
@@ -1244,16 +1003,18 @@ impl Widget<DesktopContext> for Button<'_> {
 }
 
 fn draw_button(ui: Ui<'_>, label: impl AsRef<str>, selected: bool, press: interact::press::Response) {
-    let background = if press.active {
-        colors::ACCENT_DARK
-    } else if selected {
-        colors::SELECTED
+    let stops = if selected {
+        &colors::BUTTON_SELECTED
     } else if press.hovered {
-        colors::SURFACE_HIGH
+        &colors::BUTTON_HOVER
     } else {
-        colors::TRACK
+        &colors::BUTTON
     };
-    let border = if selected { colors::ACCENT } else { colors::BORDER };
+    let border = if selected {
+        Border::solid(sz::BORDER, colors::ACCENT)
+    } else {
+        Border::gradient(sz::BORDER, LinearGradient::new(&colors::RIM).angle(90.0))
+    };
     let mut button = ui.layout(
         flex::row()
             .align(Align::Center)
@@ -1262,13 +1023,13 @@ fn draw_button(ui: Ui<'_>, label: impl AsRef<str>, selected: bool, press: intera
     );
     button.insert(
         Rectangle::new()
-            .background(background)
-            .border(Border::solid(sz::BORDER, border))
-            .radius(BorderRadius::uniform(sz::XXS)),
+            .background(LinearGradient::new(stops).angle(if press.active { 270.0 } else { 90.0 }))
+            .border(border)
+            .radius(BorderRadius::uniform(4.0)),
     );
     button.child().insert(Text::new(label.as_ref()).style(TextStyle {
         size: sz::MD,
-        color: colors::TEXT,
+        color: if selected { colors::BACKGROUND } else { colors::TEXT },
         ..TextStyle::default()
     }));
 }
@@ -1449,8 +1210,11 @@ fn scroll_thumb(mut ui: Ui<'_>, active: bool) {
 fn panel(background: Color) -> Rectangle<'static> {
     Rectangle::new()
         .background(background)
-        .border(Border::solid(sz::BORDER, colors::BORDER))
-        .radius(BorderRadius::uniform(sz::SM))
+        .border(Border::gradient(
+            sz::BORDER,
+            LinearGradient::new(&colors::RIM).angle(90.0),
+        ))
+        .radius(BorderRadius::uniform(2.0))
 }
 
 mod sz {
@@ -1471,8 +1235,6 @@ mod sz {
 
     pub const SIDEBAR: f32 = 360.0;
     pub const SCROLL_ITEM_WIDTH: f32 = 110.0;
-    pub const CARD_WIDTH: f32 = 420.0;
-    pub const CARD_HEIGHT: f32 = 240.0;
     pub const BADGE_WIDTH: f32 = 36.0;
 
     pub const CANVAS_INITIAL_SCALE: f32 = 0.8;
@@ -1481,126 +1243,56 @@ mod sz {
     pub const CANVAS_MIN: Size<f32> = Size::new(240.0, 180.0);
 }
 
-mod graphics {
-    use super::*;
-
-    #[derive(Clone, Copy, Default, PartialEq, Eq)]
-    enum Detail {
-        Low,
-        #[default]
-        Medium,
-        High,
-    }
-
-    pub struct View {
-        detail: Detail,
-        phase: f32,
-        running: bool,
-        terrain: Rc<RefCell<TerrainBuffers>>,
-    }
-
-    impl Default for View {
-        fn default() -> Self {
-            Self {
-                detail: Detail::default(),
-                phase: 0.0,
-                running: true,
-                terrain: Rc::default(),
-            }
-        }
-    }
-
-    impl Widget<DesktopContext> for &mut View {
-        type Response = ();
-
-        fn build(self, mut ui: Ui<'_>) {
-            if self.running {
-                self.phase = ui.animate_loop(
-                    Id::new("terrain flyover"),
-                    Tween::new(Duration::from_secs(12), Easing::LINEAR),
-                );
-            }
-            let (columns, rows) = match self.detail {
-                Detail::Low => (64, 36),
-                Detail::Medium => (128, 72),
-                Detail::High => (256, 144),
-            };
-
-            let mut stage = ui.layout(()).id(Id::new("terrain stage")).clip(BoundsClip);
-            stage.insert(Rectangle::new().background(SKY));
-            stage.insert(Terrain {
-                columns,
-                rows,
-                phase: self.phase,
-                buffers: Rc::clone(&self.terrain),
-            });
-
-            stage.child().z_index(2).build(|ui: Ui<'_>| {
-                let mut controls = ui.layout(
-                    absolute::place(flex::row().gap(sz::XXS).align(Align::Center).pad(sz::XS))
-                        .target_anchor(Anchor::BottomLeft)
-                        .child_anchor(Anchor::BottomLeft)
-                        .x(sz::LG)
-                        .y(-sz::LG)
-                        .width(absolute::Sizing::fixed(390.0))
-                        .height(absolute::Sizing::fixed(52.0)),
-                );
-                controls.insert(
-                    Rectangle::new()
-                        .background(PANEL)
-                        .border(Border::solid(sz::BORDER, colors::BORDER))
-                        .radius(BorderRadius::uniform(sz::SM)),
-                );
-                controls.child().build(select(
-                    &mut self.detail,
-                    &[("4K", Detail::Low), ("18K", Detail::Medium), ("74K", Detail::High)],
-                    flex::row().gap(sz::XXS),
-                    draw_button,
-                ));
-                if controls
-                    .child()
-                    .build(Button::new(if self.running { "pause" } else { "play" }, self.running))
-                {
-                    self.running = !self.running;
-                }
-            });
-        }
-    }
-
-    const SKY: Color = Color::rgb(31, 20, 53);
-    const PANEL: Color = Color::rgba(24, 18, 39, 232);
-}
+mod graphics;
 
 mod colors {
-    use blit_gui::color::Color;
+    use blit_gui::{color::Color, style::GradientStop};
 
-    pub const BACKGROUND: Color = Color::rgb(12, 18, 29);
-    pub const SURFACE: Color = Color::rgb(20, 29, 45);
-    pub const SURFACE_HIGH: Color = Color::rgb(38, 53, 77);
-    pub const TRACK: Color = Color::rgb(9, 15, 25);
-    pub const SCROLL_TRACK: Color = Color::rgba(9, 15, 25, 96);
-    pub const SELECTED: Color = Color::rgb(27, 87, 82);
-    pub const CANVAS: Color = Color::rgb(25, 36, 54);
-    pub const CANVAS_BORDER: Color = Color::rgb(68, 91, 123);
-    pub const GRIP: Color = Color::rgb(46, 77, 101);
-    pub const GRIP_CORNER: Color = Color::rgb(65, 119, 133);
-    pub const BORDER: Color = Color::rgb(55, 72, 99);
-    pub const TEXT: Color = Color::rgb(235, 242, 250);
-    pub const TEXT_MUTED: Color = Color::rgb(157, 173, 194);
-    pub const TEXT_DIM: Color = Color::rgb(106, 126, 151);
-    pub const ACCENT: Color = Color::rgb(91, 220, 185);
-    pub const ACCENT_DARK: Color = Color::rgb(31, 111, 104);
-    pub const SHADOW: Color = Color::rgba(0, 0, 0, 180);
+    pub const BACKGROUND: Color = Color::rgb(16, 19, 22);
+    pub const SURFACE: Color = Color::rgb(24, 28, 32);
+    pub const SURFACE_HIGH: Color = Color::rgb(41, 47, 52);
+    pub const TRACK: Color = Color::rgb(19, 22, 25);
+    pub const SCROLL_TRACK: Color = Color::rgba(12, 15, 18, 120);
+    pub const CANVAS: Color = Color::rgb(30, 35, 39);
+    pub const CANVAS_BORDER: Color = Color::rgb(86, 94, 99);
+    pub const GRIP: Color = Color::rgb(88, 97, 104);
+    pub const GRIP_CORNER: Color = Color::rgb(157, 164, 163);
+    pub const BORDER: Color = Color::rgb(62, 70, 76);
+    pub const TEXT: Color = Color::rgb(222, 222, 210);
+    pub const TEXT_MUTED: Color = Color::rgb(156, 165, 167);
+    pub const TEXT_DIM: Color = Color::rgb(116, 128, 135);
+    pub const ACCENT: Color = Color::rgb(226, 184, 107);
+    pub const ACCENT_DARK: Color = Color::rgb(112, 88, 49);
+    pub const BUTTON: [GradientStop; 2] = [
+        GradientStop::new(0.0, Color::rgb(39, 45, 50)),
+        GradientStop::new(1.0, Color::rgb(26, 30, 34)),
+    ];
+    pub const INPUT: [GradientStop; 2] = [
+        GradientStop::new(0.0, Color::rgb(48, 54, 59)),
+        GradientStop::new(1.0, Color::rgb(40, 46, 51)),
+    ];
+    pub const BUTTON_HOVER: [GradientStop; 2] = [
+        GradientStop::new(0.0, Color::rgb(51, 59, 65)),
+        GradientStop::new(1.0, Color::rgb(36, 42, 47)),
+    ];
+    pub const BUTTON_SELECTED: [GradientStop; 2] = [
+        GradientStop::new(0.0, Color::rgb(237, 199, 131)),
+        GradientStop::new(1.0, Color::rgb(197, 153, 80)),
+    ];
+    pub const RIM: [GradientStop; 2] = [
+        GradientStop::new(0.0, Color::rgb(78, 88, 95)),
+        GradientStop::new(1.0, Color::rgb(37, 44, 49)),
+    ];
     pub const ITEMS: [Color; 10] = [
-        Color::rgb(73, 135, 218),
-        Color::rgb(53, 174, 126),
-        Color::rgb(224, 142, 62),
-        Color::rgb(146, 92, 220),
-        Color::rgb(218, 89, 143),
-        Color::rgb(47, 162, 184),
-        Color::rgb(111, 148, 68),
-        Color::rgb(205, 103, 73),
-        Color::rgb(112, 103, 209),
-        Color::rgb(191, 79, 119),
+        Color::rgb(181, 145, 86),
+        Color::rgb(117, 145, 136),
+        Color::rgb(180, 107, 77),
+        Color::rgb(144, 148, 146),
+        Color::rgb(166, 151, 115),
+        Color::rgb(109, 132, 147),
+        Color::rgb(144, 150, 105),
+        Color::rgb(160, 119, 99),
+        Color::rgb(133, 130, 145),
+        Color::rgb(159, 128, 122),
     ];
 }

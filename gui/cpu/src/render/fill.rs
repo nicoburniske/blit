@@ -70,11 +70,7 @@ impl PreparedFill {
                     .min(stops.len() - 2);
                 let amount = ((position - stops[index].position) / (stops[index + 1].position - stops[index].position))
                     .clamp(0.0, 1.0);
-                interpolate(
-                    (amount * 255.0).round() as u32,
-                    stops[index].color,
-                    stops[index + 1].color,
-                )
+                interpolate(amount, stops[index].color, stops[index + 1].color, x, y)
             }
         }
     }
@@ -108,9 +104,8 @@ impl PreparedFill {
                     if index != previous {
                         inverse = 1.0 / (stops[index + 1].position - stops[index].position);
                     }
-                    let amount =
-                        (((position - stops[index].position) * inverse).clamp(0.0, 1.0) * 255.0).round() as u32;
-                    let color = interpolate(amount, stops[index].color, stops[index + 1].color);
+                    let amount = ((position - stops[index].position) * inverse).clamp(0.0, 1.0);
+                    let color = interpolate(amount, stops[index].color, stops[index + 1].color, x + i as i32, y);
                     pixel.blend(color.coverage(coverage as u32));
                 }
             }
@@ -118,12 +113,24 @@ impl PreparedFill {
     }
 }
 
-fn interpolate(amount: u32, first: PremultipliedRgbaColor, second: PremultipliedRgbaColor) -> PremultipliedRgbaColor {
-    let inverse = 255 - amount;
+fn interpolate(
+    amount: f32,
+    first: PremultipliedRgbaColor,
+    second: PremultipliedRgbaColor,
+    x: i32,
+    y: i32,
+) -> PremultipliedRgbaColor {
+    const BAYER: [u8; 16] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+    // interpolate with sixteen fractional bits before converting to bytes
+    let threshold = BAYER[((y & 3) * 4 + (x & 3)) as usize] as i32 * 4096 + 2048;
+    let amount = (amount * 65536.0).round() as i32;
+    let alpha = (((first.alpha as i32) << 16) + (second.alpha as i32 - first.alpha as i32) * amount + 32768) >> 16;
+    let channel =
+        |a: u8, b: u8| ((((a as i32) << 16) + (b as i32 - a as i32) * amount + threshold) >> 16).min(alpha) as u8;
     PremultipliedRgbaColor {
-        alpha: ((inverse * first.alpha as u32 + amount * second.alpha as u32) / 255) as u8,
-        red: ((inverse * first.red as u32 + amount * second.red as u32) / 255) as u8,
-        green: ((inverse * first.green as u32 + amount * second.green as u32) / 255) as u8,
-        blue: ((inverse * first.blue as u32 + amount * second.blue as u32) / 255) as u8,
+        alpha: alpha as u8,
+        red: channel(first.red, second.red),
+        green: channel(first.green, second.green),
+        blue: channel(first.blue, second.blue),
     }
 }

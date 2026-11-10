@@ -1,5 +1,65 @@
 use fearless_simd::{Level, Simd, dispatch, f32x8, i32x8, prelude::*};
 
+use crate::PremultipliedRgbaColor;
+
+/// blurs premultiplied color pixels with reusable scratch storage
+pub fn stack_rgba(
+    pixels: &mut [PremultipliedRgbaColor],
+    width: usize,
+    height: usize,
+    radius: u32,
+    scratch: &mut Vec<i32>,
+) {
+    assert_eq!(
+        pixels.len(),
+        width.checked_mul(height).expect("blur dimensions overflow")
+    );
+    if radius == 0 || width == 0 || height == 0 {
+        return;
+    }
+    let radius = radius as usize;
+    scratch.resize((radius * 2 + 1) * 8, 0);
+    let stack = scratch.as_chunks_mut::<8>().0;
+    dispatch!(Level::new(), simd => {
+        for y in (0..height).step_by(2) {
+            simd_pass(
+                simd, pixels, width, radius, stack,
+                #[inline(always)]
+                |pixels, x| {
+                    let a = pixels[y * width + x];
+                    let b = pixels[(y + 1).min(height - 1) * width + x];
+                    [a.red, a.green, a.blue, a.alpha, b.red, b.green, b.blue, b.alpha].map(i32::from)
+                },
+                #[inline(always)]
+                |pixels, x, [red, green, blue, alpha, r, g, b, a]| {
+                    pixels[y * width + x] = PremultipliedRgbaColor { red, green, blue, alpha };
+                    if y + 1 < height {
+                        pixels[(y + 1) * width + x] = PremultipliedRgbaColor { red: r, green: g, blue: b, alpha: a };
+                    }
+                },
+            );
+        }
+        for x in (0..width).step_by(2) {
+            simd_pass(
+                simd, pixels, height, radius, stack,
+                #[inline(always)]
+                |pixels, y| {
+                    let a = pixels[y * width + x];
+                    let b = pixels[y * width + (x + 1).min(width - 1)];
+                    [a.red, a.green, a.blue, a.alpha, b.red, b.green, b.blue, b.alpha].map(i32::from)
+                },
+                #[inline(always)]
+                |pixels, y, [red, green, blue, alpha, r, g, b, a]| {
+                    pixels[y * width + x] = PremultipliedRgbaColor { red, green, blue, alpha };
+                    if x + 1 < width {
+                        pixels[y * width + x + 1] = PremultipliedRgbaColor { red: r, green: g, blue: b, alpha: a };
+                    }
+                },
+            );
+        }
+    });
+}
+
 pub fn stack(alpha: &mut [u8], width: usize, height: usize, radius: u32) {
     if radius == 0 || width == 0 || height == 0 {
         return;
@@ -62,14 +122,14 @@ pub fn stack(alpha: &mut [u8], width: usize, height: usize, radius: u32) {
 }
 
 #[inline(always)]
-fn simd_pass<S: Simd>(
+fn simd_pass<S: Simd, T>(
     simd: S,
-    alpha: &mut [u8],
+    alpha: &mut [T],
     length: usize,
     radius: usize,
     stack: &mut [[i32; 8]],
-    mut load: impl FnMut(&[u8], usize) -> [i32; 8],
-    mut store: impl FnMut(&mut [u8], usize, [u8; 8]),
+    mut load: impl FnMut(&[T], usize) -> [i32; 8],
+    mut store: impl FnMut(&mut [T], usize, [u8; 8]),
 ) {
     let div = radius * 2 + 1;
     let scale = 1.0 / ((radius + 1) * (radius + 1)) as f32;

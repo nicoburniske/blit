@@ -249,7 +249,12 @@ fn fill_color(color: vec4<f32>, gradient: u32, position: vec2<f32>, shape: vec4<
     let first = stops[index];
     let second = stops[index + 1u];
     let amount = clamp((value - first.position) / (second.position - first.position), 0.0, 1.0);
-    return mix(first.color, second.color, amount);
+    let blended = mix(first.color, second.color, amount);
+    const BAYER = array<u32, 16>(0u, 8u, 2u, 10u, 12u, 4u, 14u, 6u, 3u, 11u, 1u, 9u, 15u, 7u, 13u, 5u);
+    let pixel = vec2<u32>(position);
+    let threshold = (f32(BAYER[(pixel.y & 3u) * 4u + (pixel.x & 3u)]) + 0.5) / 16.0;
+    let rgb = floor(blended.rgb * 255.0 + vec3(threshold)) / 255.0;
+    return vec4(clamp(rgb, vec3(0.0), vec3(blended.a)), blended.a);
 }
 
 @fragment

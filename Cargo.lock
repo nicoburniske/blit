@@ -167,13 +167,17 @@ name = "blit-demo"
 version = "0.1.0"
 dependencies = [
  "blit",
+ "blit-cpu",
  "blit-desktop",
+ "blit-gpu",
  "blit-gui",
  "blit-gui-widgets",
  "blit-layout",
  "blit-text-parley",
  "blit-tui",
  "blit-widgets",
+ "bytemuck",
+ "wgpu",
 ]
 
 [[package]]

@@ -347,9 +347,9 @@ fn renders_primitives_and_rebuilds_frames() {
     assert_eq!(pixel(48, 10), [247, 0, 8, 255]);
     assert_eq!(pixel(63, 10), [8, 0, 247, 255]);
     assert_eq!(pixel(64, 10), [123, 128, 4, 255]);
-    assert_eq!(pixel(72, 10), [120, 0, 135, 255]);
+    assert_eq!(pixel(72, 10), [119, 0, 135, 255]);
     assert_eq!(pixel(80, 2), [0, 0, 0, 0]);
-    assert_eq!(pixel(88, 10), [120, 0, 135, 255]);
+    assert_eq!(pixel(88, 10), [119, 0, 135, 255]);
     let top_border = pixel(80, 6);
     let bottom_border = pixel(80, 13);
     assert_eq!(top_border[1], 128);
@@ -363,5 +363,5 @@ fn renders_primitives_and_rebuilds_frames() {
     assert!(top_right[2] > top_right[0]);
     assert!(top_right[3] > bottom_left[3]);
     assert_eq!(pixel(114, 10), [0, 0, 0, 0]);
-    assert_eq!(pixel(116, 10), [183, 0, 72, 255]);
+    assert_eq!(pixel(116, 10), [183, 0, 71, 255]);
 }

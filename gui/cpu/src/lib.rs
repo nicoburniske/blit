@@ -33,6 +33,7 @@ pub use self::{
     handler::{Handler, PaintContext},
     pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888},
     raster::{DrawContext, Span, Surface},
+    render::blur,
     strategy::{Direct, RenderStrategy, Scanline},
 };
 

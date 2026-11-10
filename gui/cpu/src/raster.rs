@@ -5,7 +5,7 @@ use blit_gui::{
     image::{ImageData, ImageHandle},
 };
 
-pub use crate::render::{blur, rounded};
+pub use crate::render::rounded;
 use crate::{
     Pixel, PixelBuffer, StoredImage,
     damage::region::Region,

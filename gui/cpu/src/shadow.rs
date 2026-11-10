@@ -10,11 +10,8 @@ use blit_gui::{
 };
 
 use crate::{
-    DamageTracker, Pixel, PixelBuffer, RenderStrategy, Renderer,
-    raster::{
-        blur,
-        rounded::{Radii, RoundedLine},
-    },
+    DamageTracker, Pixel, PixelBuffer, RenderStrategy, Renderer, blur,
+    raster::rounded::{Radii, RoundedLine},
 };
 
 /// box shadow handler with retained masks created on first use
