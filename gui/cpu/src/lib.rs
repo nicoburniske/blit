@@ -60,6 +60,7 @@ impl<B: PixelBuffer> Renderer<B> {
                 raster: RasterCommands::default(),
                 clips: ClipStack::default(),
                 snapshot: Surface {
+                    bounds: PhysicalRect::default(),
                     width: 0,
                     height: 0,
                     pixels: Vec::new(),
@@ -233,14 +234,21 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                     let snapshot = &mut context.snapshot;
                     snapshot.width = context.buffer.width();
                     snapshot.height = context.buffer.height();
-                    snapshot
-                        .pixels
-                        .resize(snapshot.width * snapshot.height, B::Pixel::background());
+                    snapshot.bounds = node
+                        .reads
+                        .rects()
+                        .reduce(|bounds, next| bounds.union(next))
+                        .unwrap_or_default();
+                    let len = snapshot.bounds.width as usize * snapshot.bounds.height as usize;
+                    if snapshot.pixels.len() < len {
+                        snapshot.pixels.resize(len, B::Pixel::background());
+                    }
                     snapshot.valid.clone_from(&node.reads);
                     for bounds in node.reads.rects() {
                         for y in bounds.y..bounds.y + bounds.height {
                             let range = bounds.x as usize..(bounds.x + bounds.width) as usize;
-                            let start = y as usize * snapshot.width + range.start;
+                            let start = (y - snapshot.bounds.y) as usize * snapshot.bounds.width as usize
+                                + (bounds.x - snapshot.bounds.x) as usize;
                             snapshot.pixels[start..start + range.len()]
                                 .copy_from_slice(context.buffer.read_line(y as usize, range));
                         }

@@ -271,9 +271,9 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
     drop(renderer);
     assert_eq!(drops.get(), 2);
 
-    let mut renderer = new_renderer(VecBuffer::new(1, 1), renderer_config());
+    let mut renderer = new_renderer(VecBuffer::new(64, 64), renderer_config());
     for pass in [false, true, true, false] {
-        let mut recording = renderer.record::<Fill<16>>(LogicalRect::new(0.0, 0.0, 1.0, 1.0));
+        let mut recording = renderer.record::<Fill<16>>(LogicalRect::new(40.0, 40.0, 1.0, 1.0));
         if pass {
             recording.pass(());
         } else {
@@ -281,9 +281,13 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
         }
         renderer.render(1);
         assert_eq!(
-            renderer.buffer().pixels()[0],
+            renderer.buffer().pixels()[40 * 64 + 40],
             Xrgb8888::from_rgb(16, if pass { 16 } else { 0 }, 0)
         );
+        if pass {
+            assert_eq!(renderer.context.snapshot.pixels.len(), 32 * 32);
+            assert_eq!(renderer.context.snapshot.row(40, 40..41), &[Xrgb8888::background()]);
+        }
     }
 }
 

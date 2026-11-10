@@ -45,7 +45,8 @@ impl<'a, P: Pixel> DrawContext<'a, P> {
         self.source
     }
 
-    pub fn output_regions(&self) -> impl Iterator<Item = PhysicalRect> + '_ {
+    /// required output rectangles before precise clip coverage
+    pub fn output_regions(&self) -> impl Iterator<Item = PhysicalRect> + 'a {
         let (span, pass) = match &self.target {
             DrawTarget::Prepare => (None, None),
             DrawTarget::Span { x, y, pixels, .. } => (Some(PhysicalRect::new(*x, *y, pixels.len() as i32, 1)), None),
@@ -57,24 +58,38 @@ impl<'a, P: Pixel> DrawContext<'a, P> {
         )
     }
 
-    pub fn for_each_span(&mut self, mut draw: impl FnMut(Span<'_, P>)) {
+    pub fn for_each_span(&mut self, draw: impl FnMut(Span<'_, P>)) {
+        self.for_each_span_in(self.bounds, draw);
+    }
+
+    /// visits clipped output spans inside a physical rectangle
+    pub fn for_each_span_in(&mut self, area: PhysicalRect, mut draw: impl FnMut(Span<'_, P>)) {
+        let Some(area) = area.intersection(self.bounds) else {
+            return;
+        };
         match &mut self.target {
             DrawTarget::Prepare => {}
-            DrawTarget::Span { x, y, pixels, coverage } => draw(Span {
-                x: *x,
-                y: *y,
-                pixels,
-                coverage: *coverage,
-                list: self.list,
-                images: self.images,
-            }),
+            DrawTarget::Span { x, y, pixels, coverage } => {
+                let Some(bounds) = PhysicalRect::new(*x, *y, pixels.len() as i32, 1).intersection(area) else {
+                    return;
+                };
+                let start = (bounds.x - *x) as usize;
+                draw(Span {
+                    x: bounds.x,
+                    y: *y,
+                    pixels: &mut pixels[start..start + bounds.width as usize],
+                    coverage: *coverage,
+                    list: self.list,
+                    images: self.images,
+                });
+            }
             DrawTarget::Pass {
                 target,
                 clips,
                 clip,
                 output,
             } => {
-                for bounds in output.rects().filter_map(|region| region.intersection(self.bounds)) {
+                for bounds in output.rects().filter_map(|region| region.intersection(area)) {
                     for y in bounds.y..bounds.y + bounds.height {
                         clips.for_each(*clip, y, bounds.x..bounds.x + bounds.width, |range, coverage| {
                             target.process_line(y as usize, range.start as usize..range.end as usize, &mut |pixels| {
@@ -118,6 +133,7 @@ impl<'a, P> Span<'a, P> {
 pub struct Surface<P> {
     pub(crate) width: usize,
     pub(crate) height: usize,
+    pub(crate) bounds: PhysicalRect,
     pub(crate) pixels: Vec<P>,
     pub(crate) valid: Region,
 }
@@ -131,12 +147,16 @@ impl<P> Surface<P> {
     }
     pub fn row(&self, y: usize, range: std::ops::Range<usize>) -> &[P] {
         assert!(range.start <= range.end && range.end <= self.width && y < self.height);
+        if range.is_empty() {
+            return &[];
+        }
         assert!(
             self.valid
                 .contains(PhysicalRect::new(range.start as i32, y as i32, range.len() as i32, 1)),
             "pass read outside its declared source footprint"
         );
-        &self.pixels[y * self.width + range.start..y * self.width + range.end]
+        let start = (y - self.bounds.y as usize) * self.bounds.width as usize + range.start - self.bounds.x as usize;
+        &self.pixels[start..start + range.len()]
     }
 }
 
