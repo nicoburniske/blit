@@ -395,8 +395,8 @@ pub trait PixelBuffer {
         &self.line_mut(line)[range]
     }
 
-    fn process_line(&mut self, line: usize, range: Range<usize>, process: impl FnOnce(&mut [Self::Pixel])) {
-        process(&mut self.line_mut(line)[range]);
+    fn write_line(&mut self, line: usize, range: Range<usize>) -> &mut [Self::Pixel] {
+        &mut self.line_mut(line)[range]
     }
 }
 

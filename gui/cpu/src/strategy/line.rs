@@ -155,49 +155,48 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         }
                     }
                 }
-                buffer.process_line(line as usize, range.clone(), |pixels| {
-                    let mut draw = |first: usize, start: usize, end: usize| {
-                        if start >= end {
-                            return;
-                        }
-                        let offset = start - range.start;
-                        let row = PixelSpan {
-                            x: start as i32,
-                            pixels: &mut pixels[offset..offset + end - start],
-                        };
-                        if clipped {
-                            draw_commands::<true, _>(
-                                commands,
-                                list,
-                                &self.active[first..],
-                                &self.clip_ranges,
-                                images,
-                                text,
-                                row,
-                                line,
-                            );
-                        } else {
-                            draw_commands::<false, _>(
-                                commands,
-                                list,
-                                &self.active[first..],
-                                &self.clip_ranges,
-                                images,
-                                text,
-                                row,
-                                line,
-                            );
-                        }
-                    };
-                    if let Some((start, end, overwrite)) = overwrite {
-                        // only the uncovered edges need commands behind the opaque span
-                        draw(first, range.start, start);
-                        draw(overwrite, start, end);
-                        draw(first, end, range.end);
-                    } else {
-                        draw(first, range.start, range.end);
+                let pixels = buffer.write_line(line as usize, range.clone());
+                let mut draw = |first: usize, start: usize, end: usize| {
+                    if start >= end {
+                        return;
                     }
-                });
+                    let offset = start - range.start;
+                    let row = PixelSpan {
+                        x: start as i32,
+                        pixels: &mut pixels[offset..offset + end - start],
+                    };
+                    if clipped {
+                        draw_commands::<true, _>(
+                            commands,
+                            list,
+                            &self.active[first..],
+                            &self.clip_ranges,
+                            images,
+                            text,
+                            row,
+                            line,
+                        );
+                    } else {
+                        draw_commands::<false, _>(
+                            commands,
+                            list,
+                            &self.active[first..],
+                            &self.clip_ranges,
+                            images,
+                            text,
+                            row,
+                            line,
+                        );
+                    }
+                };
+                if let Some((start, end, overwrite)) = overwrite {
+                    // only the uncovered edges need commands behind the opaque span
+                    draw(first, range.start, start);
+                    draw(overwrite, start, end);
+                    draw(first, end, range.end);
+                } else {
+                    draw(first, range.start, range.end);
+                }
             }
             line += 1;
         }

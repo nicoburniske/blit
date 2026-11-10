@@ -461,11 +461,11 @@ mod tests {
         fn line_mut(&mut self, _: usize) -> &mut [Xrgb8888] {
             panic!("untracked framebuffer write")
         }
-        fn process_line(&mut self, y: usize, range: std::ops::Range<usize>, draw: impl FnOnce(&mut [Xrgb8888])) {
+        fn write_line(&mut self, y: usize, range: std::ops::Range<usize>) -> &mut [Xrgb8888] {
             self.writes += range.len();
             let start = y * self.width() + range.start;
             self.touched[start..start + range.len()].fill(true);
-            self.buffer.process_line(y, range, draw);
+            self.buffer.write_line(y, range)
         }
         fn read_line(&mut self, y: usize, range: std::ops::Range<usize>) -> &[Xrgb8888] {
             self.reads.set(self.reads.get() + range.len());

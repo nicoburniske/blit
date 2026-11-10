@@ -92,15 +92,13 @@ impl<'a, P: Pixel> DrawContext<'a, P> {
                 for bounds in output.rects().filter_map(|region| region.intersection(area)) {
                     for y in bounds.y..bounds.y + bounds.height {
                         clips.for_each(*clip, y, bounds.x..bounds.x + bounds.width, |range, coverage| {
-                            target.process_line(y as usize, range.start as usize..range.end as usize, &mut |pixels| {
-                                draw(Span {
-                                    x: range.start,
-                                    y,
-                                    coverage,
-                                    list: self.list,
-                                    images: self.images,
-                                    pixels,
-                                })
+                            draw(Span {
+                                x: range.start,
+                                y,
+                                coverage,
+                                list: self.list,
+                                images: self.images,
+                                pixels: target.write_line(y as usize, range.start as usize..range.end as usize),
                             });
                         });
                     }
@@ -223,19 +221,9 @@ pub(crate) enum DrawTarget<'a, P> {
         coverage: u8,
     },
     Pass {
-        target: &'a mut dyn Target<P>,
+        target: &'a mut dyn PixelBuffer<Pixel = P>,
         clips: &'a ClipStack,
         clip: u32,
         output: &'a Region,
     },
-}
-
-pub(crate) trait Target<P> {
-    fn process_line(&mut self, y: usize, range: std::ops::Range<usize>, draw: &mut dyn FnMut(&mut [P]));
-}
-
-impl<B: PixelBuffer> Target<B::Pixel> for B {
-    fn process_line(&mut self, y: usize, range: std::ops::Range<usize>, draw: &mut dyn FnMut(&mut [B::Pixel])) {
-        PixelBuffer::process_line(self, y, range, |pixels| draw(pixels));
-    }
 }

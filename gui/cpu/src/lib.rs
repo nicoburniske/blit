@@ -212,11 +212,10 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                 }
                 for bounds in region.rects() {
                     for y in bounds.y..bounds.y + bounds.height {
-                        context.buffer.process_line(
-                            y as usize,
-                            bounds.x as usize..(bounds.x + bounds.width) as usize,
-                            |pixels| pixels.fill(B::Pixel::background()),
-                        );
+                        context
+                            .buffer
+                            .write_line(y as usize, bounds.x as usize..(bounds.x + bounds.width) as usize)
+                            .fill(B::Pixel::background());
                     }
                 }
             }
@@ -283,14 +282,11 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                 let mut offset = 0;
                 for bounds in plan.preserve.rects() {
                     for y in bounds.y..bounds.y + bounds.height {
-                        context.buffer.process_line(
-                            y as usize,
-                            bounds.x as usize..(bounds.x + bounds.width) as usize,
-                            |pixels| {
-                                pixels.copy_from_slice(&context.preserved[offset..offset + pixels.len()]);
-                                offset += pixels.len();
-                            },
-                        );
+                        let pixels = context
+                            .buffer
+                            .write_line(y as usize, bounds.x as usize..(bounds.x + bounds.width) as usize);
+                        pixels.copy_from_slice(&context.preserved[offset..offset + pixels.len()]);
+                        offset += pixels.len();
                     }
                 }
             }

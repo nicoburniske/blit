@@ -929,11 +929,11 @@ impl PixelBuffer for TrackingBuffer {
         &mut self.pixels[start..start + self.width]
     }
 
-    fn process_line(&mut self, line: usize, range: Range<usize>, process: impl FnOnce(&mut [Xrgb8888])) {
+    fn write_line(&mut self, line: usize, range: Range<usize>) -> &mut [Xrgb8888] {
         self.lines.push(line);
         self.ranges.push(range.clone());
         let start = line * self.width;
-        process(&mut self.pixels[start + range.start..start + range.end]);
+        &mut self.pixels[start + range.start..start + range.end]
     }
 }
 
