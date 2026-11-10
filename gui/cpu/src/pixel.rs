@@ -89,6 +89,11 @@ pub trait Pixel: Copy + 'static {
         Self::from_rgb(0, 0, 0)
     }
 
+    /// blurs premultiplied pixels in place with reusable scratch storage
+    fn blur(pixels: &mut [PremultipliedRgbaColor], width: usize, height: usize, radius: u32, scratch: &mut Vec<i32>) {
+        crate::render::blur::stack_rgba(pixels, width, height, radius, scratch);
+    }
+
     /// writes an rgb ramp with repeating rounding offsets added before byte conversion
     /// use `[0.5; 4]` for nearest rounding or varying offsets for dithering
     fn write_opaque_gradient(pixels: &mut [Self], color: [f32; 3], step: [f32; 3], rounding: [f32; 4]) {

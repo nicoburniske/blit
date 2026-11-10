@@ -48,7 +48,7 @@ impl<P: Pixel> crate::Handler<usize, P> for Handler {
                 self.pixels
                     .extend(source.row(row, x..right).iter().map(|pixel| pixel.to_rgba()));
             }
-            blur::stack_rgba(&mut self.pixels, stride, bottom - y, *radius as u32, &mut self.scratch);
+            P::blur(&mut self.pixels, stride, bottom - y, *radius as u32, &mut self.scratch);
             cx.for_each_span_in(bounds, |span| {
                 let start = (span.y as usize - y) * stride + span.x as usize - x;
                 let colors = &self.pixels[start..start + span.pixels.len()];

@@ -20,47 +20,15 @@ pub fn stack_rgba(
     if radius == 0 || width == 0 || height == 0 {
         return;
     }
-    let radius = radius as usize;
-    scratch.resize((radius * 2 + 1) * 8, 0);
-    let stack = scratch.as_chunks_mut::<8>().0;
-    dispatch!(Level::new(), simd => {
-        for y in (0..height).step_by(2) {
-            simd_pass(
-                simd, pixels, width, radius, stack,
-                #[inline(always)]
-                |pixels, x| {
-                    let a = pixels[y * width + x];
-                    let b = pixels[(y + 1).min(height - 1) * width + x];
-                    [a.red, a.green, a.blue, a.alpha, b.red, b.green, b.blue, b.alpha].map(i32::from)
-                },
-                #[inline(always)]
-                |pixels, x, [red, green, blue, alpha, r, g, b, a]| {
-                    pixels[y * width + x] = PremultipliedRgbaColor { red, green, blue, alpha };
-                    if y + 1 < height {
-                        pixels[(y + 1) * width + x] = PremultipliedRgbaColor { red: r, green: g, blue: b, alpha: a };
-                    }
-                },
-            );
-        }
-        for x in (0..width).step_by(2) {
-            simd_pass(
-                simd, pixels, height, radius, stack,
-                #[inline(always)]
-                |pixels, y| {
-                    let a = pixels[y * width + x];
-                    let b = pixels[y * width + (x + 1).min(width - 1)];
-                    [a.red, a.green, a.blue, a.alpha, b.red, b.green, b.blue, b.alpha].map(i32::from)
-                },
-                #[inline(always)]
-                |pixels, y, [red, green, blue, alpha, r, g, b, a]| {
-                    pixels[y * width + x] = PremultipliedRgbaColor { red, green, blue, alpha };
-                    if x + 1 < width {
-                        pixels[y * width + x + 1] = PremultipliedRgbaColor { red: r, green: g, blue: b, alpha: a };
-                    }
-                },
-            );
-        }
-    });
+    let radius = radius.min(MAX_RADIUS) as usize;
+    scratch.resize((radius * 2 + 1) * 4, 0);
+    let stack = scratch.as_chunks_mut::<4>().0;
+    for row in 0..height {
+        rgba_line(pixels, row * width, 1, width, radius, stack);
+    }
+    for column in 0..width {
+        rgba_line(pixels, column, width, height, radius, stack);
+    }
 }
 
 pub fn stack(alpha: &mut [u8], width: usize, height: usize, radius: u32) {
@@ -179,6 +147,66 @@ fn simd_pass<S: Simd, T>(
         let entering = i32x8::simd_from(simd, stack[position]);
         sum_out += entering;
         sum_in -= entering;
+    }
+}
+
+fn rgba_line(
+    pixels: &mut [PremultipliedRgbaColor],
+    start: usize,
+    step: usize,
+    length: usize,
+    radius: usize,
+    stack: &mut [[i32; 4]],
+) {
+    let div = radius * 2 + 1;
+    let scale = 1.0 / ((radius + 1) * (radius + 1)) as f32;
+    let channels = |pixel: PremultipliedRgbaColor| [pixel.red, pixel.green, pixel.blue, pixel.alpha].map(i32::from);
+    let first = channels(pixels[start]);
+    let mut sum = [0; 4];
+    let mut sum_in = [0; 4];
+    let mut sum_out = [0; 4];
+    for (i, slot) in stack.iter_mut().take(radius + 1).enumerate() {
+        *slot = first;
+        for channel in 0..4 {
+            sum[channel] += first[channel] * (i as i32 + 1);
+            sum_out[channel] += first[channel];
+        }
+    }
+    for i in 1..=radius {
+        let source = channels(pixels[start + i.min(length - 1) * step]);
+        stack[i + radius] = source;
+        for channel in 0..4 {
+            sum[channel] += source[channel] * (radius + 1 - i) as i32;
+            sum_in[channel] += source[channel];
+        }
+    }
+    let mut source = radius.min(length - 1);
+    let mut position = radius;
+    for output in 0..length {
+        let [red, green, blue, alpha] = sum.map(|value| (value as f32 * scale).round() as u8);
+        pixels[start + output * step] = PremultipliedRgbaColor {
+            red,
+            green,
+            blue,
+            alpha,
+        };
+        let leaving = (position + div - radius) % div;
+        source = (source + 1).min(length - 1);
+        let input = channels(pixels[start + source * step]);
+        for channel in 0..4 {
+            sum[channel] -= sum_out[channel];
+            sum_out[channel] -= stack[leaving][channel];
+        }
+        stack[leaving] = input;
+        for channel in 0..4 {
+            sum_in[channel] += input[channel];
+            sum[channel] += sum_in[channel];
+        }
+        position = (position + 1) % div;
+        for channel in 0..4 {
+            sum_out[channel] += stack[position][channel];
+            sum_in[channel] -= stack[position][channel];
+        }
     }
 }
 
