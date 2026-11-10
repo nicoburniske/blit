@@ -4,7 +4,7 @@ use crate::Context;
 
 /// clicks and press feedback
 ///
-/// a press that moves [`Context::SLOP`] is no longer a click
+/// touch movement past [`Context::SLOP`] yields to dragging
 #[derive(Clone, Copy, Debug)]
 pub struct Interact;
 
@@ -37,8 +37,9 @@ impl<C: Context> blit::Interact<C> for Interact {
             let x = (contact.position.x - contact.origin.x).to_f32();
             let y = (contact.position.y - contact.origin.y).to_f32();
             let slop = C::SLOP.to_f32();
+            let mouse = matches!(contact.source, ContactSource::Mouse(_));
             // this widget capturing it, like with its own drag, ends the click
-            if x * x + y * y < slop * slop && contact.claim() {
+            if (mouse || x * x + y * y < slop * slop) && contact.claim() {
                 active = !matches!(contact.phase, Phase::Ended | Phase::Cancelled);
                 clicked = contact.phase == Phase::Ended && contact.over;
                 if active || clicked {
@@ -121,16 +122,24 @@ mod tests {
                 assert_eq!(position, Some(Point::new(11.0, 10.0)));
                 assert_eq!(cursor, mouse);
             }
-            let (up, position, _) = press(pointer(id, Up, 12.0, 10.0));
+            let released_x = if id.is_none() { 50.0 } else { 12.0 };
+            let (moved, _, _) = press(pointer(id, Move, released_x, 10.0));
+            assert!(moved.active && !moved.clicked);
+            let (up, position, _) = press(pointer(id, Up, released_x, 10.0));
             assert!(up.clicked && up.deactivated && !up.active);
             assert_eq!(up.contact, down.contact);
-            assert_eq!(position, Some(Point::new(12.0, 10.0)));
+            assert_eq!(position, Some(Point::new(released_x, 10.0)));
             let (idle, position, _) = press(Input::None);
             assert_eq!(idle.contact, None);
             assert_eq!(position, None);
-            // moving past the slop or cancelling ends the press
-            for (phase, y) in [(Move, 300.0), (Cancel, 10.0)] {
+            // touch movement cancels and mouse release outside does not click
+            let ending = if id.is_none() { Up } else { Move };
+            for (phase, y) in [(ending, 300.0), (Cancel, 10.0)] {
                 press(pointer(id, Down, 10.0, 10.0));
+                if phase == Up {
+                    assert!(press(pointer(id, Move, 300.0, 10.0)).0.active);
+                    assert!(press(pointer(id, Move, 10.0, 10.0)).0.active);
+                }
                 let (ended, position, _) = press(pointer(id, phase, 10.0, y));
                 assert!(ended.deactivated && !ended.active && !ended.clicked);
                 assert_eq!(ended.contact, None);

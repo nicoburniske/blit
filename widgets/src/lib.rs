@@ -18,7 +18,7 @@ pub use text_input::{Response as TextInputResponse, State as TextInputState};
 
 /// how a backend tunes the built-in widgets
 pub trait Context: blit::Context {
-    /// movement in frame coordinates before a press becomes a drag
+    /// movement in frame coordinates before a touch becomes a drag
     const SLOP: Self::Scalar;
 }
 

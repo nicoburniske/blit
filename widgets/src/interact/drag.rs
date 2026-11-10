@@ -3,7 +3,7 @@ use blit::{Axis, ContactId, ContactSource, InteractCx, MouseButton, Phase, Point
 use crate::Context;
 
 builder! {
-    /// follows one primary press or touch once it moves [`Context::SLOP`]
+    /// follows one primary mouse press on movement or touch once it moves [`Context::SLOP`]
     ///
     /// with an `axis`, starts only when movement is mostly along it
     #[derive(Clone, Copy, Debug)]
@@ -11,6 +11,8 @@ builder! {
         new(),
         #[into]
         axis: Option<Axis> = None,
+        /// accepts only touch contacts
+        touch_only: bool = false,
     }
 }
 
@@ -37,20 +39,25 @@ impl<C: Context> blit::Interact<C> for Interact {
 
     fn update(&self, drag: &mut Option<ContactId>, cx: &mut InteractCx<'_, C::Scalar>) -> Self::Response {
         if let Some(id) = *drag {
-            let contact = cx.contacts().find(|contact| contact.id == id && contact.free);
-            let contact = contact.as_ref();
-            let active = contact.is_some_and(|contact| !matches!(contact.phase, Phase::Ended | Phase::Cancelled));
+            let Some(contact) = cx.contacts().find(|contact| contact.id == id && contact.free) else {
+                *drag = None;
+                // a contact this widget lost ends the drag without a release
+                return Response {
+                    deactivated: true,
+                    ..Response::default()
+                };
+            };
+            let active = !matches!(contact.phase, Phase::Ended | Phase::Cancelled);
             if !active {
                 *drag = None;
             }
-            // a contact this widget lost ends the drag without a release
             return Response {
                 active,
                 activated: false,
                 deactivated: !active,
-                released: contact.is_some_and(|contact| contact.phase == Phase::Ended),
-                position: contact.map_or(Point::ZERO, |contact| contact.position),
-                delta: contact.map_or(Point::ZERO, |contact| contact.delta),
+                released: contact.phase == Phase::Ended,
+                position: contact.position,
+                delta: contact.delta,
             };
         }
         let slop = C::SLOP.to_f32();
@@ -61,18 +68,20 @@ impl<C: Context> blit::Interact<C> for Interact {
             matches!(contact.phase, Phase::Changed | Phase::Ended)
                 && contact.free
                 && match contact.source {
-                    ContactSource::Touch(_) => true,
-                    ContactSource::Mouse(button) => button == MouseButton::Primary,
+                    ContactSource::Touch(_) => distance >= slop * slop,
+                    ContactSource::Mouse(button) => !self.touch_only && button == MouseButton::Primary,
                 }
                 && distance > 0.0
-                && distance >= slop * slop
                 && self
                     .axis
                     .is_none_or(|axis| (axis == Axis::Horizontal) == (x.abs() >= y.abs()))
         });
-        let Some(contact) = contact.and_then(|mut contact| contact.capture().then_some(contact)) else {
+        let Some(mut contact) = contact else {
             return Response::default();
         };
+        if !contact.capture() {
+            return Response::default();
+        }
         // a release past the threshold starts and ends in one update
         let active = contact.phase == Phase::Changed;
         if active {

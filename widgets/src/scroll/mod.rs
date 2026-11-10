@@ -371,10 +371,10 @@ fn scrollbar_input<C: Context>(
     (active, Some(action))
 }
 
-/// wheel scrolling and panning over the content
+/// wheel scrolling and touch panning over the content
 fn content_input<C: Context>(ui: &mut Ui<'_, C>, axis: Axis) -> interact::scroll::Response {
     let scroll = ui.interact(interact::scroll());
-    let pan = ui.interact(interact::drag().axis(axis));
+    let pan = ui.interact(interact::drag().axis(axis).touch_only(true));
     if !pan.active && !pan.deactivated {
         return scroll;
     }
