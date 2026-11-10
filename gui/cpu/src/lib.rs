@@ -254,7 +254,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                     }
                     let bounds = context.raster.bounds(node.index);
                     context.raster.entries[node.index as usize].draw(
-                        &context.raster.data,
                         &mut context.raster.prepared,
                         &mut DrawContext {
                             scale,

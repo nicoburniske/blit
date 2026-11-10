@@ -72,17 +72,18 @@ where
                     target.entries.pop();
                 }
                 target
-                    .record(bounds, record.clip, offset, |value, cx| {
+                    .record(bounds, record.clip, offset, |_, offset, prepared, cx| {
                         // safety: recording stores this offset as blit_gui::rectangle::Stored
-                        let input = unsafe { cx.list.data().get(Offset::<blit_gui::rectangle::Stored>::new(*value)) };
-                        crate::render::rectangle::Prepared::new(
+                        let input = unsafe { cx.list.data().get(Offset::<blit_gui::rectangle::Stored>::new(offset)) };
+                        let value = crate::render::rectangle::Prepared::new(
                             input.area,
                             &input.view(cx.list),
                             cx.scale,
                             cx.gradients,
                         )
                         .map(Payload::Rectangle)
-                        .unwrap_or(Payload::Empty)
+                        .unwrap_or(Payload::Empty);
+                        prepared.push(value).byte()
                     })
                     .coverage = coverage;
             },

@@ -123,7 +123,7 @@ where
                 value: offset,
                 opaque: Offset::new(0),
                 reads: None,
-                prepare: Some(|handler, offset, _, prepared, cx| {
+                prepare: Some(|handler, offset, prepared, cx| {
                     // safety: recording pairs this offset with T and the handler with H
                     let value = unsafe { cx.list.data().get(Offset::<T>::new(offset)) };
                     let handler = unsafe { handler.cast::<H>().as_mut() };
@@ -245,7 +245,7 @@ pub struct ErasedCommand<P> {
     pub handler: NonNull<()>,
     pub value: u32,
     pub opaque: Offset<PhysicalRect>,
-    pub prepare: Option<fn(NonNull<()>, u32, &Bump, &mut Bump, &mut DrawContext<'_, P>) -> u32>,
+    pub prepare: Option<fn(NonNull<()>, u32, &mut Bump, &mut DrawContext<'_, P>) -> u32>,
     pub draw: Option<fn(NonNull<()>, u32, &Bump, &mut DrawContext<'_, P>)>,
     pub reads: Option<fn(NonNull<()>, u32, &DisplayList, PhysicalRect) -> PhysicalRect>,
 }
@@ -273,15 +273,15 @@ impl<P> ErasedCommand<P> {
     }
 
     #[inline(always)]
-    pub fn prepare(&mut self, data: &Bump, prepared: &mut Bump, cx: &mut DrawContext<'_, P>) {
+    pub fn prepare(&mut self, prepared: &mut Bump, cx: &mut DrawContext<'_, P>) {
         if let Some(prepare) = self.prepare {
-            self.value = prepare(self.handler, self.value, data, prepared, cx);
+            self.value = prepare(self.handler, self.value, prepared, cx);
             self.prepare = None;
         }
     }
 
-    pub fn draw(&mut self, data: &Bump, prepared: &mut Bump, cx: &mut DrawContext<'_, P>) {
-        self.prepare(data, prepared, cx);
+    pub fn draw(&mut self, prepared: &mut Bump, cx: &mut DrawContext<'_, P>) {
+        self.prepare(prepared, cx);
         if let Some(draw) = self.draw {
             draw(self.handler, self.value, prepared, cx);
         }

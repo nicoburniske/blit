@@ -31,7 +31,6 @@ pub fn draw_line<P: Pixel>(
             let start = (clip.x - row.x) as usize;
             let pixels = &mut row.pixels[start..start + clip.width as usize];
             call.draw(
-                &commands.data,
                 &mut commands.prepared,
                 &mut DrawContext {
                     scale: commands.scale,

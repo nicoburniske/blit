@@ -25,7 +25,6 @@ pub struct RasterCommands<P> {
     pub scale: f32,
     pub metadata: Vec<Metadata>,
     pub entries: Vec<ErasedCommand<P>>,
-    pub data: Bump,
     pub prepared: Bump,
     pub scratch: ScratchBuffer,
     pub range: Range<CommandId>,
@@ -41,7 +40,6 @@ impl<P> Default for RasterCommands<P> {
             scale: 1.0,
             metadata: Vec::new(),
             entries: Vec::new(),
-            data: Bump::default(),
             prepared: Bump::default(),
             scratch: ScratchBuffer::default(),
             range: 0..0,
@@ -76,7 +74,6 @@ impl<P: Pixel> RasterCommands<P> {
             return unsafe { input.get(&self.prepared) };
         }
         input.prepare(
-            &self.data,
             &mut self.prepared,
             &mut DrawContext {
                 scale: self.scale,
@@ -294,7 +291,6 @@ impl<P: Pixel> RasterCommands<P> {
         self.metadata.clear();
         self.entries.clear();
         self.prepared.clear();
-        self.data.clear();
         self.range = 0..0;
         self.gradients.entries.clear();
         self.gradients.stops.clear();
@@ -304,21 +300,20 @@ impl<P: Pixel> RasterCommands<P> {
         self.mesh_count = 0;
     }
 
-    pub fn record<T: 'static, F>(&mut self, bounds: PhysicalRect, clip: ClipId, value: T, prepare: F) -> &mut Metadata
-    where
-        F: Fn(&T, &mut DrawContext<'_, P>) -> Payload + 'static,
-    {
+    pub fn record(
+        &mut self,
+        bounds: PhysicalRect,
+        clip: ClipId,
+        value: u32,
+        prepare: fn(NonNull<()>, u32, &mut Bump, &mut DrawContext<'_, P>) -> u32,
+    ) -> &mut Metadata {
         let input = ErasedCommand {
             handler: NonNull::dangling(),
-            value: self.data.push((value, prepare)).byte(),
+            value,
             opaque: Offset::new(0),
             draw: None,
             reads: None,
-            prepare: Some(|_, offset, data, prepared, cx| {
-                // safety: recording pairs this callback with its typed input
-                let (value, prepare) = unsafe { data.get(Offset::<(T, F)>::new(offset)) };
-                prepared.push(prepare(value, cx)).byte()
-            }),
+            prepare: Some(prepare),
         };
         self.push(input, bounds, clip)
     }

@@ -29,11 +29,11 @@ where
                 let target = &mut *context.commands;
                 let area = input.area.to_physical(Scale2::uniform(scale));
                 if let Some(bounds) = area.intersection(record.bounds) {
-                    target.record(bounds, record.clip, offset, |value, cx| {
+                    target.record(bounds, record.clip, offset, |_, offset, prepared, cx| {
                         // safety: recording stores this offset as blit_gui::text::Stored
-                        let input = unsafe { cx.list.data().get(Offset::<blit_gui::text::Stored>::new(*value)) };
+                        let input = unsafe { cx.list.data().get(Offset::<blit_gui::text::Stored>::new(offset)) };
                         let (text, bounds) = cx.text.prepare(input.area, &input.view(cx.list), cx.scale);
-                        Payload::Text(text, bounds)
+                        prepared.push(Payload::Text(text, bounds)).byte()
                     });
                 }
             },

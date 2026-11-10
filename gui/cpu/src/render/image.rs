@@ -40,14 +40,19 @@ where
                 if let Some(texture) = context.images.get(request.image.id().into()) {
                     prepare_image_patches(*area, request, texture.data.size, scale, |patch| {
                         if let Some(bounds) = patch.bounds.intersection(record.bounds) {
+                            let value = target.prepared.push((offset, patch)).byte();
                             target
-                                .record(bounds, record.clip, (offset, patch), |(value, patch), cx| {
+                                .record(bounds, record.clip, value, |_, offset, prepared, cx| {
+                                    // safety: recording stores the image input offset and patch together
+                                    let (offset, patch) =
+                                        *unsafe { prepared.get(Offset::<(u32, ImagePatch)>::new(offset)) };
                                     // safety: recording stores this offset as placed image data
                                     let (_, request) =
-                                        unsafe { cx.list.data().get(Offset::<(LogicalRect, Image)>::new(*value)) };
-                                    crate::render::image_patch::Prepared::new(request, *patch, cx.scale)
+                                        unsafe { cx.list.data().get(Offset::<(LogicalRect, Image)>::new(offset)) };
+                                    let value = crate::render::image_patch::Prepared::new(request, patch, cx.scale)
                                         .map(Payload::Image)
-                                        .unwrap_or(Payload::Empty)
+                                        .unwrap_or(Payload::Empty);
+                                    prepared.push(value).byte()
                                 })
                                 .coverage = texture.coverage(request, patch);
                         }
