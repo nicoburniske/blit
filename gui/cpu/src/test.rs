@@ -293,7 +293,7 @@ fn pending_commands_prevent_handler_replacement() {
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
     let shadow = Shadow::new(Color::BLACK);
     renderer.paint(LogicalRect::new(0.0, 0.0, 8.0, 8.0), shadow);
-    let _ = renderer.handler(shadow::Handler::default());
+    let _ = renderer.handler(ext::shadow::Handler::default());
 }
 
 #[test]
@@ -653,7 +653,7 @@ fn shadow_masks_are_lazy_and_shared_until_frame_end() {
     }
 
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 20), text_system(), renderer_config())
-        .handler(shadow::Handler::new(0))
+        .handler(ext::shadow::Handler::new(0))
         .strategy(Check(Scanline::default(), 0));
     let bounds = LogicalRect::new(0.0, 0.0, 32.0, 20.0);
     let shadow = Shadow::new(Color::WHITE).blur(2.0);
@@ -689,6 +689,7 @@ fn atoms_record_into_the_renderer_context() {
                 let mut panel = ui.layout(()).clip(BoundsClip);
                 panel.insert(Rectangle::new().background(Color::WHITE));
                 panel.insert(Shadow::new(Color::BLACK).blur(4.0).inset(true));
+                panel.insert(blit_gui::BackdropBlur::new(2.0));
                 panel.insert(Text::new("paint"));
             },
         );
@@ -696,7 +697,7 @@ fn atoms_record_into_the_renderer_context() {
         frame.paint(&mut renderer);
         renderer.render(1);
         assert!(renderer.context.list.commands().is_empty());
-        assert_eq!(renderer.handlers.len(), 1);
+        assert_eq!(renderer.handlers.len(), 2);
         assert!(renderer.buffer().pixels().iter().any(|pixel| pixel.raw() != 0xffffff));
     }
 }
@@ -879,6 +880,15 @@ struct BgrPixel {
 }
 
 impl Pixel for BgrPixel {
+    fn to_rgba(self) -> PremultipliedRgbaColor {
+        PremultipliedRgbaColor {
+            red: self.red,
+            green: self.green,
+            blue: self.blue,
+            alpha: 255,
+        }
+    }
+
     fn blend_translucent(&mut self, color: PremultipliedRgbaColor) {
         let inverse = 255 - color.alpha as u16;
         self.red = (self.red as u16 * inverse / 255) as u8 + color.red;
@@ -960,6 +970,7 @@ fn renderer_supports_custom_pixel_layouts() {
         clip.to_logical(SCALE),
         Rectangle::new().background(Color::rgb(12, 34, 56)),
     );
+    renderer.paint(clip.to_logical(SCALE), blit_gui::BackdropBlur::new(2.0));
     renderer.render(0);
     assert_eq!(
         renderer.buffer().pixels()[0],
@@ -1648,6 +1659,10 @@ fn image_alpha_rows_are_cached_and_used() {
     struct TrackingPixel;
 
     impl Pixel for TrackingPixel {
+        fn to_rgba(self) -> PremultipliedRgbaColor {
+            PremultipliedRgbaColor::default()
+        }
+
         fn blend_translucent(&mut self, _color: PremultipliedRgbaColor) {
             unreachable!()
         }
@@ -1774,6 +1789,10 @@ fn scanline_skips_commands_behind_opaque_content() {
     }
 
     impl Pixel for CountingPixel {
+        fn to_rgba(self) -> PremultipliedRgbaColor {
+            self.color.to_rgba()
+        }
+
         fn blend_translucent(&mut self, color: PremultipliedRgbaColor) {
             self.color.blend(color);
             self.draws += 1;

@@ -75,6 +75,16 @@ pub trait Pixel: Copy + 'static {
 
     fn from_rgb(red: u8, green: u8, blue: u8) -> Self;
 
+    /// constructs a pixel from premultiplied channels
+    fn from_rgba(color: PremultipliedRgbaColor) -> Self {
+        let mut pixel = Self::background();
+        pixel.blend(color);
+        pixel
+    }
+
+    /// reads premultiplied channels including alpha for transparent formats
+    fn to_rgba(self) -> PremultipliedRgbaColor;
+
     fn background() -> Self {
         Self::from_rgb(0, 0, 0)
     }
@@ -168,6 +178,28 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
 
     fn from_rgb(red: u8, green: u8, blue: u8) -> Self {
         Self((red as u32) << RED | (green as u32) << GREEN | (blue as u32) << BLUE | ALPHA)
+    }
+
+    fn from_rgba(color: PremultipliedRgbaColor) -> Self {
+        let alpha = if ALPHA == 0 {
+            0
+        } else {
+            (color.alpha as u32) << ALPHA.trailing_zeros()
+        };
+        Self((color.red as u32) << RED | (color.green as u32) << GREEN | (color.blue as u32) << BLUE | alpha)
+    }
+
+    fn to_rgba(self) -> PremultipliedRgbaColor {
+        PremultipliedRgbaColor {
+            red: (self.0 >> RED) as u8,
+            green: (self.0 >> GREEN) as u8,
+            blue: (self.0 >> BLUE) as u8,
+            alpha: if ALPHA == 0 {
+                255
+            } else {
+                ((self.0 & ALPHA) >> ALPHA.trailing_zeros()) as u8
+            },
+        }
     }
 
     fn background() -> Self {
@@ -434,6 +466,15 @@ mod test {
         assert_eq!(Rgba8888::default().raw(), 0);
         assert_eq!(Argb8888::background().raw(), 0);
         assert_eq!(Rgba8888::background().raw(), 0);
+        let color = PremultipliedRgbaColor {
+            red: 40,
+            green: 20,
+            blue: 10,
+            alpha: 80,
+        };
+        assert_eq!(Argb8888::from_rgba(color).to_rgba(), color);
+        assert_eq!(Rgba8888::from_rgba(color).to_rgba(), color);
+        assert_eq!(Xrgb8888::from_rgba(color).to_rgba().alpha, 255);
     }
 
     #[test]

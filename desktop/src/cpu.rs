@@ -2,7 +2,7 @@ use std::{num::NonZeroU32, ptr::NonNull, sync::Arc};
 
 use blit::{LogicalRect, Paint};
 use blit_cpu::{PixelBuffer, Renderer, Scanline, Xrgb8888};
-pub use blit_cpu::{RendererConfig as Config, shadow};
+pub use blit_cpu::{RendererConfig as Config, ext};
 use blit_gui::{
     TextSystem,
     image::{ImageData, ImageHandle},

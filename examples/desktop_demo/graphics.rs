@@ -120,7 +120,7 @@ impl Widget<DesktopContext> for &mut View {
                         .height(absolute::Sizing::fixed(96.0)),
                 )
                 .clip(BoundsClip);
-            panel.insert(cpu::Glass);
+            panel.insert(blit_gui::BackdropBlur::new(5.0));
             panel.insert(Rectangle::new().border(Border::solid(1.0, colors::TEXT_DIM)));
             panel
                 .child()

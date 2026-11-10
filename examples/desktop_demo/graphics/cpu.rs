@@ -1,10 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
-use blit::{Atom, AtomCx, Constraints, LogicalRect, Paint, PhysicalRect, Size};
-use blit_cpu::{DrawContext, Handler, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderStrategy, Renderer, Xrgb8888};
+use blit::{Atom, AtomCx, Constraints, LogicalRect, Paint, Size};
 use blit_gui::{
     color::Color,
-    damage::DamageTracker,
     mesh::{Mesh, MeshVertex},
 };
 
@@ -85,106 +83,5 @@ impl Atom<DesktopContext> for Sculpture {
             indices.extend([first, first + 1, first + 2, first + 1, first + 3, first + 2]);
         }
         cx.context_mut().paint(area, Mesh { vertices, indices });
-    }
-}
-
-pub struct Glass;
-
-impl<B, S, D> Paint<Glass> for Renderer<B, S, D>
-where
-    B: PixelBuffer<Pixel = Xrgb8888>,
-    S: RenderStrategy<B>,
-    D: DamageTracker,
-{
-    fn paint(&mut self, bounds: LogicalRect, _: Glass) {
-        let mut recording = self.record::<Blur>(bounds);
-        let radius = (5.0 * recording.scale).round() as usize;
-        recording.pass(radius);
-    }
-}
-
-impl blit::Atom<super::DesktopContext> for Glass {
-    fn measure(
-        &self,
-        _: &mut blit::AtomCx<'_, super::DesktopContext>,
-        constraints: blit::Constraints<f32>,
-    ) -> blit::Size<f32> {
-        constraints.constrain(blit::Size::ZERO)
-    }
-
-    fn paint(&self, cx: &mut blit::AtomCx<'_, super::DesktopContext>, area: LogicalRect) {
-        cx.context_mut().paint(area, Glass);
-    }
-}
-
-#[derive(Default)]
-struct Blur {
-    pixels: Vec<PremultipliedRgbaColor>,
-    output: Vec<PremultipliedRgbaColor>,
-    scratch: Vec<i32>,
-}
-
-impl Handler<usize, Xrgb8888> for Blur {
-    type Prepared = usize;
-
-    fn prepare(&mut self, radius: &usize, _: &mut DrawContext<'_, Xrgb8888>) -> usize {
-        *radius
-    }
-
-    fn draw(&mut self, radius: &usize, cx: &mut DrawContext<'_, Xrgb8888>) {
-        let source = cx.source().unwrap();
-        let left = cx.bounds.x as usize;
-        let top = cx.bounds.y as usize;
-        let width = cx.bounds.width as usize;
-        self.output
-            .resize(width * cx.bounds.height as usize, PremultipliedRgbaColor::default());
-        for bounds in cx.output_regions() {
-            let x = (bounds.x as usize).saturating_sub(*radius);
-            let y = (bounds.y as usize).saturating_sub(*radius);
-            let right = (bounds.x as usize + bounds.width as usize + radius).min(source.width());
-            let bottom = (bounds.y as usize + bounds.height as usize + radius).min(source.height());
-            let stride = right - x;
-            self.pixels.clear();
-            self.pixels.reserve(stride * (bottom - y));
-            for row in y..bottom {
-                self.pixels.extend(source.row(row, x..right).iter().map(|pixel| {
-                    let pixel = pixel.raw();
-                    PremultipliedRgbaColor {
-                        red: (pixel >> 16) as u8,
-                        green: (pixel >> 8) as u8,
-                        blue: pixel as u8,
-                        alpha: 255,
-                    }
-                }));
-            }
-            blit_cpu::blur::stack_rgba(&mut self.pixels, stride, bottom - y, *radius as u32, &mut self.scratch);
-            for row in bounds.y as usize..(bounds.y + bounds.height) as usize {
-                let input = (row - y) * stride + bounds.x as usize - x;
-                let output = (row - top) * width + bounds.x as usize - left;
-                self.output[output..output + bounds.width as usize]
-                    .copy_from_slice(&self.pixels[input..input + bounds.width as usize]);
-            }
-        }
-        cx.for_each_span(|span| {
-            let start = (span.y as usize - top) * width + span.x as usize - left;
-            let colors = &self.output[start..start + span.pixels.len()];
-            if span.coverage == 255 {
-                Xrgb8888::copy_texture_slice_rgba(span.pixels, colors);
-            } else {
-                for (pixel, color) in span.pixels.iter_mut().zip(colors) {
-                    pixel.blend(color.coverage(span.coverage as u32));
-                }
-            }
-        });
-    }
-
-    fn reads(&self, radius: &usize, output: PhysicalRect) -> PhysicalRect {
-        let radius = *radius as i32;
-        PhysicalRect::new(
-            output.x.saturating_sub(radius),
-            output.y.saturating_sub(radius),
-            output.width.saturating_add(radius * 2),
-            output.height.saturating_add(radius * 2),
-        )
     }
 }

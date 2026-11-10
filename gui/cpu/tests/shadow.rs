@@ -1,5 +1,5 @@
 use blit::{LogicalRect, Paint};
-use blit_cpu::{Direct, RenderStrategy, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888, shadow};
+use blit_cpu::{Direct, RenderStrategy, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888, ext::shadow};
 use blit_gui::{
     Context, Rectangle, Shadow, TextConfig, TextSystem,
     color::Color,

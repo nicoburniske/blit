@@ -10,13 +10,14 @@ use blit_gui::{
 };
 
 use crate::{
-    DamageTracker, Pixel, PixelBuffer, RenderStrategy, Renderer, blur,
+    DamageTracker, Pixel, PixelBuffer, RenderStrategy, Renderer,
     raster::rounded::{Radii, RoundedLine},
+    render::blur,
 };
 
 /// box shadow handler with retained masks created on first use
 ///
-/// configure with `.handler(shadow::Handler::new(capacity))`
+/// configure with `.handler(ext::shadow::Handler::new(capacity))`
 pub struct Handler {
     entries: DeferredCache<KeyData, CachedShadow, ShadowScale>,
 }

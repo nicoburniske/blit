@@ -1,3 +1,4 @@
+mod blur;
 mod clear;
 pub mod color;
 mod context;
@@ -14,6 +15,7 @@ pub use blit::Ui;
 pub use blit_text::{Family, FontData, FontError, TextLayoutEngine};
 
 pub use self::{
+    blur::BackdropBlur,
     clear::Clear,
     context::{BoundsClip, Context},
     image::Image,

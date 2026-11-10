@@ -1,11 +1,11 @@
 mod clear;
 mod damage;
+pub mod ext;
 mod glyph;
 mod handler;
 mod pixel;
 pub mod raster;
 mod render;
-pub mod shadow;
 mod strategy;
 mod text;
 
@@ -33,7 +33,6 @@ pub use self::{
     handler::{Handler, PaintContext},
     pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888},
     raster::{DrawContext, Span, Surface},
-    render::blur,
     strategy::{Direct, RenderStrategy, Scanline},
 };
 

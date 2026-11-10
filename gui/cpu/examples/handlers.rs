@@ -566,6 +566,9 @@ mod tests {
             for (index, frame) in [0, 0, 1, 1, 2, 3, 4, 5, 6, 7, 7, 1, 0].into_iter().enumerate() {
                 damage_scene(&mut renderer, frame);
                 damage_scene(&mut reference, frame);
+                let blur_area = LogicalRect::new(60.0, 40.0, 160.0, 120.0);
+                renderer.paint(blur_area, blit_gui::BackdropBlur::new(3.0));
+                reference.paint(blur_area, blit_gui::BackdropBlur::new(3.0));
                 renderer.render(if index < 2 { 0 } else { 2 });
                 reference.render(0);
                 assert_eq!(
