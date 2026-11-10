@@ -1,9 +1,8 @@
 use super::*;
 
-#[cfg(not(feature = "gpu"))]
-mod cpu;
-#[cfg(feature = "gpu")]
-mod gpu;
+#[cfg_attr(feature = "gpu", path = "gpu.rs")]
+#[cfg_attr(not(feature = "gpu"), path = "cpu.rs")]
+mod backend;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Detail {
@@ -18,10 +17,7 @@ pub struct View {
     phase: f32,
     running: bool,
     effect: bool,
-    #[cfg(not(feature = "gpu"))]
-    blur: bool,
-    #[cfg(not(feature = "gpu"))]
-    sculpture: Rc<RefCell<cpu::SculptureBuffers>>,
+    showcase: backend::View,
     terrain: Rc<RefCell<TerrainBuffers>>,
 }
 
@@ -32,10 +28,7 @@ impl Default for View {
             phase: 0.0,
             running: true,
             effect: true,
-            #[cfg(not(feature = "gpu"))]
-            blur: false,
-            #[cfg(not(feature = "gpu"))]
-            sculpture: Rc::default(),
+            showcase: backend::View::default(),
             terrain: Rc::default(),
         }
     }
@@ -51,31 +44,16 @@ impl Widget<DesktopContext> for &mut View {
                 Tween::new(Duration::from_secs(24), Easing::LINEAR),
             );
         }
+        self.showcase.phase = self.phase;
         let mut page = ui.layout(flex::column().gap(sz::SM));
         {
             let mut toolbar = page.child().layout(flex::row().gap(sz::XS).align(Align::Center));
-            #[cfg(not(feature = "gpu"))]
-            let effect_label = "ribbons";
-            #[cfg(feature = "gpu")]
-            let effect_label = "custom shader";
             toolbar.child().build(select(
                 &mut self.effect,
-                &[(effect_label, true), ("terrain", false)],
+                &[(backend::View::TITLE, true), ("terrain", false)],
                 flex::row().gap(sz::XXS),
                 draw_button,
             ));
-            if !self.effect {
-                toolbar.child().build(select(
-                    &mut self.detail,
-                    &[("4K", Detail::Low), ("18K", Detail::Medium), ("74K", Detail::High)],
-                    flex::row().gap(sz::XXS),
-                    draw_button,
-                ));
-            }
-            #[cfg(not(feature = "gpu"))]
-            if self.effect && toolbar.child().build(Button::new("blur", self.blur)) {
-                self.blur = !self.blur;
-            }
             toolbar.child().item(flex::item().grow()).insert(());
             if toolbar
                 .child()
@@ -87,13 +65,9 @@ impl Widget<DesktopContext> for &mut View {
         let mut stage = page.child().item(flex::item().grow()).layout(()).clip(BoundsClip);
         stage.insert(Rectangle::new().background(colors::TRACK));
         if self.effect {
-            #[cfg(feature = "gpu")]
-            stage.insert(Signal { phase: self.phase });
-            #[cfg(not(feature = "gpu"))]
-            stage.insert(cpu::Sculpture {
-                phase: self.phase,
-                buffers: Rc::clone(&self.sculpture),
-            });
+            if stage.child().build(&mut self.showcase) {
+                self.running = false;
+            }
         } else {
             let (columns, rows) = match self.detail {
                 Detail::Low => (64, 36),
@@ -106,43 +80,14 @@ impl Widget<DesktopContext> for &mut View {
                 phase: self.phase,
                 buffers: Rc::clone(&self.terrain),
             });
+            stage.child().build(select(
+                &mut self.detail,
+                &[("4K", Detail::Low), ("18K", Detail::Medium), ("74K", Detail::High)],
+                absolute::place(flex::row().gap(sz::XXS).pad(sz::SM)),
+                draw_button,
+            ));
         }
         stage.insert(Rectangle::new().border(Border::solid(1.0, colors::BORDER)));
-        #[cfg(not(feature = "gpu"))]
-        if self.effect && self.blur {
-            let mut panel = stage
-                .child()
-                .layout(
-                    absolute::place(flex::column().justify(Justify::End).pad(sz::LG))
-                        .target_anchor(Anchor::Center)
-                        .child_anchor(Anchor::Center)
-                        .width(absolute::Sizing::fixed(220.0))
-                        .height(absolute::Sizing::fixed(96.0)),
-                )
-                .clip(BoundsClip);
-            panel.insert(blit_gui::BackdropBlur::new(5.0));
-            panel.insert(Rectangle::new().border(Border::solid(1.0, colors::TEXT_DIM)));
-            panel
-                .child()
-                .insert(Text::new("5px blur").style(TextStyle::new().size(sz::SM).color(colors::TEXT)));
-        }
-    }
-}
-
-#[cfg(feature = "gpu")]
-#[derive(Clone, Copy)]
-struct Signal {
-    phase: f32,
-}
-
-#[cfg(feature = "gpu")]
-impl Atom<DesktopContext> for Signal {
-    fn measure(&self, _: &mut AtomCx<'_, DesktopContext>, constraints: Constraints<f32>) -> Size<f32> {
-        constraints.constrain(Size::ZERO)
-    }
-
-    fn paint(&self, cx: &mut AtomCx<'_, DesktopContext>, area: LogicalRect) {
-        cx.context_mut().paint(area, gpu::Interference { phase: self.phase });
     }
 }
 

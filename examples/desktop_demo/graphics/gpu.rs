@@ -1,9 +1,39 @@
-use blit::{LogicalRect, Paint};
+use blit::{Atom, AtomCx, Constraints, LogicalRect, Paint, Size, Widget};
 use blit_gpu::{DrawContext, Handler, PrepareContext, Renderer};
 use bytemuck::{Pod, Zeroable};
 
-pub struct Interference {
+use super::super::{DesktopContext, Ui};
+
+#[derive(Default)]
+pub struct View {
     pub phase: f32,
+}
+
+impl View {
+    pub const TITLE: &str = "custom shader";
+}
+
+impl Widget<DesktopContext> for &mut View {
+    type Response = bool;
+
+    fn build(self, mut ui: Ui<'_>) -> bool {
+        ui.insert(Interference { phase: self.phase });
+        false
+    }
+}
+
+struct Interference {
+    phase: f32,
+}
+
+impl Atom<DesktopContext> for Interference {
+    fn measure(&self, _: &mut AtomCx<'_, DesktopContext>, constraints: Constraints<f32>) -> Size<f32> {
+        constraints.constrain(Size::ZERO)
+    }
+
+    fn paint(&self, cx: &mut AtomCx<'_, DesktopContext>, area: LogicalRect) {
+        cx.context_mut().paint(area, Interference { phase: self.phase });
+    }
 }
 
 impl Paint<Interference> for Renderer {
