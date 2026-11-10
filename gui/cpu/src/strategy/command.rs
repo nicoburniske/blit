@@ -1,11 +1,12 @@
 use std::{ops::Range, ptr::NonNull};
 
-use blit::{PhysicalRect, internal::bump::Bump};
+use blit::{PhysicalRect, Scale2, internal::bump::Bump};
 use blit_gui::{color::Color, display_list::DisplayList};
 
 use super::clip::ClipId;
 use crate::{
     DamageTracker, DrawContext, Pixel, StoredImage,
+    damage::region::Region,
     handler::ErasedCommand,
     raster::DrawTarget,
     render::{
@@ -28,7 +29,7 @@ pub struct RasterCommands<P> {
     pub meshes: Vec<mesh::Prepared>,
     pub mesh_count: usize,
     pub passes: Vec<CommandId>,
-    opaque: Vec<PhysicalRect>,
+    opaque: Region,
 }
 
 impl<P> Default for RasterCommands<P> {
@@ -44,7 +45,7 @@ impl<P> Default for RasterCommands<P> {
             meshes: Vec::new(),
             mesh_count: 0,
             passes: Vec::new(),
-            opaque: Vec::new(),
+            opaque: Region::default(),
         }
     }
 }
@@ -192,36 +193,69 @@ impl<P: Pixel> RasterCommands<P> {
         (start < end).then_some(start..end)
     }
 
-    pub fn prepare_meshes(&mut self, list: &DisplayList, damage: &impl DamageTracker) {
-        let range = self.range.clone();
-        if self.mesh_count == 0 {
-            return;
-        }
-        self.opaque.clear();
-        for id in range.rev() {
-            let metadata = Metadata {
-                ..self.metadata[id as usize]
-            };
+    /// culls covered commands and schedules surviving mesh triangles within one render stage
+    pub fn cull(&mut self, list: &DisplayList, damage: &impl DamageTracker, screen: PhysicalRect, shift: u32) {
+        self.opaque.reset(screen, shift);
+        let size = 1usize << shift;
+        for id in self.range.clone().rev() {
+            let metadata = &self.metadata[id as usize];
             if !damage.intersects(metadata.bounds, metadata.clip) {
                 continue;
             }
-            if metadata.clip == 0
-                && let Some(bounds) = self.opaque_bounds(id, list)
-            {
-                self.opaque.push(bounds);
+            let mut bounds = metadata.bounds.intersection(screen);
+            let mut opaque = self.opaque_bounds(id, list).and_then(|area| area.intersection(screen));
+            let mut clip = metadata.clip;
+            while clip != 0 {
+                let node = &list.clips()[clip as usize - 1];
+                let area = node.area.to_physical(Scale2::uniform(self.scale));
+                bounds = bounds.and_then(|bounds| bounds.intersection(area));
+                opaque = if node.radius == Default::default() {
+                    opaque.and_then(|bounds| bounds.intersection(area))
+                } else {
+                    None
+                };
+                clip = node.parent;
             }
-            let index = match self.get(id) {
-                Payload::Mesh(index) => *index as usize,
-                _ => continue,
-            };
-            if self
-                .opaque
-                .iter()
-                .any(|bounds| bounds.intersection(metadata.bounds) == Some(metadata.bounds))
-            {
+            let Some(bounds) = bounds.filter(|bounds| !self.opaque.contains(*bounds)) else {
                 self.metadata[id as usize].bounds = PhysicalRect::default();
                 continue;
+            };
+            if let Some(opaque) = opaque {
+                // only whole cells are opaque and screen edge cells may be smaller
+                let left = (opaque.x as usize).div_ceil(size) * size;
+                let top = (opaque.y as usize).div_ceil(size) * size;
+                let right = (opaque.x + opaque.width) as usize;
+                let bottom = (opaque.y + opaque.height) as usize;
+                let right = if right == screen.width as usize {
+                    right
+                } else {
+                    right & !(size - 1)
+                };
+                let bottom = if bottom == screen.height as usize {
+                    bottom
+                } else {
+                    bottom & !(size - 1)
+                };
+                if left < right && top < bottom {
+                    self.opaque.add(PhysicalRect::new(
+                        left as i32,
+                        top as i32,
+                        (right - left) as i32,
+                        (bottom - top) as i32,
+                    ));
+                    if self.opaque.contains(screen) {
+                        for metadata in &mut self.metadata[self.range.start as usize..id as usize] {
+                            metadata.bounds = PhysicalRect::default();
+                        }
+                        break;
+                    }
+                }
             }
+            let Payload::Mesh(index) = self.get(id) else {
+                continue;
+            };
+            let index = *index as usize;
+            let clip = self.metadata[id as usize].clip;
             let mesh = &mut self.meshes[index];
             // safety: mesh recording stores an offset to StoredMesh in this list
             let source = unsafe { list.data().get(mesh.source) };
@@ -231,10 +265,10 @@ impl<P: Pixel> RasterCommands<P> {
                     let position = view.vertices[vertex_index as usize].position;
                     [position.x * source.scale, position.y * source.scale]
                 });
-                let Some(bounds) = crate::render::triangle::bounds(points).intersection(metadata.bounds) else {
+                let Some(bounds) = crate::render::triangle::bounds(points).intersection(bounds) else {
                     continue;
                 };
-                if damage.intersects(bounds, metadata.clip) {
+                if damage.intersects(bounds, clip) && !self.opaque.contains(bounds) {
                     mesh.starts.push(mesh.triangles.len() as u32);
                     mesh.triangles
                         .push((bounds, mesh::Triangle::Pending(triangle_index as u32)));
@@ -247,6 +281,9 @@ impl<P: Pixel> RasterCommands<P> {
                     .cmp(&mesh.triangles[*right as usize].0.y)
                     .then(left.cmp(right))
             });
+            if mesh.triangles.is_empty() {
+                self.metadata[id as usize].bounds = PhysicalRect::default();
+            }
         }
     }
 

@@ -736,11 +736,11 @@ mod tests {
 
     #[test]
     fn shadow_preparation_follows_damage_clipping_and_occlusion() {
-        fn check<S: RenderStrategy<VecBuffer<Xrgb8888>> + Default>(covered: usize) {
+        fn check<S: RenderStrategy<VecBuffer<Xrgb8888>> + Default>() {
             let mut renderer = new_renderer(VecBuffer::new(20, 10), RendererConfig::default()).strategy(S::default());
             let stats = renderer.handler_mut::<ShadowHandler>().stats.clone();
             let bounds = LogicalRect::new(0.0, 0.0, 20.0, 10.0);
-            for (case, expected) in [(0, 1), (0, 1), (1, covered), (2, covered), (0, covered + 1)] {
+            for (case, expected) in [(0, 1), (0, 1), (1, 1), (2, 1), (0, 2)] {
                 let previous = stats.prepares.get();
                 renderer.paint(bounds, Rectangle::new().background(Color::BLACK));
                 if case == 2 {
@@ -779,8 +779,8 @@ mod tests {
             }
             assert_eq!(stats.builds.get(), 1);
         }
-        check::<Direct>(2);
-        check::<Scanline>(1);
+        check::<Direct>();
+        check::<Scanline>();
     }
 
     #[test]

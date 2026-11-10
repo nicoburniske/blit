@@ -45,7 +45,7 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTrac
     strategy: S,
     damage: D,
     pass_damage: PassDamage,
-    pass_shift: u32,
+    tile_shift: u32,
 }
 
 impl<B: PixelBuffer> Renderer<B> {
@@ -74,7 +74,7 @@ impl<B: PixelBuffer> Renderer<B> {
             strategy: Direct::default(),
             damage: TileDamage::new(config.damage_tile_size),
             pass_damage: PassDamage::default(),
-            pass_shift: config.damage_tile_size.trailing_zeros(),
+            tile_shift: config.damage_tile_size.trailing_zeros(),
         }
     }
 }
@@ -135,7 +135,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             strategy,
             damage: self.damage,
             pass_damage: self.pass_damage,
-            pass_shift: self.pass_shift,
+            tile_shift: self.tile_shift,
         }
     }
 
@@ -149,7 +149,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             strategy: self.strategy,
             damage,
             pass_damage: self.pass_damage,
-            pass_shift: self.pass_shift,
+            tile_shift: self.tile_shift,
         }
     }
 
@@ -188,7 +188,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             }
         }
         self.pass_damage
-            .update(&self.context, &self.damage, screen, self.pass_shift);
+            .update(&self.context, &self.damage, screen, self.tile_shift);
         let plan = &self.pass_damage;
         let mut damage = StageDamage {
             tracker: &mut self.damage,
@@ -226,6 +226,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             let mut start = 0;
             for (stage, node) in plan.passes.iter().enumerate() {
                 context.raster.range = start..node.index;
+                context.raster.cull(&context.list, &damage, screen, self.tile_shift);
                 self.strategy.render(context, &damage);
                 start = node.index + 1;
                 damage.region = Some(&plan.stages[stage + 1]);
@@ -268,6 +269,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                 }
             }
             context.raster.range = start..end;
+            context.raster.cull(&context.list, &damage, screen, self.tile_shift);
             self.strategy.render(context, &damage);
             if !plan.passes.is_empty() {
                 let mut offset = 0;
@@ -361,7 +363,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Context for Rendere
 
 #[derive(Clone, Copy, Debug)]
 pub struct RendererConfig {
-    /// width and height of a damage tile in physical pixels as a nonzero power of two
+    /// width and height of damage and coverage cells in physical pixels as a nonzero power of two
     pub damage_tile_size: u16,
     /// maximum retained rasterized glyph data in bytes
     pub glyph_cache_capacity: usize,

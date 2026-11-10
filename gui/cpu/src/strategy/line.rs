@@ -12,17 +12,36 @@ use super::{
 };
 use crate::{DamageTracker, Pixel, PixelBuffer, RenderContext, StoredImage, TextRenderer};
 
-#[derive(Default)]
 pub struct Scanline {
+    span_occlusion: bool,
     starts: Vec<CommandId>,
     active: Vec<CommandId>,
     ranges: Vec<Range<usize>>,
     clip_ranges: Vec<Option<ClipLine>>,
 }
 
+impl Scanline {
+    /// controls additional span occlusion which is enabled by default
+    pub fn span_occlusion(mut self, enabled: bool) -> Self {
+        self.span_occlusion = enabled;
+        self
+    }
+}
+
+impl Default for Scanline {
+    fn default() -> Self {
+        Self {
+            span_occlusion: true,
+            starts: Vec::new(),
+            active: Vec::new(),
+            ranges: Vec::new(),
+            clip_ranges: Vec::new(),
+        }
+    }
+}
+
 impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
     fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker) {
-        context.raster.prepare_meshes(&context.list, damage);
         let width = context.buffer.width();
         let height = context.buffer.height();
         let screen = PhysicalRect::new(0, 0, width as i32, height as i32);
@@ -99,31 +118,36 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
             };
 
             for range in &self.ranges {
-                let first = self
-                    .active
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .find(|(_, command)| {
-                        if !matches!(
-                            commands.metadata[**command as usize].coverage,
-                            Coverage::Full | Coverage::Rounded | Coverage::Rect
-                        ) {
-                            return false;
-                        }
-                        let bounds = commands.horizontal_bounds(**command);
-                        bounds.start <= range.start as i32
-                            && bounds.end >= range.end as i32
-                            && commands
-                                .overwrite_span(**command, line, list, images, text)
-                                .and_then(|span| clip_span(commands.clip(**command), span))
-                                .is_some_and(|span| span.start <= range.start as i32 && span.end >= range.end as i32)
-                    })
-                    .map(|(index, _)| index)
-                    .unwrap_or(0);
+                let first = if self.span_occlusion {
+                    self.active
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .find(|(_, command)| {
+                            if !matches!(
+                                commands.metadata[**command as usize].coverage,
+                                Coverage::Full | Coverage::Rounded | Coverage::Rect
+                            ) {
+                                return false;
+                            }
+                            let bounds = commands.horizontal_bounds(**command);
+                            bounds.start <= range.start as i32
+                                && bounds.end >= range.end as i32
+                                && commands
+                                    .overwrite_span(**command, line, list, images, text)
+                                    .and_then(|span| clip_span(commands.clip(**command), span))
+                                    .is_some_and(|span| {
+                                        span.start <= range.start as i32 && span.end >= range.end as i32
+                                    })
+                        })
+                        .map(|(index, _)| index)
+                        .unwrap_or(0)
+                } else {
+                    0
+                };
                 // splitting short spans costs more than redrawing their covered pixels
                 // TODO: what heuristic to use?
-                if range.len() < 128 && !partial_opaque {
+                if !self.span_occlusion || range.len() < 128 && !partial_opaque {
                     let active = &self.active[first..];
                     buffer.process_line(line as usize, range.clone(), |pixels| {
                         let mut buffer = LineBuffer {

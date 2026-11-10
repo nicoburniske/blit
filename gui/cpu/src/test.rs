@@ -527,42 +527,61 @@ fn prepared_draws_capture_data_and_drop_results_once() {
         }
     }
 
-    let counts = Rc::<Counts>::default();
-    let bounds = LogicalRect::new(0.0, 0.0, 8.0, 4.0);
-    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(8, 4), renderer_config()).strategy(Scanline::default());
-    for (covered, expected) in [(true, 0), (false, 1), (false, 1)] {
-        renderer.paint(bounds, Rectangle::new().background(Color::BLACK));
-        let mut values = [64];
-        renderer.paint(bounds, Samples(&values, counts.clone()));
-        values.fill(128);
-        assert_eq!(renderer.context.raster.prepared.used(), 0);
-        renderer.paint(
-            bounds,
-            Mesh {
-                vertices: &[
-                    MeshVertex::new(1.0, 1.0, Color::TRANSPARENT),
-                    MeshVertex::new(3.0, 1.0, Color::TRANSPARENT),
-                    MeshVertex::new(1.0, 3.0, Color::TRANSPARENT),
-                ],
-                indices: &[0, 1, 2],
-            },
-        );
-        if covered {
-            renderer.paint(bounds, Rectangle::new().background(Color::WHITE));
+    fn check<S: RenderStrategy<VecBuffer<Xrgb8888>>>(strategy: S) {
+        let counts = Rc::<Counts>::default();
+        let bounds = LogicalRect::new(0.0, 0.0, 64.0, 32.0);
+        let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(64, 32), renderer_config()).strategy(strategy);
+        for (mode, expected) in [(0, 0), (1, 1), (2, 2), (3, 3), (3, 3)] {
+            renderer.paint(bounds, Rectangle::new().background(Color::BLACK));
+            let mut values = [64];
+            renderer.paint(bounds, Samples(&values, counts.clone()));
+            values.fill(128);
+            assert_eq!(renderer.context.raster.prepared.used(), 0);
+            renderer.paint(
+                bounds,
+                Mesh {
+                    vertices: &[
+                        MeshVertex::new(1.0, 1.0, Color::TRANSPARENT),
+                        MeshVertex::new(3.0, 1.0, Color::TRANSPARENT),
+                        MeshVertex::new(1.0, 3.0, Color::TRANSPARENT),
+                    ],
+                    indices: &[0, 1, 2],
+                },
+            );
+            match mode {
+                0 => {
+                    for x in [0.0, 32.0] {
+                        renderer.paint(
+                            LogicalRect::new(x, 0.0, 32.0, 32.0),
+                            Rectangle::new().background(Color::WHITE),
+                        );
+                    }
+                }
+                1 => renderer.paint(
+                    LogicalRect::new(1.0, 0.0, 62.0, 32.0),
+                    Rectangle::new().background(Color::WHITE),
+                ),
+                2 => renderer.paint(bounds, Rectangle::new().background(Color::WHITE).opacity(0.5)),
+                _ => {}
+            }
+            renderer.render(1);
+            assert_eq!(counts.prepares.get(), expected);
+            assert_eq!(counts.drops.get(), expected);
+            assert_eq!(Rc::strong_count(&counts), 1);
+            for (index, pixel) in renderer.buffer().pixels().iter().enumerate() {
+                let value = match mode {
+                    0 => 255,
+                    1 if (1..63).contains(&(index % 64)) => 255,
+                    2 => 159,
+                    _ => 64,
+                };
+                assert_eq!(*pixel, Xrgb8888::from_rgb(value, value, value));
+            }
         }
-        renderer.render(1);
-        assert_eq!(counts.prepares.get(), expected);
-        assert_eq!(counts.drops.get(), expected);
-        assert_eq!(Rc::strong_count(&counts), 1);
-        let value = if covered { 255 } else { 64 };
-        assert!(
-            renderer
-                .buffer()
-                .pixels()
-                .iter()
-                .all(|pixel| *pixel == Xrgb8888::from_rgb(value, value, value))
-        );
     }
+    check(Direct::default());
+    check(Scanline::default());
+    check(Scanline::default().span_occlusion(false));
 }
 
 #[test]
@@ -1068,60 +1087,71 @@ fn meshes_preserve_interpolation_shared_edges_and_order() {
 
 #[test]
 fn mesh_occlusion_uses_screen_and_ancestor_clip_bounds() {
-    struct Check(Scanline, bool);
+    struct Check<S>(S, bool);
 
-    impl RenderStrategy<VecBuffer<Xrgb8888>> for Check {
+    impl<S: RenderStrategy<VecBuffer<Xrgb8888>>> RenderStrategy<VecBuffer<Xrgb8888>> for Check<S> {
         fn render(&mut self, context: &mut RenderContext<VecBuffer<Xrgb8888>>, damage: &impl DamageTracker) {
             self.0.render(context, damage);
             assert_eq!(context.raster.meshes[0].triangles.len(), if self.1 { 0 } else { 2 });
         }
     }
 
-    for scale in [1.0, 1.5] {
-        for clipped in [false, true] {
-            for (opacity, radius) in [(1.0, 0.0), (0.5, 0.0), (1.0, 2.0)] {
-                let hidden = opacity == 1.0 && radius == 0.0;
-                let mut renderer = new_renderer(VecBuffer::new(24, 24), renderer_config())
-                    .strategy(Check(Scanline::default(), hidden));
-                renderer.set_scale(scale);
-                let screen = renderer.screen().to_logical(Scale2::uniform(scale));
-                renderer.paint(screen, blit_gui::Clear);
-                let cover = if clipped {
-                    renderer.push_clip(LogicalRect::new(6.0, 6.0, 6.0, 6.0), BorderRadius::uniform(2.0));
-                    renderer.push_clip(LogicalRect::new(4.0, 4.0, 12.0, 12.0), BorderRadius::default());
-                    LogicalRect::new(6.0, 6.0, 6.0, 6.0)
-                } else {
-                    screen
-                };
-                renderer.paint(
-                    LogicalRect::new(-16.0, -16.0, 64.0, 64.0),
-                    Mesh {
-                        vertices: &[
-                            MeshVertex::new(-16.0, -16.0, Color::WHITE),
-                            MeshVertex::new(48.0, -16.0, Color::WHITE),
-                            MeshVertex::new(-16.0, 48.0, Color::WHITE),
-                            MeshVertex::new(48.0, 48.0, Color::WHITE),
-                        ],
-                        indices: &[0, 1, 2, 2, 1, 3],
-                    },
-                );
-                if clipped {
-                    renderer.pop_clip();
-                    renderer.pop_clip();
+    fn check<S: RenderStrategy<VecBuffer<Xrgb8888>>>(make: fn() -> S) {
+        for scale in [1.0, 1.5] {
+            for clipped in [false, true] {
+                for (opacity, radius) in [(1.0, 0.0), (0.5, 0.0), (1.0, 2.0)] {
+                    let hidden = opacity == 1.0 && radius == 0.0;
+                    let mut renderer = new_renderer(
+                        VecBuffer::new(24, 24),
+                        RendererConfig {
+                            damage_tile_size: 4,
+                            ..renderer_config()
+                        },
+                    )
+                    .strategy(Check(make(), hidden));
+                    renderer.set_scale(scale);
+                    let screen = renderer.screen().to_logical(Scale2::uniform(scale));
+                    renderer.paint(screen, blit_gui::Clear);
+                    let cover = if clipped {
+                        renderer.push_clip(LogicalRect::new(8.0, 8.0, 8.0, 8.0), BorderRadius::uniform(2.0));
+                        renderer.push_clip(LogicalRect::new(4.0, 4.0, 16.0, 16.0), BorderRadius::default());
+                        LogicalRect::new(8.0, 8.0, 8.0, 8.0)
+                    } else {
+                        screen
+                    };
+                    renderer.paint(
+                        LogicalRect::new(-16.0, -16.0, 64.0, 64.0),
+                        Mesh {
+                            vertices: &[
+                                MeshVertex::new(-16.0, -16.0, Color::WHITE),
+                                MeshVertex::new(48.0, -16.0, Color::WHITE),
+                                MeshVertex::new(-16.0, 48.0, Color::WHITE),
+                                MeshVertex::new(48.0, 48.0, Color::WHITE),
+                            ],
+                            indices: &[0, 1, 2, 2, 1, 3],
+                        },
+                    );
+                    if clipped {
+                        renderer.pop_clip();
+                        renderer.pop_clip();
+                    }
+                    let marker = LogicalRect::new(0.0, 0.0, 1.0, 1.0);
+                    renderer.paint(marker, Rectangle::new().background(Color::WHITE));
+                    renderer.paint(
+                        cover,
+                        Rectangle::new()
+                            .background(Color::BLACK)
+                            .opacity(opacity)
+                            .radius(BorderRadius::uniform(radius)),
+                    );
+                    renderer.render(0);
                 }
-                let marker = LogicalRect::new(0.0, 0.0, 1.0, 1.0);
-                renderer.paint(marker, Rectangle::new().background(Color::WHITE));
-                renderer.paint(
-                    cover,
-                    Rectangle::new()
-                        .background(Color::BLACK)
-                        .opacity(opacity)
-                        .radius(BorderRadius::uniform(radius)),
-                );
-                renderer.render(0);
             }
         }
     }
+    check(Direct::default);
+    check(Scanline::default);
+    check(|| Scanline::default().span_occlusion(false));
 }
 
 #[test]
@@ -1995,6 +2025,8 @@ fn gradients_match_between_strategies_and_rounded_clips() {
         let direct = render(Direct::default(), gradient_background);
         let scanline = render(Scanline::default(), gradient_background);
         assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
+        let coarse = render(Scanline::default().span_occlusion(false), gradient_background);
+        assert_eq!(coarse.buffer().pixels(), direct.buffer().pixels());
         assert_eq!(
             direct.buffer().pixels()[18 * 48 + 24].raw(),
             if gradient_background { 0x001c_945a } else { 0x0010_131a }
@@ -2058,6 +2090,8 @@ fn rounded_clips_match_between_strategies() {
     let scanline = render(Scanline::default());
 
     assert_eq!(scanline.buffer().pixels(), direct.buffer().pixels());
+    let coarse = render(Scanline::default().span_occlusion(false));
+    assert_eq!(coarse.buffer().pixels(), direct.buffer().pixels());
     assert_eq!(direct.buffer().pixels()[0].raw(), 0);
     let edge = direct.buffer().pixels()[6].raw();
     assert!((1..255).contains(&((edge >> 8) & 0xff)));
