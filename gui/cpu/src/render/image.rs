@@ -4,9 +4,7 @@ use blit::{LogicalRect, Paint, PhysicalRect, internal::bump::Offset};
 use blit_gui::{
     Image,
     damage::DamageTracker,
-    image::{
-        ImageData, ImageFormat, ImageHandle, ImageId, ImagePatch, ImageSampling, ImageTiling, prepare_image_patches,
-    },
+    image::{ImageData, ImageFormat, ImageHandle, ImageId, ImagePatch, ImageSampling, ImageTiling},
 };
 
 use super::image_patch::{AlphaRows, Prepared};
@@ -38,7 +36,7 @@ where
                 let scale = context.commands.scale;
                 let target = &mut *context.commands;
                 if let Some(texture) = context.images.get(request.image.id().into()) {
-                    prepare_image_patches(*area, request, texture.data.size, scale, |patch| {
+                    request.for_each_patch(*area, scale, |patch| {
                         if let Some(bounds) = patch.bounds.intersection(record.bounds) {
                             let value = target.prepared.push((offset, patch)).byte();
                             target
@@ -195,12 +193,11 @@ impl StoredImage {
 pub fn prepare(
     area: LogicalRect,
     request: &Image,
-    texture: &ImageData,
     clip: PhysicalRect,
     scale_factor: f32,
     mut emit: impl FnMut(Prepared, PhysicalRect),
 ) {
-    prepare_image_patches(area, request, texture.size, scale_factor, |patch| {
+    request.for_each_patch(area, scale_factor, |patch| {
         if let Some(prepared) = Prepared::new(request, patch, scale_factor)
             && let Some(bounds) = patch.bounds.intersection(clip)
         {
@@ -214,7 +211,7 @@ mod tests {
     use blit::{LogicalRect, PhysicalRect};
     use blit_gui::{
         color::Color,
-        image::{ImageFormat, ImagePixels, ImageSampling, ImageTiling, NineSlice, prepare_image_patches},
+        image::{ImageFormat, ImagePixels, ImageSampling, ImageTiling, NineSlice},
     };
 
     use super::*;
@@ -231,7 +228,7 @@ mod tests {
         B: PixelBuffer,
     {
         let alpha_rows = AlphaRows::default();
-        prepare(area, request, texture, clip, scale_factor, |image, clip| {
+        prepare(area, request, clip, scale_factor, |image, clip| {
             let screen = PhysicalRect {
                 x: buffer.x_offset() as i32,
                 y: 0,
@@ -319,6 +316,7 @@ mod tests {
         );
         let area = LogicalRect::new(0.0, 0.0, 3.0, 1.0);
         let request = Image {
+            image: ImageHandle::new(0, texture.size),
             colorize: Some(Color::rgb(255, 0, 0)),
             ..request
         };
@@ -335,7 +333,7 @@ mod tests {
         assert_eq!(buffer.pixels(), [0x800000, 0x800000, 0x800000].map(Xrgb8888::from_raw));
         let texture = StoredImage::new(0, texture);
         let mut opaque = None;
-        prepare_image_patches(area, &request, texture.data.size, 1.0, |patch| {
+        request.for_each_patch(area, 1.0, |patch| {
             opaque = Some(texture.coverage(&request, patch));
         });
         assert!(matches!(opaque, Some(Coverage::None)));

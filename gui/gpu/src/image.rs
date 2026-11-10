@@ -1,10 +1,7 @@
 use std::hash::Hash;
 
 use blit::{LogicalRect, Paint};
-use blit_gui::{
-    Image,
-    image::{ImageSampling, prepare_image_patches},
-};
+use blit_gui::{Image, image::ImageSampling};
 
 use crate::{Instance, Pipeline, Renderer, handler::hash_area, image_axis, image_flag, physical_rect, premultiplied};
 
@@ -31,10 +28,9 @@ impl Paint<Image> for Renderer {
                 let Some(image) = renderer.images.get(request.image.id().into()) else {
                     return;
                 };
-                let image_size = image.handle.size();
                 let mask_color = image.mask_color.map(|color| premultiplied(color, 1.0));
                 let colorize = request.colorize.map(|color| premultiplied(color, 1.0));
-                prepare_image_patches(*area, request, image_size, scale, |patch| {
+                request.for_each_patch(*area, scale, |patch| {
                     let Some(draw) = patch.bounds.intersection(bounds) else {
                         return;
                     };

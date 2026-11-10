@@ -182,7 +182,7 @@ impl Image {
         let texture = images.get(request.image.id().into())?;
         let mut patches = [None; 9];
         let mut count = 0;
-        image::prepare(area, request, &texture.data, bounds, scale, |image, bounds| {
+        image::prepare(area, request, bounds, scale, |image, bounds| {
             patches[count] = Some((image, bounds));
             count += 1;
         });
