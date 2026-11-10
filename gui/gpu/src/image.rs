@@ -86,18 +86,16 @@ impl Paint<Image> for Renderer {
                                 0.0,
                             ],
                             [fixed_x as u32, fixed_y as u32],
-                            [
-                                f32::from_bits(patch.source.width as u32),
-                                f32::from_bits(patch.source.height as u32),
-                            ],
+                            [f32::from_bits(patch.source.width), f32::from_bits(patch.source.height)],
                         )
                     };
                     renderer.instances.push(Instance {
                         shape,
                         draw: physical_rect(draw),
+                        // source offsets are signed bit patterns consumed by the shader
                         radii: [
-                            f32::from_bits((patch.source.x - image.texture_origin[0]) as u32),
-                            f32::from_bits((patch.source.y - image.texture_origin[1]) as u32),
+                            f32::from_bits(patch.source.x.wrapping_sub(image.texture_origin[0])),
+                            f32::from_bits(patch.source.y.wrapping_sub(image.texture_origin[1])),
                             source_size[0],
                             source_size[1],
                         ],

@@ -178,8 +178,8 @@ impl<P: Pixel> Handler<(i32, Color), P> for ShadowHandler {
             let image = cx.create_image(ImageData::new(
                 ImagePixels::Owned(alpha.into_boxed_slice()),
                 ImageFormat::Alpha8(Color::WHITE),
-                bounds.width as usize,
-                bounds.height as usize,
+                bounds.width as u32,
+                bounds.height as u32,
             ));
             self.masks.insert(key, image.clone());
             image

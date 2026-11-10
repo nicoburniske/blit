@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::PhysicalRect;
+use blit::{PhysicalRect, Rect};
 use blit_gui::{
     Image,
     color::Color,
@@ -46,7 +46,7 @@ impl AlphaRows {
 pub struct Prepared {
     pub image: ImageId,
     display: PhysicalRect,
-    source: PhysicalRect,
+    source: Rect<u32>,
     colorize: Option<Color>,
     pub opacity: u8,
     sampling: ImageSampling,
@@ -66,8 +66,8 @@ impl Prepared {
             horizontal_tiling,
             vertical_tiling,
         } = patch;
-        if source.width <= 0
-            || source.height <= 0
+        if source.width == 0
+            || source.height == 0
             || display.width <= 0
             || display.height <= 0
             || bounds.width <= 0
@@ -106,11 +106,13 @@ impl Prepared {
             opaque_end,
             ..
         } = alpha_rows.get(texture.format, self.source_y(line).checked_sub(texture_y)?)?;
-        let start = self.display.x + texture.texture_rect.x + opaque_start as i32 - self.source.x;
-        let end = self.display.x + texture.texture_rect.x + opaque_end as i32 - self.source.x;
-        let start = start.max(bounds.x);
-        let end = end.min(bounds.x.saturating_add(bounds.width));
-        (start < end).then_some(start..end)
+        let start = i64::from(self.display.x) + i64::from(texture.texture_rect.x) + i64::from(opaque_start)
+            - i64::from(self.source.x);
+        let end = i64::from(self.display.x) + i64::from(texture.texture_rect.x) + i64::from(opaque_end)
+            - i64::from(self.source.x);
+        let start = start.max(i64::from(bounds.x));
+        let end = end.min(i64::from(bounds.x.saturating_add(bounds.width)));
+        (start < end).then_some(start as i32..end as i32)
     }
 
     pub fn draw_line<P: Pixel>(
@@ -310,7 +312,7 @@ impl Prepared {
         while destination_x < destination_end {
             let source_x = self.source.x as usize + (source >> FIXED_SHIFT) as usize;
             let source_end = (self.source.x + self.source.width) as usize;
-            let len = (destination_end - destination_x).min((source_end - source_x) as i32) as usize;
+            let len = ((destination_end - destination_x) as usize).min(source_end - source_x);
             if source_x < texture_x || source_x + len > texture_right {
                 return false;
             }
@@ -505,21 +507,22 @@ impl Prepared {
     }
 
     fn source_y(&self, y: i32) -> usize {
-        let mut source = (y - self.display.y) as u64 * self.step_y;
-        let source_span = (self.source.height as u64) << FIXED_SHIFT;
-        if self.flags & flag::WRAP_Y != 0 {
-            source %= source_span;
-        }
+        let source = source_offset(
+            (i64::from(y) - i64::from(self.display.y)) as u64,
+            self.step_y,
+            self.source.height,
+            self.flags & flag::WRAP_Y != 0,
+        );
         self.source.y as usize + (source >> FIXED_SHIFT).min(self.source.height as u64 - 1) as usize
     }
 
     fn source_fixed_x(&self, x: i32) -> u64 {
-        let source = (x - self.display.x) as u64 * self.step_x;
-        if self.flags & flag::WRAP_X != 0 {
-            source % ((self.source.width as u64) << FIXED_SHIFT)
-        } else {
-            source
-        }
+        source_offset(
+            (i64::from(x) - i64::from(self.display.x)) as u64,
+            self.step_x,
+            self.source.width,
+            self.flags & flag::WRAP_X != 0,
+        )
     }
 
     fn source_float_x(&self, x: i32) -> f32 {
@@ -601,7 +604,19 @@ impl Prepared {
     }
 }
 
-fn axis(source: i32, target: i32, tiling: ImageTiling, scale_factor: f32) -> (u64, f32, bool) {
+#[inline]
+fn source_offset(offset: u64, step: u64, extent: u32, wrap: bool) -> u64 {
+    if !wrap {
+        return offset * step;
+    }
+    let period = u64::from(extent) << FIXED_SHIFT;
+    offset.checked_mul(step).map_or_else(
+        || ((u128::from(offset) * u128::from(step)) % u128::from(period)) as u64,
+        |source| source % period,
+    )
+}
+
+fn axis(source: u32, target: i32, tiling: ImageTiling, scale_factor: f32) -> (u64, f32, bool) {
     match tiling {
         ImageTiling::None => (
             ((source as u64) << FIXED_SHIFT) / target as u64,
@@ -609,7 +624,7 @@ fn axis(source: i32, target: i32, tiling: ImageTiling, scale_factor: f32) -> (u6
             false,
         ),
         ImageTiling::Repeat => {
-            let tile = (source as f32 * scale_factor).round().max(1.0) as u64;
+            let tile = (f64::from(source) * f64::from(scale_factor)).round().max(1.0) as u64;
             (
                 ((source as u64) << FIXED_SHIFT) / tile,
                 source as f32 / tile as f32,
@@ -617,10 +632,10 @@ fn axis(source: i32, target: i32, tiling: ImageTiling, scale_factor: f32) -> (u6
             )
         }
         ImageTiling::Round => {
-            let native = (source as f32 * scale_factor).max(1.0);
-            let count = (target as f32 / native).round().max(1.0) as u64;
+            let native = (f64::from(source) * f64::from(scale_factor)).max(1.0);
+            let count = (f64::from(target) / native).round().max(1.0) as u64;
             (
-                ((source as u64 * count) << FIXED_SHIFT) / target as u64,
+                (((u128::from(source) * u128::from(count)) << FIXED_SHIFT) / target as u128) as u64,
                 source as f32 * count as f32 / target as f32,
                 true,
             )

@@ -2,7 +2,7 @@
 
 use std::{sync::mpsc, time::Duration};
 
-use blit::{Clip, LogicalRect, Paint, PhysicalRect, PhysicalSize};
+use blit::{Clip, LogicalRect, Paint, Rect, Size};
 use blit_gpu::{Renderer, RendererConfig};
 use blit_gui::{
     BoundsClip, Context, FontData, FontStack, Image, Rectangle, Shadow, TextConfig, TextSystem,
@@ -99,18 +99,18 @@ fn renders_primitives_and_rebuilds_frames() {
     let nearest = Image::new(&image)
         .horizontal_tiling(ImageTiling::Repeat)
         .vertical_tiling(ImageTiling::Repeat);
-    let sparse_x = i32::MAX / 3 - 1;
+    let sparse_x = u32::MAX / 3 * 2 - 1;
     let mut sparse = ImageData::new(
         ImagePixels::Static(&[255, 0, 0, 255, 0, 0, 255, 255]),
         ImageFormat::Rgba8Premultiplied,
         2,
         1,
     );
-    sparse.size = PhysicalSize {
-        width: i32::MAX,
+    sparse.size = Size {
+        width: u32::MAX,
         height: 1,
     };
-    sparse.texture_rect = PhysicalRect {
+    sparse.texture_rect = Rect {
         x: sparse_x,
         y: 0,
         width: 2,
@@ -131,9 +131,9 @@ fn renders_primitives_and_rebuilds_frames() {
         Image::new(&image).sampling(ImageSampling::Bilinear),
     );
     renderer.paint(LogicalRect::new(8.0, 5.0, 4.0, 4.0), nearest);
-    renderer.paint(LogicalRect::new(-0.5, 8.0, 1.5, 0.5), Image::new(&sparse));
+    renderer.paint(LogicalRect::new(-1.0, 8.0, 1.5, 0.5), Image::new(&sparse));
     renderer.paint(
-        LogicalRect::new(-0.5, 8.5, 1.5, 0.5),
+        LogicalRect::new(-1.0, 8.5, 1.5, 0.5),
         Image::new(&sparse).horizontal_tiling(ImageTiling::Round),
     );
     let partial_request = Image::new(&partial);
@@ -245,6 +245,24 @@ fn renders_primitives_and_rebuilds_frames() {
             .background(conic.angle(450.0))
             .border(Border::gradient(1.0, conic.angle(180.0))),
     );
+    let width = device.limits().max_texture_dimension_2d + 1;
+    let pixels = vec![255; width as usize].into_boxed_slice();
+    let oversized = renderer.create_image(ImageData::new(
+        ImagePixels::Owned(pixels.clone()),
+        ImageFormat::Alpha8(Color::WHITE),
+        width,
+        1,
+    ));
+    assert_eq!(
+        oversized,
+        renderer.create_image(ImageData::new(
+            ImagePixels::Owned(pixels),
+            ImageFormat::Alpha8(Color::WHITE),
+            width,
+            1
+        ))
+    );
+    renderer.paint(bounds, Image::new(oversized));
     renderer.render(&target);
 
     let readback = device.create_buffer(&wgpu::BufferDescriptor {

@@ -6,8 +6,8 @@ use std::{
 };
 
 use blit::{
-    Atom, AtomCx, Constraints, Paint, Scale2, Size,
-    geometry::{LogicalRect, PhysicalRect, PhysicalSize},
+    Atom, AtomCx, Constraints, Paint, Rect, Scale2, Size,
+    geometry::{LogicalRect, PhysicalRect},
 };
 
 use crate::color::Color;
@@ -86,7 +86,7 @@ impl From<&ImageHandle> for ImageHandle {
 
 impl ImageHandle {
     #[doc(hidden)]
-    pub fn new(id: ImageId, size: PhysicalSize) -> Self {
+    pub fn new(id: ImageId, size: Size<u32>) -> Self {
         Self(Rc::new(ImageInner { id, size }))
     }
 
@@ -94,7 +94,7 @@ impl ImageHandle {
         self.0.id
     }
 
-    pub fn size(&self) -> PhysicalSize {
+    pub fn size(&self) -> Size<u32> {
         self.0.size
     }
 
@@ -107,21 +107,21 @@ impl ImageHandle {
 #[derive(Debug, PartialEq)]
 pub struct ImageData {
     pub pixels: ImagePixels,
-    pub size: PhysicalSize,
-    pub texture_rect: PhysicalRect,
+    pub size: Size<u32>,
+    pub texture_rect: Rect<u32>,
     pub stride_bytes: usize,
     pub format: ImageFormat,
 }
 
 impl ImageData {
-    pub fn new(pixels: ImagePixels, format: ImageFormat, width: usize, height: usize) -> Self {
-        let width = i32::try_from(width).unwrap_or(0);
-        let height = i32::try_from(height).unwrap_or(0);
-        let stride_bytes = (width as usize).checked_mul(format.bytes_per_pixel()).unwrap_or(0);
+    pub fn new(pixels: ImagePixels, format: ImageFormat, width: u32, height: u32) -> Self {
+        let stride_bytes = (width as usize)
+            .checked_mul(format.bytes_per_pixel())
+            .expect("image width is too large");
         Self {
             pixels,
-            size: PhysicalSize { width, height },
-            texture_rect: PhysicalRect {
+            size: Size { width, height },
+            texture_rect: Rect {
                 x: 0,
                 y: 0,
                 width,
@@ -132,38 +132,30 @@ impl ImageData {
         }
     }
 
-    /// replaces malformed pixel data with a transparent pixel
-    pub fn normalized(self) -> Self {
-        let valid = self.size.width > 0
-            && self.size.height > 0
-            && self.texture_rect.x >= 0
-            && self.texture_rect.y >= 0
-            && self.texture_rect.width > 0
-            && self.texture_rect.height > 0
-            && self
-                .texture_rect
+    pub fn validate(&self) {
+        assert!(self.size.width > 0 && self.size.height > 0);
+        assert!(self.texture_rect.width > 0 && self.texture_rect.height > 0);
+        assert!(
+            self.texture_rect
                 .x
                 .checked_add(self.texture_rect.width)
                 .is_some_and(|right| right <= self.size.width)
-            && self
-                .texture_rect
+        );
+        assert!(
+            self.texture_rect
                 .y
                 .checked_add(self.texture_rect.height)
                 .is_some_and(|bottom| bottom <= self.size.height)
-            && (self.texture_rect.width as usize)
-                .checked_mul(self.format.bytes_per_pixel())
-                .is_some_and(|row_bytes| {
-                    self.stride_bytes >= row_bytes
-                        && (self.texture_rect.height as usize - 1)
-                            .checked_mul(self.stride_bytes)
-                            .and_then(|offset| offset.checked_add(row_bytes))
-                            .is_some_and(|len| len <= self.pixels.bytes().len())
-                });
-        if valid {
-            self
-        } else {
-            Self::new(ImagePixels::Static(&[0; 4]), ImageFormat::Rgba8Premultiplied, 1, 1)
-        }
+        );
+        let row_bytes = (self.texture_rect.width as usize)
+            .checked_mul(self.format.bytes_per_pixel())
+            .expect("image row is too large");
+        assert!(self.stride_bytes >= row_bytes);
+        let len = (self.texture_rect.height as usize - 1)
+            .checked_mul(self.stride_bytes)
+            .and_then(|offset| offset.checked_add(row_bytes))
+            .expect("image data is too large");
+        assert!(len <= self.pixels.bytes().len());
     }
 }
 
@@ -248,13 +240,13 @@ pub type ImageId = u64;
 #[derive(Debug)]
 struct ImageInner {
     id: ImageId,
-    size: PhysicalSize,
+    size: Size<u32>,
 }
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ImagePatch {
-    pub source: PhysicalRect,
+    pub source: Rect<u32>,
     pub display: PhysicalRect,
     pub bounds: PhysicalRect,
     pub horizontal_tiling: ImageTiling,
@@ -265,18 +257,18 @@ pub struct ImagePatch {
 pub fn prepare_image_patches(
     area: LogicalRect,
     request: &Image,
-    source_size: PhysicalSize,
+    source_size: Size<u32>,
     scale_factor: f32,
     mut emit: impl FnMut(ImagePatch),
 ) {
     let geometry = area.to_physical(Scale2::uniform(scale_factor));
-    let source = PhysicalRect {
+    let source = Rect {
         x: 0,
         y: 0,
         width: source_size.width,
         height: source_size.height,
     };
-    if geometry.width <= 0 || geometry.height <= 0 || source.width <= 0 || source.height <= 0 || request.opacity <= 0.0
+    if geometry.width <= 0 || geometry.height <= 0 || source.width == 0 || source.height == 0 || request.opacity <= 0.0
     {
         return;
     }
@@ -294,8 +286,8 @@ pub fn prepare_image_patches(
     };
 
     if let Some(slice) = request.nine_slice.filter(|slice| {
-        slice.left as i32 + slice.right as i32 <= source.width
-            && slice.top as i32 + slice.bottom as i32 <= source.height
+        u32::from(slice.left) + u32::from(slice.right) <= source.width
+            && u32::from(slice.top) + u32::from(slice.bottom) <= source.height
     }) {
         let fit_borders = |first: i32, second: i32, available: i32| {
             if first + second <= available {
@@ -315,8 +307,18 @@ pub fn prepare_image_patches(
             (slice.bottom as f32 * scale_factor).round() as i32,
             geometry.height,
         );
-        let source_x = [0, slice.left as i32, source.width - slice.right as i32, source.width];
-        let source_y = [0, slice.top as i32, source.height - slice.bottom as i32, source.height];
+        let source_x = [
+            0,
+            u32::from(slice.left),
+            source.width - u32::from(slice.right),
+            source.width,
+        ];
+        let source_y = [
+            0,
+            u32::from(slice.top),
+            source.height - u32::from(slice.bottom),
+            source.height,
+        ];
         let destination_x = [
             geometry.x,
             geometry.x + left,
@@ -331,7 +333,7 @@ pub fn prepare_image_patches(
         ];
         for row in 0..3 {
             for column in 0..3 {
-                let source = PhysicalRect {
+                let source = Rect {
                     x: source_x[column],
                     y: source_y[row],
                     width: source_x[column + 1] - source_x[column],

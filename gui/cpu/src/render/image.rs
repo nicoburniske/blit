@@ -68,7 +68,7 @@ pub struct StoredImage {
 
 impl StoredImage {
     pub fn new(id: ImageId, data: ImageData) -> Self {
-        let data = data.normalized();
+        data.validate();
         let handle = ImageHandle::new(id, data.size);
         let width = data.texture_rect.width as usize;
         let height = data.texture_rect.height as usize;
@@ -158,8 +158,13 @@ impl StoredImage {
     }
 
     pub fn coverage(&self, request: &Image, patch: ImagePatch) -> Coverage {
+        let source = patch.source;
+        let texture = self.data.texture_rect;
         if (request.opacity.clamp(0.0, 1.0) * 255.0).round() as u8 != 255
-            || patch.source.intersection(self.data.texture_rect) != Some(patch.source)
+            || source.x < texture.x
+            || source.y < texture.y
+            || source.x + source.width > texture.x + texture.width
+            || source.y + source.height > texture.y + texture.height
         {
             return Coverage::None;
         }
@@ -171,7 +176,7 @@ impl StoredImage {
         } else if self.has_opaque_spans
             && request.colorize.is_none()
             && request.sampling == ImageSampling::Nearest
-            && patch.source.width == patch.display.width
+            && patch.source.width == patch.display.width as u32
             && patch.horizontal_tiling == ImageTiling::None
             && patch.vertical_tiling == ImageTiling::None
         {

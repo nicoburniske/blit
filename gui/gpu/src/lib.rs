@@ -68,6 +68,7 @@ pub struct Renderer {
     stops: Vec<GradientStop>,
     batches: Vec<Batch>,
     images: Arena<StoredImage>,
+    empty_image: ImageHandle,
     glyphs: text::GlyphAtlas,
     empty_texture: wgpu::BindGroup,
     upload: Vec<u8>,
@@ -305,6 +306,14 @@ impl Renderer {
                 resource: wgpu::BindingResource::TextureView(&empty_view),
             }],
         });
+        let mut images = Arena::new();
+        let empty = images.insert_with(|id| StoredImage {
+            handle: ImageHandle::new(id.into(), blit::Size::new(1, 1)),
+            bind_group: empty_texture.clone(),
+            mask_color: Some(Color::TRANSPARENT),
+            texture_origin: [0, 0],
+        });
+        let empty_image = images.get(empty).unwrap().handle.clone();
 
         Self {
             format,
@@ -337,7 +346,8 @@ impl Renderer {
             clips: Vec::new(),
             stops: Vec::new(),
             batches: Vec::new(),
-            images: Arena::new(),
+            images,
+            empty_image,
             glyphs,
             empty_texture,
             upload: Vec::new(),
@@ -371,19 +381,14 @@ impl Renderer {
 
     /// creates an image for use with this renderer
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        let mut data = data.normalized();
-        let limit = self.device.limits().max_texture_dimension_2d as i32;
+        data.validate();
+        let limit = self.device.limits().max_texture_dimension_2d;
         if data.texture_rect.width > limit || data.texture_rect.height > limit {
-            data = ImageData::new(
-                blit_gui::image::ImagePixels::Static(&[0; 4]),
-                ImageFormat::Rgba8Premultiplied,
-                1,
-                1,
-            );
+            return self.empty_image.clone();
         }
         let copy_size = wgpu::Extent3d {
-            width: data.texture_rect.width as u32,
-            height: data.texture_rect.height as u32,
+            width: data.texture_rect.width,
+            height: data.texture_rect.height,
             depth_or_array_layers: 1,
         };
         let source = data.pixels.bytes();
@@ -965,7 +970,7 @@ struct StoredImage {
     handle: ImageHandle,
     bind_group: wgpu::BindGroup,
     mask_color: Option<Color>,
-    texture_origin: [i32; 2],
+    texture_origin: [u32; 2],
 }
 
 fn grow_buffer<T>(device: &wgpu::Device, buffer: &mut wgpu::Buffer, items: &[T], label: &str) {
@@ -1058,7 +1063,7 @@ fn physical_radii(radius: BorderRadius, scale: f32, width: i32, height: i32) -> 
 }
 
 fn image_axis(
-    source: i32,
+    source: u32,
     target: i32,
     tiling: ImageTiling,
     scale_factor: f32,
@@ -1071,7 +1076,7 @@ fn image_axis(
             false,
         ),
         ImageTiling::Repeat => {
-            let tile = (source as f32 * scale_factor).round().max(1.0) as u64;
+            let tile = (f64::from(source) * f64::from(scale_factor)).round().max(1.0) as u64;
             (
                 ((source as u64) << FIXED_SHIFT) / tile,
                 source as f32 / tile as f32,
@@ -1079,8 +1084,8 @@ fn image_axis(
             )
         }
         ImageTiling::Round => {
-            let native = (source as f32 * scale_factor).max(1.0);
-            let count = (target as f32 / native).round().max(1.0) as u64;
+            let native = (f64::from(source) * f64::from(scale_factor)).max(1.0);
+            let count = (f64::from(target) / native).round().max(1.0) as u64;
             (
                 u64::try_from(((source as u128 * u128::from(count)) << FIXED_SHIFT) / target as u128)
                     .expect("image scale is too large"),
@@ -1224,9 +1229,9 @@ mod tests {
 
     #[test]
     fn nearest_image_axis_preserves_wide_fixed_point_values() {
-        let (fixed, phase, _, _, wrap) = image_axis(i32::MAX, 2, ImageTiling::None, 1.0, 1);
+        let (fixed, phase, _, _, wrap) = image_axis(u32::MAX, 2, ImageTiling::None, 1.0, 1);
 
-        assert_eq!(fixed, (i32::MAX as u64) << (FIXED_SHIFT - 1));
+        assert_eq!(fixed, (u32::MAX as u64) << (FIXED_SHIFT - 1));
         assert_eq!(phase, fixed);
         assert!(!wrap);
     }

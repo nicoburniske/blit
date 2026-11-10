@@ -124,17 +124,23 @@ fn image_source(value: f32, size: f32, wrap: bool) -> f32 {
     return clamp(value, 0.0, size - 1.0);
 }
 
-fn image_texel(instance: Instance, source: vec2<i32>) -> vec4<f32> {
-    let coordinate = bitcast<vec2<i32>>(instance.radii.xy) + source;
-    let dimensions = vec2<i32>(textureDimensions(image_texture));
-    if any(coordinate < vec2(0)) || any(coordinate >= dimensions) {
+fn image_texel(instance: Instance, source: vec2<u32>) -> vec4<f32> {
+    let coordinate = bitcast<vec2<u32>>(instance.radii.xy) + source;
+    if any(coordinate >= textureDimensions(image_texture)) {
         return vec4(0.0);
     }
-    let texel = textureLoad(image_texture, coordinate, 0);
+    let texel = textureLoad(image_texture, vec2<i32>(coordinate), 0);
     if (instance.data.y & 8u) != 0u {
         return instance.border_color * texel.r;
     }
     return texel;
+}
+
+fn add_modulo(left: u32, right: u32, modulo: u32) -> u32 {
+    if left >= modulo - right {
+        return left - (modulo - right);
+    }
+    return left + right;
 }
 
 fn multiply_modulo(left: u32, right: u32, modulo: u32) -> u32 {
@@ -147,9 +153,9 @@ fn multiply_modulo(left: u32, right: u32, modulo: u32) -> u32 {
     var multiplier = min(left, right);
     while multiplier != 0u {
         if (multiplier & 1u) != 0u {
-            product = (product + value) % modulo;
+            product = add_modulo(product, value, modulo);
         }
-        value = (value + value) % modulo;
+        value = add_modulo(value, value, modulo);
         multiplier >>= 1u;
     }
     return product;
@@ -172,8 +178,8 @@ fn nearest_source(
     }
 
     var source = origin % size;
-    source = (source + multiply_modulo(pixel, integer_step, size)) % size;
-    source = (source + fraction % size) % size;
+    source = add_modulo(source, multiply_modulo(pixel, integer_step, size), size);
+    source = add_modulo(source, fraction % size, size);
     return source;
 }
 
@@ -185,7 +191,7 @@ fn sample_image(instance: Instance, position: vec2<f32>) -> vec4<f32> {
         let phase = bitcast<vec2<u32>>(instance.params.xy);
         let high = bitcast<vec4<u32>>(instance.shape);
         let size = bitcast<vec2<u32>>(instance.radii.zw);
-        let source = vec2<i32>(vec2(
+        let source = vec2(
             nearest_source(
                 pixel.x,
                 vec2(instance.data.z, high.x),
@@ -200,7 +206,7 @@ fn sample_image(instance: Instance, position: vec2<f32>) -> vec4<f32> {
                 size.y,
                 wrap_y,
             ),
-        ));
+        );
         return image_texel(instance, source);
     }
 
@@ -219,13 +225,13 @@ fn sample_image(instance: Instance, position: vec2<f32>) -> vec4<f32> {
     }
     let amount = source - first;
     let top = mix(
-        image_texel(instance, vec2<i32>(first)),
-        image_texel(instance, vec2<i32>(vec2(second.x, first.y))),
+        image_texel(instance, vec2<u32>(first)),
+        image_texel(instance, vec2<u32>(vec2(second.x, first.y))),
         amount.x,
     );
     let bottom = mix(
-        image_texel(instance, vec2<i32>(vec2(first.x, second.y))),
-        image_texel(instance, vec2<i32>(second)),
+        image_texel(instance, vec2<u32>(vec2(first.x, second.y))),
+        image_texel(instance, vec2<u32>(second)),
         amount.x,
     );
     return mix(top, bottom, amount.y);

@@ -250,8 +250,8 @@ impl<P: Pixel> crate::Handler<Input, P> for Handler {
             let data = ImageData::new(
                 ImagePixels::Owned(alpha.into_boxed_slice()),
                 ImageFormat::Alpha8(Color::WHITE),
-                image_width,
-                image_height,
+                image_width as u32,
+                image_height as u32,
             );
             let image = cx.create_image(data);
             let cached = CachedShadow {
