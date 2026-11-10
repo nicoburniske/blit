@@ -32,13 +32,16 @@ impl PassDamage {
     ) {
         let commands = &context.raster;
         let input = &context.list;
-        if commands.passes.is_empty() || tracker.is_empty() {
+        if !context.reads_framebuffer || tracker.is_empty() {
             self.passes.clear();
             self.stages.clear();
             return;
         }
         let mut count = 0;
-        for &index in &commands.passes {
+        for index in 0..commands.len() {
+            if commands.entries[index as usize].reads.is_none() {
+                continue;
+            }
             let Some(bounds) = context
                 .clips
                 .bounds(commands.clip(index), commands.bounds(index))

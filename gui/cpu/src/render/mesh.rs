@@ -1,6 +1,6 @@
 use std::hash::Hash;
 
-use blit::{LogicalRect, Paint, PhysicalRect, Scale2, internal::bump::Offset};
+use blit::{LogicalRect, Paint, PhysicalRect, internal::bump::Offset};
 use blit_gui::{
     damage::DamageTracker,
     display_list::{DisplayList, Slice},
@@ -26,28 +26,19 @@ where
         }
         let vertices = recording.list.store_slice(mesh.vertices.iter().copied());
         let indices = recording.list.store_slice(mesh.indices.iter().copied());
-        let value = StoredMesh {
-            vertices,
-            indices,
-            scale: recording.scale,
-        };
+        let value = StoredMesh { vertices, indices };
         recording.record_input(
             recording.bounds,
             recording.clip,
             value,
             |a, left, b, right| a.view(left) == b.view(right),
             |value, list, state| value.view(list).hash(state),
-            |_, mesh_offset, record, list, context| {
-                let mut bounds = record.bounds.intersection(context.screen);
-                let mut clip = record.clip;
-                while clip != 0
-                    && let Some(area) = bounds
-                {
-                    let node = &list.clips()[clip as usize - 1];
-                    bounds = area.intersection(node.area.to_physical(Scale2::uniform(context.scale)));
-                    clip = node.parent;
-                }
-                let Some(bounds) = bounds else {
+            |_, mesh_offset, record, _, context| {
+                let Some(bounds) = context
+                    .clips
+                    .bounds(record.clip, record.bounds)
+                    .and_then(|bounds| bounds.intersection(context.screen))
+                else {
                     return;
                 };
                 let target = &mut *context.commands;
@@ -70,7 +61,6 @@ where
 pub struct StoredMesh {
     vertices: Slice<MeshVertex>,
     indices: Slice<u32>,
-    pub scale: f32,
 }
 
 impl StoredMesh {
@@ -106,6 +96,7 @@ impl Prepared {
     pub fn draw_line<P: Pixel>(
         &mut self,
         list: &DisplayList,
+        scale: f32,
         line: i32,
         clip: PhysicalRect,
         coverage: u8,
@@ -141,8 +132,7 @@ impl Prepared {
             if let Triangle::Pending(index) = *triangle {
                 let vertices =
                     mesh.indices.as_chunks::<3>().0[index as usize].map(|index| mesh.vertices[index as usize]);
-                let points =
-                    vertices.map(|vertex| [vertex.position.x * source.scale, vertex.position.y * source.scale]);
+                let points = vertices.map(|vertex| [vertex.position.x * scale, vertex.position.y * scale]);
                 *triangle = triangle::Prepared::new(points, vertices.map(|vertex| vertex.color))
                     .map(Triangle::Ready)
                     .unwrap_or(Triangle::Empty);

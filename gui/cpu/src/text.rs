@@ -1,13 +1,12 @@
-use std::ptr::NonNull;
+use std::{ops::Range, ptr::NonNull};
 
 use blit::{LogicalRect, Paint, PhysicalRect, Point, Scale2, internal::bump::Offset};
 use blit_gui::{TextSystem, color::Color, damage::DamageTracker, text::TextRequest};
 use blit_text::GlyphRequest;
 
 use crate::{
-    Pixel, PixelBuffer, PixelSpan, RenderStrategy, Renderer, RendererConfig,
-    glyph::GlyphCache,
-    strategy::command::{Payload, PreparedText},
+    Pixel, PixelBuffer, PixelSpan, RenderStrategy, Renderer, RendererConfig, glyph::GlyphCache,
+    strategy::command::Payload,
 };
 
 impl<B, S, D> Paint<TextRequest<'_>> for Renderer<B, S, D>
@@ -26,14 +25,14 @@ where
             <blit_gui::text::Stored as blit_gui::display_list::Compare>::equal,
             <blit_gui::text::Stored as blit_gui::display_list::Compare>::hash,
             |input, offset, record, _, context| {
-                let scale = context.scale;
+                let scale = context.commands.scale;
                 let target = &mut *context.commands;
                 let area = input.area.to_physical(Scale2::uniform(scale));
                 if let Some(bounds) = area.intersection(record.bounds) {
-                    target.record(bounds, record.clip, (scale, offset), |_, (scale, value), cx| {
+                    target.record(bounds, record.clip, offset, |value, cx| {
                         // safety: recording stores this offset as blit_gui::text::Stored
                         let input = unsafe { cx.list.data().get(Offset::<blit_gui::text::Stored>::new(*value)) };
-                        let (text, bounds) = cx.text.prepare(input.area, &input.view(cx.list), *scale);
+                        let (text, bounds) = cx.text.prepare(input.area, &input.view(cx.list), cx.scale);
                         Payload::Text(text, bounds)
                     });
                 }
@@ -120,8 +119,7 @@ impl TextRenderer {
             }
             if start != self.prepared.len() as u32 {
                 self.runs.push(PreparedRun {
-                    glyph_start: start,
-                    glyph_end: self.prepared.len() as u32,
+                    glyphs: start..self.prepared.len() as u32,
                     top,
                     bottom,
                     color,
@@ -133,18 +131,14 @@ impl TextRenderer {
             .get(run_start as usize)
             .map_or(Color::TRANSPARENT, |run| run.color);
         let runs = if self.runs.len() - run_start as usize > 1 {
-            PreparedRuns {
-                start: run_start,
-                end: self.runs.len() as u32,
-            }
+            run_start..self.runs.len() as u32
         } else {
             self.runs.truncate(run_start as usize);
-            PreparedRuns::NONE
+            0..0
         };
         (
             PreparedText {
-                glyph_start,
-                glyph_end: self.prepared.len() as u32,
+                glyphs: glyph_start..self.prepared.len() as u32,
                 runs,
                 area,
                 color,
@@ -162,15 +156,11 @@ impl TextRenderer {
         clip: PhysicalRect,
     ) {
         let PreparedText {
-            glyph_start,
-            glyph_end,
-            runs,
+            ref glyphs,
+            ref runs,
             area,
             color,
         } = *command;
-        if line < clip.y || line >= clip.y.saturating_add(clip.height) {
-            return;
-        }
         let row_end = row.x.saturating_add(row.pixels.len() as i32);
         if self.coverage.len() < row.pixels.len() {
             self.coverage.resize(row.pixels.len(), 0);
@@ -180,12 +170,12 @@ impl TextRenderer {
         let clear_end = (clip.x.saturating_add(clip.width) - row.x)
             .max(0)
             .min(row.pixels.len() as i32) as usize;
-        let mut draw = |glyph_start: u32, glyph_end: u32, mut color: Color| {
+        let mut draw = |glyphs: Range<u32>, mut color: Color| {
             color.alpha = (color.alpha as u16 * clip_coverage as u16 / 255) as u8;
             coverage[clear_start..clear_end].fill(0);
             let mut touched_start = row.pixels.len();
             let mut touched_end = 0usize;
-            for glyph in &self.prepared[glyph_start as usize..glyph_end as usize] {
+            for glyph in &self.prepared[glyphs.start as usize..glyphs.end as usize] {
                 let x = area.x.saturating_add(glyph.x);
                 let y = area.y.saturating_add(glyph.y);
                 if line < y || line >= y.saturating_add(glyph.height as i32) {
@@ -253,12 +243,12 @@ impl TextRenderer {
                 );
             }
         };
-        if runs.start == PreparedRuns::NONE.start {
-            draw(glyph_start, glyph_end, color);
+        if runs.is_empty() {
+            draw(glyphs.clone(), color);
         } else {
             for run in &self.runs[runs.start as usize..runs.end as usize] {
                 if line >= area.y.saturating_add(run.top) && line < area.y.saturating_add(run.bottom) {
-                    draw(run.glyph_start, run.glyph_end, run.color);
+                    draw(run.glyphs.clone(), run.color);
                 }
             }
         }
@@ -272,6 +262,13 @@ impl TextRenderer {
     }
 }
 
+pub struct PreparedText {
+    pub glyphs: Range<u32>,
+    pub runs: Range<u32>,
+    pub area: PhysicalRect,
+    pub color: Color,
+}
+
 pub struct PreparedGlyph {
     pixels: NonNull<u8>,
     color: bool,
@@ -282,24 +279,10 @@ pub struct PreparedGlyph {
 }
 
 struct PreparedRun {
-    glyph_start: u32,
-    glyph_end: u32,
+    glyphs: Range<u32>,
     top: i32,
     bottom: i32,
     color: Color,
-}
-
-#[derive(Clone, Copy)]
-pub struct PreparedRuns {
-    start: u32,
-    end: u32,
-}
-
-impl PreparedRuns {
-    const NONE: Self = Self {
-        start: u32::MAX,
-        end: u32::MAX,
-    };
 }
 
 #[cfg(test)]
@@ -327,9 +310,8 @@ mod tests {
         let mut pixels = [Xrgb8888::default()];
         renderer.draw_line(
             &PreparedText {
-                glyph_start: 0,
-                glyph_end: 3,
-                runs: PreparedRuns::NONE,
+                glyphs: 0..3,
+                runs: 0..0,
                 area,
                 color: Color::rgba(0, 255, 0, 128),
             },

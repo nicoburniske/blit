@@ -1,21 +1,23 @@
 use std::{marker::PhantomData, mem::offset_of, ptr::NonNull};
 
 use blit::{
-    LogicalRect, PhysicalRect,
+    PhysicalRect,
     internal::{
         bump::{Bump, Offset},
         hash::FxHasher,
     },
 };
 use blit_gui::{
-    Image,
     display_list::{Command, Compare, DisplayList, Slice},
     image::{ImageData, ImageHandle},
 };
 
 use crate::{
     DrawContext, Pixel, StoredImage,
-    strategy::command::{Coverage, RasterCommands},
+    strategy::{
+        clip::ClipStack,
+        command::{Coverage, RasterCommands},
+    },
 };
 
 /// prepares recorded inputs lazily and draws their visible output
@@ -91,11 +93,6 @@ where
     H: Default + 'static,
     P: Pixel,
 {
-    /// prepares an image with an explicit logical to physical scale
-    pub fn prepare_image(&self, area: LogicalRect, request: &Image, scale: f32) -> Option<crate::raster::Image> {
-        crate::raster::Image::new(area, request, scale, self.bounds, self.images)
-    }
-
     pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> Slice<T> {
         self.list.store_slice(values)
     }
@@ -120,27 +117,26 @@ where
         H: Handler<T, P>,
     {
         let handler = self.handler::<T>();
-        self.record(
-            self.bounds,
-            self.clip,
-            value,
-            opaque.unwrap_or_default(),
-            move |offset, command, target| {
-                let call = ErasedCommand {
-                    draw: Some(|handler, offset, prepared, cx| {
-                        // safety: recording pairs this value and handler with H
-                        let value = unsafe { prepared.get(Offset::<H::Prepared>::new(offset)) };
-                        unsafe { handler.cast::<H>().as_mut() }.draw(value, cx);
-                    }),
-                    ..ErasedCommand::prepared(&mut target.data, handler, offset, |handler: &mut H, offset, cx| {
-                        // safety: recording pairs this offset with T
-                        let value = unsafe { cx.list.data().get(Offset::<T>::new(*offset)) };
-                        handler.prepare(value, cx)
-                    })
-                };
-                target.push(call, command.bounds, command.clip);
-            },
-        );
+        self.record(value, opaque.unwrap_or_default(), move |offset, command, target| {
+            let call = ErasedCommand {
+                handler,
+                value: offset,
+                opaque: Offset::new(0),
+                reads: None,
+                prepare: Some(|handler, offset, _, prepared, cx| {
+                    // safety: recording pairs this offset with T and the handler with H
+                    let value = unsafe { cx.list.data().get(Offset::<T>::new(offset)) };
+                    let handler = unsafe { handler.cast::<H>().as_mut() };
+                    prepared.push(handler.prepare(value, cx)).byte()
+                }),
+                draw: Some(|handler, offset, prepared, cx| {
+                    // safety: recording pairs this value and handler with H
+                    let value = unsafe { prepared.get(Offset::<H::Prepared>::new(offset)) };
+                    unsafe { handler.cast::<H>().as_mut() }.draw(value, cx);
+                }),
+            };
+            target.push(call, command.bounds, command.clip);
+        });
     }
 
     /// records a framebuffer effect with its source footprint for each output region
@@ -166,34 +162,28 @@ where
         T: Compare,
         H: Handler<T, P, Prepared = T>,
     {
-        self.record(
-            self.bounds,
-            self.clip,
-            value,
-            opaque.unwrap_or_default(),
-            move |offset, command, target| {
-                let call = ErasedCommand {
-                    handler,
-                    value: offset,
-                    opaque: Offset::new(0),
-                    prepare: None,
-                    draw: Some(|handler, offset, _, cx| {
-                        // safety: recording pairs this value and handler with H
-                        let value = unsafe { cx.list.data().get(Offset::<T>::new(offset)) };
-                        unsafe { handler.cast::<H>().as_mut() }.draw(value, cx);
-                    }),
-                    reads: READS.then_some({
-                        (|handler: NonNull<()>, offset, list: &DisplayList, output| {
-                            // safety: recording pairs this offset with T
-                            let value = unsafe { list.data().get(Offset::<T>::new(offset)) };
-                            // safety: recording selects the handler for H
-                            unsafe { handler.cast::<H>().as_ref() }.reads(value, output)
-                        }) as _
-                    }),
-                };
-                target.push(call, command.bounds, command.clip);
-            },
-        );
+        self.record(value, opaque.unwrap_or_default(), move |offset, command, target| {
+            let call = ErasedCommand {
+                handler,
+                value: offset,
+                opaque: Offset::new(0),
+                prepare: None,
+                draw: Some(|handler, offset, _, cx| {
+                    // safety: recording pairs this value and handler with H
+                    let value = unsafe { cx.list.data().get(Offset::<T>::new(offset)) };
+                    unsafe { handler.cast::<H>().as_mut() }.draw(value, cx);
+                }),
+                reads: READS.then_some({
+                    (|handler: NonNull<()>, offset, list: &DisplayList, output| {
+                        // safety: recording pairs this offset with T
+                        let value = unsafe { list.data().get(Offset::<T>::new(offset)) };
+                        // safety: recording selects the handler for H
+                        unsafe { handler.cast::<H>().as_ref() }.reads(value, output)
+                    }) as _
+                }),
+            };
+            target.push(call, command.bounds, command.clip);
+        });
     }
 
     fn handler<T>(&mut self) -> NonNull<()>
@@ -209,15 +199,15 @@ where
         handler.value
     }
 
-    fn record<T, F>(&mut self, bounds: PhysicalRect, clip: u32, value: T, opaque: PhysicalRect, prepare: F)
+    fn record<T, F>(&mut self, value: T, opaque: PhysicalRect, prepare: F)
     where
         T: Compare,
         H: Handler<T, P>,
         F: Fn(u32, &Command, &mut RasterCommands<P>) + 'static,
     {
         self.record_input(
-            bounds,
-            clip,
+            self.bounds,
+            self.clip,
             (value, prepare, opaque),
             |(a, _, _), left, (b, _, _), right| <T as Compare>::equal(a, left, b, right),
             |(input, _, _), list, state| <T as Compare>::hash(input, list, state),
@@ -254,42 +244,15 @@ where
 
 #[derive(Clone, Copy)]
 pub struct ErasedCommand<P> {
-    handler: NonNull<()>,
-    value: u32,
+    pub handler: NonNull<()>,
+    pub value: u32,
     pub opaque: Offset<PhysicalRect>,
-    prepare: Option<fn(NonNull<()>, u32, &Bump, &mut Bump, &mut DrawContext<'_, P>) -> u32>,
+    pub prepare: Option<fn(NonNull<()>, u32, &Bump, &mut Bump, &mut DrawContext<'_, P>) -> u32>,
     pub draw: Option<fn(NonNull<()>, u32, &Bump, &mut DrawContext<'_, P>)>,
     pub reads: Option<fn(NonNull<()>, u32, &DisplayList, PhysicalRect) -> PhysicalRect>,
 }
 
 impl<P> ErasedCommand<P> {
-    /// stores inputs and a callback when the value needs lazy preparation before drawing
-    pub fn prepared<H: 'static, T: 'static, R: 'static, F: Fn(&mut H, &T, &mut DrawContext<'_, P>) -> R + 'static>(
-        data: &mut Bump,
-        handler: NonNull<()>,
-        value: T,
-        prepare: F,
-    ) -> Self
-    where
-        P: Pixel,
-    {
-        Self {
-            handler,
-            draw: None,
-            reads: None,
-            value: data.push((value, prepare)).byte(),
-            opaque: Offset::new(0),
-            prepare: Some(|handler, value, data, prepared, cx| {
-                // safety: recording pairs this callback with its typed value
-                let (value, prepare) = unsafe { data.get(Offset::<(T, F)>::new(value)) };
-                // safety: recording pairs the handler pointer with its typed preparation
-                prepared
-                    .push(prepare(unsafe { handler.cast::<H>().as_mut() }, value, cx))
-                    .byte()
-            }),
-        }
-    }
-
     /// stores an already prepared value when no preparation callback is needed
     pub fn ready<T: 'static>(prepared: &mut Bump, value: T) -> Self {
         Self {
@@ -332,8 +295,8 @@ impl<P> ErasedCommand<P> {
 }
 
 pub struct PrepareContext<'a, P: Pixel> {
-    pub scale: f32,
     pub screen: PhysicalRect,
+    pub clips: &'a ClipStack,
     pub images: &'a blit_arena::Arena<StoredImage>,
     pub commands: &'a mut RasterCommands<P>,
 }

@@ -10,7 +10,7 @@ use super::{
     command::{CommandId, Coverage, RasterCommands},
     raster,
 };
-use crate::{DamageTracker, Pixel, PixelBuffer, RenderContext, StoredImage, TextRenderer};
+use crate::{DamageTracker, Pixel, PixelBuffer, PixelSpan, RenderContext, StoredImage, TextRenderer};
 
 pub struct Scanline {
     span_occlusion: bool,
@@ -161,11 +161,9 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                             return;
                         }
                         let offset = start - range.start;
-                        let mut buffer = LineBuffer {
+                        let row = PixelSpan {
+                            x: start as i32,
                             pixels: &mut pixels[offset..offset + end - start],
-                            x: start,
-                            height,
-                            line: line as usize,
                         };
                         if clipped {
                             draw_commands::<true, _>(
@@ -175,7 +173,8 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 &self.clip_ranges,
                                 images,
                                 text,
-                                &mut buffer,
+                                row,
+                                line,
                             );
                         } else {
                             draw_commands::<false, _>(
@@ -185,7 +184,8 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                                 &self.clip_ranges,
                                 images,
                                 text,
-                                &mut buffer,
+                                row,
+                                line,
                             );
                         }
                     };
@@ -208,34 +208,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
     }
 }
 
-struct LineBuffer<'a, P> {
-    pixels: &'a mut [P],
-    x: usize,
-    height: usize,
-    line: usize,
-}
-
-impl<P: Pixel> PixelBuffer for LineBuffer<'_, P> {
-    type Pixel = P;
-
-    fn x_offset(&self) -> usize {
-        self.x
-    }
-
-    fn width(&self) -> usize {
-        self.pixels.len()
-    }
-
-    fn height(&self) -> usize {
-        self.height
-    }
-
-    fn line_mut(&mut self, line: usize) -> &mut [P] {
-        assert_eq!(line, self.line);
-        self.pixels
-    }
-}
-
 fn draw_commands<const CLIPPED: bool, P: Pixel>(
     commands: &mut RasterCommands<P>,
     list: &DisplayList,
@@ -243,10 +215,10 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
     clip_ranges: &[Option<ClipLine>],
     images: &mut Arena<StoredImage>,
     text: &mut TextRenderer,
-    buffer: &mut LineBuffer<'_, P>,
+    row: PixelSpan<'_, P>,
+    line: i32,
 ) {
-    let line = buffer.line as i32;
-    let range = buffer.x..buffer.x + buffer.pixels.len();
+    let range = row.x as usize..row.x as usize + row.pixels.len();
     for command in active {
         let bounds = commands.horizontal_bounds(*command);
         if bounds.end <= range.start as i32 || bounds.start >= range.end as i32 {
@@ -292,7 +264,20 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
                                 width: range.end - range.start,
                                 height: 1,
                             };
-                            raster::draw_line(commands, list, *command, line, clip, coverage, images, text, buffer);
+                            raster::draw_line(
+                                commands,
+                                list,
+                                *command,
+                                line,
+                                clip,
+                                coverage,
+                                images,
+                                text,
+                                PixelSpan {
+                                    x: row.x,
+                                    pixels: row.pixels,
+                                },
+                            );
                         },
                     );
                     continue;
@@ -305,6 +290,19 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
             width: end - start,
             height: 1,
         };
-        raster::draw_line(commands, list, *command, line, clip, 255, images, text, buffer);
+        raster::draw_line(
+            commands,
+            list,
+            *command,
+            line,
+            clip,
+            255,
+            images,
+            text,
+            PixelSpan {
+                x: row.x,
+                pixels: row.pixels,
+            },
+        );
     }
 }

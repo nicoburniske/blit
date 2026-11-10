@@ -1,7 +1,10 @@
 use std::{ops::Range, ptr::NonNull};
 
-use blit::{PhysicalRect, internal::bump::Bump};
-use blit_gui::{color::Color, display_list::DisplayList};
+use blit::{
+    PhysicalRect,
+    internal::bump::{Bump, Offset},
+};
+use blit_gui::display_list::DisplayList;
 
 use super::clip::{ClipId, ClipStack};
 use crate::{
@@ -13,7 +16,7 @@ use crate::{
         fill::{Gradients, PreparedFill},
         image_patch, mesh, rectangle,
     },
-    text::{PreparedRuns, TextRenderer},
+    text::{PreparedText, TextRenderer},
 };
 
 pub type CommandId = u32;
@@ -28,7 +31,6 @@ pub struct RasterCommands<P> {
     pub gradients: Gradients,
     pub meshes: Vec<mesh::Prepared>,
     pub mesh_count: usize,
-    pub passes: Vec<CommandId>,
     opaque: Region,
 }
 
@@ -44,7 +46,6 @@ impl<P> Default for RasterCommands<P> {
             gradients: Gradients::default(),
             meshes: Vec::new(),
             mesh_count: 0,
-            passes: Vec::new(),
             opaque: Region::default(),
         }
     }
@@ -261,7 +262,7 @@ impl<P: Pixel> RasterCommands<P> {
             for (triangle_index, indices) in view.indices.as_chunks::<3>().0.iter().enumerate() {
                 let points = indices.map(|vertex_index| {
                     let position = view.vertices[vertex_index as usize].position;
-                    [position.x * source.scale, position.y * source.scale]
+                    [position.x * self.scale, position.y * self.scale]
                 });
                 let Some(bounds) = crate::render::triangle::bounds(points).intersection(bounds) else {
                     continue;
@@ -297,25 +298,29 @@ impl<P: Pixel> RasterCommands<P> {
             mesh.clear();
         }
         self.mesh_count = 0;
-        self.passes.clear();
     }
 
-    pub fn record<T: 'static>(
-        &mut self,
-        bounds: PhysicalRect,
-        clip: ClipId,
-        value: T,
-        prepare: impl Fn(&mut (), &T, &mut DrawContext<'_, P>) -> Payload + 'static,
-    ) -> &mut Metadata {
-        let input = ErasedCommand::prepared(&mut self.data, NonNull::<()>::dangling(), value, prepare);
+    pub fn record<T: 'static, F>(&mut self, bounds: PhysicalRect, clip: ClipId, value: T, prepare: F) -> &mut Metadata
+    where
+        F: Fn(&T, &mut DrawContext<'_, P>) -> Payload + 'static,
+    {
+        let input = ErasedCommand {
+            handler: NonNull::dangling(),
+            value: self.data.push((value, prepare)).byte(),
+            opaque: Offset::new(0),
+            draw: None,
+            reads: None,
+            prepare: Some(|_, offset, data, prepared, cx| {
+                // safety: recording pairs this callback with its typed input
+                let (value, prepare) = unsafe { data.get(Offset::<(T, F)>::new(offset)) };
+                prepared.push(prepare(value, cx)).byte()
+            }),
+        };
         self.push(input, bounds, clip)
     }
 
     #[inline(always)]
     pub fn push(&mut self, input: ErasedCommand<P>, bounds: PhysicalRect, clip: ClipId) -> &mut Metadata {
-        if input.reads.is_some() {
-            self.passes.push(self.len());
-        }
         self.entries.push(input);
         self.metadata.push(Metadata {
             bounds,
@@ -336,16 +341,6 @@ pub enum Payload {
     Text(PreparedText, PhysicalRect),
     Mesh(u32),
     Custom,
-}
-
-#[derive(Clone, Copy)]
-#[repr(C)]
-pub struct PreparedText {
-    pub glyph_start: u32,
-    pub glyph_end: u32,
-    pub runs: PreparedRuns,
-    pub area: PhysicalRect,
-    pub color: Color,
 }
 
 pub struct Metadata {

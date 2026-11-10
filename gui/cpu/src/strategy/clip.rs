@@ -38,28 +38,21 @@ pub struct ClipSpan {
 
 impl ClipSpan {
     pub fn for_each(self, mut coverage: impl FnMut(i32) -> u8, mut draw: impl FnMut(Range<i32>, u8)) {
-        let full_start = self.full_start.max(self.start).min(self.end);
-        let full_end = self.full_end.max(self.start).min(self.end);
+        let full_start = self.full_start.clamp(self.start, self.end);
+        let full_end = self.full_end.clamp(full_start, self.end);
+        for x in self.start..full_start {
+            let coverage = coverage(x);
+            if coverage != 0 {
+                draw(x..x + 1, coverage);
+            }
+        }
         if full_start < full_end {
-            for x in self.start..full_start {
-                let coverage = coverage(x);
-                if coverage != 0 {
-                    draw(x..x + 1, coverage);
-                }
-            }
             draw(full_start..full_end, 255);
-            for x in full_end..self.end {
-                let coverage = coverage(x);
-                if coverage != 0 {
-                    draw(x..x + 1, coverage);
-                }
-            }
-        } else {
-            for x in self.start..self.end {
-                let coverage = coverage(x);
-                if coverage != 0 {
-                    draw(x..x + 1, coverage);
-                }
+        }
+        for x in full_end..self.end {
+            let coverage = coverage(x);
+            if coverage != 0 {
+                draw(x..x + 1, coverage);
             }
         }
     }

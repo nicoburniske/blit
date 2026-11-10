@@ -3,7 +3,7 @@ use std::ops::Range;
 use blit::geometry::PhysicalRect;
 
 use super::{RenderStrategy, raster};
-use crate::{DamageTracker, PixelBuffer, RenderContext};
+use crate::{DamageTracker, PixelBuffer, PixelSpan, RenderContext};
 
 #[derive(Default)]
 pub struct Direct {
@@ -43,7 +43,20 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                     for range in &self.ranges {
                         let clip = PhysicalRect::new(range.start as i32, line, (range.end - range.start) as i32, 1);
                         if clip_id == 0 {
-                            raster::draw_line(commands, list, offset, line, clip, 255, images, text, buffer);
+                            raster::draw_line(
+                                commands,
+                                list,
+                                offset,
+                                line,
+                                clip,
+                                255,
+                                images,
+                                text,
+                                PixelSpan {
+                                    x: screen.x,
+                                    pixels: buffer.line_mut(line as usize),
+                                },
+                            );
                         } else {
                             clips.for_each(clip_id, line, clip.x..clip.x + clip.width, |range, coverage| {
                                 raster::draw_line(
@@ -55,7 +68,10 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                                     coverage,
                                     images,
                                     text,
-                                    buffer,
+                                    PixelSpan {
+                                        x: screen.x,
+                                        pixels: buffer.line_mut(line as usize),
+                                    },
                                 );
                             });
                         }

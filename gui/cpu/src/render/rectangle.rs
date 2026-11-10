@@ -28,7 +28,7 @@ where
             <blit_gui::rectangle::Stored as blit_gui::display_list::Compare>::equal,
             <blit_gui::rectangle::Stored as blit_gui::display_list::Compare>::hash,
             |input, offset, record, list, context| {
-                let scale = context.scale;
+                let scale = context.commands.scale;
                 let target = &mut *context.commands;
                 let rectangle = input.view(list);
                 let Some(bounds) = input
@@ -63,18 +63,19 @@ where
                 {
                     target.metadata.pop();
                     target.entries.pop();
-                    let removed = target.len();
-                    if target.passes.last() == Some(&removed) {
-                        target.passes.pop();
-                    }
                 }
                 target
-                    .record(bounds, record.clip, (scale, offset), |_, (scale, value), cx| {
+                    .record(bounds, record.clip, offset, |value, cx| {
                         // safety: recording stores this offset as blit_gui::rectangle::Stored
                         let input = unsafe { cx.list.data().get(Offset::<blit_gui::rectangle::Stored>::new(*value)) };
-                        crate::render::rectangle::Prepared::new(input.area, &input.view(cx.list), *scale, cx.gradients)
-                            .map(Payload::Rectangle)
-                            .unwrap_or(Payload::Empty)
+                        crate::render::rectangle::Prepared::new(
+                            input.area,
+                            &input.view(cx.list),
+                            cx.scale,
+                            cx.gradients,
+                        )
+                        .map(Payload::Rectangle)
+                        .unwrap_or(Payload::Empty)
                     })
                     .coverage = coverage;
             },

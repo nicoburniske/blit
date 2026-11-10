@@ -172,8 +172,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         if !self.damage.is_empty() {
             let context = &mut self.context;
             let mut preparation = handler::PrepareContext {
-                scale,
                 screen,
+                clips: &context.clips,
                 images: &context.images,
                 commands: &mut context.raster,
             };
