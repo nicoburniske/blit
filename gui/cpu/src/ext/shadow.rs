@@ -12,7 +12,6 @@ use blit_gui::{
 use crate::{
     DamageTracker, Pixel, PixelBuffer, RenderStrategy, Renderer,
     raster::rounded::{Radii, RoundedLine},
-    render::blur,
 };
 
 /// box shadow handler with retained masks created on first use
@@ -20,6 +19,7 @@ use crate::{
 /// configure with `.handler(ext::shadow::Handler::new(capacity))`
 pub struct Handler {
     entries: DeferredCache<KeyData, CachedShadow, ShadowScale>,
+    scratch: Vec<i32>,
 }
 
 impl Handler {
@@ -27,6 +27,7 @@ impl Handler {
     pub fn new(capacity: usize) -> Self {
         Self {
             entries: DeferredCache::new(ShadowScale, capacity),
+            scratch: Vec::new(),
         }
     }
 }
@@ -83,7 +84,7 @@ impl<P: Pixel> crate::Handler<Input, P> for Handler {
                     height: shape.height,
                     blur: (shadow.blur.max(0.0) * scale_factor)
                         .ceil()
-                        .min(blur::MAX_RADIUS as f32) as i32,
+                        .min(P::MAX_BLUR_RADIUS as f32) as i32,
                     radii: Radii::new(shadow.radius, scale_factor, shape.width, shape.height),
                     offset_x: (shadow.offset_x * scale_factor).round() as i32,
                     offset_y: (shadow.offset_y * scale_factor).round() as i32,
@@ -114,7 +115,7 @@ impl<P: Pixel> crate::Handler<Input, P> for Handler {
             }
             let blur = (shadow.blur.max(0.0) * scale_factor)
                 .ceil()
-                .min(blur::MAX_RADIUS as f32) as i32;
+                .min(P::MAX_BLUR_RADIUS as f32) as i32;
             let diameter = blur.checked_mul(2)?;
             (
                 KeyData {
@@ -167,7 +168,13 @@ impl<P: Pixel> crate::Handler<Input, P> for Handler {
                 } else {
                     alpha.fill(0);
                 }
-                blur::stack(&mut alpha, padded_width, padded_height, key.blur as u32);
+                P::blur(
+                    alpha.as_chunks_mut::<1>().0,
+                    padded_width,
+                    padded_height,
+                    key.blur as u32,
+                    &mut self.scratch,
+                );
                 for y in 0..height {
                     for x in 0..width {
                         let source = (y + margin as usize) * padded_width + x + margin as usize;
@@ -193,7 +200,13 @@ impl<P: Pixel> crate::Handler<Input, P> for Handler {
                     height: key.height,
                 };
                 mask_rounded(&mut alpha, width, shape, key.radii);
-                blur::stack(&mut alpha, width, height, key.blur as u32);
+                P::blur(
+                    alpha.as_chunks_mut::<1>().0,
+                    width,
+                    height,
+                    key.blur as u32,
+                    &mut self.scratch,
+                );
                 alpha
             };
             let center_x = width / 2;

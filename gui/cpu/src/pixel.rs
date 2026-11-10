@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use blit_gui::color::Color;
-use fearless_simd::{Level, dispatch, i32x8, prelude::*, u32x8};
+use fearless_simd::{Level, Simd, dispatch, f32x8, i32x8, prelude::*, u32x8};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
@@ -89,9 +89,77 @@ pub trait Pixel: Copy + 'static {
         Self::from_rgb(0, 0, 0)
     }
 
-    /// blurs premultiplied pixels in place with reusable scratch storage
-    fn blur(pixels: &mut [PremultipliedRgbaColor], width: usize, height: usize, radius: u32, scratch: &mut Vec<i32>) {
-        crate::render::blur::stack_rgba(pixels, width, height, radius, scratch);
+    /// blurs channel arrays in place with reusable scratch storage
+    fn blur<const N: usize>(pixels: &mut [[u8; N]], width: usize, height: usize, radius: u32, scratch: &mut Vec<i32>) {
+        assert_eq!(
+            pixels.len(),
+            width.checked_mul(height).expect("blur dimensions overflow")
+        );
+        if radius == 0 || width == 0 || height == 0 {
+            return;
+        }
+        let radius = radius.min(Self::MAX_BLUR_RADIUS) as usize;
+        scratch.resize((radius * 2 + 1) * N, 0);
+        let stack = scratch.as_chunks_mut::<N>().0;
+        for row in 0..height {
+            line(pixels, row * width, 1, width, radius, stack);
+        }
+        for column in 0..width {
+            line(pixels, column, width, height, radius, stack);
+        }
+
+        fn line<const N: usize>(
+            pixels: &mut [[u8; N]],
+            start: usize,
+            step: usize,
+            length: usize,
+            radius: usize,
+            stack: &mut [[i32; N]],
+        ) {
+            let div = radius * 2 + 1;
+            let scale = 1.0 / ((radius + 1) * (radius + 1)) as f32;
+            let first = pixels[start].map(i32::from);
+            let mut sum = [0; N];
+            let mut sum_in = [0; N];
+            let mut sum_out = [0; N];
+            for (i, slot) in stack.iter_mut().take(radius + 1).enumerate() {
+                *slot = first;
+                for channel in 0..N {
+                    sum[channel] += first[channel] * (i as i32 + 1);
+                    sum_out[channel] += first[channel];
+                }
+            }
+            for i in 1..=radius {
+                let source = pixels[start + i.min(length - 1) * step].map(i32::from);
+                stack[i + radius] = source;
+                for channel in 0..N {
+                    sum[channel] += source[channel] * (radius + 1 - i) as i32;
+                    sum_in[channel] += source[channel];
+                }
+            }
+            let mut source = radius.min(length - 1);
+            let mut position = radius;
+            for output in 0..length {
+                pixels[start + output * step] = sum.map(|value| (value as f32 * scale).round() as u8);
+                let leaving = (position + div - radius) % div;
+                source = (source + 1).min(length - 1);
+                let input = pixels[start + source * step].map(i32::from);
+                for channel in 0..N {
+                    sum[channel] -= sum_out[channel];
+                    sum_out[channel] -= stack[leaving][channel];
+                }
+                stack[leaving] = input;
+                for channel in 0..N {
+                    sum_in[channel] += input[channel];
+                    sum[channel] += sum_in[channel];
+                }
+                position = (position + 1) % div;
+                for channel in 0..N {
+                    sum_out[channel] += stack[position][channel];
+                    sum_in[channel] -= stack[position][channel];
+                }
+            }
+        }
     }
 
     /// writes an rgb ramp with repeating rounding offsets added before byte conversion
@@ -148,6 +216,9 @@ pub trait Pixel: Copy + 'static {
     fn blend_texture_slice_alpha(pixels: &mut [Self], color: Color, alpha: &[u8]) {
         Self::blend_alpha_slice(pixels, color, alpha);
     }
+
+    // weighted byte sums must fit the blur accumulator
+    const MAX_BLUR_RADIUS: u32 = 2900;
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -169,6 +240,131 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> PackedPix
 }
 
 impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for PackedPixel<RED, GREEN, BLUE, ALPHA> {
+    fn blur<const N: usize>(pixels: &mut [[u8; N]], width: usize, height: usize, radius: u32, scratch: &mut Vec<i32>) {
+        assert_eq!(
+            pixels.len(),
+            width.checked_mul(height).expect("blur dimensions overflow")
+        );
+        if radius == 0 || width == 0 || height == 0 || N == 0 {
+            return;
+        }
+        let radius = radius.min(Self::MAX_BLUR_RADIUS) as usize;
+        scratch.resize((radius * 2 + 1) * 8, 0);
+        let stack = scratch.as_chunks_mut::<8>().0;
+        dispatch!(Level::new(), simd => {
+            for channel in (0..N).step_by(8) {
+                let channels = (N - channel).min(8);
+                let batch = if N <= 8 { 8 / N } else { 8 / channels };
+                for y in (0..height).step_by(batch) {
+                    pass(simd, pixels, width, radius, stack,
+                        #[inline(always)]
+                        |pixels, x| std::array::from_fn(|lane| {
+                            let channels = if N <= 8 { N } else { channels };
+                            pixels[(y + lane / channels).min(height - 1) * width + x][channel + lane % channels] as i32
+                        }),
+                        #[inline(always)]
+                        |pixels, x, output| {
+                            if N <= 8 {
+                                for row in 0..8 / N {
+                                    if y + row < height {
+                                        pixels[(y + row) * width + x] = std::array::from_fn(|i| output[row * N + i]);
+                                    }
+                                }
+                            } else {
+                                for row in 0..batch.min(height - y) {
+                                    pixels[(y + row) * width + x][channel..channel + channels]
+                                        .copy_from_slice(&output[row * channels..(row + 1) * channels]);
+                                }
+                            }
+                        },
+                    );
+                }
+                for x in (0..width).step_by(batch) {
+                    pass(simd, pixels, height, radius, stack,
+                        #[inline(always)]
+                        |pixels, y| std::array::from_fn(|lane| {
+                            let channels = if N <= 8 { N } else { channels };
+                            pixels[y * width + (x + lane / channels).min(width - 1)][channel + lane % channels] as i32
+                        }),
+                        #[inline(always)]
+                        |pixels, y, output| {
+                            if N <= 8 {
+                                for column in 0..8 / N {
+                                    if x + column < width {
+                                        pixels[y * width + x + column] = std::array::from_fn(|i| output[column * N + i]);
+                                    }
+                                }
+                            } else {
+                                for column in 0..batch.min(width - x) {
+                                    pixels[y * width + x + column][channel..channel + channels]
+                                        .copy_from_slice(&output[column * channels..(column + 1) * channels]);
+                                }
+                            }
+                        },
+                    );
+                }
+            }
+        });
+
+        #[inline(always)]
+        fn pass<S: Simd, const N: usize>(
+            simd: S,
+            pixels: &mut [[u8; N]],
+            length: usize,
+            radius: usize,
+            stack: &mut [[i32; 8]],
+            mut load: impl FnMut(&[[u8; N]], usize) -> [i32; 8],
+            mut store: impl FnMut(&mut [[u8; N]], usize, [u8; 8]),
+        ) {
+            let div = radius * 2 + 1;
+            let scale = 1.0 / ((radius + 1) * (radius + 1)) as f32;
+            let first = load(pixels, 0);
+            let first_vector = i32x8::simd_from(simd, first);
+            let mut sum = i32x8::splat(simd, 0);
+            let mut sum_in = i32x8::splat(simd, 0);
+            let mut sum_out = i32x8::splat(simd, 0);
+
+            for (i, slot) in stack.iter_mut().take(radius + 1).enumerate() {
+                *slot = first;
+                sum += first_vector * (i as i32 + 1);
+                sum_out += first_vector;
+            }
+            for i in 1..=radius {
+                let source = load(pixels, i.min(length - 1));
+                stack[i + radius] = source;
+                let source = i32x8::simd_from(simd, source);
+                sum += source * (radius + 1 - i) as i32;
+                sum_in += source;
+            }
+
+            let mut source = radius.min(length - 1);
+            let mut position = radius;
+            for output in 0..length {
+                let blurred = (sum.to_float::<f32x8<S>>() * scale).round().to_int::<i32x8<S>>();
+                store(pixels, output, <[i32; 8]>::from(blurred).map(|value| value as u8));
+
+                sum -= sum_out;
+                let mut leaving = position + div - radius;
+                if leaving >= div {
+                    leaving -= div;
+                }
+                sum_out -= i32x8::simd_from(simd, stack[leaving]);
+                source = (source + 1).min(length - 1);
+                let input = load(pixels, source);
+                stack[leaving] = input;
+                sum_in += i32x8::simd_from(simd, input);
+                sum += sum_in;
+                position += 1;
+                if position >= div {
+                    position = 0;
+                }
+                let entering = i32x8::simd_from(simd, stack[position]);
+                sum_out += entering;
+                sum_in -= entering;
+            }
+        }
+    }
+
     fn blend_translucent(&mut self, color: PremultipliedRgbaColor) {
         let inverse = 255 - color.alpha as u32;
         let red = ((self.0 >> RED) & 0xff) * inverse / 255 + color.red as u32;
