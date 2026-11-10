@@ -120,6 +120,7 @@ impl<T: Scalar> State<T> {
 ///
 /// macos uses command and arrow keys or control a and e for start and end.
 /// other platforms use home and end. shift extends the selection.
+/// up and down move to the start and end on all platforms.
 ///
 /// custom keymaps can fall back to this function for events they do not override.
 /// returning `None` lets an event bubble and [`Edit::Ignore`] consumes it.
@@ -144,6 +145,8 @@ pub fn default_keymap(event: KeyboardEvent) -> Option<Edit> {
                 Key::Delete => Edit::DeleteForward,
                 Key::ArrowLeft => Edit::MoveLeft { extend },
                 Key::ArrowRight => Edit::MoveRight { extend },
+                Key::ArrowUp => Edit::MoveToStart { extend },
+                Key::ArrowDown => Edit::MoveToEnd { extend },
                 Key::Home if !macos => Edit::MoveToStart { extend },
                 Key::End if !macos => Edit::MoveToEnd { extend },
                 Key::Enter if !key.repeat => Edit::Submit,
