@@ -99,24 +99,48 @@ impl Region {
     pub fn rects(&self) -> impl Iterator<Item = PhysicalRect> + '_ {
         let mut next = 0;
         std::iter::from_fn(move || {
-            while next < self.tiles.len() && !self.tiles[next] {
-                next += 1;
+            loop {
+                while next < self.tiles.len() && !self.tiles[next] {
+                    next += 1;
+                }
+                if next == self.tiles.len() {
+                    return None;
+                }
+                let start = next;
+                let row_end = (start / self.columns + 1) * self.columns;
+                while next < row_end && self.tiles[next] {
+                    next += 1;
+                }
+                let top = start / self.columns;
+                let left = start % self.columns;
+                let width = next - start;
+                let right = left + width;
+                let same_run = |row: usize| {
+                    let start = row * self.columns;
+                    let row = &self.tiles[start..start + self.columns];
+                    (left == 0 || !row[left - 1])
+                        && (right == self.columns || !row[right])
+                        && row[left..right].iter().all(|tile| *tile)
+                };
+                if top > 0 && same_run(top - 1) {
+                    continue;
+                }
+                let mut bottom = top + 1;
+                while bottom < self.tiles.len() / self.columns && same_run(bottom) {
+                    bottom += 1;
+                }
+                if width == self.columns {
+                    next = bottom * self.columns;
+                }
+                let x = (left << self.shift) as i32;
+                let y = (top << self.shift) as i32;
+                let height = (bottom - top) << self.shift;
+                return Some(
+                    PhysicalRect::new(x, y, (width << self.shift) as i32, height as i32)
+                        .intersection(self.screen)
+                        .unwrap(),
+                );
             }
-            if next == self.tiles.len() {
-                return None;
-            }
-            let start = next;
-            let row_end = (start / self.columns + 1) * self.columns;
-            while next < row_end && self.tiles[next] {
-                next += 1;
-            }
-            let x = ((start % self.columns) << self.shift) as i32;
-            let y = ((start / self.columns) << self.shift) as i32;
-            Some(
-                PhysicalRect::new(x, y, ((next - start) << self.shift) as i32, 1 << self.shift)
-                    .intersection(self.screen)
-                    .unwrap(),
-            )
         })
     }
 

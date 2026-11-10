@@ -36,15 +36,7 @@ impl<P: Pixel> crate::Handler<usize, P> for Handler {
 
     fn draw(&mut self, radius: &usize, cx: &mut DrawContext<'_, P>) {
         let source = cx.source().unwrap();
-        let mut regions = cx.output_regions().peekable();
-        while let Some(mut bounds) = regions.next() {
-            while let Some(next) = regions.peek() {
-                if next.x != bounds.x || next.width != bounds.width || next.y != bounds.y + bounds.height {
-                    break;
-                }
-                bounds.height += next.height;
-                regions.next();
-            }
+        for bounds in cx.output_regions() {
             let x = (bounds.x as usize).saturating_sub(*radius);
             let y = (bounds.y as usize).saturating_sub(*radius);
             let right = (bounds.x as usize + bounds.width as usize + radius).min(source.width());
