@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use blit::{Atom, AtomCx, Constraints, LogicalRect, Paint, Size};
+use blit::{Atom, AtomCx, Constraints, FrameSlice, LogicalRect, Paint, Size, Ui, Widget, state};
 
 use crate::{
     color::Color,
@@ -20,18 +20,93 @@ blit::builder! {
     }
 }
 
-impl<C> Atom<C> for Rectangle<'static>
+impl<C> Widget<C, state::Node> for Rectangle<'_>
 where
-    C: Paint<Self, Scalar = f32>,
+    C: for<'a> Paint<Rectangle<'a>, Scalar = f32>,
+{
+    type Response = ();
+
+    fn build(self, mut ui: Ui<'_, C, state::Node>) {
+        let [background, border_fill] = [self.background, self.border.fill].map(|fill| match fill {
+            Fill::Solid(color) => FrameFill::Solid(color),
+            Fill::LinearGradient(gradient) => FrameFill::LinearGradient {
+                stops: ui.store_slice(gradient.stops.iter().copied()),
+                angle_degrees: gradient.angle_degrees,
+            },
+        });
+        ui.insert(RectangleAtom {
+            background,
+            border_fill,
+            border_width: self.border.width,
+            radius: self.radius,
+            opacity: self.opacity,
+        });
+    }
+}
+
+blit::builder! {
+    /// rectangle appearance retained in the frame
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct RectangleAtom {
+        new(),
+        #[into]
+        background: FrameFill = FrameFill::Solid(Color::TRANSPARENT),
+        #[into]
+        border_fill: FrameFill = FrameFill::Solid(Color::TRANSPARENT),
+        border_width: f32 = 0.0,
+        radius: BorderRadius = BorderRadius::new(),
+        opacity: f32 = 1.0,
+    }
+}
+
+impl<C> Atom<C> for RectangleAtom
+where
+    C: for<'a> Paint<Rectangle<'a>, Scalar = f32>,
 {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        if self.background != Fill::Solid(Color::TRANSPARENT) || self.border.width > 0.0 {
-            cx.context_mut().paint(area, *self);
+        let rectangle = Rectangle {
+            background: self.background.view(cx),
+            border: Border {
+                width: self.border_width,
+                fill: self.border_fill.view(cx),
+            },
+            radius: self.radius,
+            opacity: self.opacity,
+        };
+        if rectangle.background != Fill::Solid(Color::TRANSPARENT) || rectangle.border.width > 0.0 {
+            cx.context_mut().paint(area, rectangle);
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FrameFill {
+    Solid(Color),
+    LinearGradient {
+        stops: FrameSlice<GradientStop>,
+        angle_degrees: f32,
+    },
+}
+
+impl FrameFill {
+    fn view<'a, C: blit::Context>(&self, cx: &AtomCx<'a, C>) -> Fill<'a> {
+        match *self {
+            Self::Solid(color) => Fill::Solid(color),
+            Self::LinearGradient { stops, angle_degrees } => Fill::LinearGradient(LinearGradient {
+                stops: cx.slice(stops),
+                angle_degrees,
+            }),
+        }
+    }
+}
+
+impl From<Color> for FrameFill {
+    fn from(color: Color) -> Self {
+        Self::Solid(color)
     }
 }
 
@@ -69,62 +144,37 @@ impl Hash for Rectangle<'_> {
 #[doc(hidden)]
 pub struct Stored {
     pub area: LogicalRect,
-    rectangle: Rectangle<'static>,
-    stops: [Option<Slice<GradientStop>>; 2],
+    pub background: StoredFill,
+    pub border_fill: StoredFill,
+    pub border_width: f32,
+    pub radius: BorderRadius,
+    pub opacity: f32,
 }
 
 impl Stored {
     #[inline]
     pub fn new(area: LogicalRect, rectangle: Rectangle<'_>, list: &mut DisplayList) -> Self {
-        let [(background, background_stops), (border, border_stops)] = [rectangle.background, rectangle.border.fill]
-            .map(|fill| match fill {
-                Fill::Solid(color) => (Fill::Solid(color), None),
-                Fill::LinearGradient(gradient) => {
-                    assert!(
-                        gradient.stops.len() >= 2
-                            && gradient.angle_degrees.is_finite()
-                            && gradient
-                                .stops
-                                .iter()
-                                .all(|stop| stop.position.is_finite() && (0.0..=1.0).contains(&stop.position))
-                            && gradient
-                                .stops
-                                .windows(2)
-                                .all(|stops| stops[0].position < stops[1].position),
-                        "invalid linear gradient"
-                    );
-                    (
-                        Fill::LinearGradient(LinearGradient { stops: &[], ..gradient }),
-                        Some(list.store_slice(gradient.stops.iter().copied())),
-                    )
-                }
-            });
         Self {
             area,
-            rectangle: Rectangle {
-                background,
-                border: Border {
-                    fill: border,
-                    ..rectangle.border
-                },
-                ..rectangle
-            },
-            stops: [background_stops, border_stops],
+            background: StoredFill::new(rectangle.background, list),
+            border_fill: StoredFill::new(rectangle.border.fill, list),
+            border_width: rectangle.border.width,
+            radius: rectangle.radius,
+            opacity: rectangle.opacity,
         }
     }
 
     #[inline]
     pub fn view<'a>(&self, list: &'a DisplayList) -> Rectangle<'a> {
-        let mut rectangle = self.rectangle;
-        for (fill, stops) in [&mut rectangle.background, &mut rectangle.border.fill]
-            .into_iter()
-            .zip(self.stops)
-        {
-            if let Fill::LinearGradient(gradient) = fill {
-                gradient.stops = list.slice(stops.unwrap());
-            }
+        Rectangle {
+            background: self.background.view(list),
+            border: Border {
+                width: self.border_width,
+                fill: self.border_fill.view(list),
+            },
+            radius: self.radius,
+            opacity: self.opacity,
         }
-        rectangle
     }
 }
 
@@ -139,5 +189,37 @@ impl Compare for Stored {
             .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
             .hash(state);
         value.view(list).hash(state);
+    }
+}
+
+pub enum StoredFill {
+    Solid(Color),
+    LinearGradient {
+        stops: Slice<GradientStop>,
+        angle_degrees: f32,
+    },
+}
+
+impl StoredFill {
+    #[inline]
+    fn new(fill: Fill<'_>, list: &mut DisplayList) -> Self {
+        match fill {
+            Fill::Solid(color) => Self::Solid(color),
+            Fill::LinearGradient(gradient) => Self::LinearGradient {
+                stops: list.store_slice(gradient.stops.iter().copied()),
+                angle_degrees: gradient.angle_degrees,
+            },
+        }
+    }
+
+    #[inline]
+    fn view<'a>(&self, list: &'a DisplayList) -> Fill<'a> {
+        match *self {
+            Self::Solid(color) => Fill::Solid(color),
+            Self::LinearGradient { stops, angle_degrees } => Fill::LinearGradient(LinearGradient {
+                stops: list.slice(stops),
+                angle_degrees,
+            }),
+        }
     }
 }

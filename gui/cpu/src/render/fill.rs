@@ -34,6 +34,7 @@ impl PreparedFill {
         match fill {
             Fill::Solid(color) => Self::Solid(PremultipliedRgbaColor::with_opacity(color, opacity)),
             Fill::LinearGradient(gradient) => {
+                gradient.validate();
                 let index = u32::try_from(gradients.entries.len()).expect("too many gradients");
                 let start = gradients.stops.len();
                 gradients.stops.extend(gradient.stops.iter().map(|stop| Stop {

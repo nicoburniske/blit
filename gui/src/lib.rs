@@ -18,7 +18,7 @@ pub use self::{
     context::{BoundsClip, Context},
     image::Image,
     mesh::{Mesh, MeshVertex},
-    rectangle::Rectangle,
+    rectangle::{Rectangle, RectangleAtom},
     shadow::Shadow,
-    text::{FontStack, GlyphImageId, ResolvedTextLayout, RichText, Text, TextConfig, TextSystem},
+    text::{FontStack, GlyphImageId, ResolvedTextLayout, RichText, Text, TextAtom, TextConfig, TextSystem},
 };

@@ -87,6 +87,19 @@ impl<'a> LinearGradient<'a> {
         self.angle_degrees = angle;
         self
     }
+
+    pub fn validate(&self) {
+        assert!(
+            self.stops.len() >= 2
+                && self.angle_degrees.is_finite()
+                && self
+                    .stops
+                    .iter()
+                    .all(|stop| stop.position.is_finite() && (0.0..=1.0).contains(&stop.position))
+                && self.stops.windows(2).all(|stops| stops[0].position < stops[1].position),
+            "invalid linear gradient"
+        );
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

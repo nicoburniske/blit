@@ -70,6 +70,7 @@ impl crate::Handler<blit_gui::rectangle::Stored> for Builtins {
             match fill {
                 Fill::Solid(color) => colors[index] = premultiplied(color, opacity),
                 Fill::LinearGradient(gradient) => {
+                    gradient.validate();
                     let (direction_y, direction_x) = gradient.angle_degrees.to_radians().sin_cos();
                     let extent = direction_x.abs() * area.width as f32 + direction_y.abs() * area.height as f32;
                     let end = u32::try_from(renderer.stops.len() + gradient.stops.len())

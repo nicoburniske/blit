@@ -113,8 +113,10 @@ impl Hash for TextRequest<'_> {
 #[doc(hidden)]
 pub struct Stored {
     pub area: LogicalRect,
-    request: TextRequest<'static>,
-    colors: Slice<Color>,
+    pub text: TextRun,
+    pub colors: Slice<Color>,
+    pub offset_x: f32,
+    pub options: TextOptions,
 }
 
 impl Stored {
@@ -122,8 +124,10 @@ impl Stored {
     pub fn new(area: LogicalRect, request: TextRequest<'_>, list: &mut DisplayList) -> Self {
         Self {
             area,
-            request: TextRequest { colors: &[], ..request },
+            text: request.text,
             colors: list.store_slice(request.colors.iter().copied()),
+            offset_x: request.offset_x,
+            options: request.options,
         }
     }
 
@@ -131,7 +135,9 @@ impl Stored {
     pub fn view<'a>(&self, list: &'a DisplayList) -> TextRequest<'a> {
         TextRequest {
             colors: list.slice(self.colors),
-            ..self.request
+            text: self.text,
+            offset_x: self.offset_x,
+            options: self.options,
         }
     }
 }
@@ -283,8 +289,9 @@ pub enum TextOverflow {
 pub struct FontId(pub u16);
 
 blit::builder! {
+    /// resolved text with span colors stored in the frame
     #[derive(Clone, Copy, Debug, PartialEq)]
-    struct TextAtom {
+    pub struct TextAtom {
         // one color per span
         new(text: TextRun, colors: FrameSlice<Color>),
         offset_x: f32 = 0.0,
