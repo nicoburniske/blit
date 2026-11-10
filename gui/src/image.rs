@@ -94,7 +94,7 @@ impl ImageData {
         let stride_bytes = (width as usize)
             .checked_mul(format.bytes_per_pixel())
             .expect("image width is too large");
-        let texture = Self {
+        Self {
             pixels,
             size: PhysicalSize { width, height },
             texture_rect: PhysicalRect {
@@ -105,9 +105,7 @@ impl ImageData {
             },
             stride_bytes,
             format,
-        };
-        texture.validate();
-        texture
+        }
     }
 
     pub fn validate(&self) {

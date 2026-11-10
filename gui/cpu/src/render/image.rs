@@ -84,6 +84,7 @@ pub struct StoredImage {
 
 impl StoredImage {
     pub fn new(handle: ImageHandle, data: ImageData) -> Self {
+        data.validate();
         let width = data.texture_rect.width as usize;
         let height = data.texture_rect.height as usize;
         let bytes = data.pixels.bytes();

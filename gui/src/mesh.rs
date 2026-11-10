@@ -10,6 +10,25 @@ pub struct Mesh<'a> {
     pub indices: &'a [u32],
 }
 
+impl Mesh<'_> {
+    pub fn validate(&self) {
+        assert_eq!(self.indices.len() % 3, 0, "mesh index count must be divisible by three");
+        if self.indices.is_empty() {
+            return;
+        }
+        assert!(
+            self.indices.iter().all(|index| (*index as usize) < self.vertices.len()),
+            "mesh index out of bounds"
+        );
+        assert!(
+            self.vertices
+                .iter()
+                .all(|vertex| vertex.position.x.is_finite() && vertex.position.y.is_finite()),
+            "mesh positions must be finite"
+        );
+    }
+}
+
 impl Hash for Mesh<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.vertices.hash(state);

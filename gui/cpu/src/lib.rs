@@ -153,7 +153,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        data.validate();
         let id = self
             .context
             .images

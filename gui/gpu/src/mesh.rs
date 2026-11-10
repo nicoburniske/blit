@@ -10,20 +10,10 @@ use crate::{MeshData, Renderer};
 
 impl Paint<Mesh<'_>> for Renderer {
     fn paint(&mut self, bounds: LogicalRect, mesh: Mesh<'_>) {
-        assert_eq!(mesh.indices.len() % 3, 0, "mesh index count must be divisible by three");
+        mesh.validate();
         if mesh.indices.is_empty() {
             return;
         }
-        assert!(
-            mesh.indices.iter().all(|index| (*index as usize) < mesh.vertices.len()),
-            "mesh index out of bounds"
-        );
-        assert!(
-            mesh.vertices
-                .iter()
-                .all(|vertex| vertex.position.x.is_finite() && vertex.position.y.is_finite()),
-            "mesh positions must be finite"
-        );
         let value = StoredMesh {
             vertices: self.list.store_slice(mesh.vertices.iter().copied()),
             indices: self.list.store_slice(mesh.indices.iter().copied()),
