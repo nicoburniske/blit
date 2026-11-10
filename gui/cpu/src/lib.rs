@@ -263,6 +263,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                             gradients: &mut context.raster.gradients,
                             images: &mut context.images,
                             source: Some(snapshot),
+                            scratch: &context.raster.scratch,
                             target: DrawTarget::Pass {
                                 target: &mut context.buffer,
                                 clips: &context.clips,

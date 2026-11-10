@@ -19,7 +19,6 @@ use crate::{
 /// configure with `.handler(ext::shadow::Handler::new(capacity))`
 pub struct Handler {
     entries: DeferredCache<KeyData, CachedShadow, ShadowScale>,
-    scratch: Vec<i32>,
 }
 
 impl Handler {
@@ -27,7 +26,6 @@ impl Handler {
     pub fn new(capacity: usize) -> Self {
         Self {
             entries: DeferredCache::new(ShadowScale, capacity),
-            scratch: Vec::new(),
         }
     }
 }
@@ -173,7 +171,7 @@ impl<P: Pixel> crate::Handler<Input, P> for Handler {
                     padded_width,
                     padded_height,
                     key.blur as u32,
-                    &mut self.scratch,
+                    cx.scratch(),
                 );
                 for y in 0..height {
                     for x in 0..width {
@@ -205,7 +203,7 @@ impl<P: Pixel> crate::Handler<Input, P> for Handler {
                     width,
                     height,
                     key.blur as u32,
-                    &mut self.scratch,
+                    cx.scratch(),
                 );
                 alpha
             };

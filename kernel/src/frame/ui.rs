@@ -135,8 +135,8 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     }
 
     /// temporary storage that stays usable while building this node
-    pub fn scratch<T: Copy>(&self, len: usize, value: T) -> Scratch<'ui, T> {
-        self.inner.scratch.scratch(len, value)
+    pub fn scratch<T: Copy>(&self, capacity: usize) -> Scratch<'ui, T> {
+        self.inner.scratch.alloc(capacity)
     }
 }
 
@@ -167,7 +167,7 @@ impl<'ui, C: Context> Ui<'ui, C, state::Build> {
             "measured widgets must stay in flow"
         );
         let mut bump = std::mem::take(&mut inner.frame.bump);
-        bump.prepare_scratch();
+        bump.storage.prepare();
         let size = layout::resolve(inner.frame, &bump, inner.context, node, bounds, false);
         inner.frame.bump = bump;
         (response, size)
@@ -425,7 +425,7 @@ impl From<NodeId> for NodeTarget {
 struct UiInner<'ui, C: Context> {
     frame: &'ui mut Frame<C>,
     context: &'ui mut C,
-    scratch: &'ui BumpArena,
+    scratch: &'ui ScratchBuffer,
     node: NodeId,
     next_child: u32,
     owns_node: bool,
@@ -450,7 +450,12 @@ impl<C: Context> UiInner<'_, C> {
 }
 
 impl<'ui, C: Context, S> Ui<'ui, C, S> {
-    pub(super) fn new(frame: &'ui mut Frame<C>, context: &'ui mut C, scratch: &'ui BumpArena, node: NodeId) -> Self {
+    pub(super) fn new(
+        frame: &'ui mut Frame<C>,
+        context: &'ui mut C,
+        scratch: &'ui ScratchBuffer,
+        node: NodeId,
+    ) -> Self {
         Self {
             inner: UiInner {
                 frame,

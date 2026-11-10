@@ -15,8 +15,8 @@ impl<'a, C: Context> AtomCx<'a, C> {
         self.context
     }
 
-    pub fn scratch<T: Copy>(&self, len: usize, value: T) -> Scratch<'a, T> {
-        self.bump.scratch(len, value)
+    pub fn scratch<T: Copy>(&self, capacity: usize) -> Scratch<'a, T> {
+        self.bump.storage.alloc(capacity)
     }
 
     pub fn slice<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &'a [T] {

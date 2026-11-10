@@ -1,7 +1,7 @@
 use std::{ops::Range, ptr::NonNull};
 
 use blit::{
-    PhysicalRect,
+    PhysicalRect, ScratchBuffer,
     internal::bump::{Bump, Offset},
 };
 use blit_gui::display_list::DisplayList;
@@ -27,6 +27,7 @@ pub struct RasterCommands<P> {
     pub entries: Vec<ErasedCommand<P>>,
     pub data: Bump,
     pub prepared: Bump,
+    pub scratch: ScratchBuffer,
     pub range: Range<CommandId>,
     pub gradients: Gradients,
     pub meshes: Vec<mesh::Prepared>,
@@ -42,6 +43,7 @@ impl<P> Default for RasterCommands<P> {
             entries: Vec::new(),
             data: Bump::default(),
             prepared: Bump::default(),
+            scratch: ScratchBuffer::default(),
             range: 0..0,
             gradients: Gradients::default(),
             meshes: Vec::new(),
@@ -84,6 +86,7 @@ impl<P: Pixel> RasterCommands<P> {
                 gradients: &mut self.gradients,
                 images,
                 source: None,
+                scratch: &self.scratch,
                 target: DrawTarget::Prepare,
             },
         );
@@ -287,6 +290,7 @@ impl<P: Pixel> RasterCommands<P> {
     }
 
     pub fn clear(&mut self) {
+        self.scratch.prepare();
         self.metadata.clear();
         self.entries.clear();
         self.prepared.clear();

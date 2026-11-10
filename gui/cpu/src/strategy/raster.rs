@@ -41,6 +41,7 @@ pub fn draw_line<P: Pixel>(
                     gradients: &mut commands.gradients,
                     images,
                     source: None,
+                    scratch: &commands.scratch,
                     target: DrawTarget::Span {
                         x: clip.x,
                         y: line,

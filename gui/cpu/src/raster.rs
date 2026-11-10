@@ -1,4 +1,4 @@
-use blit::{LogicalRect, PhysicalRect};
+use blit::{LogicalRect, PhysicalRect, ScratchBuffer};
 use blit_arena::Arena;
 use blit_gui::{
     display_list::{DisplayList, Slice},
@@ -23,6 +23,7 @@ pub struct DrawContext<'a, P> {
     pub(crate) gradients: &'a mut render::fill::Gradients,
     pub(crate) images: &'a mut Arena<StoredImage>,
     pub(crate) source: Option<&'a Surface<P>>,
+    pub(crate) scratch: &'a ScratchBuffer,
     pub(crate) target: DrawTarget<'a, P>,
 }
 
@@ -43,6 +44,10 @@ impl<'a, P: Pixel> DrawContext<'a, P> {
 
     pub fn source(&self) -> Option<&'a Surface<P>> {
         self.source
+    }
+
+    pub fn scratch(&self) -> &'a ScratchBuffer {
+        self.scratch
     }
 
     /// required output rectangles before precise clip coverage

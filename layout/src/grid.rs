@@ -63,12 +63,13 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
                 spanning |= item.row_span != 1 || item.column_span != 1;
                 count += 1;
             }
-            let mut positions = cx.scratch(if spanning { count } else { 0 }, (0usize, 0usize));
+            let mut positions = cx.scratch(if spanning { count } else { 0 });
             let row_count = if spanning {
-                let mut column_rows = cx.scratch(columns, 0usize);
+                let mut column_rows = cx.scratch(columns);
+                column_rows.resize(columns, 0usize);
                 let mut cursor = (0usize, 0usize);
                 let mut rows = 0usize;
-                for (child, position) in cx.children().zip(positions.iter_mut()) {
+                for child in cx.children() {
                     let item = cx.item(child);
                     assert!(
                         item.column_span <= self.columns,
@@ -101,7 +102,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
                     } else {
                         (row, column + span)
                     };
-                    *position = (row, column);
+                    positions.push((row, column));
                     rows = rows.max(row + item.row_span as usize);
                 }
                 rows

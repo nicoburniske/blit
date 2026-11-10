@@ -3,6 +3,26 @@ use std::rc::Rc;
 use blit::internal::bump::{Bump, Offset, Slice};
 
 #[test]
+fn scratch_preserves_live_buffers_and_reuses_storage() {
+    let mut buffer = blit::ScratchBuffer::default();
+    for _ in 0..2 {
+        let mut first = buffer.alloc::<u64>(4);
+        first.resize(4, 17);
+        let mut second = buffer.alloc::<u128>(2);
+        second.resize(2, 31);
+        assert_eq!(second.as_ptr().addr() % align_of::<u128>(), 0);
+        assert_eq!(&*first, &[17; 4]);
+        drop(first);
+        let mut third = buffer.alloc::<u8>(8);
+        third.resize(8, 47);
+        assert_eq!(&*second, &[31, 31]);
+        drop(second);
+        drop(third);
+        buffer.prepare();
+    }
+}
+
+#[test]
 fn preserves_alignment_and_values_across_growth() {
     #[repr(C, align(64))]
     struct Aligned([u64; 8]);

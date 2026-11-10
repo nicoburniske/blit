@@ -108,10 +108,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
             let gap = self.gap.max(T::ZERO);
             let main_max = self.axis.extent(bounds.max);
             let cross_max = cross_axis.extent(bounds.max);
-            let mut caps = cx.scratch(
-                if main_max.is_finite() { cap_count } else { 0 },
-                (0.0_f32, T::ZERO, 0.0),
-            );
+            let mut caps = cx.scratch(if main_max.is_finite() { cap_count } else { 0 });
             if count == 0 {
                 return bounds.constrain(Size::ZERO);
             }
@@ -135,7 +132,6 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
             let fixed_cross = cross_axis.extent(bounds.min) == cross_max && cross_max.is_finite();
             if fixed_cross {
                 // the cross extent is known, so only main axis growth needs to wait
-                let mut cap_index = 0;
                 let mut percentages = 0.0;
                 for child in cx.children() {
                     let item = cx.item(child);
@@ -146,8 +142,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
                             let min = min.max(T::ZERO);
                             if max > min && max.is_finite() {
                                 let capacity = max - min;
-                                caps[cap_index] = (capacity.to_f32() / item.weight, capacity, item.weight);
-                                cap_index += 1;
+                                caps.push((capacity.to_f32() / item.weight, capacity, item.weight));
                             }
                         }
                         _ => {
@@ -166,7 +161,6 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
                 }
             } else {
                 // establish natural cross sizes and reserve fixed main sizes
-                let mut cap_index = 0;
                 let mut percentages = 0.0;
                 let mut content_fill = false;
                 let mut fixed_fill = false;
@@ -180,8 +174,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
                             let min = min.max(T::ZERO);
                             if max > min && max.is_finite() {
                                 let capacity = max - min;
-                                caps[cap_index] = (capacity.to_f32() / item.weight, capacity, item.weight);
-                                cap_index += 1;
+                                caps.push((capacity.to_f32() / item.weight, capacity, item.weight));
                             }
                         }
                         Sizing::Fixed(main) if self.fills_cross(cross) => {

@@ -131,8 +131,8 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         self.context
     }
 
-    pub fn scratch<T: Copy>(&self, len: usize, value: T) -> Scratch<'a, T> {
-        self.bump.scratch(len, value)
+    pub fn scratch<T: Copy>(&self, capacity: usize) -> Scratch<'a, T> {
+        self.bump.storage.alloc(capacity)
     }
 
     pub fn set_child_z_index(&mut self, child: NodeId, z_index: i16) {

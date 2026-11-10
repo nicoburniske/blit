@@ -7,24 +7,17 @@ pub mod paint;
 pub mod timer;
 pub mod ui;
 
-use std::{
-    any::TypeId,
-    cell::Cell,
-    marker::PhantomData,
-    mem::{MaybeUninit, align_of, size_of},
-    num::NonZeroU32,
-    ops::{Deref, DerefMut},
-    time::Duration,
-};
+use std::{any::TypeId, marker::PhantomData, mem::size_of, num::NonZeroU32, time::Duration};
 
 use self::{
     animation::{AnimationState, MotionState, Playback},
-    arena::{BumpArena, BumpId, FrameSlice, Scratch},
+    arena::{BumpArena, BumpId, FrameSlice},
     timer::TimerState,
     ui::{NodeTarget, Ui},
 };
 use crate::{
-    Atom, AtomWidget, Clip, ClipShape, ContactId, ContactSource, Context, FrameInfo, Id, IntoWidget, Scalar, Widget,
+    Atom, AtomWidget, Clip, ClipShape, ContactId, ContactSource, Context, FrameInfo, Id, IntoWidget, Scalar, Scratch,
+    ScratchBuffer, Widget,
     animation::{Animation, AnimationOptions, Motion, MotionProps, Tween},
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::{Input, MouseButton, ScrollPhase, TouchPhase},
@@ -47,7 +40,7 @@ pub struct Frame<C: Context> {
     layout_kinds: Vec<LayoutKind<C>>,
     clip_kinds: Vec<ClipKind<C>>,
     bump: BumpArena,
-    scratch: BumpArena,
+    scratch: ScratchBuffer,
     paint_order: Vec<NodeId>,
     active_clips: Vec<ResolvedClipId>,
     interaction: interact::InteractionState<C::Scalar>,
@@ -83,7 +76,7 @@ impl<C: Context> Default for Frame<C> {
             layout_kinds: Vec::new(),
             clip_kinds: Vec::new(),
             bump: BumpArena::default(),
-            scratch: BumpArena::default(),
+            scratch: ScratchBuffer::default(),
             paint_order: Vec::new(),
             active_clips: Vec::new(),
             interaction: interact::InteractionState::default(),
@@ -165,9 +158,9 @@ impl<C: Context> Frame<C> {
         let id = Id::new("blit frame root");
         let root = self.push_node(None, id);
         let mut scratch = std::mem::take(&mut self.scratch);
-        scratch.prepare_scratch();
+        scratch.prepare();
         let output = widget.build(Ui::new(self, context, &scratch, root));
-        scratch.prepare_scratch();
+        scratch.prepare();
         self.scratch = scratch;
         #[cfg(debug_assertions)]
         assert!(
@@ -185,7 +178,7 @@ impl<C: Context> Frame<C> {
     /// resolves layout, positioning, clipping and interaction for the built graph
     pub fn layout(&mut self, context: &mut C) {
         let mut bump = std::mem::take(&mut self.bump);
-        bump.prepare_scratch();
+        bump.storage.prepare();
         layout::resolve(
             self,
             &bump,
@@ -201,7 +194,7 @@ impl<C: Context> Frame<C> {
         self.animations.retain(|animation| animation.seen);
         self.motions.retain(|state| state.seen);
         self.timers.retain(|timer| timer.seen);
-        bump.prepare_scratch();
+        bump.storage.prepare();
         self.bump = bump;
     }
 

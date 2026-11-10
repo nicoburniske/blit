@@ -38,6 +38,7 @@
 mod clip;
 mod frame;
 mod macros;
+pub mod scratch;
 
 pub mod animation;
 pub mod geometry;
@@ -63,7 +64,8 @@ pub use self::{
     },
     input::{Input, Key, KeyInput, Modifiers, MouseButton, ScrollPhase, TouchPhase},
     interact::{Contact, ContactId, ContactSource, Interact, KeyboardEvent, Phase, ScrollEvent},
-    layout::{Axis, Layout, LayoutCx, Scratch},
+    layout::{Axis, Layout, LayoutCx},
+    scratch::{Scratch, ScratchBuffer},
 };
 
 pub trait Context {

@@ -1,5 +1,6 @@
 use std::ops::Range;
 
+use blit::ScratchBuffer;
 use blit_gui::color::Color;
 use fearless_simd::{Level, Simd, dispatch, f32x8, i32x8, prelude::*, u32x8};
 
@@ -90,17 +91,18 @@ pub trait Pixel: Copy + 'static {
     }
 
     /// blurs channel arrays in place with reusable scratch storage
-    fn blur<const N: usize>(pixels: &mut [[u8; N]], width: usize, height: usize, radius: u32, scratch: &mut Vec<i32>) {
+    fn blur<const N: usize>(pixels: &mut [[u8; N]], width: usize, height: usize, radius: u32, scratch: &ScratchBuffer) {
         assert_eq!(
             pixels.len(),
             width.checked_mul(height).expect("blur dimensions overflow")
         );
-        if radius == 0 || width == 0 || height == 0 {
+        if radius == 0 || width == 0 || height == 0 || N == 0 {
             return;
         }
         let radius = radius.min(Self::MAX_BLUR_RADIUS) as usize;
-        scratch.resize((radius * 2 + 1) * N, 0);
-        let stack = scratch.as_chunks_mut::<N>().0;
+        let mut stack = scratch.alloc::<i32>((radius * 2 + 1) * N);
+        stack.resize((radius * 2 + 1) * N, 0);
+        let stack = stack.as_chunks_mut::<N>().0;
         for row in 0..height {
             line(pixels, row * width, 1, width, radius, stack);
         }
@@ -116,7 +118,7 @@ pub trait Pixel: Copy + 'static {
             radius: usize,
             stack: &mut [[i32; N]],
         ) {
-            let div = radius * 2 + 1;
+            let div = stack.len();
             let scale = 1.0 / ((radius + 1) * (radius + 1)) as f32;
             let first = pixels[start].map(i32::from);
             let mut sum = [0; N];
@@ -240,7 +242,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> PackedPix
 }
 
 impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for PackedPixel<RED, GREEN, BLUE, ALPHA> {
-    fn blur<const N: usize>(pixels: &mut [[u8; N]], width: usize, height: usize, radius: u32, scratch: &mut Vec<i32>) {
+    fn blur<const N: usize>(pixels: &mut [[u8; N]], width: usize, height: usize, radius: u32, scratch: &ScratchBuffer) {
         assert_eq!(
             pixels.len(),
             width.checked_mul(height).expect("blur dimensions overflow")
@@ -249,8 +251,9 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
             return;
         }
         let radius = radius.min(Self::MAX_BLUR_RADIUS) as usize;
-        scratch.resize((radius * 2 + 1) * 8, 0);
-        let stack = scratch.as_chunks_mut::<8>().0;
+        let mut stack = scratch.alloc::<i32>((radius * 2 + 1) * 8);
+        stack.resize((radius * 2 + 1) * 8, 0);
+        let stack = stack.as_chunks_mut::<8>().0;
         dispatch!(Level::new(), simd => {
             for channel in (0..N).step_by(8) {
                 let channels = (N - channel).min(8);
@@ -316,7 +319,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
             mut load: impl FnMut(&[[u8; N]], usize) -> [i32; 8],
             mut store: impl FnMut(&mut [[u8; N]], usize, [u8; 8]),
         ) {
-            let div = radius * 2 + 1;
+            let div = stack.len();
             let scale = 1.0 / ((radius + 1) * (radius + 1)) as f32;
             let first = load(pixels, 0);
             let first_vector = i32x8::simd_from(simd, first);

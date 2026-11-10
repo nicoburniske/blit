@@ -24,10 +24,7 @@ where
 }
 
 #[derive(Default)]
-struct Handler {
-    pixels: Vec<[u8; 4]>,
-    scratch: Vec<i32>,
-}
+struct Handler;
 
 impl<P: Pixel> crate::Handler<usize, P> for Handler {
     type Prepared = usize;
@@ -38,24 +35,24 @@ impl<P: Pixel> crate::Handler<usize, P> for Handler {
 
     fn draw(&mut self, radius: &usize, cx: &mut DrawContext<'_, P>) {
         let source = cx.source().unwrap();
+        let scratch = cx.scratch();
         for bounds in cx.output_regions() {
             let x = (bounds.x as usize).saturating_sub(*radius);
             let y = (bounds.y as usize).saturating_sub(*radius);
             let right = (bounds.x as usize + bounds.width as usize + radius).min(source.width());
             let bottom = (bounds.y as usize + bounds.height as usize + radius).min(source.height());
             let stride = right - x;
-            self.pixels.clear();
-            self.pixels.reserve(stride * (bottom - y));
+            let mut pixels = scratch.alloc(stride * (bottom - y));
             for row in y..bottom {
-                self.pixels.extend(source.row(row, x..right).iter().map(|pixel| {
+                pixels.extend(source.row(row, x..right).iter().map(|pixel| {
                     let color = pixel.to_rgba();
                     [color.red, color.green, color.blue, color.alpha]
                 }));
             }
-            P::blur(&mut self.pixels, stride, bottom - y, *radius as u32, &mut self.scratch);
+            P::blur(&mut pixels, stride, bottom - y, *radius as u32, scratch);
             cx.for_each_span_in(bounds, |span| {
                 let start = (span.y as usize - y) * stride + span.x as usize - x;
-                let colors = &self.pixels[start..start + span.pixels.len()];
+                let colors = &pixels[start..start + span.pixels.len()];
                 if span.coverage == 255 {
                     for (pixel, &[red, green, blue, alpha]) in span.pixels.iter_mut().zip(colors) {
                         *pixel = P::from_rgba(PremultipliedRgbaColor {
