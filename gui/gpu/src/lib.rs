@@ -927,8 +927,9 @@ struct Clip {
 struct GradientStop {
     color: [f32; 4],
     position: f32,
-    x_step: f32,
-    y_step: f32,
+    // linear step or conic center
+    x: f32,
+    y: f32,
     end: u32,
 }
 

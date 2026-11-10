@@ -5,7 +5,7 @@ use blit::{Atom, AtomCx, Constraints, FrameSlice, LogicalRect, Paint, Size, Ui, 
 use crate::{
     color::Color,
     display_list::{Compare, DisplayList, Slice},
-    style::{Border, BorderRadius, Fill, GradientStop, LinearGradient},
+    style::{Border, BorderRadius, ConicGradient, Fill, GradientStop, LinearGradient},
 };
 
 blit::builder! {
@@ -31,6 +31,11 @@ where
             Fill::Solid(color) => FrameFill::Solid(color),
             Fill::LinearGradient(gradient) => FrameFill::LinearGradient {
                 stops: ui.store_slice(gradient.stops.iter().copied()),
+                angle_degrees: gradient.angle_degrees,
+            },
+            Fill::ConicGradient(gradient) => FrameFill::ConicGradient {
+                stops: ui.store_slice(gradient.stops.iter().copied()),
+                center: gradient.center,
                 angle_degrees: gradient.angle_degrees,
             },
         });
@@ -90,6 +95,11 @@ pub enum FrameFill {
         stops: FrameSlice<GradientStop>,
         angle_degrees: f32,
     },
+    ConicGradient {
+        stops: FrameSlice<GradientStop>,
+        center: [f32; 2],
+        angle_degrees: f32,
+    },
 }
 
 impl FrameFill {
@@ -98,6 +108,15 @@ impl FrameFill {
             Self::Solid(color) => Fill::Solid(color),
             Self::LinearGradient { stops, angle_degrees } => Fill::LinearGradient(LinearGradient {
                 stops: cx.slice(stops),
+                angle_degrees,
+            }),
+            Self::ConicGradient {
+                stops,
+                center,
+                angle_degrees,
+            } => Fill::ConicGradient(ConicGradient {
+                stops: cx.slice(stops),
+                center,
                 angle_degrees,
             }),
         }
@@ -124,18 +143,26 @@ impl Hash for Rectangle<'_> {
         .hash(state);
         for fill in [self.background, self.border.fill] {
             std::mem::discriminant(&fill).hash(state);
-            match fill {
-                Fill::Solid(color) => color.hash(state),
-                Fill::LinearGradient(gradient) => {
-                    let angle = gradient.angle_degrees;
-                    state.write_u32(if angle == 0.0 { 0 } else { angle.to_bits() });
-                    gradient.stops.len().hash(state);
-                    for stop in gradient.stops {
-                        let position = stop.position;
-                        state.write_u32(if position == 0.0 { 0 } else { position.to_bits() });
-                        stop.color.hash(state);
-                    }
+            let (stops, angle) = match fill {
+                Fill::Solid(color) => {
+                    color.hash(state);
+                    continue;
                 }
+                Fill::LinearGradient(gradient) => (gradient.stops, gradient.angle_degrees),
+                Fill::ConicGradient(gradient) => {
+                    gradient
+                        .center
+                        .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+                        .hash(state);
+                    (gradient.stops, gradient.angle_degrees)
+                }
+            };
+            state.write_u32(if angle == 0.0 { 0 } else { angle.to_bits() });
+            stops.len().hash(state);
+            for stop in stops {
+                let position = stop.position;
+                state.write_u32(if position == 0.0 { 0 } else { position.to_bits() });
+                stop.color.hash(state);
             }
         }
     }
@@ -198,6 +225,11 @@ pub enum StoredFill {
         stops: Slice<GradientStop>,
         angle_degrees: f32,
     },
+    ConicGradient {
+        stops: Slice<GradientStop>,
+        center: [f32; 2],
+        angle_degrees: f32,
+    },
 }
 
 impl StoredFill {
@@ -209,6 +241,11 @@ impl StoredFill {
                 stops: list.store_slice(gradient.stops.iter().copied()),
                 angle_degrees: gradient.angle_degrees,
             },
+            Fill::ConicGradient(gradient) => Self::ConicGradient {
+                stops: list.store_slice(gradient.stops.iter().copied()),
+                center: gradient.center,
+                angle_degrees: gradient.angle_degrees,
+            },
         }
     }
 
@@ -218,6 +255,15 @@ impl StoredFill {
             Self::Solid(color) => Fill::Solid(color),
             Self::LinearGradient { stops, angle_degrees } => Fill::LinearGradient(LinearGradient {
                 stops: list.slice(stops),
+                angle_degrees,
+            }),
+            Self::ConicGradient {
+                stops,
+                center,
+                angle_degrees,
+            } => Fill::ConicGradient(ConicGradient {
+                stops: list.slice(stops),
+                center,
                 angle_degrees,
             }),
         }

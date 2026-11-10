@@ -9,7 +9,7 @@ use blit_gui::{
     color::Color,
     image::{ImageData, ImageFormat, ImagePixels, ImageSampling, ImageTiling},
     mesh::{Mesh, MeshVertex},
-    style::{Border, BorderRadius, GradientStop, LinearGradient},
+    style::{Border, BorderRadius, ConicGradient, GradientStop, LinearGradient},
     text::{FontId, TextOptions, TextRequest, TextStyle},
 };
 
@@ -230,6 +230,20 @@ fn renders_primitives_and_rebuilds_frames() {
     );
     renderer.pop_clip();
     renderer.pop_clip();
+    let conic_stops = [
+        GradientStop::new(0.0, Color::rgb(255, 0, 0)),
+        GradientStop::new(0.25, Color::rgb(0, 255, 0)),
+        GradientStop::new(0.5, Color::rgb(0, 0, 255)),
+        GradientStop::new(0.75, Color::WHITE),
+        GradientStop::new(1.0, Color::rgb(255, 255, 0)),
+    ];
+    let conic = ConicGradient::new(&conic_stops).center(0.53125, 0.53125);
+    renderer.paint(
+        LogicalRect::new(48.0, 22.0, 8.0, 8.0),
+        Rectangle::new()
+            .background(conic.angle(450.0))
+            .border(Border::gradient(1.0, conic.angle(180.0))),
+    );
     renderer.render(&target);
 
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
@@ -333,6 +347,10 @@ fn renders_primitives_and_rebuilds_frames() {
     assert!(top_right[3] > bottom_left[3]);
     assert_eq!(pixel(114, 10), [0, 0, 0, 0]);
     assert_eq!(pixel(116, 10), [183, 0, 71, 255]);
+    assert_eq!(pixel(104, 52), [255, 0, 0, 255]);
+    assert_eq!(pixel(104, 56), [255, 0, 0, 255]);
+    assert_eq!(pixel(111, 52), [0, 0, 255, 255]);
+    assert_eq!(pixel(108, 52), [255, 255, 255, 255]);
 
     renderer.push_clip(LogicalRect::default(), BorderRadius::default());
     renderer.paint(

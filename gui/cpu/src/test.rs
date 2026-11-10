@@ -10,7 +10,7 @@ use blit_gui::{
     display_list::Compare,
     image::{ImageData, ImageFit, ImageFormat, ImagePixels},
     mesh::{Mesh, MeshVertex},
-    style::{Border, BorderRadius, Fill, GradientStop, LinearGradient},
+    style::{Border, BorderRadius, ConicGradient, Fill, GradientStop, LinearGradient},
     text::{
         FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextRequest, TextStyle, TextWrap,
         VerticalAlign,
@@ -1200,7 +1200,7 @@ fn recorded_commands_track_damage_and_invalidation() {
 fn paint_changes_invalidate_damage_without_changing_bounds() {
     fn check<D: DamageTracker>(damage: impl Fn() -> D) {
         let area = LogicalRect::new(0.0, 0.0, 16.0, 16.0);
-        for case in ["fill", "border", "text", "image", "shadow", "mesh", "clip"] {
+        for case in ["fill", "border", "conic", "text", "image", "shadow", "mesh", "clip"] {
             let mut renderer = new_renderer(
                 TrackingBuffer {
                     pixels: vec![Xrgb8888::default(); 16 * 16],
@@ -1233,6 +1233,20 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
                             Rectangle::new().border(Border::gradient(2.0, gradient))
                         };
                         renderer.paint(area, rectangle);
+                    }
+                    "conic" => {
+                        let stops = [
+                            GradientStop::new(0.0, Color::BLACK),
+                            GradientStop::new(1.0, Color::WHITE),
+                        ];
+                        renderer.paint(
+                            area,
+                            Rectangle::new().background(ConicGradient::new(&stops).angle(if frame == 0 {
+                                0.0
+                            } else {
+                                90.0
+                            })),
+                        );
                     }
                     "text" => renderer.paint(
                         area,
@@ -2015,6 +2029,13 @@ fn gradients_match_between_strategies_and_rounded_clips() {
                     .border(Border::gradient(3.0, LinearGradient::new(&stops).angle(135.0)))
                     .radius(BorderRadius::uniform(9.0)),
             );
+            renderer.paint(
+                LogicalRect::new(8.0, 8.0, 12.0, 12.0),
+                Rectangle::new()
+                    .background(ConicGradient::new(&stops).center(0.3, 0.65).angle(-35.0))
+                    .border(Border::gradient(2.0, ConicGradient::new(&stops).angle(75.0)))
+                    .radius(BorderRadius::uniform(3.0)),
+            );
         }
         renderer.pop_clip();
         renderer.render(0);
@@ -2032,6 +2053,21 @@ fn gradients_match_between_strategies_and_rounded_clips() {
             if gradient_background { 0x001c_945a } else { 0x0010_131a }
         );
     }
+
+    let stops = [
+        GradientStop::new(0.0, Color::BLACK),
+        GradientStop::new(1.0, Color::WHITE),
+    ];
+    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(9, 9), renderer_config());
+    renderer.paint(
+        LogicalRect::new(0.0, 0.0, 9.0, 9.0),
+        Rectangle::new().background(ConicGradient::new(&stops).angle(450.0)),
+    );
+    renderer.render(0);
+    let pixels = renderer.buffer().pixels();
+    assert_eq!(pixels[4 * 9 + 4].raw(), 0);
+    assert_eq!(pixels[8 * 9 + 4].raw(), 0);
+    assert_eq!(pixels[4 * 9 + 8].raw(), 0xbfbfbf);
 }
 
 #[test]

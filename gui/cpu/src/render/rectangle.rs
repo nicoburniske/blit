@@ -1,7 +1,11 @@
 use std::ops::Range;
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2, internal::bump::Offset};
-use blit_gui::{Rectangle, damage::DamageTracker, style::Fill};
+use blit_gui::{
+    Rectangle,
+    damage::DamageTracker,
+    style::{ConicGradient, Fill, LinearGradient},
+};
 
 use super::{
     fill::{Gradients, PreparedFill},
@@ -43,8 +47,8 @@ where
                 }
                 let opaque = match rectangle.background {
                     Fill::Solid(color) => PremultipliedRgbaColor::with_opacity(color, rectangle.opacity).alpha == 255,
-                    Fill::LinearGradient(gradient) => gradient
-                        .stops
+                    Fill::LinearGradient(LinearGradient { stops, .. })
+                    | Fill::ConicGradient(ConicGradient { stops, .. }) => stops
                         .iter()
                         .all(|stop| PremultipliedRgbaColor::with_opacity(stop.color, rectangle.opacity).alpha == 255),
                 };
@@ -117,7 +121,7 @@ impl Prepared {
         if let PreparedFill::Solid(background) = background {
             match &mut border {
                 PreparedFill::Solid(color) => *color = color.over(background),
-                PreparedFill::Gradient(index) => {
+                PreparedFill::Gradient(index) | PreparedFill::ConicGradient(index) => {
                     let range = gradients.entries[*index as usize].stops.clone();
                     for stop in &mut gradients.stops[range.start as usize..range.end as usize] {
                         stop.color = stop.color.over(background);

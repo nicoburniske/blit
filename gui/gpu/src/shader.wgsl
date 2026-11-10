@@ -11,8 +11,8 @@ struct Instance {
 struct GradientStop {
     color: vec4<f32>,
     position: f32,
-    x_step: f32,
-    y_step: f32,
+    x: f32,
+    y: f32,
     end: u32,
 }
 
@@ -44,6 +44,8 @@ struct ContentOutput {
 
 const OUTSET_SHADOW: u32 = 1u;
 const INSET_SHADOW: u32 = 2u;
+const CONIC_BACKGROUND: u32 = 4u;
+const CONIC_BORDER: u32 = 8u;
 const DRAW_TEXT: u32 = 1u << 31u;
 const DRAW_MESH: u32 = 1u << 30u;
 const DRAW_INDEX: u32 = ~(DRAW_TEXT | DRAW_MESH);
@@ -236,14 +238,28 @@ fn clear(input: VertexOutput) -> @location(0) vec4<f32> {
 
 override GRADIENT_LEVELS: f32 = 255.0;
 
-fn fill_color(color: vec4<f32>, gradient: u32, position: vec2<f32>, shape: vec4<f32>) -> vec4<f32> {
+fn fill_color(color: vec4<f32>, gradient: u32, position: vec2<f32>, shape: vec4<f32>, conic: bool, angle: f32) -> vec4<f32> {
     if gradient == 0u {
         return color;
     }
     let start = stops[gradient - 1u];
-    let direction = vec2(start.x_step, start.y_step);
-    let minimum = dot(min(direction, vec2(0.0)), shape.zw);
-    let value = dot(direction, position - shape.xy) - minimum;
+    var value = 0.0;
+    if conic {
+        let delta = position - vec2(start.x, start.y);
+        if any(delta != vec2(0.0)) {
+            var turn = atan2(delta.y, delta.x) / 6.283185307179586;
+            if delta.x == 0.0 {
+                turn = select(0.75, 0.25, delta.y > 0.0);
+            } else if delta.y == 0.0 {
+                turn = select(0.5, 0.0, delta.x > 0.0);
+            }
+            value = fract(turn - angle);
+        }
+    } else {
+        let direction = vec2(start.x, start.y);
+        let minimum = dot(min(direction, vec2(0.0)), shape.zw);
+        value = dot(direction, position - shape.xy) - minimum;
+    }
     var index = gradient - 1u;
     while index + 2u < start.end && value >= stops[index + 1u].position {
         index += 1u;
@@ -330,11 +346,11 @@ fn content(input: ContentOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
-    let background = fill_color(instance.inner_color, instance.data.y, position, instance.shape);
+    let background = fill_color(instance.inner_color, instance.data.y, position, instance.shape, (instance.data.w & CONIC_BACKGROUND) != 0u, instance.params.y);
     var color = background;
     let border_width = instance.params.x;
     if border_width > 0.0 {
-        let border_fill = fill_color(instance.border_color, instance.data.z, position, instance.shape);
+        let border_fill = fill_color(instance.border_color, instance.data.z, position, instance.shape, (instance.data.w & CONIC_BORDER) != 0u, instance.params.z);
         let border = border_fill + background * (1.0 - border_fill.a);
 
         let inner_size = instance.shape.zw - vec2(border_width * 2.0);

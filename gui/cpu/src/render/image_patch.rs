@@ -427,7 +427,7 @@ impl Prepared {
         let mut source = self.source_fixed_x(clipped.x);
         let source_span = (self.source.width as u64) << FIXED_SHIFT;
         for pixel in pixels {
-            let source_x = self.source.x as usize + (source >> FIXED_SHIFT).min(self.source.width as u64 - 1) as usize;
+            let source_x = self.source.x as usize + (source >> FIXED_SHIFT) as usize;
             process(pixel, source_x);
             source += self.step_x;
             if self.flags & flag::WRAP_X != 0 && source >= source_span {
