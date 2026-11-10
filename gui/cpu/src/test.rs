@@ -2055,6 +2055,10 @@ fn gradients_match_between_strategies_and_rounded_clips() {
                     .border(Border::gradient(2.0, ConicGradient::new(&stops).angle(75.0)))
                     .radius(BorderRadius::uniform(3.0)),
             );
+            renderer.paint(
+                LogicalRect::new(0.0, 0.0, 48.0, 36.0),
+                Rectangle::new().background(LinearGradient::new(&[])),
+            );
         }
         renderer.pop_clip();
         renderer.render(0);

@@ -11,21 +11,13 @@ pub struct Mesh<'a> {
 }
 
 impl Mesh<'_> {
-    pub fn validate(&self) {
-        assert_eq!(self.indices.len() % 3, 0, "mesh index count must be divisible by three");
-        if self.indices.is_empty() {
-            return;
-        }
-        assert!(
-            self.indices.iter().all(|index| (*index as usize) < self.vertices.len()),
-            "mesh index out of bounds"
-        );
-        assert!(
-            self.vertices
+    pub fn is_valid(&self) -> bool {
+        self.indices.len().is_multiple_of(3)
+            && self.indices.iter().all(|index| (*index as usize) < self.vertices.len())
+            && self
+                .vertices
                 .iter()
-                .all(|vertex| vertex.position.x.is_finite() && vertex.position.y.is_finite()),
-            "mesh positions must be finite"
-        );
+                .all(|vertex| vertex.position.x.is_finite() && vertex.position.y.is_finite())
     }
 }
 

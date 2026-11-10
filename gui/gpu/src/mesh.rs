@@ -10,8 +10,7 @@ use crate::{MeshData, Renderer};
 
 impl Paint<Mesh<'_>> for Renderer {
     fn paint(&mut self, bounds: LogicalRect, mesh: Mesh<'_>) {
-        mesh.validate();
-        if mesh.indices.is_empty() {
+        if mesh.indices.is_empty() || !mesh.is_valid() {
             return;
         }
         let value = StoredMesh {

@@ -10,13 +10,11 @@ where
     D: DamageTracker,
 {
     fn paint(&mut self, bounds: LogicalRect, blur: BackdropBlur) {
+        if !blur.radius.is_finite() || blur.radius <= 0.0 {
+            return;
+        }
         let mut recording = self.record::<Handler>(bounds);
-        let radius = (blur.radius * recording.scale).round();
-        // weighted byte sums must fit the blur accumulator
-        assert!(
-            blur.radius.is_finite() && blur.radius >= 0.0 && radius <= 2900.0,
-            "invalid backdrop blur radius"
-        );
+        let radius = (blur.radius * recording.scale).round().min(blur::MAX_RADIUS as f32);
         if radius != 0.0 {
             recording.pass(radius as usize);
         }

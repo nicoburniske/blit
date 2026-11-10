@@ -9,6 +9,42 @@ pub enum Fill<'a> {
     ConicGradient(ConicGradient<'a>),
 }
 
+impl Fill<'_> {
+    /// resolves malformed gradients to a solid fill and nonfinite geometry to defaults
+    pub fn normalized(self) -> Self {
+        let (stops, fill) = match self {
+            Self::Solid(_) => return self,
+            Self::LinearGradient(mut gradient) => {
+                gradient.angle_degrees = if gradient.angle_degrees.is_finite() {
+                    gradient.angle_degrees.rem_euclid(360.0)
+                } else {
+                    0.0
+                };
+                (gradient.stops, Self::LinearGradient(gradient))
+            }
+            Self::ConicGradient(mut gradient) => {
+                gradient.angle_degrees = if gradient.angle_degrees.is_finite() {
+                    gradient.angle_degrees.rem_euclid(360.0)
+                } else {
+                    0.0
+                };
+                gradient.center = gradient.center.map(|value| if value.is_finite() { value } else { 0.5 });
+                (gradient.stops, Self::ConicGradient(gradient))
+            }
+        };
+        if stops.len() >= 2
+            && stops
+                .iter()
+                .all(|stop| stop.position.is_finite() && (0.0..=1.0).contains(&stop.position))
+            && stops.windows(2).all(|stops| stops[0].position < stops[1].position)
+        {
+            fill
+        } else {
+            Self::Solid(stops.first().map_or(Color::TRANSPARENT, |stop| stop.color))
+        }
+    }
+}
+
 impl Default for Fill<'_> {
     fn default() -> Self {
         Self::Solid(Color::TRANSPARENT)
@@ -94,11 +130,6 @@ impl<'a> LinearGradient<'a> {
         self.angle_degrees = angle;
         self
     }
-
-    pub fn validate(&self) {
-        assert!(self.angle_degrees.is_finite(), "invalid linear gradient angle");
-        validate_stops(self.stops);
-    }
 }
 
 /// a clockwise sweep with zero degrees pointing right and a center relative to the rectangle
@@ -128,14 +159,6 @@ impl<'a> ConicGradient<'a> {
         self.angle_degrees = angle;
         self
     }
-
-    pub fn validate(&self) {
-        assert!(
-            self.center.iter().all(|value| value.is_finite()) && self.angle_degrees.is_finite(),
-            "invalid conic gradient geometry"
-        );
-        validate_stops(self.stops);
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -148,15 +171,4 @@ impl GradientStop {
     pub const fn new(position: f32, color: Color) -> Self {
         Self { position, color }
     }
-}
-
-fn validate_stops(stops: &[GradientStop]) {
-    assert!(
-        stops.len() >= 2
-            && stops
-                .iter()
-                .all(|stop| stop.position.is_finite() && (0.0..=1.0).contains(&stop.position))
-            && stops.windows(2).all(|stops| stops[0].position < stops[1].position),
-        "invalid gradient stops"
-    );
 }

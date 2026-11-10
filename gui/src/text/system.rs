@@ -64,7 +64,7 @@ impl TextSystem {
         };
         let mut text = std::mem::take(&mut self.formatted_text);
         text.clear();
-        text.write_fmt(arguments).expect("text formatting failed");
+        let _ = text.write_fmt(arguments);
         let run = self.rich_text(&text, &[], style);
         self.formatted_text = text;
         run
@@ -72,29 +72,37 @@ impl TextSystem {
 
     /// registers geometry using span ranges and font attributes
     pub fn rich_text(&mut self, text: &str, spans: &[Span<'_>], style: TextStyle) -> TextRun {
+        if !style.size.is_finite() || style.size <= 0.0 {
+            return TextRun::default();
+        }
         let Some(font) = self.fonts.iter().find(|font| font.id == style.font) else {
             return TextRun::default();
         };
         let default = [Span::new(0..text.len())];
-        let spans = if spans.is_empty() { &default } else { spans };
+        let mut spans = if spans.is_empty() { &default } else { spans };
         let mut end = 0;
         for span in spans {
-            assert_eq!(span.range.start, end, "rich text spans must be contiguous");
-            assert!(span.range.end >= end, "rich text spans must be ordered");
-            assert!(
-                text.is_char_boundary(span.range.end),
-                "rich text spans must lie on character boundaries"
-            );
+            if span.range.start != end
+                || span.range.end < end
+                || !text.is_char_boundary(span.range.end)
+                || span.style.size.is_some_and(|size| !size.is_finite() || size <= 0.0)
+            {
+                spans = &default;
+                break;
+            }
             end = span.range.end;
             if span
                 .style
                 .font
                 .is_some_and(|id| !self.fonts.iter().any(|font| font.id == id))
             {
-                return TextRun::default();
+                spans = &default;
+                break;
             }
         }
-        assert_eq!(end, text.len(), "rich text spans must cover the text");
+        if end != text.len() {
+            spans = &default;
+        }
         let query = SourceQuery {
             text,
             spans,

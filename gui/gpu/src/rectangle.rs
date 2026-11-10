@@ -65,21 +65,19 @@ impl Paint<Rectangle<'_>> for Renderer {
                     if index == 1 && border_width == 0.0 {
                         continue;
                     }
-                    let (stops, x, y) = match fill {
+                    let (stops, x, y) = match fill.normalized() {
                         Fill::Solid(color) => {
                             colors[index] = premultiplied(color, opacity);
                             continue;
                         }
                         Fill::LinearGradient(gradient) => {
-                            gradient.validate();
                             let (direction_y, direction_x) = gradient.angle_degrees.to_radians().sin_cos();
                             let extent = direction_x.abs() * area.width as f32 + direction_y.abs() * area.height as f32;
                             (gradient.stops, direction_x / extent, direction_y / extent)
                         }
                         Fill::ConicGradient(gradient) => {
-                            gradient.validate();
                             data[3] |= CONIC_FILL << index;
-                            angles[index] = gradient.angle_degrees.rem_euclid(360.0) / 360.0;
+                            angles[index] = gradient.angle_degrees / 360.0;
                             (
                                 gradient.stops,
                                 area.x as f32 + gradient.center[0] * area.width as f32,

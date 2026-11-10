@@ -48,9 +48,12 @@ where
                 let opaque = match rectangle.background {
                     Fill::Solid(color) => PremultipliedRgbaColor::with_opacity(color, rectangle.opacity).alpha == 255,
                     Fill::LinearGradient(LinearGradient { stops, .. })
-                    | Fill::ConicGradient(ConicGradient { stops, .. }) => stops
-                        .iter()
-                        .all(|stop| PremultipliedRgbaColor::with_opacity(stop.color, rectangle.opacity).alpha == 255),
+                    | Fill::ConicGradient(ConicGradient { stops, .. }) => {
+                        !stops.is_empty()
+                            && stops.iter().all(|stop| {
+                                PremultipliedRgbaColor::with_opacity(stop.color, rectangle.opacity).alpha == 255
+                            })
+                    }
                 };
                 let coverage = if !opaque {
                     Coverage::None

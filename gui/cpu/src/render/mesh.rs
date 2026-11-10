@@ -20,8 +20,7 @@ where
 {
     fn paint(&mut self, bounds: LogicalRect, mesh: Mesh<'_>) {
         let mut recording = self.record::<()>(bounds);
-        mesh.validate();
-        if mesh.indices.is_empty() {
+        if mesh.indices.is_empty() || !mesh.is_valid() {
             return;
         }
         let vertices = recording.list.store_slice(mesh.vertices.iter().copied());

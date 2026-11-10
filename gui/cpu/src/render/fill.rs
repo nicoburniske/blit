@@ -33,10 +33,10 @@ pub struct Stop {
 
 impl PreparedFill {
     pub fn new(fill: Fill<'_>, bounds: PhysicalRect, opacity: f32, gradients: &mut Gradients) -> Self {
+        let fill = fill.normalized();
         let (stops, x, y, offset) = match fill {
             Fill::Solid(color) => return Self::Solid(PremultipliedRgbaColor::with_opacity(color, opacity)),
             Fill::LinearGradient(gradient) => {
-                gradient.validate();
                 let (dy, dx) = gradient.angle_degrees.to_radians().sin_cos();
                 let extent = dx.abs() * bounds.width as f32 + dy.abs() * bounds.height as f32;
                 let minimum = dx.min(0.0) * bounds.width as f32 + dy.min(0.0) * bounds.height as f32;
@@ -47,15 +47,12 @@ impl PreparedFill {
                     (0.5 * dx + 0.5 * dy - minimum - dx * bounds.x as f32 - dy * bounds.y as f32) / extent,
                 )
             }
-            Fill::ConicGradient(gradient) => {
-                gradient.validate();
-                (
-                    gradient.stops,
-                    bounds.x as f32 + gradient.center[0] * bounds.width as f32,
-                    bounds.y as f32 + gradient.center[1] * bounds.height as f32,
-                    gradient.angle_degrees.rem_euclid(360.0) / 360.0,
-                )
-            }
+            Fill::ConicGradient(gradient) => (
+                gradient.stops,
+                bounds.x as f32 + gradient.center[0] * bounds.width as f32,
+                bounds.y as f32 + gradient.center[1] * bounds.height as f32,
+                gradient.angle_degrees / 360.0,
+            ),
         };
         let index = u32::try_from(gradients.entries.len()).expect("too many gradients");
         let start = gradients.stops.len();

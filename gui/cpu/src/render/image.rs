@@ -4,7 +4,9 @@ use blit::{LogicalRect, Paint, PhysicalRect, internal::bump::Offset};
 use blit_gui::{
     Image,
     damage::DamageTracker,
-    image::{ImageData, ImageFormat, ImageHandle, ImagePatch, ImageSampling, ImageTiling, prepare_image_patches},
+    image::{
+        ImageData, ImageFormat, ImageHandle, ImageId, ImagePatch, ImageSampling, ImageTiling, prepare_image_patches,
+    },
 };
 
 use super::image_patch::{AlphaRows, Prepared};
@@ -65,8 +67,9 @@ pub struct StoredImage {
 }
 
 impl StoredImage {
-    pub fn new(handle: ImageHandle, data: ImageData) -> Self {
-        data.validate();
+    pub fn new(id: ImageId, data: ImageData) -> Self {
+        let data = data.normalized();
+        let handle = ImageHandle::new(id, data.size);
         let width = data.texture_rect.width as usize;
         let height = data.texture_rect.height as usize;
         let bytes = data.pixels.bytes();
@@ -320,7 +323,7 @@ mod tests {
         draw(&mut buffer, area, &request, &texture, clip, 1.0);
 
         assert_eq!(buffer.pixels(), [0x800000, 0x800000, 0x800000].map(Xrgb8888::from_raw));
-        let texture = StoredImage::new(ImageHandle::new(0, texture.size), texture);
+        let texture = StoredImage::new(0, texture);
         let mut opaque = None;
         prepare_image_patches(area, &request, texture.data.size, 1.0, |patch| {
             opaque = Some(texture.coverage(&request, patch));

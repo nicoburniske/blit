@@ -115,11 +115,9 @@ pub struct ImageData {
 
 impl ImageData {
     pub fn new(pixels: ImagePixels, format: ImageFormat, width: usize, height: usize) -> Self {
-        let width = i32::try_from(width).expect("image width is too large");
-        let height = i32::try_from(height).expect("image height is too large");
-        let stride_bytes = (width as usize)
-            .checked_mul(format.bytes_per_pixel())
-            .expect("image width is too large");
+        let width = i32::try_from(width).unwrap_or(0);
+        let height = i32::try_from(height).unwrap_or(0);
+        let stride_bytes = (width as usize).checked_mul(format.bytes_per_pixel()).unwrap_or(0);
         Self {
             pixels,
             size: PhysicalSize { width, height },
@@ -134,31 +132,38 @@ impl ImageData {
         }
     }
 
-    pub fn validate(&self) {
-        assert!(self.size.width > 0 && self.size.height > 0);
-        assert!(self.texture_rect.x >= 0 && self.texture_rect.y >= 0);
-        assert!(self.texture_rect.width > 0 && self.texture_rect.height > 0);
-        assert!(
-            self.texture_rect
+    /// replaces malformed pixel data with a transparent pixel
+    pub fn normalized(self) -> Self {
+        let valid = self.size.width > 0
+            && self.size.height > 0
+            && self.texture_rect.x >= 0
+            && self.texture_rect.y >= 0
+            && self.texture_rect.width > 0
+            && self.texture_rect.height > 0
+            && self
+                .texture_rect
                 .x
                 .checked_add(self.texture_rect.width)
                 .is_some_and(|right| right <= self.size.width)
-        );
-        assert!(
-            self.texture_rect
+            && self
+                .texture_rect
                 .y
                 .checked_add(self.texture_rect.height)
                 .is_some_and(|bottom| bottom <= self.size.height)
-        );
-        let row_bytes = (self.texture_rect.width as usize)
-            .checked_mul(self.format.bytes_per_pixel())
-            .expect("image row is too large");
-        assert!(self.stride_bytes >= row_bytes);
-        let len = (self.texture_rect.height as usize - 1)
-            .checked_mul(self.stride_bytes)
-            .and_then(|offset| offset.checked_add(row_bytes))
-            .expect("image data is too large");
-        assert!(len <= self.pixels.bytes().len());
+            && (self.texture_rect.width as usize)
+                .checked_mul(self.format.bytes_per_pixel())
+                .is_some_and(|row_bytes| {
+                    self.stride_bytes >= row_bytes
+                        && (self.texture_rect.height as usize - 1)
+                            .checked_mul(self.stride_bytes)
+                            .and_then(|offset| offset.checked_add(row_bytes))
+                            .is_some_and(|len| len <= self.pixels.bytes().len())
+                });
+        if valid {
+            self
+        } else {
+            Self::new(ImagePixels::Static(&[0; 4]), ImageFormat::Rgba8Premultiplied, 1, 1)
+        }
     }
 }
 
@@ -288,9 +293,10 @@ pub fn prepare_image_patches(
         }
     };
 
-    if let Some(slice) = request.nine_slice {
-        assert!(slice.left as i32 + slice.right as i32 <= source.width);
-        assert!(slice.top as i32 + slice.bottom as i32 <= source.height);
+    if let Some(slice) = request.nine_slice.filter(|slice| {
+        slice.left as i32 + slice.right as i32 <= source.width
+            && slice.top as i32 + slice.bottom as i32 <= source.height
+    }) {
         let fit_borders = |first: i32, second: i32, available: i32| {
             if first + second <= available {
                 (first, second)

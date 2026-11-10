@@ -2,6 +2,9 @@ use fearless_simd::{Level, Simd, dispatch, f32x8, i32x8, prelude::*};
 
 use crate::PremultipliedRgbaColor;
 
+// weighted byte sums must fit the blur accumulator
+pub const MAX_RADIUS: u32 = 2900;
+
 /// blurs premultiplied color pixels with reusable scratch storage
 pub fn stack_rgba(
     pixels: &mut [PremultipliedRgbaColor],

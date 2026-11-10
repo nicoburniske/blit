@@ -81,7 +81,9 @@ impl<P: Pixel> crate::Handler<Input, P> for Handler {
                 KeyData {
                     width: shape.width,
                     height: shape.height,
-                    blur: (shadow.blur.max(0.0) * scale_factor).ceil() as i32,
+                    blur: (shadow.blur.max(0.0) * scale_factor)
+                        .ceil()
+                        .min(blur::MAX_RADIUS as f32) as i32,
                     radii: Radii::new(shadow.radius, scale_factor, shape.width, shape.height),
                     offset_x: (shadow.offset_x * scale_factor).round() as i32,
                     offset_y: (shadow.offset_y * scale_factor).round() as i32,
@@ -110,7 +112,9 @@ impl<P: Pixel> crate::Handler<Input, P> for Handler {
             if shape.width <= 0 || shape.height <= 0 {
                 return None;
             }
-            let blur = (shadow.blur.max(0.0) * scale_factor).ceil() as i32;
+            let blur = (shadow.blur.max(0.0) * scale_factor)
+                .ceil()
+                .min(blur::MAX_RADIUS as f32) as i32;
             let diameter = blur.checked_mul(2)?;
             (
                 KeyData {

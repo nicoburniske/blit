@@ -371,7 +371,16 @@ impl Renderer {
 
     /// creates an image for use with this renderer
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        data.validate();
+        let mut data = data.normalized();
+        let limit = self.device.limits().max_texture_dimension_2d as i32;
+        if data.texture_rect.width > limit || data.texture_rect.height > limit {
+            data = ImageData::new(
+                blit_gui::image::ImagePixels::Static(&[0; 4]),
+                ImageFormat::Rgba8Premultiplied,
+                1,
+                1,
+            );
+        }
         let copy_size = wgpu::Extent3d {
             width: data.texture_rect.width as u32,
             height: data.texture_rect.height as u32,
@@ -425,8 +434,6 @@ impl Renderer {
             }
         };
         let bytes_per_row = (copy_size.height > 1).then(|| u32::try_from(row_bytes).expect("image row is too large"));
-        // todo: handle oversized textures
-        // wgpu currently sends oversized textures to the device error handler (panics)
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("blit gpu image"),
             size: copy_size,

@@ -153,10 +153,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        let id = self
-            .context
-            .images
-            .insert_with(|id| StoredImage::new(ImageHandle::new(id.into(), data.size), data));
+        let id = self.context.images.insert_with(|id| StoredImage::new(id.into(), data));
         self.context.images.get(id).unwrap().handle.clone()
     }
 
@@ -309,8 +306,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         PhysicalRect::new(
             0,
             0,
-            i32::try_from(self.context.buffer.width()).expect("buffer width exceeds physical coordinates"),
-            i32::try_from(self.context.buffer.height()).expect("buffer height exceeds physical coordinates"),
+            i32::try_from(self.context.buffer.width()).unwrap_or(0),
+            i32::try_from(self.context.buffer.height()).unwrap_or(0),
         )
     }
 

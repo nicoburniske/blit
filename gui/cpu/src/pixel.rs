@@ -408,7 +408,16 @@ pub struct VecBuffer<P> {
 
 impl<P: Pixel> VecBuffer<P> {
     pub fn new(width: usize, height: usize) -> Self {
-        let len = width.checked_mul(height).expect("pixel buffer dimensions overflow");
+        let Some(len) = width
+            .checked_mul(height)
+            .filter(|_| width <= i32::MAX as usize && height <= i32::MAX as usize)
+        else {
+            return Self {
+                pixels: Vec::new(),
+                width: 0,
+                height: 0,
+            };
+        };
         Self {
             pixels: vec![P::background(); len],
             width,
@@ -420,7 +429,12 @@ impl<P: Pixel> VecBuffer<P> {
         if self.width == width && self.height == height {
             return;
         }
-        let len = width.checked_mul(height).expect("pixel buffer dimensions overflow");
+        let Some(len) = width
+            .checked_mul(height)
+            .filter(|_| width <= i32::MAX as usize && height <= i32::MAX as usize)
+        else {
+            return;
+        };
         self.pixels.clear();
         self.pixels.resize(len, P::background());
         self.width = width;

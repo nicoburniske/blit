@@ -182,7 +182,7 @@ impl GlyphAtlas {
             return cached.glyph;
         }
 
-        let Ok(GlyphImage { metrics, pixels }) = text.rasterize_glyph(key) else {
+        let Ok(GlyphImage { mut metrics, pixels }) = text.rasterize_glyph(key) else {
             text.remove_glyph(key);
             return Glyph {
                 metrics: GlyphMetrics::default(),
@@ -193,6 +193,10 @@ impl GlyphAtlas {
         };
         let color = pixels.is_color();
         let channels = if color { 4 } else { 1 };
+        if u32::from(metrics.width) > self.max_size || u32::from(metrics.height) > self.max_size {
+            metrics.width = 0;
+            metrics.height = 0;
+        }
         if metrics.width == 0 || metrics.height == 0 {
             let glyph = Glyph {
                 metrics,
@@ -211,10 +215,6 @@ impl GlyphAtlas {
             return glyph;
         }
 
-        assert!(
-            u32::from(metrics.width) <= self.max_size && u32::from(metrics.height) <= self.max_size,
-            "glyph exceeds the GPU texture limit"
-        );
         let width = u32::from(metrics.width);
         let height = u32::from(metrics.height);
         let requested = [width, height];

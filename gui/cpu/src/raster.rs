@@ -37,9 +37,7 @@ impl<'a, P: Pixel> DrawContext<'a, P> {
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
-        let id = self
-            .images
-            .insert_with(|id| StoredImage::new(ImageHandle::new(id.into(), data.size), data));
+        let id = self.images.insert_with(|id| StoredImage::new(id.into(), data));
         self.images.get(id).unwrap().handle.clone()
     }
 
