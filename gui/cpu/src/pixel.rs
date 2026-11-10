@@ -60,6 +60,15 @@ pub struct Rgb8Pixel {
     pub blue: u8,
 }
 
+/// pixel formats and raster kernels for the cpu renderer
+///
+/// if you want to make blit_cpu go faster, you should probably specialize this
+/// implement it for your own pixel type and override whichever kernels you need
+/// the rest use scalar defaults
+///
+/// [`PackedPixel`] uses [`fearless_simd`] and is a pretty good default
+/// you can probably do better for specific hardware
+/// it supports more targets than `portable_simd` and doesn't require nightly
 pub trait Pixel: Copy + 'static {
     /// composites `color`, skipping transparent colors and replacing opaque pixels
     #[inline(always)]
