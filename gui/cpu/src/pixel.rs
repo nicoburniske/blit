@@ -89,8 +89,10 @@ pub trait Pixel: Copy + 'static {
         Self::from_rgb(0, 0, 0)
     }
 
-    fn write_opaque_gradient(pixels: &mut [Self], color: [f32; 3], step: [f32; 3]) {
-        write_opaque_gradient_scalar(pixels, color, step);
+    /// writes an rgb ramp with repeating rounding offsets added before byte conversion
+    /// use `[0.5; 4]` for nearest rounding or varying offsets for dithering
+    fn write_opaque_gradient(pixels: &mut [Self], color: [f32; 3], step: [f32; 3], rounding: [f32; 4]) {
+        write_opaque_gradient_scalar(pixels, color, step, rounding);
     }
 
     fn blend_slice(pixels: &mut [Self], color: PremultipliedRgbaColor) {
@@ -206,14 +208,13 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         Self(0)
     }
 
-    fn write_opaque_gradient(pixels: &mut [Self], color: [f32; 3], step: [f32; 3]) {
+    fn write_opaque_gradient(pixels: &mut [Self], color: [f32; 3], step: [f32; 3], rounding: [f32; 4]) {
         if pixels.len() < 8 {
-            write_opaque_gradient_scalar(pixels, color, step);
+            write_opaque_gradient_scalar(pixels, color, step, rounding);
             return;
         }
         const FRACTION_BITS: u32 = 20;
         const SCALE: f32 = (1 << FRACTION_BITS) as f32;
-        const HALF: i32 = 1 << (FRACTION_BITS - 1);
 
         let fixed = |value: f32| {
             let value = value * SCALE;
@@ -221,14 +222,16 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         };
         let mut color = color.map(fixed);
         let step = step.map(fixed);
+        let rounding = rounding.map(fixed);
         let (chunks, tail) = pixels.as_chunks_mut::<8>();
         dispatch!(Level::new(), simd => {
             let lanes = i32x8::simd_from(simd, [0, 1, 2, 3, 4, 5, 6, 7]);
+            let rounding = i32x8::simd_from(simd, std::array::from_fn(|i| rounding[i & 3]));
             let zero = i32x8::splat(simd, 0);
             let maximum = i32x8::splat(simd, 255 << FRACTION_BITS);
             for pixels in chunks.iter_mut() {
                 let channel = |index: usize| {
-                    ((lanes * step[index] + color[index].wrapping_add(HALF)).max(zero).min(maximum) >> FRACTION_BITS)
+                    ((lanes * step[index] + color[index] + rounding).max(zero).min(maximum) >> FRACTION_BITS)
                         .bitcast::<u32x8<_>>()
                 };
                 let packed = channel(0) << RED as u32 | channel(1) << GREEN as u32 | channel(2) << BLUE as u32 | ALPHA;
@@ -238,8 +241,8 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
                 }
             }
         });
-        for pixel in tail {
-            let channel = |index: usize| ((color[index] + HALF) >> FRACTION_BITS).clamp(0, 255) as u8;
+        for (i, pixel) in tail.iter_mut().enumerate() {
+            let channel = |index: usize| ((color[index] + rounding[i & 3]) >> FRACTION_BITS).clamp(0, 255) as u8;
             *pixel = Self::from_rgb(channel(0), channel(1), channel(2));
             for index in 0..3 {
                 color[index] = color[index].wrapping_add(step[index]);
@@ -343,9 +346,10 @@ fn divide_by_255<S: Simd>(value: u32x8<S>) -> u32x8<S> {
 }
 
 #[inline(always)]
-fn write_opaque_gradient_scalar<P: Pixel>(pixels: &mut [P], mut color: [f32; 3], step: [f32; 3]) {
-    for pixel in pixels {
-        *pixel = P::from_rgb((color[0] + 0.5) as u8, (color[1] + 0.5) as u8, (color[2] + 0.5) as u8);
+fn write_opaque_gradient_scalar<P: Pixel>(pixels: &mut [P], mut color: [f32; 3], step: [f32; 3], rounding: [f32; 4]) {
+    for (i, pixel) in pixels.iter_mut().enumerate() {
+        let channel = |index: usize| (color[index] + rounding[i & 3]) as u8;
+        *pixel = P::from_rgb(channel(0), channel(1), channel(2));
         for channel in 0..3 {
             color[channel] += step[channel];
         }
@@ -554,7 +558,7 @@ mod test {
 
             let mut color = [12.25, 240.75, -0.2];
             let step = [4.125, -3.75, 1.0];
-            P::write_opaque_gradient(&mut actual, color, step);
+            P::write_opaque_gradient(&mut actual, color, step, [0.5; 4]);
             for pixel in &mut expected {
                 *pixel = P::from_rgb((color[0] + 0.5) as u8, (color[1] + 0.5) as u8, (color[2] + 0.5) as u8);
                 for channel in 0..3 {

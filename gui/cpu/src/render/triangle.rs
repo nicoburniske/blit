@@ -152,6 +152,7 @@ impl Prepared {
                 pixels,
                 [color[0], color[1], color[2]],
                 [self.color_step_x[0], self.color_step_x[1], self.color_step_x[2]],
+                [0.5; 4],
             );
             return;
         }

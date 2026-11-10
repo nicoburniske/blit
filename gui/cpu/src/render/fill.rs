@@ -108,6 +108,31 @@ impl PreparedFill {
                     .saturating_sub(1)
                     .min(stops.len() - 2);
                 let mut inverse = 1.0 / (stops[index + 1].position - stops[index].position);
+                if stops.len() == 2 && coverage == 255 && stops.iter().all(|stop| stop.color.alpha == 255) {
+                    let amount = (position - stops[0].position) * inverse;
+                    let last_position = row_position + gradient.x * (x as f32 + pixels.len().saturating_sub(1) as f32);
+                    let last_amount = (last_position - stops[0].position) * inverse;
+                    if (0.0..=1.0).contains(&amount) && (0.0..=1.0).contains(&last_amount) {
+                        let first = stops[0].color;
+                        let second = stops[1].color;
+                        let color = [first.red, first.green, first.blue].map(f32::from);
+                        let delta = [
+                            second.red as f32 - color[0],
+                            second.green as f32 - color[1],
+                            second.blue as f32 - color[2],
+                        ];
+                        let rounding = std::array::from_fn(|i| {
+                            (BAYER[((y & 3) * 4 + ((x + i as i32) & 3)) as usize] as f32 + 0.5) / 16.0
+                        });
+                        P::write_opaque_gradient(
+                            pixels,
+                            std::array::from_fn(|i| color[i] + delta[i] * amount),
+                            delta.map(|value| value * gradient.x * inverse),
+                            rounding,
+                        );
+                        return;
+                    }
+                }
                 for (i, pixel) in pixels.iter_mut().enumerate() {
                     let position = row_position + gradient.x * (x as f32 + i as f32);
                     let previous = index;
@@ -158,6 +183,8 @@ fn sample_stops(stops: &[Stop], position: f32, x: i32, y: i32) -> PremultipliedR
     interpolate(amount, stops[index].color, stops[index + 1].color, x, y)
 }
 
+const BAYER: [u8; 16] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+
 fn interpolate(
     amount: f32,
     first: PremultipliedRgbaColor,
@@ -165,7 +192,6 @@ fn interpolate(
     x: i32,
     y: i32,
 ) -> PremultipliedRgbaColor {
-    const BAYER: [u8; 16] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
     // interpolate with sixteen fractional bits before converting to bytes
     let threshold = BAYER[((y & 3) * 4 + (x & 3)) as usize] as i32 * 4096 + 2048;
     let amount = (amount * 65536.0).round() as i32;
