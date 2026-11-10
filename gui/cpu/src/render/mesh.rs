@@ -1,10 +1,8 @@
-use std::hash::Hash;
-
 use blit::{LogicalRect, Paint, PhysicalRect, internal::bump::Offset};
 use blit_gui::{
     damage::DamageTracker,
-    display_list::{DisplayList, Slice},
-    mesh::{Mesh, MeshVertex},
+    display_list::DisplayList,
+    mesh::{self, Mesh},
 };
 
 use super::triangle;
@@ -25,13 +23,11 @@ where
         }
         let vertices = recording.list.store_slice(mesh.vertices.iter().copied());
         let indices = recording.list.store_slice(mesh.indices.iter().copied());
-        let value = StoredMesh { vertices, indices };
+        let value = mesh::Stored { vertices, indices };
         recording.record_input(
             recording.bounds,
             recording.clip,
             value,
-            |a, left, b, right| a.view(left) == b.view(right),
-            |value, list, state| value.view(list).hash(state),
             |_, mesh_offset, record, _, context| {
                 let Some(bounds) = context
                     .clips
@@ -57,22 +53,8 @@ where
     }
 }
 
-pub struct StoredMesh {
-    vertices: Slice<MeshVertex>,
-    indices: Slice<u32>,
-}
-
-impl StoredMesh {
-    pub fn view<'a>(&self, list: &'a DisplayList) -> Mesh<'a> {
-        Mesh {
-            vertices: list.slice(self.vertices),
-            indices: list.slice(self.indices),
-        }
-    }
-}
-
 pub struct Prepared {
-    pub source: Offset<StoredMesh>,
+    pub source: Offset<mesh::Stored>,
     pub triangles: Vec<(PhysicalRect, Triangle)>,
     pub starts: Vec<u32>,
     active: Vec<u32>,
@@ -81,7 +63,7 @@ pub struct Prepared {
 }
 
 impl Prepared {
-    pub fn new(source: Offset<StoredMesh>) -> Self {
+    pub fn new(source: Offset<mesh::Stored>) -> Self {
         Self {
             source,
             triangles: Vec::new(),
@@ -120,7 +102,7 @@ impl Prepared {
             }
             self.line = line;
         }
-        // safety: mesh recording stores an offset to StoredMesh in this list
+        // safety: mesh recording stores an offset to blit_gui::mesh::Stored in this list
         let source = unsafe { list.data().get(self.source) };
         let mesh = source.view(list);
         for &id in &self.active {

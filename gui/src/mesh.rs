@@ -2,7 +2,10 @@ use std::hash::{Hash, Hasher};
 
 use blit::LogicalPoint;
 
-use crate::color::Color;
+use crate::{
+    color::Color,
+    display_list::{Compare, DisplayList, Slice},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Mesh<'a> {
@@ -25,6 +28,31 @@ impl Hash for Mesh<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.vertices.hash(state);
         self.indices.hash(state);
+    }
+}
+
+/// mesh slices owned by a display list
+pub struct Stored {
+    pub vertices: Slice<MeshVertex>,
+    pub indices: Slice<u32>,
+}
+
+impl Stored {
+    pub fn view<'a>(&self, list: &'a DisplayList) -> Mesh<'a> {
+        Mesh {
+            vertices: list.slice(self.vertices),
+            indices: list.slice(self.indices),
+        }
+    }
+}
+
+impl Compare for Stored {
+    fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
+        a.view(left) == b.view(right)
+    }
+
+    fn hash(input: &Self, list: &DisplayList, state: &mut impl Hasher) {
+        input.view(list).hash(state);
     }
 }
 

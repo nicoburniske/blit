@@ -1,5 +1,3 @@
-use std::hash::Hash;
-
 use blit::{LogicalRect, Paint, PhysicalRect, internal::bump::Offset};
 use blit_gui::{
     Image,
@@ -24,19 +22,13 @@ where
         recording.record_input(
             recording.bounds,
             recording.clip,
-            (area, request),
-            |a, _, b, _| a == b,
-            |(area, image), _, state| {
-                [area.x, area.y, area.width, area.height]
-                    .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
-                    .hash(state);
-                image.hash(state);
-            },
-            |(area, request), offset, record, _, context| {
+            blit_gui::image::Stored { area, image: request },
+            |input, offset, record, _, context| {
+                let request = &input.image;
                 let scale = context.commands.scale;
                 let target = &mut *context.commands;
                 if let Some(texture) = context.images.get(request.image.id().into()) {
-                    request.for_each_patch(*area, scale, |patch| {
+                    request.for_each_patch(input.area, scale, |patch| {
                         if let Some(bounds) = patch.bounds.intersection(record.bounds) {
                             let value = target.prepared.push((offset, patch)).byte();
                             target
@@ -45,11 +37,12 @@ where
                                     let (offset, patch) =
                                         *unsafe { prepared.get(Offset::<(u32, ImagePatch)>::new(offset)) };
                                     // safety: recording stores this offset as placed image data
-                                    let (_, request) =
-                                        unsafe { cx.list.data().get(Offset::<(LogicalRect, Image)>::new(offset)) };
-                                    let value = crate::render::image_patch::Prepared::new(request, patch, cx.scale)
-                                        .map(Payload::Image)
-                                        .unwrap_or(Payload::Empty);
+                                    let input =
+                                        unsafe { cx.list.data().get(Offset::<blit_gui::image::Stored>::new(offset)) };
+                                    let value =
+                                        crate::render::image_patch::Prepared::new(&input.image, patch, cx.scale)
+                                            .map(Payload::Image)
+                                            .unwrap_or(Payload::Empty);
                                     prepared.push(value).byte()
                                 })
                                 .coverage = texture.coverage(request, patch);

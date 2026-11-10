@@ -1,6 +1,6 @@
 use std::{any::TypeId, hash::Hash, marker::PhantomData, ops::Range, ptr::NonNull};
 
-use blit::{LogicalRect, PhysicalRect, Scale2, internal::hash::FxHasher};
+use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_gui::display_list::{Compare, DisplayList, Slice};
 
 use crate::{Batch, Renderer};
@@ -120,14 +120,9 @@ impl<H> PaintContext<'_, H> {
         };
         // safety: dispatch uses this renderer's preparation context
         unsafe {
-            self.renderer.list.record(
-                self.bounds,
-                self.renderer.paint_clip,
-                input,
-                T::equal,
-                |input, list, state| <T as Compare>::hash(input, list, state),
-                prepare,
-            );
+            self.renderer
+                .list
+                .record(self.bounds, self.renderer.paint_clip, input, prepare);
         }
     }
 }
@@ -289,18 +284,9 @@ impl Drop for ErasedHandler {
     }
 }
 impl Renderer {
-    pub(crate) fn record_native<T, E, H, F>(
-        &mut self,
-        bounds: LogicalRect,
-        clip: u32,
-        value: T,
-        equal: E,
-        hash: H,
-        prepare: F,
-    ) where
-        T: 'static,
-        E: Fn(&T, &DisplayList, &T, &DisplayList) -> bool + 'static,
-        H: Fn(&T, &DisplayList, &mut FxHasher) + 'static,
+    pub(crate) fn record_native<T, F>(&mut self, bounds: LogicalRect, clip: u32, value: T, prepare: F)
+    where
+        T: Compare,
         F: Fn(&T, &DisplayList, &mut Renderer, PhysicalRect, u32) + 'static,
     {
         // safety: this renderer dispatches its list with PrepareContext
@@ -309,8 +295,6 @@ impl Renderer {
                 bounds.to_physical(Scale2::uniform(self.scale)),
                 clip,
                 value,
-                equal,
-                hash,
                 move |value: &T,
                       _,
                       command: &blit_gui::display_list::Command,

@@ -1,11 +1,7 @@
 use std::hash::Hash;
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
-use blit_gui::{
-    Shadow,
-    display_list::{Compare, DisplayList},
-    style::BorderRadius,
-};
+use blit_gui::{Shadow, display_list::DisplayList, style::BorderRadius};
 use bytemuck::Zeroable;
 
 use crate::{
@@ -19,8 +15,6 @@ impl Paint<Shadow> for Renderer {
             shadow.bounds(area),
             self.paint_clip,
             StoredShadow { area, shadow },
-            StoredShadow::equal,
-            StoredShadow::hash,
             |value, _, renderer, bounds, clip| {
                 let shadow = value.shadow;
 

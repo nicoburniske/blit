@@ -29,8 +29,6 @@ where
             recording.bounds,
             recording.clip,
             value,
-            <blit_gui::rectangle::Stored as blit_gui::display_list::Compare>::equal,
-            <blit_gui::rectangle::Stored as blit_gui::display_list::Compare>::hash,
             |input, offset, record, list, context| {
                 let scale = context.commands.scale;
                 let target = &mut *context.commands;

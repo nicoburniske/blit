@@ -1,23 +1,16 @@
-use std::hash::Hash;
-
 use blit::{LogicalRect, Paint};
 use blit_gui::{Image, image::ImageSampling};
 
-use crate::{Instance, Pipeline, Renderer, handler::hash_area, image_axis, image_flag, physical_rect, premultiplied};
+use crate::{Instance, Pipeline, Renderer, image_axis, image_flag, physical_rect, premultiplied};
 
 impl Paint<Image> for Renderer {
     fn paint(&mut self, area: LogicalRect, request: Image) {
         self.record_native(
             area,
             self.paint_clip,
-            (area, request),
-            |a, _, b, _| a == b,
-            |(area, value), _, state| {
-                hash_area(*area, state);
-                value.hash(state);
-            },
+            blit_gui::image::Stored { area, image: request },
             |value, _, renderer, bounds, clip| {
-                let (area, request) = value;
+                let request = &value.image;
 
                 let scale = renderer.scale;
                 let start = renderer.instances.len() as u32;
@@ -30,7 +23,7 @@ impl Paint<Image> for Renderer {
                 };
                 let mask_color = image.mask_color.map(|color| premultiplied(color, 1.0));
                 let colorize = request.colorize.map(|color| premultiplied(color, 1.0));
-                request.for_each_patch(*area, scale, |patch| {
+                request.for_each_patch(value.area, scale, |patch| {
                     let Some(draw) = patch.bounds.intersection(bounds) else {
                         return;
                     };

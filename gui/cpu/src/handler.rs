@@ -1,11 +1,8 @@
-use std::{marker::PhantomData, mem::offset_of, ptr::NonNull};
+use std::{hash::Hasher, marker::PhantomData, mem::offset_of, ptr::NonNull};
 
 use blit::{
     PhysicalRect,
-    internal::{
-        bump::{Bump, Offset},
-        hash::FxHasher,
-    },
+    internal::bump::{Bump, Offset},
 };
 use blit_gui::{
     display_list::{Command, Compare, DisplayList, Slice},
@@ -206,37 +203,42 @@ where
         self.record_input(
             self.bounds,
             self.clip,
-            (value, prepare, opaque),
-            |(a, _, _), left, (b, _, _), right| <T as Compare>::equal(a, left, b, right),
-            |(input, _, _), list, state| <T as Compare>::hash(input, list, state),
-            |(_, prepare, opaque), offset, command, _, context| {
+            Recorded { value, prepare, opaque },
+            |input, offset, command, _, context| {
                 let index = context.commands.len() as usize;
-                let value_offset = offset + offset_of!((T, F, PhysicalRect), 0) as u32;
-                prepare(value_offset, command, context.commands);
-                if opaque.intersection(command.bounds).is_some() {
+                let value_offset = offset + offset_of!(Recorded<T, F>, value) as u32;
+                (input.prepare)(value_offset, command, context.commands);
+                if input.opaque.intersection(command.bounds).is_some() {
                     context.commands.metadata[index].coverage = Coverage::Rect;
                     context.commands.entries[index].opaque =
-                        Offset::new(offset + offset_of!((T, F, PhysicalRect), 2) as u32);
+                        Offset::new(offset + offset_of!(Recorded<T, F>, opaque) as u32);
                 }
             },
         );
     }
 
-    pub(crate) fn record_input<T: 'static, E, K, F>(
-        &mut self,
-        bounds: PhysicalRect,
-        clip: u32,
-        value: T,
-        equal: E,
-        hash: K,
-        prepare: F,
-    ) where
-        E: Fn(&T, &DisplayList, &T, &DisplayList) -> bool + 'static,
-        K: Fn(&T, &DisplayList, &mut FxHasher) + 'static,
+    pub(crate) fn record_input<T: Compare, F>(&mut self, bounds: PhysicalRect, clip: u32, value: T, prepare: F)
+    where
         F: Fn(&T, u32, &Command, &DisplayList, &mut PrepareContext<'_, P>) + 'static,
     {
         // safety: this renderer dispatches its list with PrepareContext
-        unsafe { self.list.record(bounds, clip, value, equal, hash, prepare) };
+        unsafe { self.list.record(bounds, clip, value, prepare) };
+    }
+}
+
+struct Recorded<T, F> {
+    value: T,
+    prepare: F,
+    opaque: PhysicalRect,
+}
+
+impl<T: Compare, F: 'static> Compare for Recorded<T, F> {
+    fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
+        T::equal(&a.value, left, &b.value, right)
+    }
+
+    fn hash(input: &Self, list: &DisplayList, state: &mut impl Hasher) {
+        T::hash(&input.value, list, state);
     }
 }
 

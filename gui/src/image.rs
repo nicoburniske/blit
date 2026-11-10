@@ -217,6 +217,22 @@ impl Hash for Image {
     }
 }
 
+/// owned image input for display lists
+#[derive(PartialEq)]
+pub struct Stored {
+    pub area: LogicalRect,
+    pub image: Image,
+}
+
+impl Hash for Stored {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        [self.area.x, self.area.y, self.area.width, self.area.height]
+            .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+            .hash(state);
+        self.image.hash(state);
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ImageHandle(Rc<ImageInner>);
 
