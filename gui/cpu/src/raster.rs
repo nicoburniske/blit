@@ -16,7 +16,7 @@ use crate::{
 
 pub struct DrawContext<'a, P> {
     pub scale: f32,
-    /// physical drawing bounds independent of the current span
+    /// physical command bounds before clipping
     pub bounds: PhysicalRect,
     pub(crate) list: &'a DisplayList,
     pub(crate) text: &'a mut TextRenderer,
@@ -55,7 +55,9 @@ impl<'a, P: Pixel> DrawContext<'a, P> {
         let (span, pass) = match &self.target {
             DrawTarget::Prepare => (None, None),
             DrawTarget::Span { x, y, pixels, .. } => (Some(PhysicalRect::new(*x, *y, pixels.len() as i32, 1)), None),
-            DrawTarget::Pass { output, .. } => (None, Some((*output, self.bounds))),
+            DrawTarget::Pass {
+                output, clips, clip, ..
+            } => (None, clips.bounds(*clip, self.bounds).map(|bounds| (*output, bounds))),
         };
         span.into_iter().chain(
             pass.into_iter()

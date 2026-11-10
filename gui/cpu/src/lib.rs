@@ -252,12 +252,13 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                                 .copy_from_slice(context.buffer.read_line(y as usize, range));
                         }
                     }
+                    let bounds = context.raster.bounds(node.index);
                     context.raster.entries[node.index as usize].draw(
                         &context.raster.data,
                         &mut context.raster.prepared,
                         &mut DrawContext {
                             scale,
-                            bounds: node.bounds,
+                            bounds,
                             list: &context.list,
                             text: &mut context.text,
                             gradients: &mut context.raster.gradients,
