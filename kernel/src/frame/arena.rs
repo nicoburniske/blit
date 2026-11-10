@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use super::*;
 
 #[derive(Clone, Copy)]
@@ -25,12 +27,15 @@ pub struct BumpArena {
     scratch_used: Cell<usize>,
     scratch_peak: Cell<usize>,
     scratch_live: Cell<usize>,
-    // rejects slices from previous frames
     epoch: u32,
 }
 
 impl BumpArena {
     pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T> {
+        static NEXT_EPOCH: AtomicU32 = AtomicU32::new(1);
+        while self.epoch == 0 {
+            self.epoch = NEXT_EPOCH.fetch_add(1, Ordering::Relaxed);
+        }
         FrameSlice {
             slice: self.storage.extend(values),
             epoch: self.epoch,
@@ -41,8 +46,8 @@ impl BumpArena {
         if slice.slice.len == 0 {
             return &[];
         }
-        assert_eq!(slice.epoch, self.epoch, "frame slice belongs to a previous frame");
-        // safety: the epoch proves store_slice wrote these values since the last clear
+        assert_eq!(slice.epoch, self.epoch, "frame slice belongs to another frame or build");
+        // safety: the epoch identifies the storage and build that wrote these values
         unsafe { self.storage.slice(slice.slice) }
     }
 
@@ -110,7 +115,7 @@ impl BumpArena {
     }
 
     pub fn clear(&mut self) {
-        self.epoch = self.epoch.wrapping_add(1);
+        self.epoch = 0;
         self.storage.clear();
     }
 }
