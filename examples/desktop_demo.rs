@@ -17,7 +17,7 @@ use blit_gui::{
     BoundsClip, Family, FontData, FontStack, Rectangle, TextConfig, TextSystem,
     color::Color,
     mesh::{Mesh, MeshVertex},
-    style::{Border, BorderRadius, LinearGradient},
+    style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::{
         FontId, FontStyle, HorizontalAlign, Span, SpanStyle, TextOptions, TextOverflow, TextStyle, TextWrap,
         VerticalAlign,
@@ -1138,12 +1138,31 @@ impl Widget<DesktopContext> for Canvas {
 }
 
 fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: CanvasConfig) {
+    let color = colors::ITEMS[index];
+    let stops = [
+        GradientStop::new(
+            0.0,
+            Color::rgb(
+                color.red.saturating_add(56),
+                color.green.saturating_add(56),
+                color.blue.saturating_add(56),
+            ),
+        ),
+        GradientStop::new(
+            1.0,
+            Color::rgb(
+                color.red.saturating_sub(64),
+                color.green.saturating_sub(64),
+                color.blue.saturating_sub(64),
+            ),
+        ),
+    ];
     let mut item = ui
         .id(Id::new(("canvas item", index)))
         .layout(flex::column().align(Align::Center).justify(Justify::Center));
     item.insert(
         Rectangle::new()
-            .background(colors::ITEMS[index])
+            .background(LinearGradient::new(&stops).angle(45.0))
             .radius(BorderRadius::uniform(sz::XXS)),
     );
     if let Some(motion) = config.transition.motion() {
