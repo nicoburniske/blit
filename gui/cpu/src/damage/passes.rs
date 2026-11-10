@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{PhysicalRect, Scale2};
+use blit::PhysicalRect;
 use blit_gui::{damage::DamageTracker, display_list::DisplayList};
 
 use super::region::Region;
@@ -12,7 +12,6 @@ pub struct PassDamage {
     pub stages: Vec<Region>,
     pub present: Region,
     pub preserve: Region,
-    clips: Vec<PhysicalRect>,
     ranges: Vec<std::ops::Range<usize>>,
 }
 
@@ -38,22 +37,12 @@ impl PassDamage {
             self.stages.clear();
             return;
         }
-        let scale = context.scale_factor;
-        self.clips.clear();
-        self.clips.push(screen);
-        for clip in input.clips() {
-            self.clips.push(
-                clip.area
-                    .to_physical(Scale2::uniform(scale))
-                    .intersection(self.clips[clip.parent as usize])
-                    .unwrap_or_default(),
-            );
-        }
         let mut count = 0;
         for &index in &commands.passes {
-            let Some(bounds) = commands
-                .bounds(index)
-                .intersection(self.clips[commands.clip(index) as usize])
+            let Some(bounds) = context
+                .clips
+                .bounds(commands.clip(index), commands.bounds(index))
+                .and_then(|bounds| bounds.intersection(screen))
             else {
                 continue;
             };

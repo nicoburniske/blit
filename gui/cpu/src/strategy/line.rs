@@ -118,88 +118,43 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
             };
 
             for range in &self.ranges {
-                let first = if self.span_occlusion {
-                    self.active
-                        .iter()
-                        .enumerate()
-                        .rev()
-                        .find(|(_, command)| {
-                            if !matches!(
-                                commands.metadata[**command as usize].coverage,
-                                Coverage::Full | Coverage::Rounded | Coverage::Rect
-                            ) {
-                                return false;
-                            }
-                            let bounds = commands.horizontal_bounds(**command);
-                            bounds.start <= range.start as i32
-                                && bounds.end >= range.end as i32
-                                && commands
-                                    .overwrite_span(**command, line, list, images, text)
-                                    .and_then(|span| clip_span(commands.clip(**command), span))
-                                    .is_some_and(|span| {
-                                        span.start <= range.start as i32 && span.end >= range.end as i32
-                                    })
-                        })
-                        .map(|(index, _)| index)
-                        .unwrap_or(0)
-                } else {
-                    0
-                };
-                // splitting short spans costs more than redrawing their covered pixels
-                // TODO: what heuristic to use?
-                if !self.span_occlusion || range.len() < 128 && !partial_opaque {
-                    let active = &self.active[first..];
-                    buffer.process_line(line as usize, range.clone(), |pixels| {
-                        let mut buffer = LineBuffer {
-                            pixels,
-                            x: range.start,
-                            height,
-                            line: line as usize,
+                let mut first = 0;
+                let mut overwrite = None;
+                let split = range.len() >= 128 || partial_opaque;
+                if self.span_occlusion {
+                    for (index, &command) in self.active.iter().enumerate().rev() {
+                        if commands.metadata[command as usize].coverage == Coverage::None {
+                            continue;
+                        }
+                        let bounds = commands.horizontal_bounds(command);
+                        let spans_range = bounds.start <= range.start as i32 && bounds.end >= range.end as i32;
+                        if bounds.end <= range.start as i32
+                            || bounds.start >= range.end as i32
+                            || (!spans_range && (!split || overwrite.is_some()))
+                        {
+                            continue;
+                        }
+                        let Some(span) = commands
+                            .opaque_span(command, line, list, images, text)
+                            .and_then(|span| clip_span(commands.clip(command), span))
+                        else {
+                            continue;
                         };
-                        if clipped {
-                            draw_commands::<true, _>(
-                                commands,
-                                list,
-                                active,
-                                &self.clip_ranges,
-                                images,
-                                text,
-                                &mut buffer,
-                            );
-                        } else {
-                            draw_commands::<false, _>(
-                                commands,
-                                list,
-                                active,
-                                &self.clip_ranges,
-                                images,
-                                text,
-                                &mut buffer,
-                            );
-                        }
-                    });
-                    continue;
-                }
-                let overwrite = self.active[first + 1..]
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .find_map(|(offset, command)| {
-                        if commands.metadata[*command as usize].coverage == Coverage::None {
-                            return None;
-                        }
-                        let bounds = commands.horizontal_bounds(*command);
-                        if bounds.end <= range.start as i32 || bounds.start >= range.end as i32 {
-                            return None;
-                        }
-                        let command_first = first + 1 + offset;
-                        // partial coverage can hide a scanline center
-                        let span = commands.overwrite_span(*command, line, list, images, text)?;
-                        let span = clip_span(commands.clip(*command), span)?;
                         let start = span.start.max(range.start as i32);
                         let end = span.end.min(range.end as i32);
-                        (start < end).then_some((start as usize, end as usize, command_first))
-                    });
+                        if start >= end {
+                            continue;
+                        }
+                        let (start, end) = (start as usize, end as usize);
+                        if start == range.start && end == range.end {
+                            first = index;
+                            break;
+                        }
+                        if split && overwrite.is_none() {
+                            overwrite = Some((start, end, index));
+                        }
+                    }
+                }
                 buffer.process_line(line as usize, range.clone(), |pixels| {
                     let mut draw = |first: usize, start: usize, end: usize| {
                         if start >= end {

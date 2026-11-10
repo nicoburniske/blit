@@ -26,14 +26,16 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
         let buffer = &mut context.buffer;
 
         for offset in commands.range.clone() {
-            let draw_bounds = commands.bounds(offset);
-            let Some(bounds) = draw_bounds.intersection(screen) else {
+            let clip_id = commands.clip(offset);
+            let Some(bounds) = clips
+                .bounds(clip_id, commands.bounds(offset))
+                .and_then(|bounds| bounds.intersection(screen))
+            else {
                 continue;
             };
             if !damage.intersects(bounds, commands.clip(offset)) {
                 continue;
             }
-            let clip_id = commands.clip(offset);
             let mut line = bounds.y;
             while line < bounds.y + bounds.height {
                 let end = damage.line_ranges(line, bounds, &mut self.ranges);

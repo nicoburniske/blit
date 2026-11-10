@@ -38,13 +38,6 @@ where
                 if let Some(texture) = context.images.get(request.image.id().into()) {
                     prepare_image_patches(*area, request, texture.data.size, scale, |patch| {
                         if let Some(bounds) = patch.bounds.intersection(record.bounds) {
-                            let (opaque, partial) = crate::render::image::coverage(
-                                request,
-                                patch,
-                                &texture.data,
-                                texture.opaque,
-                                texture.has_opaque_spans,
-                            );
                             target
                                 .record(
                                     bounds,
@@ -59,13 +52,7 @@ where
                                             .unwrap_or(Payload::Empty)
                                     },
                                 )
-                                .coverage = if opaque {
-                                Coverage::Full
-                            } else if partial {
-                                Coverage::PartialImage
-                            } else {
-                                Coverage::None
-                            };
+                                .coverage = texture.coverage(request, patch);
                         }
                     });
                 }
@@ -171,6 +158,30 @@ impl StoredImage {
             opaque,
         }
     }
+
+    pub fn coverage(&self, request: &Image, patch: ImagePatch) -> Coverage {
+        if (request.opacity.clamp(0.0, 1.0) * 255.0).round() as u8 != 255
+            || patch.source.intersection(self.data.texture_rect) != Some(patch.source)
+        {
+            return Coverage::None;
+        }
+        if self.opaque
+            && request.colorize.is_none_or(|color| color.alpha == 255)
+            && !matches!(self.data.format, ImageFormat::Alpha8(color) if color.alpha != 255)
+        {
+            Coverage::Full
+        } else if self.has_opaque_spans
+            && request.colorize.is_none()
+            && request.sampling == ImageSampling::Nearest
+            && patch.source.width == patch.display.width
+            && patch.horizontal_tiling == ImageTiling::None
+            && patch.vertical_tiling == ImageTiling::None
+        {
+            Coverage::PartialImage
+        } else {
+            Coverage::None
+        }
+    }
 }
 
 pub fn prepare(
@@ -188,31 +199,6 @@ pub fn prepare(
             emit(prepared, bounds);
         }
     });
-}
-
-pub fn coverage(
-    request: &Image,
-    patch: ImagePatch,
-    texture: &ImageData,
-    pixels_opaque: bool,
-    has_opaque_spans: bool,
-) -> (bool, bool) {
-    let full_opacity = (request.opacity.clamp(0.0, 1.0) * 255.0).round() as u8 == 255;
-    let valid_source = patch.source.intersection(texture.texture_rect) == Some(patch.source);
-    let opaque = pixels_opaque
-        && full_opacity
-        && valid_source
-        && request.colorize.is_none_or(|color| color.alpha == 255)
-        && !matches!(texture.format, ImageFormat::Alpha8(color) if color.alpha != 255);
-    let partial = has_opaque_spans
-        && full_opacity
-        && valid_source
-        && request.colorize.is_none()
-        && request.sampling == ImageSampling::Nearest
-        && patch.source.width == patch.display.width
-        && patch.horizontal_tiling == ImageTiling::None
-        && patch.vertical_tiling == ImageTiling::None;
-    (opaque, partial)
 }
 
 #[cfg(test)]
@@ -339,11 +325,12 @@ mod tests {
         draw(&mut buffer, area, &request, &texture, clip, 1.0);
 
         assert_eq!(buffer.pixels(), [0x800000, 0x800000, 0x800000].map(Xrgb8888::from_raw));
+        let texture = StoredImage::new(ImageHandle::new(0, texture.size), texture);
         let mut opaque = None;
-        prepare_image_patches(area, &request, texture.size, 1.0, |patch| {
-            opaque = Some(coverage(&request, patch, &texture, true, false).0);
+        prepare_image_patches(area, &request, texture.data.size, 1.0, |patch| {
+            opaque = Some(texture.coverage(&request, patch));
         });
-        assert_eq!(opaque, Some(false));
+        assert!(matches!(opaque, Some(Coverage::None)));
     }
 
     #[test]

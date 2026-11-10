@@ -140,7 +140,7 @@ impl Prepared {
         })
     }
 
-    pub fn overwrite_span(&self, line: i32) -> Option<Range<i32>> {
+    pub fn opaque_span(&self, line: i32) -> Option<Range<i32>> {
         if line < self.geometry.y || line >= self.geometry.y + self.geometry.height {
             return None;
         }

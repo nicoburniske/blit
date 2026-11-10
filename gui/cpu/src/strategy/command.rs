@@ -1,9 +1,9 @@
 use std::{ops::Range, ptr::NonNull};
 
-use blit::{PhysicalRect, Scale2, internal::bump::Bump};
+use blit::{PhysicalRect, internal::bump::Bump};
 use blit_gui::{color::Color, display_list::DisplayList};
 
-use super::clip::ClipId;
+use super::clip::{ClipId, ClipStack};
 use crate::{
     DamageTracker, DrawContext, Pixel, StoredImage,
     damage::region::Region,
@@ -156,7 +156,7 @@ impl<P: Pixel> RasterCommands<P> {
         }
     }
 
-    pub fn overwrite_span(
+    pub fn opaque_span(
         &mut self,
         id: CommandId,
         line: i32,
@@ -168,25 +168,19 @@ impl<P: Pixel> RasterCommands<P> {
         if metadata.coverage == Coverage::None {
             return None;
         }
-        if metadata.coverage == Coverage::Rect {
-            let bounds = self.opaque_bounds(id, list)?;
-            return (line >= bounds.y && line < bounds.y + bounds.height).then_some(bounds.x..bounds.x + bounds.width);
+        if let Some(bounds) = self.opaque_bounds(id, list) {
+            return (line >= bounds.y && line < bounds.y.saturating_add(bounds.height))
+                .then_some(bounds.x..bounds.x.saturating_add(bounds.width));
         }
-        let partial_image = metadata.coverage == Coverage::PartialImage;
         let area = metadata.bounds;
         let bounds = self.horizontal_bounds(id);
         let span = match self.prepare(id, list, images, text) {
-            Payload::Clear => bounds.clone(),
-            Payload::Rectangle(rectangle) => rectangle.overwrite_span(line)?,
-            Payload::SolidPair(_) => bounds.clone(),
-            Payload::Image(image) if partial_image => {
+            Payload::Rectangle(rectangle) => rectangle.opaque_span(line)?,
+            Payload::Image(image) => {
                 let texture = images.get(image.image.into())?;
                 image.opaque_span(line, area, &texture.data, &texture.alpha_rows)?
             }
-            Payload::Image(_) => bounds.clone(),
-            Payload::Pending | Payload::Empty | Payload::Text(..) | Payload::Mesh(..) | Payload::Custom => {
-                return None;
-            }
+            _ => return None,
         };
         let start = span.start.max(bounds.start);
         let end = span.end.min(bounds.end);
@@ -194,7 +188,14 @@ impl<P: Pixel> RasterCommands<P> {
     }
 
     /// culls covered commands and schedules surviving mesh triangles within one render stage
-    pub fn cull(&mut self, list: &DisplayList, damage: &impl DamageTracker, screen: PhysicalRect, shift: u32) {
+    pub fn cull(
+        &mut self,
+        list: &DisplayList,
+        clips: &ClipStack,
+        damage: &impl DamageTracker,
+        screen: PhysicalRect,
+        shift: u32,
+    ) {
         self.opaque.reset(screen, shift);
         let size = 1usize << shift;
         for id in self.range.clone().rev() {
@@ -204,17 +205,14 @@ impl<P: Pixel> RasterCommands<P> {
             }
             let mut bounds = metadata.bounds.intersection(screen);
             let mut opaque = self.opaque_bounds(id, list).and_then(|area| area.intersection(screen));
-            let mut clip = metadata.clip;
-            while clip != 0 {
-                let node = &list.clips()[clip as usize - 1];
-                let area = node.area.to_physical(Scale2::uniform(self.scale));
-                bounds = bounds.and_then(|bounds| bounds.intersection(area));
-                opaque = if node.radius == Default::default() {
-                    opaque.and_then(|bounds| bounds.intersection(area))
+            if metadata.clip != 0 {
+                let clip = &clips.nodes[metadata.clip as usize - 1];
+                bounds = bounds.and_then(|bounds| bounds.intersection(clip.bounds));
+                opaque = if clip.rectangular {
+                    opaque.and_then(|bounds| bounds.intersection(clip.bounds))
                 } else {
                     None
                 };
-                clip = node.parent;
             }
             let Some(bounds) = bounds.filter(|bounds| !self.opaque.contains(*bounds)) else {
                 self.metadata[id as usize].bounds = PhysicalRect::default();

@@ -226,7 +226,9 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             let mut start = 0;
             for (stage, node) in plan.passes.iter().enumerate() {
                 context.raster.range = start..node.index;
-                context.raster.cull(&context.list, &damage, screen, self.tile_shift);
+                context
+                    .raster
+                    .cull(&context.list, &context.clips, &damage, screen, self.tile_shift);
                 self.strategy.render(context, &damage);
                 start = node.index + 1;
                 damage.region = Some(&plan.stages[stage + 1]);
@@ -269,7 +271,9 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                 }
             }
             context.raster.range = start..end;
-            context.raster.cull(&context.list, &damage, screen, self.tile_shift);
+            context
+                .raster
+                .cull(&context.list, &context.clips, &damage, screen, self.tile_shift);
             self.strategy.render(context, &damage);
             if !plan.passes.is_empty() {
                 let mut offset = 0;

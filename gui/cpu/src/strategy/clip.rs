@@ -9,10 +9,12 @@ pub type ClipId = u32;
 
 #[derive(Default)]
 pub struct ClipStack {
-    nodes: Vec<ClipNode>,
+    pub nodes: Vec<ClipNode>,
 }
 
-struct ClipNode {
+pub struct ClipNode {
+    pub bounds: PhysicalRect,
+    pub rectangular: bool,
     parent: ClipId,
     area: PhysicalRect,
     radii: Radii,
@@ -66,11 +68,32 @@ impl ClipSpan {
 impl ClipStack {
     pub fn push_node(&mut self, parent: ClipId, area: LogicalRect, radius: BorderRadius, scale_factor: f32) {
         let area = area.to_physical(Scale2::uniform(scale_factor));
+        let radii = Radii::new(radius, scale_factor, area.width, area.height);
+        let (bounds, rectangular) = if parent == 0 {
+            (area, radii.is_zero())
+        } else {
+            let parent = &self.nodes[parent as usize - 1];
+            (
+                area.intersection(parent.bounds).unwrap_or_default(),
+                radii.is_zero() && parent.rectangular,
+            )
+        };
         self.nodes.push(ClipNode {
+            bounds,
+            rectangular,
             parent,
             area,
-            radii: Radii::new(radius, scale_factor, area.width, area.height),
+            radii,
         });
+    }
+
+    #[inline]
+    pub fn bounds(&self, id: ClipId, area: PhysicalRect) -> Option<PhysicalRect> {
+        if id == 0 {
+            Some(area)
+        } else {
+            area.intersection(self.nodes[id as usize - 1].bounds)
+        }
     }
 
     pub fn for_each(&self, mut id: ClipId, line: i32, range: Range<i32>, draw: impl FnMut(Range<i32>, u8)) {
