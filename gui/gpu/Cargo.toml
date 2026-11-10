@@ -26,7 +26,3 @@ wgpu = { workspace = true, features = ["metal"] }
 
 [lints]
 workspace = true
-
-[[example]]
-name = "handlers"
-test = true
