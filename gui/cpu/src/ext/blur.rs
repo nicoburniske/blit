@@ -49,7 +49,7 @@ impl<P: Pixel> crate::Handler<usize, P> for Handler {
                     [color.red, color.green, color.blue, color.alpha]
                 }));
             }
-            P::blur(&mut pixels, stride, bottom - y, *radius as u32, scratch);
+            P::blur(&mut pixels, stride, *radius as u32, scratch);
             cx.for_each_span_in(bounds, |span| {
                 let start = (span.y as usize - y) * stride + span.x as usize - x;
                 let colors = &pixels[start..start + span.pixels.len()];

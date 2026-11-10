@@ -100,23 +100,20 @@ pub trait Pixel: Copy + 'static {
     }
 
     /// blurs channel arrays in place with reusable scratch storage
-    fn blur<const N: usize>(pixels: &mut [[u8; N]], width: usize, height: usize, radius: u32, scratch: &ScratchBuffer) {
-        assert_eq!(
-            pixels.len(),
-            width.checked_mul(height).expect("blur dimensions overflow")
-        );
-        if radius == 0 || width == 0 || height == 0 || N == 0 {
+    /// skips the blur when pixels do not form complete rows
+    fn blur<const N: usize>(pixels: &mut [[u8; N]], width: usize, radius: u32, scratch: &ScratchBuffer) {
+        if radius == 0 || width == 0 || pixels.is_empty() || N == 0 || !pixels.len().is_multiple_of(width) {
             return;
         }
+        let height = pixels.len() / width;
         let radius = radius.min(Self::MAX_BLUR_RADIUS) as usize;
-        let mut stack = scratch.alloc::<i32>((radius * 2 + 1) * N);
-        stack.resize((radius * 2 + 1) * N, 0);
-        let stack = stack.as_chunks_mut::<N>().0;
+        let mut stack = scratch.alloc::<[i32; N]>(radius * 2 + 1);
+        stack.resize(radius * 2 + 1, [0; N]);
         for row in 0..height {
-            line(pixels, row * width, 1, width, radius, stack);
+            line(pixels, row * width, 1, width, radius, &mut stack);
         }
         for column in 0..width {
-            line(pixels, column, width, height, radius, stack);
+            line(pixels, column, width, height, radius, &mut stack);
         }
 
         fn line<const N: usize>(
@@ -256,128 +253,115 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> PackedPix
 }
 
 impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for PackedPixel<RED, GREEN, BLUE, ALPHA> {
-    fn blur<const N: usize>(pixels: &mut [[u8; N]], width: usize, height: usize, radius: u32, scratch: &ScratchBuffer) {
-        assert_eq!(
-            pixels.len(),
-            width.checked_mul(height).expect("blur dimensions overflow")
-        );
-        if radius == 0 || width == 0 || height == 0 || N == 0 {
+    fn blur<const N: usize>(pixels: &mut [[u8; N]], width: usize, radius: u32, scratch: &ScratchBuffer) {
+        if radius == 0 || width == 0 || pixels.is_empty() || N == 0 || !pixels.len().is_multiple_of(width) {
             return;
         }
+        let height = pixels.len() / width;
         let radius = radius.min(Self::MAX_BLUR_RADIUS) as usize;
-        let mut stack = scratch.alloc::<i32>((radius * 2 + 1) * 8);
-        stack.resize((radius * 2 + 1) * 8, 0);
-        let stack = stack.as_chunks_mut::<8>().0;
+        let mut stack = scratch.alloc::<[i32; 8]>(radius * 2 + 1);
+        stack.resize(radius * 2 + 1, [0; 8]);
         dispatch!(Level::new(), simd => {
-            for channel in (0..N).step_by(8) {
-                let channels = (N - channel).min(8);
-                let batch = if N <= 8 { 8 / N } else { 8 / channels };
-                for y in (0..height).step_by(batch) {
-                    pass(simd, pixels, width, radius, stack,
-                        #[inline(always)]
-                        |pixels, x| std::array::from_fn(|lane| {
-                            let channels = if N <= 8 { N } else { channels };
-                            pixels[(y + lane / channels).min(height - 1) * width + x][channel + lane % channels] as i32
-                        }),
-                        #[inline(always)]
-                        |pixels, x, output| {
-                            if N <= 8 {
-                                for row in 0..8 / N {
-                                    if y + row < height {
-                                        pixels[(y + row) * width + x] = std::array::from_fn(|i| output[row * N + i]);
-                                    }
-                                }
-                            } else {
-                                for row in 0..batch.min(height - y) {
-                                    pixels[(y + row) * width + x][channel..channel + channels]
-                                        .copy_from_slice(&output[row * channels..(row + 1) * channels]);
-                                }
-                            }
-                        },
-                    );
-                }
-                for x in (0..width).step_by(batch) {
-                    pass(simd, pixels, height, radius, stack,
-                        #[inline(always)]
-                        |pixels, y| std::array::from_fn(|lane| {
-                            let channels = if N <= 8 { N } else { channels };
-                            pixels[y * width + (x + lane / channels).min(width - 1)][channel + lane % channels] as i32
-                        }),
-                        #[inline(always)]
-                        |pixels, y, output| {
-                            if N <= 8 {
-                                for column in 0..8 / N {
-                                    if x + column < width {
-                                        pixels[y * width + x + column] = std::array::from_fn(|i| output[column * N + i]);
-                                    }
-                                }
-                            } else {
-                                for column in 0..batch.min(width - x) {
-                                    pixels[y * width + x + column][channel..channel + channels]
-                                        .copy_from_slice(&output[column * channels..(column + 1) * channels]);
-                                }
-                            }
-                        },
-                    );
-                }
-            }
+            pass::<_, N, true>(simd, pixels, width, height, radius, &mut stack);
+            pass::<_, N, false>(simd, pixels, width, height, radius, &mut stack);
         });
 
         #[inline(always)]
-        fn pass<S: Simd, const N: usize>(
+        fn pass<S: Simd, const N: usize, const HORIZONTAL: bool>(
             simd: S,
             pixels: &mut [[u8; N]],
-            length: usize,
+            width: usize,
+            height: usize,
             radius: usize,
             stack: &mut [[i32; 8]],
-            mut load: impl FnMut(&[[u8; N]], usize) -> [i32; 8],
-            mut store: impl FnMut(&mut [[u8; N]], usize, [u8; 8]),
         ) {
+            let (length, lines, pixel_stride, line_stride) = if HORIZONTAL {
+                (width, height, 1, width)
+            } else {
+                (height, width, width, 1)
+            };
             let div = stack.len();
             let scale = 1.0 / ((radius + 1) * (radius + 1)) as f32;
-            let first = load(pixels, 0);
-            let first_vector = i32x8::simd_from(simd, first);
-            let mut sum = i32x8::splat(simd, 0);
-            let mut sum_in = i32x8::splat(simd, 0);
-            let mut sum_out = i32x8::splat(simd, 0);
+            for channel in (0..N).step_by(8) {
+                let channels = if N <= 8 { N } else { (N - channel).min(8) };
+                let batch = 8 / channels;
+                for line in (0..lines).step_by(batch) {
+                    let first = load::<N, HORIZONTAL>(pixels, width, height, line, channel, 0);
+                    let first_vector = i32x8::simd_from(simd, first);
+                    let mut sum = i32x8::splat(simd, 0);
+                    let mut sum_in = i32x8::splat(simd, 0);
+                    let mut sum_out = i32x8::splat(simd, 0);
 
-            for (i, slot) in stack.iter_mut().take(radius + 1).enumerate() {
-                *slot = first;
-                sum += first_vector * (i as i32 + 1);
-                sum_out += first_vector;
-            }
-            for i in 1..=radius {
-                let source = load(pixels, i.min(length - 1));
-                stack[i + radius] = source;
-                let source = i32x8::simd_from(simd, source);
-                sum += source * (radius + 1 - i) as i32;
-                sum_in += source;
-            }
+                    for (i, slot) in stack.iter_mut().take(radius + 1).enumerate() {
+                        *slot = first;
+                        sum += first_vector * (i as i32 + 1);
+                        sum_out += first_vector;
+                    }
+                    for i in 1..=radius {
+                        let source = load::<N, HORIZONTAL>(pixels, width, height, line, channel, i.min(length - 1));
+                        stack[i + radius] = source;
+                        let source = i32x8::simd_from(simd, source);
+                        sum += source * (radius + 1 - i) as i32;
+                        sum_in += source;
+                    }
 
-            let mut source = radius.min(length - 1);
-            let mut position = radius;
-            for output in 0..length {
-                let blurred = (sum.to_float::<f32x8<S>>() * scale).round().to_int::<i32x8<S>>();
-                store(pixels, output, <[i32; 8]>::from(blurred).map(|value| value as u8));
+                    let mut source = radius.min(length - 1);
+                    let mut position = radius;
+                    for output in 0..length {
+                        let blurred = (sum.to_float::<f32x8<S>>() * scale).round().to_int::<i32x8<S>>();
+                        let blurred = <[i32; 8]>::from(blurred).map(|value| value as u8);
+                        for offset in 0..batch {
+                            if line + offset >= lines {
+                                break;
+                            }
+                            let target = &mut pixels[(line + offset) * line_stride + output * pixel_stride];
+                            target[channel..channel + channels]
+                                .copy_from_slice(&blurred[offset * channels..(offset + 1) * channels]);
+                        }
 
-                sum -= sum_out;
-                let mut leaving = position + div - radius;
-                if leaving >= div {
-                    leaving -= div;
+                        sum -= sum_out;
+                        let mut leaving = position + div - radius;
+                        if leaving >= div {
+                            leaving -= div;
+                        }
+                        sum_out -= i32x8::simd_from(simd, stack[leaving]);
+                        source = (source + 1).min(length - 1);
+                        let input = load::<N, HORIZONTAL>(pixels, width, height, line, channel, source);
+                        stack[leaving] = input;
+                        sum_in += i32x8::simd_from(simd, input);
+                        sum += sum_in;
+                        position += 1;
+                        if position >= div {
+                            position = 0;
+                        }
+                        let entering = i32x8::simd_from(simd, stack[position]);
+                        sum_out += entering;
+                        sum_in -= entering;
+                    }
                 }
-                sum_out -= i32x8::simd_from(simd, stack[leaving]);
-                source = (source + 1).min(length - 1);
-                let input = load(pixels, source);
-                stack[leaving] = input;
-                sum_in += i32x8::simd_from(simd, input);
-                sum += sum_in;
-                position += 1;
-                if position >= div {
-                    position = 0;
+            }
+
+            #[inline(always)]
+            fn load<const N: usize, const HORIZONTAL: bool>(
+                pixels: &[[u8; N]],
+                width: usize,
+                height: usize,
+                line: usize,
+                channel: usize,
+                position: usize,
+            ) -> [i32; 8] {
+                let channels = if N <= 8 { N } else { (N - channel).min(8) };
+                let (lines, pixel_stride, line_stride) = if HORIZONTAL {
+                    (height, 1, width)
+                } else {
+                    (width, width, 1)
+                };
+                let mut values = [0; 8];
+                for (lane, value) in values.iter_mut().enumerate() {
+                    let index = (line + lane / channels).min(lines - 1) * line_stride + position * pixel_stride;
+                    *value = pixels[index][channel + lane % channels] as i32;
                 }
-                let entering = i32x8::simd_from(simd, stack[position]);
-                sum_out += entering;
-                sum_in -= entering;
+                values
             }
         }
     }

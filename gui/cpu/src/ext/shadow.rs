@@ -169,7 +169,6 @@ impl<P: Pixel> crate::Handler<Input, P> for Handler {
                 P::blur(
                     alpha.as_chunks_mut::<1>().0,
                     padded_width,
-                    padded_height,
                     key.blur as u32,
                     cx.scratch(),
                 );
@@ -198,13 +197,7 @@ impl<P: Pixel> crate::Handler<Input, P> for Handler {
                     height: key.height,
                 };
                 mask_rounded(&mut alpha, width, shape, key.radii);
-                P::blur(
-                    alpha.as_chunks_mut::<1>().0,
-                    width,
-                    height,
-                    key.blur as u32,
-                    cx.scratch(),
-                );
+                P::blur(alpha.as_chunks_mut::<1>().0, width, key.blur as u32, cx.scratch());
                 alpha
             };
             let center_x = width / 2;
