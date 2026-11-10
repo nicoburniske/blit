@@ -48,7 +48,7 @@ pub enum Playback {
 pub struct MotionState<T: Scalar> {
     pub id: Id,
     pub animator: Animator<T, 4>,
-    pub active: MotionProps,
+    pub properties: MotionProps,
     pub node: NodeId,
     pub initialized: bool,
     pub seen: bool,
@@ -59,7 +59,7 @@ impl<T: Scalar> MotionState<T> {
         Self {
             id,
             animator: Animator::new([T::ZERO; 4], Animation::default(), AnimationOptions::default()),
-            active: MotionProps::NONE,
+            properties: MotionProps::NONE,
             node,
             initialized: false,
             seen: true,
@@ -87,7 +87,6 @@ impl<T: Scalar> MotionState<T> {
             if commit {
                 self.animator = Animator::new(targets, config.animation, options);
                 self.initialized = true;
-                self.active = MotionProps::NONE;
             }
             return (targets, MotionProps::NONE);
         }
@@ -113,9 +112,6 @@ impl<T: Scalar> MotionState<T> {
             if active[i] {
                 animated |= property;
             }
-        }
-        if commit {
-            self.active = animated;
         }
         (values, animated)
     }

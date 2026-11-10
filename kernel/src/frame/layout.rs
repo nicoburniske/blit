@@ -294,7 +294,6 @@ pub fn resolve<C: Context>(
     if frame.bounds.is_empty() {
         return size;
     }
-    let mut active = MotionProps::NONE;
     let start = root.index();
     let end = frame.nodes[start].subtree_end as usize + 1;
     let nodes = &frame.nodes[..end];
@@ -336,6 +335,7 @@ pub fn resolve<C: Context>(
         );
         if commit {
             state.node = node;
+            state.properties = config.properties;
             state.seen = true;
         }
         let properties = animated.intersection(MotionProps::SIZE);
@@ -356,7 +356,6 @@ pub fn resolve<C: Context>(
             }
             frame.target_sizes[node.index() - start].properties = properties;
         }
-        active |= animated;
         if let Err(index) = found
             && commit
         {
@@ -367,13 +366,14 @@ pub fn resolve<C: Context>(
         size = arrange(frame, bump, context, root, bounds);
         frame.target_sizes.clear();
     }
-    if commit && active.intersects(MotionProps::POSITION) {
+    // settled position channels still override reflow from animated sizes
+    if commit {
         for state in frame.motions.iter().filter(|state| state.seen) {
             let area = &mut frame.placements[state.node.index()].area;
-            if state.active.intersects(MotionProps::X) {
+            if state.properties.intersects(MotionProps::X) {
                 area.x = state.animator.values[0];
             }
-            if state.active.intersects(MotionProps::Y) {
+            if state.properties.intersects(MotionProps::Y) {
                 area.y = state.animator.values[1];
             }
         }
