@@ -29,7 +29,8 @@ use crate::{
 /// #[derive(Default)]
 /// struct Painter;
 ///
-/// impl<P: Pixel> Handler<Color, P> for Painter {
+/// impl<P: Pixel> Handler<P> for Painter {
+///     type Input = Color;
 ///     type Prepared = Color;
 ///
 ///     fn prepare(&mut self, color: &Color, _: &mut DrawContext<'_, P>) -> Color { *color }
@@ -56,17 +57,18 @@ use crate::{
 ///     renderer.paint(LogicalRect::default(), Unsupported);
 /// }
 /// ```
-pub trait Handler<T, P>: Sized + 'static
+pub trait Handler<P>: Sized + 'static
 where
     P: Pixel,
 {
+    type Input: Compare;
     type Prepared: 'static;
 
-    fn prepare(&mut self, input: &T, cx: &mut DrawContext<'_, P>) -> Self::Prepared;
+    fn prepare(&mut self, input: &Self::Input, cx: &mut DrawContext<'_, P>) -> Self::Prepared;
     fn draw(&mut self, prepared: &Self::Prepared, cx: &mut DrawContext<'_, P>);
 
     /// declares the source footprint for a framebuffer pass
-    fn reads(&self, _: &T, output: PhysicalRect) -> PhysicalRect {
+    fn reads(&self, _: &Self::Input, output: PhysicalRect) -> PhysicalRect {
         output
     }
 
@@ -97,23 +99,21 @@ where
     /// records an already prepared value without running preparation
     /// opaque guarantees fully opaque output inside a physical rectangle intersected with bounds and clip
     #[inline]
-    pub fn draw_ready<T>(&mut self, value: T, opaque: Option<PhysicalRect>)
+    pub fn draw_ready(&mut self, value: H::Input, opaque: Option<PhysicalRect>)
     where
-        T: Compare,
-        H: Handler<T, P, Prepared = T>,
+        H: Handler<P, Prepared = <H as Handler<P>>::Input>,
     {
-        let handler = self.handler::<T>();
-        self.record_draw::<T, false>(value, opaque, handler);
+        let handler = self.handler();
+        self.record_draw::<false>(value, opaque, handler);
     }
 
     /// prepares once on the first visible span and reuses the result for the frame
     /// opaque guarantees fully opaque output inside a physical rectangle intersected with bounds and clip
-    pub fn draw<T>(&mut self, value: T, opaque: Option<PhysicalRect>)
+    pub fn draw(&mut self, value: H::Input, opaque: Option<PhysicalRect>)
     where
-        T: Compare,
-        H: Handler<T, P>,
+        H: Handler<P>,
     {
-        let handler = self.handler::<T>();
+        let handler = self.handler();
         self.record(value, opaque.unwrap_or_default(), move |offset, command, target| {
             let call = ErasedCommand {
                 handler,
@@ -121,8 +121,8 @@ where
                 opaque: Offset::new(0),
                 reads: None,
                 prepare: Some(|handler, offset, prepared, cx| {
-                    // safety: recording pairs this offset with T and the handler with H
-                    let value = unsafe { cx.list.data().get(Offset::<T>::new(offset)) };
+                    // safety: recording pairs this offset with H::Input and the handler with H
+                    let value = unsafe { cx.list.data().get(Offset::<H::Input>::new(offset)) };
                     let handler = unsafe { handler.cast::<H>().as_mut() };
                     prepared.push(handler.prepare(value, cx)).byte()
                 }),
@@ -137,14 +137,13 @@ where
     }
 
     /// records a framebuffer effect with its source footprint for each output region
-    pub fn pass<T>(&mut self, value: T)
+    pub fn pass(&mut self, value: H::Input)
     where
-        T: Compare,
-        H: Handler<T, P, Prepared = T>,
+        H: Handler<P, Prepared = <H as Handler<P>>::Input>,
     {
-        let handler = self.handler::<T>();
+        let handler = self.handler();
         *self.reads_framebuffer = true;
-        self.record_draw::<T, true>(value, None, handler);
+        self.record_draw::<true>(value, None, handler);
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
@@ -152,10 +151,9 @@ where
         self.images.get(id).unwrap().handle.clone()
     }
 
-    fn record_draw<T, const READS: bool>(&mut self, value: T, opaque: Option<PhysicalRect>, handler: NonNull<()>)
+    fn record_draw<const READS: bool>(&mut self, value: H::Input, opaque: Option<PhysicalRect>, handler: NonNull<()>)
     where
-        T: Compare,
-        H: Handler<T, P, Prepared = T>,
+        H: Handler<P, Prepared = <H as Handler<P>>::Input>,
     {
         self.record(value, opaque.unwrap_or_default(), move |offset, command, target| {
             let call = ErasedCommand {
@@ -165,13 +163,13 @@ where
                 prepare: None,
                 draw: Some(|handler, offset, _, cx| {
                     // safety: recording pairs this value and handler with H
-                    let value = unsafe { cx.list.data().get(Offset::<T>::new(offset)) };
+                    let value = unsafe { cx.list.data().get(Offset::<H::Input>::new(offset)) };
                     unsafe { handler.cast::<H>().as_mut() }.draw(value, cx);
                 }),
                 reads: READS.then_some({
                     (|handler: NonNull<()>, offset, list: &DisplayList, output| {
-                        // safety: recording pairs this offset with T
-                        let value = unsafe { list.data().get(Offset::<T>::new(offset)) };
+                        // safety: recording pairs this offset with H::Input
+                        let value = unsafe { list.data().get(Offset::<H::Input>::new(offset)) };
                         // safety: recording selects the handler for H
                         unsafe { handler.cast::<H>().as_ref() }.reads(value, output)
                     }) as _
@@ -181,9 +179,9 @@ where
         });
     }
 
-    fn handler<T>(&mut self) -> NonNull<()>
+    fn handler(&mut self) -> NonNull<()>
     where
-        H: Handler<T, P>,
+        H: Handler<P>,
     {
         let index = crate::handler_index::<H>(self.handlers);
         let handler = &mut self.handlers[index];
@@ -194,10 +192,9 @@ where
         handler.value
     }
 
-    fn record<T, F>(&mut self, value: T, opaque: PhysicalRect, prepare: F)
+    fn record<F>(&mut self, value: H::Input, opaque: PhysicalRect, prepare: F)
     where
-        T: Compare,
-        H: Handler<T, P>,
+        H: Handler<P>,
         F: Fn(u32, &Command, &mut RasterCommands<P>) + 'static,
     {
         self.record_input(
@@ -206,12 +203,12 @@ where
             Recorded { value, prepare, opaque },
             |input, offset, command, _, context| {
                 let index = context.commands.len() as usize;
-                let value_offset = offset + offset_of!(Recorded<T, F>, value) as u32;
+                let value_offset = offset + offset_of!(Recorded<H::Input, F>, value) as u32;
                 (input.prepare)(value_offset, command, context.commands);
                 if input.opaque.intersection(command.bounds).is_some() {
                     context.commands.metadata[index].coverage = Coverage::Rect;
                     context.commands.entries[index].opaque =
-                        Offset::new(offset + offset_of!(Recorded<T, F>, opaque) as u32);
+                        Offset::new(offset + offset_of!(Recorded<H::Input, F>, opaque) as u32);
                 }
             },
         );

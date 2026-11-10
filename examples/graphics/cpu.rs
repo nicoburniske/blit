@@ -152,7 +152,8 @@ struct Row {
     ribbons: Vec<(Range<i32>, usize)>,
 }
 
-impl<P: Pixel> Handler<([u32; 4], [u32; 3]), P> for RibbonsHandler {
+impl<P: Pixel> Handler<P> for RibbonsHandler {
+    type Input = ([u32; 4], [u32; 3]);
     type Prepared = ();
 
     fn prepare(&mut self, (area, axis): &([u32; 4], [u32; 3]), cx: &mut DrawContext<'_, P>) {

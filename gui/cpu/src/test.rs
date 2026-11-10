@@ -70,7 +70,11 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
         }
     }
 
-    impl Handler<Key, Xrgb8888> for () {
+    #[derive(Default)]
+    struct KeyHandler;
+
+    impl Handler<Xrgb8888> for KeyHandler {
+        type Input = Key;
         type Prepared = u8;
 
         fn prepare(&mut self, key: &Key, _: &mut DrawContext<'_, Xrgb8888>) -> u8 {
@@ -82,7 +86,16 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
         }
     }
 
-    impl<T: 'static> Handler<Keyed<T>, Xrgb8888> for () {
+    struct KeyedHandler<T>(std::marker::PhantomData<T>);
+
+    impl<T> Default for KeyedHandler<T> {
+        fn default() -> Self {
+            Self(Default::default())
+        }
+    }
+
+    impl<T: 'static> Handler<Xrgb8888> for KeyedHandler<T> {
+        type Input = Keyed<T>;
         type Prepared = ();
         fn prepare(&mut self, _: &Keyed<T>, _: &mut DrawContext<'_, Xrgb8888>) {}
         fn draw(&mut self, _: &(), _: &mut DrawContext<'_, Xrgb8888>) {}
@@ -95,7 +108,7 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
         D: DamageTracker,
     {
         fn paint(&mut self, bounds: LogicalRect, key: Key) {
-            self.record::<()>(bounds).draw(key, None);
+            self.record::<KeyHandler>(bounds).draw(key, None);
         }
     }
 
@@ -107,7 +120,8 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
         T: 'static,
     {
         fn paint(&mut self, bounds: LogicalRect, command: (Key, T)) {
-            self.record::<()>(bounds).draw(Keyed(command.0, command.1), None);
+            self.record::<KeyedHandler<T>>(bounds)
+                .draw(Keyed(command.0, command.1), None);
         }
     }
 
@@ -228,7 +242,8 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
         }
     }
 
-    impl<const VALUE: u8> Handler<(), Xrgb8888> for Fill<VALUE> {
+    impl<const VALUE: u8> Handler<Xrgb8888> for Fill<VALUE> {
+        type Input = ();
         type Prepared = ();
         fn prepare(&mut self, _: &(), _: &mut DrawContext<'_, Xrgb8888>) {}
         fn draw(&mut self, _: &(), cx: &mut DrawContext<'_, Xrgb8888>) {
@@ -338,11 +353,15 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
         D: DamageTracker,
     {
         fn paint(&mut self, bounds: LogicalRect, under: Under) {
-            self.record::<()>(bounds).draw(under, None);
+            self.record::<UnderHandler>(bounds).draw(under, None);
         }
     }
 
-    impl Handler<Under, Xrgb8888> for () {
+    #[derive(Default)]
+    struct UnderHandler;
+
+    impl Handler<Xrgb8888> for UnderHandler {
+        type Input = Under;
         type Prepared = ();
 
         fn prepare(&mut self, under: &Under, _: &mut DrawContext<'_, Xrgb8888>) {
@@ -361,7 +380,7 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
         D: DamageTracker,
     {
         fn paint(&mut self, bounds: LogicalRect, cover: Cover) {
-            let mut cx = self.record::<()>(bounds);
+            let mut cx = self.record::<CoverHandler>(bounds);
             let area = cover.area;
             let opaque = cover.report.then_some(area);
             if cover.prepared {
@@ -372,7 +391,11 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
         }
     }
 
-    impl Handler<Cover, Xrgb8888> for () {
+    #[derive(Default)]
+    struct CoverHandler;
+
+    impl Handler<Xrgb8888> for CoverHandler {
+        type Input = Cover;
         type Prepared = Cover;
 
         fn prepare(&mut self, cover: &Cover, _: &mut DrawContext<'_, Xrgb8888>) -> Cover {
@@ -507,13 +530,17 @@ fn prepared_draws_capture_data_and_drop_results_once() {
         D: DamageTracker,
     {
         fn paint(&mut self, bounds: LogicalRect, samples: Samples<'_>) {
-            let mut cx = self.record::<()>(bounds);
+            let mut cx = self.record::<SamplesHandler>(bounds);
             let values = cx.store_slice(samples.0.iter().copied());
             cx.draw(SamplesData(values, samples.1), None);
         }
     }
 
-    impl Handler<SamplesData, Xrgb8888> for () {
+    #[derive(Default)]
+    struct SamplesHandler;
+
+    impl Handler<Xrgb8888> for SamplesHandler {
+        type Input = SamplesData;
         type Prepared = Prepared;
 
         fn prepare(

@@ -48,7 +48,8 @@ struct SignalShader {
     group: wgpu::BindGroup,
 }
 
-impl Handler<u32> for SignalShader {
+impl Handler for SignalShader {
+    type Input = u32;
     type Prepared = ();
 
     fn new(cx: &PrepareContext<'_>) -> Self {

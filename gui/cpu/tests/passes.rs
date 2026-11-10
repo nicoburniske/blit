@@ -35,9 +35,10 @@ fn regional_passes_match_full_rendering_across_buffer_ages_and_scene_changes() {
 
 #[test]
 fn pass_barriers_read_current_frame_and_respect_nested_clips() {
-    #[derive(Clone, Copy, Hash, PartialEq)]
+    #[derive(Clone, Copy, Default, Hash, PartialEq)]
     struct Shift;
-    impl Handler<Shift, Xrgb8888> for () {
+    impl Handler<Xrgb8888> for Shift {
+        type Input = Shift;
         type Prepared = Shift;
         fn prepare(&mut self, command: &Shift, _: &mut DrawContext<'_, Xrgb8888>) -> Shift {
             *command
@@ -65,7 +66,7 @@ fn pass_barriers_read_current_frame_and_respect_nested_clips() {
         D: DamageTracker,
     {
         fn paint(&mut self, bounds: LogicalRect, command: Shift) {
-            self.record::<()>(bounds).pass(command);
+            self.record::<Shift>(bounds).pass(command);
         }
     }
     let mut renderer =

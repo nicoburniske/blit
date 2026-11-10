@@ -6,15 +6,16 @@ use blit_gui::display_list::{Compare, DisplayList, Slice};
 use crate::{Batch, Renderer};
 
 /// prepares GPU resources and encodes ordered drawing commands
-pub trait Handler<T>: Sized + 'static {
+pub trait Handler: Sized + 'static {
+    type Input: Compare;
     type Prepared: 'static;
 
-    /// creates persistent resources for this handler and input type
+    /// creates persistent resources for this handler
     fn new(context: &PrepareContext<'_>) -> Self;
 
     /// prepares before encoding any draws using distinct storage for each command's uploads
     /// returns None when culled or lowered into native batches
-    fn prepare(&mut self, input: &T, context: &mut PrepareContext<'_>) -> Option<Self::Prepared>;
+    fn prepare(&mut self, input: &Self::Input, context: &mut PrepareContext<'_>) -> Option<Self::Prepared>;
 
     /// draws adjacent prepared inputs in painter order with a shared clip
     /// each prepared input retains its own geometry within the batch bounds
@@ -25,7 +26,7 @@ pub trait Handler<T>: Sized + 'static {
     fn upload(&mut self, _: &wgpu::Device, _: &wgpu::Queue) {}
 
     /// declares framebuffer pixels read before this command draws and prevents batching
-    fn reads(&self, _: &T, _: PhysicalRect) -> Option<PhysicalRect> {
+    fn reads(&self, _: &Self::Input, _: PhysicalRect) -> Option<PhysicalRect> {
         None
     }
 
@@ -45,12 +46,11 @@ impl<H> PaintContext<'_, H> {
     }
 
     #[inline]
-    pub fn draw<T>(&mut self, input: T)
+    pub fn draw(&mut self, input: H::Input)
     where
-        T: Compare,
-        H: Handler<T>,
+        H: Handler,
     {
-        let prepare = |input: &T,
+        let prepare = |input: &H::Input,
                        _: u32,
                        command: &blit_gui::display_list::Command,
                        list: &DisplayList,
@@ -68,7 +68,7 @@ impl<H> PaintContext<'_, H> {
                 renderer: dispatch.renderer,
                 reads: None,
             };
-            let kind = TypeId::of::<(H, T)>();
+            let kind = TypeId::of::<H>();
             let index = context
                 .renderer
                 .handlers
@@ -76,12 +76,12 @@ impl<H> PaintContext<'_, H> {
                 .position(|handler| handler.kind == kind)
                 .unwrap_or_else(|| {
                     let value = H::new(&context);
-                    context.renderer.handlers.push(ErasedHandler::new::<H, T>(value));
+                    context.renderer.handlers.push(ErasedHandler::new(value));
                     context.renderer.handlers.len() - 1
                 });
             let handler = context.renderer.handlers[index].value;
             // safety: lookup selects the entry created for H
-            let state = unsafe { handler.cast::<State<H, T>>().as_mut() };
+            let state = unsafe { handler.cast::<State<H>>().as_mut() };
             context.reads = state
                 .value
                 .reads(input, bounds)
@@ -223,9 +223,9 @@ pub struct Call {
     pub reads: Option<PhysicalRect>,
 }
 
-struct State<H, T>
+struct State<H>
 where
-    H: Handler<T>,
+    H: Handler,
 {
     value: H,
     prepared: Vec<H::Prepared>,
@@ -241,38 +241,35 @@ pub struct ErasedHandler {
 }
 
 impl ErasedHandler {
-    fn new<H, T>(handler: H) -> Self
+    fn new<H>(handler: H) -> Self
     where
-        H: Handler<T>,
-        T: 'static,
+        H: Handler,
     {
         Self {
-            kind: TypeId::of::<(H, T)>(),
-            value: NonNull::from(Box::leak(Box::new(State::<H, T> {
+            kind: TypeId::of::<H>(),
+            value: NonNull::from(Box::leak(Box::new(State::<H> {
                 value: handler,
                 prepared: Vec::new(),
             })))
             .cast(),
             finish: |value| {
                 // safety: registration pairs this callback with its typed state
-                let state = unsafe { value.cast::<State<H, T>>().as_mut() };
+                let state = unsafe { value.cast::<State<H>>().as_mut() };
                 state.prepared.clear();
                 state.value.finish_frame();
             },
             upload: |value, device, queue| {
                 // safety: registration pairs this callback with its typed state
-                unsafe { value.cast::<State<H, T>>().as_mut() }
-                    .value
-                    .upload(device, queue);
+                unsafe { value.cast::<State<H>>().as_mut() }.value.upload(device, queue);
             },
             draw: |value, range, context| {
                 // safety: registration pairs this callback with its typed state
-                let state = unsafe { value.cast::<State<H, T>>().as_mut() };
+                let state = unsafe { value.cast::<State<H>>().as_mut() };
                 state.value.draw(&state.prepared[range], context);
             },
             drop: |value| {
                 // safety: new transfers ownership of one boxed state
-                unsafe { drop(Box::from_raw(value.cast::<State<H, T>>().as_ptr())) };
+                unsafe { drop(Box::from_raw(value.cast::<State<H>>().as_ptr())) };
             },
         }
     }

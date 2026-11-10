@@ -26,7 +26,8 @@ where
 #[derive(Default)]
 struct Handler;
 
-impl<P: Pixel> crate::Handler<usize, P> for Handler {
+impl<P: Pixel> crate::Handler<P> for Handler {
+    type Input = usize;
     type Prepared = usize;
 
     fn prepare(&mut self, radius: &usize, _: &mut DrawContext<'_, P>) -> usize {

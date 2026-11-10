@@ -1149,11 +1149,12 @@ mod tests {
             .unwrap(),
             RendererConfig::default(),
         );
-        struct State {
+        struct State<const BITS: u8> {
             kind: u8,
             used: bool,
         }
-        impl Handler<u8> for State {
+        impl Handler for State<8> {
+            type Input = u8;
             type Prepared = ();
             fn new(_: &PrepareContext<'_>) -> Self {
                 Self { kind: 8, used: false }
@@ -1170,7 +1171,8 @@ mod tests {
                 self.used = false;
             }
         }
-        impl Handler<u16> for State {
+        impl Handler for State<16> {
+            type Input = u16;
             type Prepared = ();
             fn new(_: &PrepareContext<'_>) -> Self {
                 Self { kind: 16, used: false }
@@ -1202,16 +1204,16 @@ mod tests {
         });
         for _ in 0..2 {
             let bounds = blit::LogicalRect::new(0.0, 0.0, 8.0, 8.0);
-            renderer.record::<State>(bounds).draw(0u8);
-            renderer.record::<State>(bounds).draw(0u16);
+            renderer.record::<State<8>>(bounds).draw(0u8);
+            renderer.record::<State<16>>(bounds).draw(0u16);
             renderer.render(&target);
             assert_eq!(renderer.handlers.len(), 2);
         }
         let bounds = blit::LogicalRect::new(0.0, 0.0, 8.0, 8.0);
-        renderer.record::<State>(bounds).draw(1u8);
+        renderer.record::<State<8>>(bounds).draw(1u8);
         let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| renderer.render(&target)));
         assert!(failure.is_err());
-        renderer.record::<State>(bounds).draw(0u8);
+        renderer.record::<State<8>>(bounds).draw(0u8);
         renderer.render(&target);
     }
 

@@ -44,9 +44,9 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Shadow> for R
 }
 
 #[derive(PartialEq)]
-struct Input {
-    area: LogicalRect,
-    shadow: Shadow,
+pub struct Input {
+    pub area: LogicalRect,
+    pub shadow: Shadow,
 }
 
 impl Hash for Input {
@@ -58,7 +58,8 @@ impl Hash for Input {
     }
 }
 
-impl<P: Pixel> crate::Handler<Input, P> for Handler {
+impl<P: Pixel> crate::Handler<P> for Handler {
+    type Input = Input;
     type Prepared = Option<crate::raster::Image>;
 
     fn finish_frame(&mut self) {
