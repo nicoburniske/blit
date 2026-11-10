@@ -164,10 +164,15 @@ pub trait Pixel: Copy + 'static {
         }
     }
 
-    /// writes an rgb ramp with repeating rounding offsets added before byte conversion
-    /// use `[0.5; 4]` for nearest rounding or varying offsets for dithering
-    fn write_opaque_gradient(pixels: &mut [Self], color: [f32; 3], step: [f32; 3], rounding: [f32; 4]) {
-        write_opaque_gradient_scalar(pixels, color, step, rounding);
+    /// writes an rgb ramp using nearest rounding
+    fn write_rgb_ramp(pixels: &mut [Self], color: [f32; 3], step: [f32; 3]) {
+        write_rgb_ramp_scalar(pixels, color, step);
+    }
+
+    /// writes a 12.20 fixed point opaque rgb ramp with a four pixel rounding pattern
+    /// rounding values are fixed point fractions in 0..1
+    fn write_ramp(pixels: &mut [Self], color: [i32; 3], step: [i32; 3], rounding: [i32; 4]) {
+        write_ramp_scalar(pixels, color, step, rounding);
     }
 
     fn blend_slice(pixels: &mut [Self], color: PremultipliedRgbaColor) {
@@ -412,46 +417,50 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         Self(0)
     }
 
-    fn write_opaque_gradient(pixels: &mut [Self], color: [f32; 3], step: [f32; 3], rounding: [f32; 4]) {
+    fn write_rgb_ramp(pixels: &mut [Self], color: [f32; 3], step: [f32; 3]) {
         if pixels.len() < 8 {
-            write_opaque_gradient_scalar(pixels, color, step, rounding);
+            write_rgb_ramp_scalar(pixels, color, step);
             return;
         }
-        const FRACTION_BITS: u32 = 20;
-        const SCALE: f32 = (1 << FRACTION_BITS) as f32;
+        let fixed = |value: f32| (value * (1 << 20) as f32).round() as i32;
+        Self::write_ramp(pixels, color.map(fixed), step.map(fixed), [1 << 19; 4]);
+    }
 
-        let fixed = |value: f32| {
-            let value = value * SCALE;
-            (value + if value < 0.0 { -0.5 } else { 0.5 }) as i32
-        };
-        let mut color = color.map(fixed);
-        let step = step.map(fixed);
-        let rounding = rounding.map(fixed);
+    fn write_ramp(pixels: &mut [Self], color: [i32; 3], step: [i32; 3], rounding: [i32; 4]) {
+        if pixels.len() < 8 {
+            write_ramp_scalar(pixels, color, step, rounding);
+            return;
+        }
+        if step == [0; 3] {
+            let color = color.map(|value| value.clamp(0, 255 << 20));
+            let pattern = std::array::from_fn::<_, 4, _>(|i| {
+                let channel = |j: usize| ((color[j] + rounding[i]) >> 20) as u8;
+                Self::from_rgb(channel(0), channel(1), channel(2))
+            });
+            let (chunks, tail) = pixels.as_chunks_mut::<4>();
+            chunks.fill(pattern);
+            tail.copy_from_slice(&pattern[..tail.len()]);
+            return;
+        }
         let (chunks, tail) = pixels.as_chunks_mut::<8>();
         dispatch!(Level::new(), simd => {
             let lanes = i32x8::simd_from(simd, [0, 1, 2, 3, 4, 5, 6, 7]);
             let rounding = i32x8::simd_from(simd, std::array::from_fn(|i| rounding[i & 3]));
+            let mut colors = std::array::from_fn::<_, 3, _>(|i| lanes * step[i] + color[i] + rounding);
+            let increments = step.map(|step| i32x8::splat(simd, step.wrapping_mul(8)));
             let zero = i32x8::splat(simd, 0);
-            let maximum = i32x8::splat(simd, 255 << FRACTION_BITS);
+            let maximum = i32x8::splat(simd, 255 << 20);
             for pixels in chunks.iter_mut() {
-                let channel = |index: usize| {
-                    ((lanes * step[index] + color[index] + rounding).max(zero).min(maximum) >> FRACTION_BITS)
-                        .bitcast::<u32x8<_>>()
-                };
+                let channel = |i: usize| (colors[i].max(zero).min(maximum) >> 20).bitcast::<u32x8<_>>();
                 let packed = channel(0) << RED as u32 | channel(1) << GREEN as u32 | channel(2) << BLUE as u32 | ALPHA;
                 *pixels = <[u32; 8]>::from(packed).map(Self);
-                for index in 0..3 {
-                    color[index] = color[index].wrapping_add(step[index].wrapping_mul(8));
+                for i in 0..3 {
+                    colors[i] += increments[i];
                 }
             }
         });
-        for (i, pixel) in tail.iter_mut().enumerate() {
-            let channel = |index: usize| ((color[index] + rounding[i & 3]) >> FRACTION_BITS).clamp(0, 255) as u8;
-            *pixel = Self::from_rgb(channel(0), channel(1), channel(2));
-            for index in 0..3 {
-                color[index] = color[index].wrapping_add(step[index]);
-            }
-        }
+        let color = std::array::from_fn(|i| color[i].wrapping_add(step[i].wrapping_mul((chunks.len() * 8) as i32)));
+        write_ramp_scalar(tail, color, step, rounding);
     }
 
     fn blend_slice(pixels: &mut [Self], color: PremultipliedRgbaColor) {
@@ -550,13 +559,50 @@ fn divide_by_255<S: Simd>(value: u32x8<S>) -> u32x8<S> {
 }
 
 #[inline(always)]
-fn write_opaque_gradient_scalar<P: Pixel>(pixels: &mut [P], mut color: [f32; 3], step: [f32; 3], rounding: [f32; 4]) {
-    for (i, pixel) in pixels.iter_mut().enumerate() {
-        let channel = |index: usize| (color[index] + rounding[i & 3]) as u8;
+fn write_rgb_ramp_scalar<P: Pixel>(pixels: &mut [P], color: [f32; 3], step: [f32; 3]) {
+    let fixed = |value: f32| (value * (1 << 20) as f32).round() as i32;
+    let step = step.map(fixed);
+    let mut color = color.map(fixed);
+    for pixel in pixels.iter_mut() {
+        let channel = |index: usize| ((color[index] + (1 << 19)) >> 20).clamp(0, 255) as u8;
         *pixel = P::from_rgb(channel(0), channel(1), channel(2));
         for channel in 0..3 {
-            color[channel] += step[channel];
+            color[channel] = color[channel].wrapping_add(step[channel]);
         }
+    }
+}
+
+#[inline(always)]
+fn write_ramp_scalar<P: Pixel>(pixels: &mut [P], mut color: [i32; 3], step: [i32; 3], rounding: [i32; 4]) {
+    for (i, pixel) in pixels.iter_mut().enumerate() {
+        let channel = |index: usize| ((color[index].clamp(0, 255 << 20) + rounding[i & 3]) >> 20) as u8;
+        *pixel = P::from_rgb(channel(0), channel(1), channel(2));
+        for channel in 0..3 {
+            color[channel] = color[channel].wrapping_add(step[channel]);
+        }
+    }
+}
+
+pub const BAYER: [u8; 16] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+
+#[inline]
+pub fn interpolate_gradient(
+    amount: f32,
+    first: PremultipliedRgbaColor,
+    second: PremultipliedRgbaColor,
+    x: i32,
+    y: i32,
+) -> PremultipliedRgbaColor {
+    let threshold = BAYER[((y & 3) * 4 + (x & 3)) as usize] as i32 * 4096 + 2048;
+    let amount = (amount * 65536.0 + 0.5) as i32;
+    let alpha = (((first.alpha as i32) << 16) + (second.alpha as i32 - first.alpha as i32) * amount + 32768) >> 16;
+    let channel =
+        |a: u8, b: u8| ((((a as i32) << 16) + (b as i32 - a as i32) * amount + threshold) >> 16).min(alpha) as u8;
+    PremultipliedRgbaColor {
+        alpha: alpha as u8,
+        red: channel(first.red, second.red),
+        green: channel(first.green, second.green),
+        blue: channel(first.blue, second.blue),
     }
 }
 
@@ -762,7 +808,7 @@ mod test {
 
             let mut color = [12.25, 240.75, -0.2];
             let step = [4.125, -3.75, 1.0];
-            P::write_opaque_gradient(&mut actual, color, step, [0.5; 4]);
+            P::write_rgb_ramp(&mut actual, color, step);
             for pixel in &mut expected {
                 *pixel = P::from_rgb((color[0] + 0.5) as u8, (color[1] + 0.5) as u8, (color[2] + 0.5) as u8);
                 for channel in 0..3 {

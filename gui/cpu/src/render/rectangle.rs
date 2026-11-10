@@ -108,10 +108,27 @@ impl Prepared {
             return None;
         }
         let transparent = PreparedFill::Solid(PremultipliedRgbaColor::default());
-        let background = PreparedFill::new(rectangle.background, geometry, rectangle.opacity, gradients);
+        let background = PreparedFill::new(
+            rectangle.background,
+            geometry,
+            rectangle.opacity,
+            PremultipliedRgbaColor::default(),
+            gradients,
+        );
         let mut border_width = (rectangle.border.width * scale).round().max(0.0) as i32;
-        let mut border = if border_width > 0 {
-            PreparedFill::new(rectangle.border.fill, geometry, rectangle.opacity, gradients)
+        let border = if border_width > 0 {
+            let background = if let PreparedFill::Solid(color) = background {
+                color
+            } else {
+                PremultipliedRgbaColor::default()
+            };
+            PreparedFill::new(
+                rectangle.border.fill,
+                geometry,
+                rectangle.opacity,
+                background,
+                gradients,
+            )
         } else {
             transparent
         };
@@ -120,17 +137,6 @@ impl Prepared {
         }
         if border_width == 0 && matches!(background, PreparedFill::Solid(color) if color.alpha == 0) {
             return None;
-        }
-        if let PreparedFill::Solid(background) = background {
-            match &mut border {
-                PreparedFill::Solid(color) => *color = color.over(background),
-                PreparedFill::Gradient(index) | PreparedFill::ConicGradient(index) => {
-                    let range = gradients.entries[*index as usize].stops.clone();
-                    for stop in &mut gradients.stops[range.start as usize..range.end as usize] {
-                        stop.color = stop.color.over(background);
-                    }
-                }
-            }
         }
         let radii = Radii::new(rectangle.radius, scale, geometry.width, geometry.height);
         Some(Self {
