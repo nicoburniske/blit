@@ -156,7 +156,7 @@ impl Image {
         bounds: PhysicalRect,
         images: &blit_arena::Arena<StoredImage>,
     ) -> Option<Self> {
-        let texture = images.get(request.image.into())?;
+        let texture = images.get(request.image.id().into())?;
         let mut patches = [None; 9];
         let mut count = 0;
         image::prepare(area, request, &texture.data, bounds, scale, |image, bounds| {

@@ -79,7 +79,7 @@ impl Prepared {
         let (step_x, scale_x, wrap_x) = axis(source.width, display.width, horizontal_tiling, scale_factor);
         let (step_y, scale_y, wrap_y) = axis(source.height, display.height, vertical_tiling, scale_factor);
         Some(Self {
-            image: request.image,
+            image: request.image.id(),
             display,
             source,
             colorize: request.colorize,

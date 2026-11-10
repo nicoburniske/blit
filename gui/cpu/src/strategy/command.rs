@@ -28,6 +28,7 @@ pub struct RasterCommands<P> {
     pub meshes: Vec<mesh::Prepared>,
     pub mesh_count: usize,
     pub passes: Vec<CommandId>,
+    opaque: Vec<PhysicalRect>,
 }
 
 impl<P> Default for RasterCommands<P> {
@@ -43,6 +44,7 @@ impl<P> Default for RasterCommands<P> {
             meshes: Vec::new(),
             mesh_count: 0,
             passes: Vec::new(),
+            opaque: Vec::new(),
         }
     }
 }
@@ -195,23 +197,28 @@ impl<P: Pixel> RasterCommands<P> {
         if self.mesh_count == 0 {
             return;
         }
-        for id in range.clone() {
+        self.opaque.clear();
+        for id in range.rev() {
             let metadata = Metadata {
                 ..self.metadata[id as usize]
             };
             if !damage.intersects(metadata.bounds, metadata.clip) {
                 continue;
             }
+            if metadata.clip == 0
+                && let Some(bounds) = self.opaque_bounds(id, list)
+            {
+                self.opaque.push(bounds);
+            }
             let index = match self.get(id) {
                 Payload::Mesh(index) => *index as usize,
                 _ => continue,
             };
-            if (id + 1..range.end).rev().any(|next| {
-                self.metadata[next as usize].clip == 0
-                    && self
-                        .opaque_bounds(next, list)
-                        .is_some_and(|bounds| bounds.intersection(metadata.bounds) == Some(metadata.bounds))
-            }) {
+            if self
+                .opaque
+                .iter()
+                .any(|bounds| bounds.intersection(metadata.bounds) == Some(metadata.bounds))
+            {
                 self.metadata[id as usize].bounds = PhysicalRect::default();
                 continue;
             }

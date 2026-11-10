@@ -234,6 +234,8 @@ fn clear(input: VertexOutput) -> @location(0) vec4<f32> {
     return instances[input.instance].inner_color;
 }
 
+override GRADIENT_LEVELS: f32 = 255.0;
+
 fn fill_color(color: vec4<f32>, gradient: u32, position: vec2<f32>, shape: vec4<f32>) -> vec4<f32> {
     if gradient == 0u {
         return color;
@@ -250,10 +252,13 @@ fn fill_color(color: vec4<f32>, gradient: u32, position: vec2<f32>, shape: vec4<
     let second = stops[index + 1u];
     let amount = clamp((value - first.position) / (second.position - first.position), 0.0, 1.0);
     let blended = mix(first.color, second.color, amount);
+    if GRADIENT_LEVELS == 0.0 {
+        return blended;
+    }
     const BAYER = array<u32, 16>(0u, 8u, 2u, 10u, 12u, 4u, 14u, 6u, 3u, 11u, 1u, 9u, 15u, 7u, 13u, 5u);
     let pixel = vec2<u32>(position);
     let threshold = (f32(BAYER[(pixel.y & 3u) * 4u + (pixel.x & 3u)]) + 0.5) / 16.0;
-    let rgb = floor(blended.rgb * 255.0 + vec3(threshold)) / 255.0;
+    let rgb = floor(blended.rgb * GRADIENT_LEVELS + vec3(threshold)) / GRADIENT_LEVELS;
     return vec4(clamp(rgb, vec3(0.0), vec3(blended.a)), blended.a);
 }
 

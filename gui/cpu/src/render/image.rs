@@ -35,7 +35,7 @@ where
             |(area, request), offset, record, _, context| {
                 let scale = context.scale;
                 let target = &mut *context.commands;
-                if let Some(texture) = context.images.get(request.image.into()) {
+                if let Some(texture) = context.images.get(request.image.id().into()) {
                     prepare_image_patches(*area, request, texture.data.size, scale, |patch| {
                         if let Some(bounds) = patch.bounds.intersection(record.bounds) {
                             let (opaque, partial) = crate::render::image::coverage(
@@ -220,9 +220,7 @@ mod tests {
     use blit::{LogicalRect, PhysicalRect};
     use blit_gui::{
         color::Color,
-        image::{
-            ImageFit, ImageFormat, ImageId, ImagePixels, ImageSampling, ImageTiling, NineSlice, prepare_image_patches,
-        },
+        image::{ImageFormat, ImagePixels, ImageSampling, ImageTiling, NineSlice, prepare_image_patches},
     };
 
     use super::*;
@@ -264,16 +262,7 @@ mod tests {
             width: 4.0,
             height: 4.0,
         };
-        let request = Image {
-            fit: ImageFit::Fill,
-            sampling: ImageSampling::Nearest,
-            opacity: 1.0,
-            colorize: None,
-            nine_slice: None,
-            horizontal_tiling: ImageTiling::None,
-            vertical_tiling: ImageTiling::None,
-            ..Image::new(ImageId::default())
-        };
+        let request = Image::new(ImageHandle::new(0, texture.size));
         let mut buffer = VecBuffer::<Xrgb8888>::new(4, 4);
 
         draw(
@@ -308,16 +297,7 @@ mod tests {
             width: 1.0,
             height: 1.0,
         };
-        let request = Image {
-            fit: ImageFit::Fill,
-            sampling: ImageSampling::Nearest,
-            opacity: 1.0,
-            colorize: Some(Color::WHITE),
-            nine_slice: None,
-            horizontal_tiling: ImageTiling::None,
-            vertical_tiling: ImageTiling::None,
-            ..Image::new(ImageId::default())
-        };
+        let request = Image::new(ImageHandle::new(0, texture.size)).colorize(Some(Color::WHITE));
         let mut buffer = VecBuffer::<Xrgb8888>::new(1, 1);
 
         draw(
@@ -376,16 +356,7 @@ mod tests {
             width: 3.0,
             height: 1.0,
         };
-        let request = Image {
-            fit: ImageFit::Fill,
-            sampling: ImageSampling::Bilinear,
-            opacity: 1.0,
-            colorize: None,
-            nine_slice: None,
-            horizontal_tiling: ImageTiling::None,
-            vertical_tiling: ImageTiling::None,
-            ..Image::new(ImageId::default())
-        };
+        let request = Image::new(ImageHandle::new(0, texture.size)).sampling(ImageSampling::Bilinear);
         let mut buffer = VecBuffer::<Xrgb8888>::new(3, 1);
 
         draw(
@@ -415,16 +386,7 @@ mod tests {
             width: 2.0,
             height: 1.0,
         };
-        let request = Image {
-            fit: ImageFit::Fill,
-            sampling: ImageSampling::Nearest,
-            opacity: 0.5,
-            colorize: None,
-            nine_slice: None,
-            horizontal_tiling: ImageTiling::None,
-            vertical_tiling: ImageTiling::None,
-            ..Image::new(ImageId::default())
-        };
+        let request = Image::new(ImageHandle::new(0, texture.size)).opacity(0.5);
         let mut buffer = VecBuffer::<Xrgb8888>::new(2, 1);
 
         draw(
@@ -454,16 +416,7 @@ mod tests {
             width: 5.0,
             height: 1.0,
         };
-        let request = Image {
-            fit: ImageFit::Fill,
-            sampling: ImageSampling::Nearest,
-            opacity: 1.0,
-            colorize: None,
-            nine_slice: None,
-            horizontal_tiling: ImageTiling::Repeat,
-            vertical_tiling: ImageTiling::None,
-            ..Image::new(ImageId::default())
-        };
+        let request = Image::new(ImageHandle::new(0, texture.size)).horizontal_tiling(ImageTiling::Repeat);
         let mut buffer = VecBuffer::<Xrgb8888>::new(5, 1);
 
         draw(
@@ -496,16 +449,7 @@ mod tests {
             width: 8.0,
             height: 1.0,
         };
-        let request = Image {
-            fit: ImageFit::Fill,
-            sampling: ImageSampling::Nearest,
-            opacity: 1.0,
-            colorize: None,
-            nine_slice: None,
-            horizontal_tiling: ImageTiling::Round,
-            vertical_tiling: ImageTiling::None,
-            ..Image::new(ImageId::default())
-        };
+        let request = Image::new(ImageHandle::new(0, texture.size)).horizontal_tiling(ImageTiling::Round);
         let mut buffer = VecBuffer::<Xrgb8888>::new(8, 1);
 
         draw(
@@ -543,16 +487,7 @@ mod tests {
             width: 5.0,
             height: 5.0,
         };
-        let request = Image {
-            fit: ImageFit::Fill,
-            sampling: ImageSampling::Nearest,
-            opacity: 1.0,
-            colorize: None,
-            nine_slice: Some(NineSlice::uniform(1)),
-            horizontal_tiling: ImageTiling::None,
-            vertical_tiling: ImageTiling::None,
-            ..Image::new(ImageId::default())
-        };
+        let request = Image::new(ImageHandle::new(0, texture.size)).nine_slice(Some(NineSlice::uniform(1)));
         let mut buffer = VecBuffer::<Xrgb8888>::new(5, 5);
 
         draw(

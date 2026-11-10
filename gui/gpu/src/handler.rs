@@ -55,19 +55,10 @@ impl<H> PaintContext<'_, H> {
                        command: &blit_gui::display_list::Command,
                        list: &DisplayList,
                        dispatch: &mut Dispatch<'_>| {
-            let Some(mut bounds) = command.bounds.intersection(dispatch.screen) else {
+            let Some(bounds) = dispatch.bounds(command, list) else {
                 return;
             };
             let scale = dispatch.renderer.scale;
-            let mut clip = command.clip;
-            while clip != 0 {
-                let node = &list.clips()[clip as usize - 1];
-                let Some(area) = bounds.intersection(node.area.to_physical(Scale2::uniform(scale))) else {
-                    return;
-                };
-                bounds = area;
-                clip = node.parent;
-            }
             let mut context = PrepareContext {
                 scale,
                 bounds,
@@ -325,7 +316,7 @@ impl Renderer {
                       command: &blit_gui::display_list::Command,
                       list: &DisplayList,
                       context: &mut Dispatch<'_>| {
-                    if let Some(bounds) = command.bounds.intersection(context.screen) {
+                    if let Some(bounds) = context.bounds(command, list) {
                         prepare(value, list, context.renderer, bounds, command.clip);
                     }
                 },
@@ -337,6 +328,19 @@ impl Renderer {
 pub struct Dispatch<'a> {
     pub renderer: &'a mut Renderer,
     pub screen: PhysicalRect,
+}
+
+impl Dispatch<'_> {
+    fn bounds(&self, command: &blit_gui::display_list::Command, list: &DisplayList) -> Option<PhysicalRect> {
+        let mut bounds = command.bounds.intersection(self.screen)?;
+        let mut clip = command.clip;
+        while clip != 0 {
+            let node = &list.clips()[clip as usize - 1];
+            bounds = bounds.intersection(node.area.to_physical(Scale2::uniform(self.renderer.scale)))?;
+            clip = node.parent;
+        }
+        Some(bounds)
+    }
 }
 
 pub fn hash_area(area: LogicalRect, state: &mut impl std::hash::Hasher) {

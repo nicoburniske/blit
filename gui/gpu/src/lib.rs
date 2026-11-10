@@ -171,6 +171,11 @@ impl Renderer {
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &draw_attributes,
         })];
+        let gradient_levels = match format {
+            wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm => 255.0,
+            wgpu::TextureFormat::Rgb10a2Unorm => 1023.0,
+            _ => 0.0,
+        };
         let pipeline =
             |label, layout, vertex_entry, buffers: &[Option<wgpu::VertexBufferLayout<'_>>], entry_point, blend| {
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -191,7 +196,10 @@ impl Renderer {
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
                         entry_point: Some(entry_point),
-                        compilation_options: Default::default(),
+                        compilation_options: wgpu::PipelineCompilationOptions {
+                            constants: &[("GRADIENT_LEVELS", gradient_levels)],
+                            ..Default::default()
+                        },
                         targets: &[Some(wgpu::ColorTargetState {
                             format,
                             blend,

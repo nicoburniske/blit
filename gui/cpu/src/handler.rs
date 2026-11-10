@@ -109,7 +109,7 @@ where
         H: Handler<T, P, Prepared = T>,
     {
         let handler = self.handler::<T>();
-        self.record_draw(value, opaque, handler, false);
+        self.record_draw::<T, false>(value, opaque, handler);
     }
 
     /// prepares once on the first visible span and reuses the result for the frame
@@ -125,7 +125,7 @@ where
             self.clip,
             value,
             opaque.unwrap_or_default(),
-            move |_, offset, command, _, _, _, target| {
+            move |offset, command, target| {
                 let call = ErasedCommand {
                     draw: Some(|handler, offset, prepared, cx| {
                         // safety: recording pairs this value and handler with H
@@ -151,7 +151,7 @@ where
     {
         let handler = self.handler::<T>();
         *self.reads_framebuffer = true;
-        self.record_draw(value, None, handler, true);
+        self.record_draw::<T, true>(value, None, handler);
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
@@ -161,7 +161,7 @@ where
         self.images.get(id).unwrap().handle.clone()
     }
 
-    fn record_draw<T>(&mut self, value: T, opaque: Option<PhysicalRect>, handler: NonNull<()>, reads: bool)
+    fn record_draw<T, const READS: bool>(&mut self, value: T, opaque: Option<PhysicalRect>, handler: NonNull<()>)
     where
         T: Compare,
         H: Handler<T, P, Prepared = T>,
@@ -171,7 +171,7 @@ where
             self.clip,
             value,
             opaque.unwrap_or_default(),
-            move |_, offset, command, _, _, _, target| {
+            move |offset, command, target| {
                 let call = ErasedCommand {
                     handler,
                     value: offset,
@@ -182,7 +182,7 @@ where
                         let value = unsafe { cx.list.data().get(Offset::<T>::new(offset)) };
                         unsafe { handler.cast::<H>().as_mut() }.draw(value, cx);
                     }),
-                    reads: reads.then_some({
+                    reads: READS.then_some({
                         (|handler: NonNull<()>, offset, list: &DisplayList, output| {
                             // safety: recording pairs this offset with T
                             let value = unsafe { list.data().get(Offset::<T>::new(offset)) };
@@ -213,7 +213,7 @@ where
     where
         T: Compare,
         H: Handler<T, P>,
-        F: Fn(&T, u32, &Command, &DisplayList, f32, &blit_arena::Arena<StoredImage>, &mut RasterCommands<P>) + 'static,
+        F: Fn(u32, &Command, &mut RasterCommands<P>) + 'static,
     {
         self.record_input(
             bounds,
@@ -221,18 +221,10 @@ where
             (value, prepare, opaque),
             |(a, _, _), left, (b, _, _), right| <T as Compare>::equal(a, left, b, right),
             |(input, _, _), list, state| <T as Compare>::hash(input, list, state),
-            |(value, prepare, opaque), offset, command, list, context| {
+            |(_, prepare, opaque), offset, command, _, context| {
                 let index = context.commands.len() as usize;
                 let value_offset = offset + offset_of!((T, F, PhysicalRect), 0) as u32;
-                prepare(
-                    value,
-                    value_offset,
-                    command,
-                    list,
-                    context.scale,
-                    context.images,
-                    context.commands,
-                );
+                prepare(value_offset, command, context.commands);
                 if opaque.intersection(command.bounds).is_some() {
                     context.commands.metadata[index].coverage = Coverage::Rect;
                     context.commands.entries[index].opaque =

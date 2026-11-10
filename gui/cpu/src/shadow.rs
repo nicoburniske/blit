@@ -5,7 +5,7 @@ use blit_cache::{DeferredCache, Scale};
 use blit_gui::{
     Image, Shadow,
     color::Color,
-    image::{ImageData, ImageFit, ImageFormat, ImageHandle, ImagePixels, ImageSampling, ImageTiling, NineSlice},
+    image::{ImageData, ImageFormat, ImageHandle, ImagePixels, NineSlice},
     style::BorderRadius,
 };
 
@@ -131,7 +131,7 @@ impl<P: Pixel> crate::Handler<Input, P> for Handler {
             )
         };
         let (image, nine_slice) = if let Some((cached, _)) = self.entries.get(&key) {
-            (cached.image.id(), cached.nine_slice)
+            (cached.image.clone(), cached.nine_slice)
         } else {
             let width = bounds.width as usize;
             let height = bounds.height as usize;
@@ -255,21 +255,13 @@ impl<P: Pixel> crate::Handler<Input, P> for Handler {
                 nine_slice,
             };
             let (cached, _) = self.entries.get_or_insert(key, |key| (key, cached));
-            (cached.image.id(), cached.nine_slice)
+            (cached.image.clone(), cached.nine_slice)
         };
         cx.prepare_image(
             bounds.to_logical(Scale2::IDENTITY),
-            &Image {
-                image,
-                intrinsic: blit::Size::ZERO,
-                fit: ImageFit::Fill,
-                sampling: ImageSampling::Nearest,
-                opacity: 1.0,
-                colorize: Some(shadow.color),
-                nine_slice: Some(nine_slice),
-                horizontal_tiling: ImageTiling::None,
-                vertical_tiling: ImageTiling::None,
-            },
+            &Image::new(image)
+                .colorize(Some(shadow.color))
+                .nine_slice(Some(nine_slice)),
             1.0,
         )
     }

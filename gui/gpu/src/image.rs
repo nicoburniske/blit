@@ -20,7 +20,7 @@ impl Paint<Image> for Renderer {
                 value.hash(state);
             },
             |value, _, renderer, bounds, clip| {
-                let (area, request) = *value;
+                let (area, request) = value;
 
                 let scale = renderer.scale;
                 let start = renderer.instances.len() as u32;
@@ -28,13 +28,13 @@ impl Paint<Image> for Renderer {
                 if opacity == 0.0 {
                     return;
                 }
-                let Some(image) = renderer.images.get(request.image.into()) else {
+                let Some(image) = renderer.images.get(request.image.id().into()) else {
                     return;
                 };
                 let image_size = image.handle.size();
                 let mask_color = image.mask_color.map(|color| premultiplied(color, 1.0));
                 let colorize = request.colorize.map(|color| premultiplied(color, 1.0));
-                prepare_image_patches(area, &request, image_size, scale, |patch| {
+                prepare_image_patches(*area, request, image_size, scale, |patch| {
                     let Some(draw) = patch.bounds.intersection(bounds) else {
                         return;
                     };
@@ -108,7 +108,7 @@ impl Paint<Image> for Renderer {
                     });
                 });
 
-                renderer.push_instances(start, Pipeline::Image(request.image));
+                renderer.push_instances(start, Pipeline::Image(request.image.id()));
             },
         );
     }

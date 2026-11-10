@@ -8,7 +8,7 @@ use blit_gui::{
     FontData, FontStack, Image, Rectangle, Shadow, TextConfig, TextSystem,
     color::Color,
     display_list::Compare,
-    image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageSampling, ImageTiling},
+    image::{ImageData, ImageFit, ImageFormat, ImagePixels},
     mesh::{Mesh, MeshVertex},
     style::{Border, BorderRadius, Fill, GradientStop, LinearGradient},
     text::{
@@ -232,7 +232,8 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
         type Prepared = ();
         fn prepare(&mut self, _: &(), _: &mut DrawContext<'_, Xrgb8888>) {}
         fn draw(&mut self, _: &(), cx: &mut DrawContext<'_, Xrgb8888>) {
-            cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(self.0, 0, 0)));
+            let green = if cx.source().is_some() { self.0 } else { 0 };
+            cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(self.0, green, 0)));
         }
 
         fn finish_frame(&mut self) {
@@ -269,6 +270,21 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
     assert_eq!(drops.get(), 1);
     drop(renderer);
     assert_eq!(drops.get(), 2);
+
+    let mut renderer = new_renderer(VecBuffer::new(1, 1), renderer_config());
+    for pass in [false, true, true, false] {
+        let mut recording = renderer.record::<Fill<16>>(LogicalRect::new(0.0, 0.0, 1.0, 1.0));
+        if pass {
+            recording.pass(());
+        } else {
+            recording.draw_ready((), None);
+        }
+        renderer.render(1);
+        assert_eq!(
+            renderer.buffer().pixels()[0],
+            Xrgb8888::from_rgb(16, if pass { 16 } else { 0 }, 0)
+        );
+    }
 }
 
 #[test]
@@ -1197,20 +1213,7 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
                             options: TextOptions::default(),
                         },
                     ),
-                    "image" => renderer.paint(
-                        area,
-                        Image {
-                            intrinsic: blit::Size::ZERO,
-                            image: image.id(),
-                            fit: ImageFit::Fill,
-                            sampling: ImageSampling::Nearest,
-                            opacity: if frame == 0 { 0.5 } else { 1.0 },
-                            colorize: None,
-                            nine_slice: None,
-                            horizontal_tiling: ImageTiling::None,
-                            vertical_tiling: ImageTiling::None,
-                        },
-                    ),
+                    "image" => renderer.paint(area, Image::new(&image).opacity(if frame == 0 { 0.5 } else { 1.0 })),
                     "shadow" => renderer.paint(area, Shadow::new(color).blur(2.0).inset(true)),
                     "mesh" => renderer.paint(
                         area,
@@ -1536,18 +1539,45 @@ fn clear_resets_stale_pixels_before_drawing() {
 }
 
 #[test]
-fn dropped_image_is_removed_after_last_handle() {
-    static PIXEL: [u8; 4] = [255, 255, 255, 255];
-    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config());
-    let texture = ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgba8, 1, 1);
+fn images_keep_native_size_and_ownership_until_last_reference() {
+    use std::time::Duration;
+
+    use blit::{Constraints, Frame, FrameInfo, Input, Size};
+
+    let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(8, 4), renderer_config());
+    let texture = ImageData::new(ImagePixels::Static(&[255; 8 * 4 * 4]), ImageFormat::Rgba8, 8, 4);
 
     let first = renderer.create_image(texture);
-    let retained = first.clone();
+    let retained = Image::new(&first).fit(ImageFit::Contain);
     let first_id = first.id();
     renderer.render(0);
     drop(first);
-    renderer.render(0);
-    assert!(renderer.context.images.get(first_id.into()).is_some());
+    let mut frame = Frame::default();
+    for (maximum, expected) in [
+        (Size::new(8.0, 4.0), Size::new(8.0, 4.0)),
+        (Size::new(4.0, 4.0), Size::new(4.0, 2.0)),
+        (Size::new(8.0, 4.0), Size::new(8.0, 4.0)),
+    ] {
+        frame.build(
+            &mut renderer,
+            FrameInfo::new(Size::new(8.0, 4.0)),
+            Duration::ZERO,
+            Input::None,
+            |ui: blit::Ui<'_, _>| {
+                let (_, size) = ui.build_measured(Constraints::loose(maximum), |mut ui: blit::Ui<'_, _>| {
+                    ui.insert(retained.clone());
+                });
+                assert_eq!(size, expected);
+            },
+        );
+        frame.layout(&mut renderer);
+        let screen = renderer.screen().to_logical(SCALE);
+        renderer.paint(screen, blit_gui::Clear);
+        frame.paint(&mut renderer);
+        renderer.render(1);
+        assert_eq!(renderer.buffer().pixels()[0], Xrgb8888::from_rgb(255, 255, 255));
+        assert!(renderer.context.images.get(first_id.into()).is_some());
+    }
 
     drop(retained);
     renderer.render(0);
@@ -1622,21 +1652,11 @@ fn image_alpha_rows_are_cached_and_used() {
     assert!(!renderer.context.images.get(key.into()).unwrap().opaque);
 
     let screen = renderer.screen();
-    let request = Image {
-        intrinsic: blit::Size::ZERO,
-        image: image.id(),
-        fit: ImageFit::Fill,
-        sampling: ImageSampling::Nearest,
-        opacity: 1.0,
-        colorize: None,
-        nine_slice: None,
-        horizontal_tiling: ImageTiling::None,
-        vertical_tiling: ImageTiling::None,
-    };
+    let request = Image::new(&image);
     BLENDED.store(0, Ordering::Relaxed);
     COPIED.store(0, Ordering::Relaxed);
 
-    renderer.paint(screen.to_logical(SCALE), request);
+    renderer.paint(screen.to_logical(SCALE), request.clone());
     renderer.render(0);
     assert_eq!(COPIED.load(Ordering::Relaxed), 10);
     assert_eq!(BLENDED.load(Ordering::Relaxed), 8);
@@ -1644,13 +1664,7 @@ fn image_alpha_rows_are_cached_and_used() {
     BLENDED.store(0, Ordering::Relaxed);
     COPIED.store(0, Ordering::Relaxed);
 
-    renderer.paint(
-        screen.to_logical(SCALE),
-        Image {
-            opacity: 0.5,
-            ..request
-        },
-    );
+    renderer.paint(screen.to_logical(SCALE), request.opacity(0.5));
     renderer.render(0);
     assert_eq!(COPIED.load(Ordering::Relaxed), 0);
     assert_eq!(BLENDED.load(Ordering::Relaxed), 18);
@@ -1675,14 +1689,7 @@ fn image_alpha_rows_are_cached_and_used() {
     assert!(rows.iter().all(|row| row.opaque_start == 0 && row.opaque_end == 0));
     BLENDED.store(0, Ordering::Relaxed);
 
-    renderer.paint(
-        screen.to_logical(SCALE),
-        Image {
-            image: image.id(),
-            opacity: 1.0,
-            ..request
-        },
-    );
+    renderer.paint(screen.to_logical(SCALE), Image::new(&image));
     renderer.render(0);
     assert_eq!(BLENDED.load(Ordering::Relaxed), 11);
 
@@ -1810,17 +1817,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         height: 2.0,
         ..LogicalRect::default()
     };
-    let image = Image {
-        intrinsic: blit::Size::ZERO,
-        image: image.id(),
-        fit: ImageFit::Fill,
-        sampling: ImageSampling::Nearest,
-        opacity: 1.0,
-        colorize: None,
-        nine_slice: None,
-        horizontal_tiling: ImageTiling::None,
-        vertical_tiling: ImageTiling::None,
-    };
+    let image = Image::new(&image);
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
 
     renderer.paint(area, Rectangle::new().background(Color::rgba(255, 0, 0, 128)));
@@ -1837,10 +1834,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         1,
         1,
     ));
-    let transparent_image = Image {
-        image: transparent_image.id(),
-        ..image
-    };
+    let transparent_image = Image::new(transparent_image);
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
 
     renderer.paint(area, Rectangle::new().background(Color::rgba(255, 0, 0, 128)));
@@ -1869,35 +1863,15 @@ fn scanline_skips_commands_behind_opaque_content() {
         1,
         1,
     ));
-    let underlay = Image {
-        intrinsic: blit::Size::ZERO,
-        image: underlay.id(),
-        fit: ImageFit::Fill,
-        sampling: ImageSampling::Nearest,
-        opacity: 1.0,
-        colorize: None,
-        nine_slice: None,
-        horizontal_tiling: ImageTiling::None,
-        vertical_tiling: ImageTiling::None,
-    };
-    let partial_image = Image {
-        intrinsic: blit::Size::ZERO,
-        image: partial_image.id(),
-        fit: ImageFit::Fill,
-        sampling: ImageSampling::Nearest,
-        opacity: 1.0,
-        colorize: None,
-        nine_slice: None,
-        horizontal_tiling: ImageTiling::None,
-        vertical_tiling: ImageTiling::None,
-    };
+    let underlay = Image::new(&underlay);
+    let partial_image = Image::new(&partial_image);
     let background = Rectangle::new().background(Color::rgba(255, 0, 0, 128));
     let overlay = Rectangle::new().background(Color::rgba(0, 0, 255, 128));
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
 
     renderer.paint(screen.to_logical(SCALE), background);
-    renderer.paint(screen.to_logical(SCALE), underlay);
-    renderer.paint(screen.to_logical(SCALE), partial_image);
+    renderer.paint(screen.to_logical(SCALE), underlay.clone());
+    renderer.paint(screen.to_logical(SCALE), partial_image.clone());
     renderer.paint(screen.to_logical(SCALE), overlay);
     renderer.render(0);
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 14);
@@ -1924,13 +1898,7 @@ fn scanline_skips_commands_behind_opaque_content() {
 
     renderer.paint(screen.to_logical(SCALE), background);
     renderer.paint(screen.to_logical(SCALE), underlay);
-    renderer.paint(
-        screen.to_logical(SCALE),
-        Image {
-            opacity: 0.5,
-            ..partial_image
-        },
-    );
+    renderer.paint(screen.to_logical(SCALE), partial_image.clone().opacity(0.5));
     renderer.paint(screen.to_logical(SCALE), overlay);
     renderer.render(0);
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 18);
@@ -2048,17 +2016,7 @@ fn rounded_clips_match_between_strategies() {
             ..LogicalRect::default()
         };
         let red = Rectangle::new().background(Color::rgb(255, 0, 0));
-        let image = Image {
-            intrinsic: blit::Size::ZERO,
-            image: image.id(),
-            fit: ImageFit::Fill,
-            sampling: ImageSampling::Nearest,
-            opacity: 1.0,
-            colorize: None,
-            nine_slice: None,
-            horizontal_tiling: ImageTiling::None,
-            vertical_tiling: ImageTiling::None,
-        };
+        let image = Image::new(&image);
         let text = TextRequest {
             text: string,
             colors: &[Color::WHITE],
@@ -2116,20 +2074,7 @@ fn dropped_image_remains_valid_until_frame_end() {
     let screen = renderer.screen();
 
     renderer.paint(screen.to_logical(SCALE), blit_gui::Clear);
-    renderer.paint(
-        screen.to_logical(SCALE),
-        Image {
-            intrinsic: blit::Size::ZERO,
-            image: image.id(),
-            fit: ImageFit::Fill,
-            sampling: ImageSampling::Nearest,
-            opacity: 1.0,
-            colorize: None,
-            nine_slice: None,
-            horizontal_tiling: ImageTiling::None,
-            vertical_tiling: ImageTiling::None,
-        },
-    );
+    renderer.paint(screen.to_logical(SCALE), Image::new(&image));
     let image_id = image.id();
     drop(image);
     renderer.render(0);

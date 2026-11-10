@@ -7,7 +7,7 @@ use blit_gpu::{Renderer, RendererConfig};
 use blit_gui::{
     BoundsClip, Context, FontData, FontStack, Image, Rectangle, Shadow, TextConfig, TextSystem,
     color::Color,
-    image::{ImageData, ImageFit, ImageFormat, ImagePixels, ImageSampling, ImageTiling},
+    image::{ImageData, ImageFormat, ImagePixels, ImageSampling, ImageTiling},
     mesh::{Mesh, MeshVertex},
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::{FontId, TextOptions, TextRequest, TextStyle},
@@ -96,17 +96,9 @@ fn renders_primitives_and_rebuilds_frames() {
         2,
         2,
     ));
-    let nearest = Image {
-        image: image.id(),
-        fit: ImageFit::Fill,
-        sampling: ImageSampling::Nearest,
-        opacity: 1.0,
-        colorize: None,
-        nine_slice: None,
-        horizontal_tiling: ImageTiling::Repeat,
-        vertical_tiling: ImageTiling::Repeat,
-        ..Image::new(image.id())
-    };
+    let nearest = Image::new(&image)
+        .horizontal_tiling(ImageTiling::Repeat)
+        .vertical_tiling(ImageTiling::Repeat);
     let sparse_x = i32::MAX / 3 - 1;
     let mut sparse = ImageData::new(
         ImagePixels::Static(&[255, 0, 0, 255, 0, 0, 255, 255]),
@@ -136,39 +128,16 @@ fn renders_primitives_and_rebuilds_frames() {
     let partial = renderer.create_image(partial);
     renderer.paint(
         LogicalRect::new(8.0, 0.0, 4.0, 4.0),
-        Image {
-            sampling: ImageSampling::Bilinear,
-            horizontal_tiling: ImageTiling::None,
-            vertical_tiling: ImageTiling::None,
-            ..nearest
-        },
+        Image::new(&image).sampling(ImageSampling::Bilinear),
     );
     renderer.paint(LogicalRect::new(8.0, 5.0, 4.0, 4.0), nearest);
-    renderer.paint(
-        LogicalRect::new(-0.5, 8.0, 1.5, 0.5),
-        Image {
-            image: sparse.id(),
-            horizontal_tiling: ImageTiling::None,
-            vertical_tiling: ImageTiling::None,
-            ..nearest
-        },
-    );
+    renderer.paint(LogicalRect::new(-0.5, 8.0, 1.5, 0.5), Image::new(&sparse));
     renderer.paint(
         LogicalRect::new(-0.5, 8.5, 1.5, 0.5),
-        Image {
-            image: sparse.id(),
-            horizontal_tiling: ImageTiling::Round,
-            vertical_tiling: ImageTiling::None,
-            ..nearest
-        },
+        Image::new(&sparse).horizontal_tiling(ImageTiling::Round),
     );
-    let partial_request = Image {
-        image: partial.id(),
-        horizontal_tiling: ImageTiling::None,
-        vertical_tiling: ImageTiling::None,
-        ..nearest
-    };
-    renderer.paint(LogicalRect::new(20.0, 0.0, 3.0, 1.0), partial_request);
+    let partial_request = Image::new(&partial);
+    renderer.paint(LogicalRect::new(20.0, 0.0, 3.0, 1.0), partial_request.clone());
     renderer.paint(
         LogicalRect::new(20.0, 1.0, 3.0, 1.0),
         Image {
@@ -364,4 +333,26 @@ fn renders_primitives_and_rebuilds_frames() {
     assert!(top_right[3] > bottom_left[3]);
     assert_eq!(pixel(114, 10), [0, 0, 0, 0]);
     assert_eq!(pixel(116, 10), [183, 0, 71, 255]);
+
+    renderer.push_clip(LogicalRect::default(), BorderRadius::default());
+    renderer.paint(
+        bounds,
+        Mesh {
+            vertices: &mesh_vertices,
+            indices: &[0, 1, 2],
+        },
+    );
+    renderer.paint(bounds, Image::new(&image));
+    renderer.paint(
+        bounds,
+        TextRequest {
+            text,
+            colors: &[Color::WHITE],
+            offset_x: 0.0,
+            options: TextOptions::default(),
+        },
+    );
+    renderer.pop_clip();
+    renderer.render(&target);
+    assert_eq!(renderer.batch_count(), 0);
 }

@@ -13,10 +13,11 @@ use blit::{
 use crate::color::Color;
 
 blit::builder! {
-    #[derive(Clone, Copy, Debug, PartialEq)]
+    #[derive(Clone, Debug, PartialEq)]
     pub struct Image {
-        new(image: ImageId),
-        intrinsic: Size<f32> = Size::ZERO,
+        new(#[into] image: ImageHandle),
+        #[into]
+        intrinsic: Option<Size<f32>> = None,
         fit: ImageFit = ImageFit::Fill,
         sampling: ImageSampling = ImageSampling::Nearest,
         opacity: f32 = 1.0,
@@ -32,17 +33,30 @@ where
     C: Paint<Self, Scalar = f32>,
 {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
-        constraints.constrain(self.intrinsic)
+        let pixels = self.image.size();
+        let natural = Size::new(pixels.width as f32, pixels.height as f32);
+        let mut size = self.intrinsic.unwrap_or(natural);
+        if self.fit == ImageFit::Contain
+            && self.nine_slice.is_none()
+            && self.horizontal_tiling == ImageTiling::None
+            && self.vertical_tiling == ImageTiling::None
+        {
+            size.width = size.width.min(constraints.max.width);
+            size.height = size.height.min(constraints.max.height);
+            let scale = (size.width / natural.width).min(size.height / natural.height).max(0.0);
+            size = Size::new(natural.width * scale, natural.height * scale);
+        }
+        constraints.constrain(size)
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        cx.context_mut().paint(area, *self);
+        cx.context_mut().paint(area, self.clone());
     }
 }
 
 impl Hash for Image {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.image.hash(state);
+        self.image.id().hash(state);
         (if self.opacity == 0.0 { 0 } else { self.opacity.to_bits() }).hash(state);
         std::mem::discriminant(&self.fit).hash(state);
         std::mem::discriminant(&self.sampling).hash(state);
@@ -57,6 +71,18 @@ impl Hash for Image {
 
 #[derive(Clone, Debug)]
 pub struct ImageHandle(Rc<ImageInner>);
+
+impl PartialEq for ImageHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl From<&ImageHandle> for ImageHandle {
+    fn from(image: &ImageHandle) -> Self {
+        image.clone()
+    }
+}
 
 impl ImageHandle {
     #[doc(hidden)]
