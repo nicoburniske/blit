@@ -2,23 +2,35 @@ use blit::{Atom, AtomCx, Constraints, LogicalRect, Paint, Size, Widget};
 use blit_gpu::{PrepareContext, Render, RenderContext, Renderer};
 use bytemuck::{Pod, Zeroable};
 
-use super::super::{DesktopContext, Ui};
+use super::*;
 
 #[derive(Default)]
 pub struct View {
-    pub phase: f32,
-}
-
-impl View {
-    pub const TITLE: &str = "custom shader";
+    dock: dock::Dock,
+    terrain: terrain::View,
 }
 
 impl Widget<DesktopContext> for &mut View {
-    type Response = bool;
+    type Response = ();
 
-    fn build(self, mut ui: Ui<'_>) -> bool {
-        ui.insert(Interference { phase: self.phase });
-        false
+    fn build(self, ui: Ui<'_>) {
+        let mut stage = ui.layout(()).clip(BoundsClip);
+        stage.insert(Rectangle::new().background(colors::TRACK));
+        stage.child().build(|ui: Ui<'_>| {
+            self.dock
+                .build(ui, &[("custom shader", 0), (terrain::View::TITLE, 1)], |tab| {
+                    let terrain = &mut self.terrain;
+                    (tab != 0).then_some(move |ui: Ui<'_>| terrain.controls(ui))
+                });
+        });
+        if self.dock.selected == 0 {
+            stage.insert(Interference { phase: self.dock.phase });
+        } else {
+            stage
+                .child()
+                .build(|ui: Ui<'_>| self.terrain.build(ui, self.dock.phase));
+        }
+        stage.insert(Rectangle::new().border(Border::solid(1.0, colors::BORDER)));
     }
 }
 
