@@ -55,7 +55,7 @@ impl DamageTracker for CommandDiff {
                 for offset in 1..=8 {
                     if new + offset < new_end && previous.equivalent(old, input, new + offset) {
                         for index in new..new + offset {
-                            push_damage(&mut self.current, input.commands()[index].bounds);
+                            push_damage(&mut self.current, clipped_bounds(input, index, scale, screen));
                         }
                         new += offset + 1;
                         old += 1;
@@ -64,7 +64,7 @@ impl DamageTracker for CommandDiff {
                     }
                     if old + offset < old_end && previous.equivalent(old + offset, input, new) {
                         for index in old..old + offset {
-                            push_damage(&mut self.current, previous.commands()[index].bounds);
+                            push_damage(&mut self.current, clipped_bounds(previous, index, scale, screen));
                         }
                         old += offset + 1;
                         new += 1;
@@ -75,8 +75,8 @@ impl DamageTracker for CommandDiff {
                 if aligned {
                     continue;
                 }
-                let old_bounds = previous.commands()[old].bounds;
-                let new_bounds = input.commands()[new].bounds;
+                let old_bounds = clipped_bounds(previous, old, scale, screen);
+                let new_bounds = clipped_bounds(input, new, scale, screen);
                 push_damage(&mut self.current, old_bounds);
                 if new_bounds != old_bounds {
                     push_damage(&mut self.current, new_bounds);
@@ -85,10 +85,10 @@ impl DamageTracker for CommandDiff {
                 new += 1;
             }
             for index in old..old_end {
-                push_damage(&mut self.current, previous.commands()[index].bounds);
+                push_damage(&mut self.current, clipped_bounds(previous, index, scale, screen));
             }
             for index in new..new_end {
-                push_damage(&mut self.current, input.commands()[index].bounds);
+                push_damage(&mut self.current, clipped_bounds(input, index, scale, screen));
             }
         }
         self.screen = screen;
@@ -185,4 +185,16 @@ fn push_damage(damage: &mut Vec<PhysicalRect>, bounds: PhysicalRect) {
         damage.truncate(16);
     }
     damage.push(bounds);
+}
+
+fn clipped_bounds(list: &DisplayList, index: usize, scale: f32, screen: PhysicalRect) -> PhysicalRect {
+    let command = &list.commands()[index];
+    let mut bounds = command.bounds.intersection(screen);
+    let mut clip = command.clip;
+    while clip != 0 {
+        let parent = &list.clips()[clip as usize - 1];
+        bounds = bounds.and_then(|bounds| bounds.intersection(parent.area.to_physical(Scale2::uniform(scale))));
+        clip = parent.parent;
+    }
+    bounds.unwrap_or_default()
 }
