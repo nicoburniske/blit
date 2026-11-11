@@ -12,12 +12,20 @@ use super::{
 };
 use crate::{DamageTracker, Pixel, PixelBuffer, PixelSpan, RenderState, StoredImage, TextRenderer};
 
+/// once a span has FEW_PIECES pieces, narrower opaque pieces are drawn through instead of split off
+const MIN_PIECE: usize = 8;
+const FEW_PIECES: usize = 8;
+
 pub struct Scanline {
     span_occlusion: bool,
     starts: Vec<CommandId>,
     active: Vec<CommandId>,
     ranges: Vec<Range<usize>>,
     clip_ranges: Vec<Option<ClipLine>>,
+    // opaque pieces of the current span with the command they start drawing from
+    pieces: Vec<(Range<usize>, usize)>,
+    uncovered: Vec<Range<usize>>,
+    remaining: Vec<Range<usize>>,
 }
 
 impl Scanline {
@@ -36,6 +44,9 @@ impl Default for Scanline {
             active: Vec::new(),
             ranges: Vec::new(),
             clip_ranges: Vec::new(),
+            pieces: Vec::new(),
+            uncovered: Vec::new(),
+            remaining: Vec::new(),
         }
     }
 }
@@ -52,7 +63,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         let text = &mut context.text;
         let buffer = &mut context.buffer;
         let mut clipped = false;
-        let mut partial_opaque = false;
         self.starts.extend(
             commands
                 .range
@@ -62,7 +72,6 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         for &id in &self.starts {
             let metadata = &commands.metadata[id as usize];
             clipped |= metadata.clip != 0;
-            partial_opaque |= matches!(metadata.coverage, Coverage::PartialImage | Coverage::Rect);
         }
         self.starts.sort_unstable_by(|left, right| {
             commands
@@ -118,19 +127,23 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
             };
 
             for range in &self.ranges {
-                let mut first = 0;
-                let mut overwrite = None;
-                let split = range.len() >= 128 || partial_opaque;
+                self.pieces.clear();
+                self.uncovered.clear();
+                self.uncovered.push(range.clone());
                 if self.span_occlusion {
+                    // front to back, each opaque span claims the uncovered parts it overlaps
                     for (index, &command) in self.active.iter().enumerate().rev() {
+                        if self.uncovered.is_empty() {
+                            break;
+                        }
                         if commands.metadata[command as usize].coverage == Coverage::None {
                             continue;
                         }
                         let bounds = commands.horizontal_bounds(command);
-                        let spans_range = bounds.start <= range.start as i32 && bounds.end >= range.end as i32;
+                        let crowded = self.pieces.len() >= FEW_PIECES;
                         if bounds.end <= range.start as i32
                             || bounds.start >= range.end as i32
-                            || (!spans_range && (!split || overwrite.is_some()))
+                            || (crowded && bounds.end - bounds.start < MIN_PIECE as i32)
                         {
                             continue;
                         }
@@ -140,19 +153,23 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         else {
                             continue;
                         };
-                        let start = span.start.max(range.start as i32);
-                        let end = span.end.min(range.end as i32);
-                        if start >= end {
-                            continue;
+                        let (start, end) = (span.start.max(0) as usize, span.end.max(0) as usize);
+                        self.remaining.clear();
+                        for gap in self.uncovered.drain(..) {
+                            let claimed = gap.start.max(start)..gap.end.min(end);
+                            if claimed.is_empty() || (crowded && claimed.len() < MIN_PIECE) {
+                                self.remaining.push(gap);
+                                continue;
+                            }
+                            if gap.start < claimed.start {
+                                self.remaining.push(gap.start..claimed.start);
+                            }
+                            if claimed.end < gap.end {
+                                self.remaining.push(claimed.end..gap.end);
+                            }
+                            self.pieces.push((claimed, index));
                         }
-                        let (start, end) = (start as usize, end as usize);
-                        if start == range.start && end == range.end {
-                            first = index;
-                            break;
-                        }
-                        if split && overwrite.is_none() {
-                            overwrite = Some((start, end, index));
-                        }
+                        std::mem::swap(&mut self.uncovered, &mut self.remaining);
                     }
                 }
                 let pixels = buffer.write_line(line as usize, range.clone());
@@ -189,13 +206,11 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         );
                     }
                 };
-                if let Some((start, end, overwrite)) = overwrite {
-                    // only the uncovered edges need commands behind the opaque span
-                    draw(first, range.start, start);
-                    draw(overwrite, start, end);
-                    draw(first, end, range.end);
-                } else {
-                    draw(first, range.start, range.end);
+                for (piece, first) in &self.pieces {
+                    draw(*first, piece.start, piece.end);
+                }
+                for gap in &self.uncovered {
+                    draw(0, gap.start, gap.end);
                 }
             }
             line += 1;
