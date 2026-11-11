@@ -110,30 +110,8 @@ impl Hash for Rectangle<'_> {
         ]
         .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
         .hash(state);
-        for fill in [self.background, self.border.fill] {
-            std::mem::discriminant(&fill).hash(state);
-            let (stops, angle) = match fill {
-                Fill::Solid(color) => {
-                    color.hash(state);
-                    continue;
-                }
-                Fill::LinearGradient(gradient) => (gradient.stops, gradient.angle_degrees),
-                Fill::ConicGradient(gradient) => {
-                    gradient
-                        .center
-                        .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
-                        .hash(state);
-                    (gradient.stops, gradient.angle_degrees)
-                }
-            };
-            state.write_u32(if angle == 0.0 { 0 } else { angle.to_bits() });
-            stops.len().hash(state);
-            for stop in stops {
-                let position = stop.position;
-                state.write_u32(if position == 0.0 { 0 } else { position.to_bits() });
-                stop.color.hash(state);
-            }
-        }
+        self.background.hash(state);
+        self.border.fill.hash(state);
     }
 }
 
@@ -191,7 +169,7 @@ pub enum FrameFill {
 
 impl FrameFill {
     #[inline]
-    fn new(fill: Fill<'_>, store: &mut impl FrameStore) -> Self {
+    pub(crate) fn new(fill: Fill<'_>, store: &mut impl FrameStore) -> Self {
         match fill {
             Fill::Solid(color) => Self::Solid(color),
             Fill::LinearGradient(gradient) => Self::LinearGradient {
@@ -207,7 +185,7 @@ impl FrameFill {
     }
 
     #[inline]
-    fn view<'a>(&self, list: &'a DisplayList) -> Fill<'a> {
+    pub(crate) fn view<'a>(&self, list: &'a DisplayList) -> Fill<'a> {
         match *self {
             Self::Solid(color) => Fill::Solid(color),
             Self::LinearGradient { stops, angle_degrees } => Fill::LinearGradient(LinearGradient {

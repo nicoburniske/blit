@@ -6,7 +6,7 @@ use blit_gui::display_list::DisplayList;
 
 use super::{
     RenderStrategy,
-    clip::{ClipLine, ClipSpan},
+    clip::{ClipLine, ClipSpan, ClipStack},
     command::{CommandId, Coverage, RasterCommands},
     raster,
 };
@@ -148,7 +148,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                             continue;
                         }
                         let Some(span) = commands
-                            .opaque_span(command, line, list, images, text)
+                            .opaque_span(command, line, list, clips, images, text)
                             .and_then(|span| clip_span(commands.clip(command), span))
                         else {
                             continue;
@@ -186,6 +186,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         draw_commands::<true, _>(
                             commands,
                             list,
+                            clips,
                             &self.active[first..],
                             &self.clip_ranges,
                             images,
@@ -197,6 +198,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         draw_commands::<false, _>(
                             commands,
                             list,
+                            clips,
                             &self.active[first..],
                             &self.clip_ranges,
                             images,
@@ -225,6 +227,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
 fn draw_commands<const CLIPPED: bool, P: Pixel>(
     commands: &mut RasterCommands<P>,
     list: &DisplayList,
+    clips: &ClipStack,
     active: &[CommandId],
     clip_ranges: &[Option<ClipLine>],
     images: &mut Arena<StoredImage>,
@@ -241,9 +244,9 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
         let mut start = bounds.start.max(range.start as i32);
         let mut end = bounds.end.min(range.end as i32);
         if CLIPPED {
-            let clip_id = commands.clip(*command);
-            if clip_id != 0 {
-                let Some(clipped) = &clip_ranges[clip_id as usize - 1] else {
+            let clip = commands.clip(*command);
+            if clip != 0 {
+                let Some(clipped) = &clip_ranges[clip as usize - 1] else {
                     continue;
                 };
                 start = start.max(clipped.start);
@@ -260,7 +263,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
                     }
                     .for_each(
                         |x| {
-                            let mut id = clip_id;
+                            let mut id = clip;
                             let mut coverage = 255u32;
                             while id != 0 {
                                 let Some(line) = &clip_ranges[id as usize - 1] else {
@@ -272,7 +275,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
                             coverage as u8
                         },
                         |range, coverage| {
-                            let clip = PhysicalRect {
+                            let span = PhysicalRect {
                                 x: range.start,
                                 y: line,
                                 width: range.end - range.start,
@@ -281,9 +284,10 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
                             raster::draw_line(
                                 commands,
                                 list,
+                                clips,
                                 *command,
                                 line,
-                                clip,
+                                span,
                                 coverage,
                                 images,
                                 text,
@@ -298,7 +302,7 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
                 }
             }
         }
-        let clip = PhysicalRect {
+        let span = PhysicalRect {
             x: start,
             y: line,
             width: end - start,
@@ -307,9 +311,10 @@ fn draw_commands<const CLIPPED: bool, P: Pixel>(
         raster::draw_line(
             commands,
             list,
+            clips,
             *command,
             line,
-            clip,
+            span,
             255,
             images,
             text,

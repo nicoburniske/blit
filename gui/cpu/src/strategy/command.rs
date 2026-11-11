@@ -22,6 +22,8 @@ pub type CommandId = u32;
 
 pub struct RasterCommands<P> {
     pub scale: f32,
+    /// drawable buffer extent for this frame
+    pub screen: PhysicalRect,
     pub metadata: Vec<Metadata>,
     pub entries: Vec<ErasedCommand<P>>,
     pub prepared: Bump,
@@ -37,6 +39,7 @@ impl<P> Default for RasterCommands<P> {
     fn default() -> Self {
         Self {
             scale: 1.0,
+            screen: PhysicalRect::default(),
             metadata: Vec::new(),
             entries: Vec::new(),
             prepared: Bump::default(),
@@ -60,6 +63,7 @@ impl<P: Pixel> RasterCommands<P> {
         &mut self,
         id: CommandId,
         list: &DisplayList,
+        clips: &ClipStack,
         images: &mut blit_arena::Arena<StoredImage>,
         text: &mut TextRenderer,
     ) -> &Payload {
@@ -77,6 +81,9 @@ impl<P: Pixel> RasterCommands<P> {
             &mut RenderContext {
                 scale: self.scale,
                 bounds: command.bounds,
+                clips,
+                clip: command.clip,
+                screen: self.screen,
                 list,
                 text,
                 gradients: &mut self.gradients,
@@ -102,7 +109,7 @@ impl<P: Pixel> RasterCommands<P> {
             && next < self.range.end
             && self.clip(next) == 0
             && self.bounds(id) == self.bounds(next)
-            && let Payload::Rectangle(second) = self.prepare(next, list, images, text)
+            && let Payload::Rectangle(second) = self.prepare(next, list, clips, images, text)
             && let Some(pair) = first.fuse(second)
         {
             self.entries[id as usize] = ErasedCommand::ready(&mut self.prepared, Payload::SolidPair(pair));
@@ -161,6 +168,7 @@ impl<P: Pixel> RasterCommands<P> {
         id: CommandId,
         line: i32,
         list: &DisplayList,
+        clips: &ClipStack,
         images: &mut blit_arena::Arena<StoredImage>,
         text: &mut TextRenderer,
     ) -> Option<Range<i32>> {
@@ -174,7 +182,7 @@ impl<P: Pixel> RasterCommands<P> {
         }
         let area = metadata.bounds;
         let bounds = self.horizontal_bounds(id);
-        let span = match self.prepare(id, list, images, text) {
+        let span = match self.prepare(id, list, clips, images, text) {
             Payload::Rectangle(rectangle) => rectangle.opaque_span(line)?,
             Payload::Image(image) => {
                 let texture = images.get(image.image.into())?;

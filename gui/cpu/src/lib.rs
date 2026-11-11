@@ -157,6 +157,10 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         let screen = self.screen();
         let scale = self.context.scale_factor;
         self.context.raster.scale = scale;
+        self.context.raster.screen = PhysicalRect {
+            x: self.context.buffer.x_offset() as i32,
+            ..screen
+        };
         self.damage.update(&self.context.list, screen, scale, buffer_age);
         if !self.damage.is_empty() {
             let context = &mut self.context;
@@ -245,6 +249,9 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                         &mut RenderContext {
                             scale,
                             bounds,
+                            clips: &context.clips,
+                            clip,
+                            screen: context.raster.screen,
                             list: &context.list,
                             text: &mut context.text,
                             gradients: &mut context.raster.gradients,
@@ -253,8 +260,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                             scratch: &context.raster.scratch,
                             target: RenderTarget::Pass {
                                 target: &mut context.buffer,
-                                clips: &context.clips,
-                                clip,
                                 output: &plan.stages[stage + 1],
                             },
                         },

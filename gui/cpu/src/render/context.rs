@@ -9,7 +9,7 @@ use crate::{
     Pixel, PixelBuffer, StoredImage,
     damage::region::Region,
     raster::{self, image, image_patch},
-    strategy::clip::ClipStack,
+    strategy::clip::{ClipId, ClipStack},
     text::TextRenderer,
 };
 
@@ -17,6 +17,9 @@ pub struct RenderContext<'a, P> {
     pub scale: f32,
     /// physical command bounds before clipping
     pub bounds: PhysicalRect,
+    pub(crate) clips: &'a ClipStack,
+    pub(crate) clip: ClipId,
+    pub(crate) screen: PhysicalRect,
     pub(crate) list: &'a DisplayList,
     pub(crate) text: &'a mut TextRenderer,
     pub(crate) gradients: &'a mut raster::fill::Gradients,
@@ -27,6 +30,11 @@ pub struct RenderContext<'a, P> {
 }
 
 impl<'a, P: Pixel> RenderContext<'a, P> {
+    /// command bounds within its clip and the screen
+    pub fn visible(&self) -> Option<PhysicalRect> {
+        self.clips.bounds(self.clip, self.bounds)?.intersection(self.screen)
+    }
+
     /// prepares an image with an explicit logical to physical scale
     pub fn prepare_image(&self, area: LogicalRect, request: &blit_gui::Image, scale: f32) -> Option<Image> {
         Image::new(area, request, scale, self.bounds, self.images)
@@ -54,9 +62,7 @@ impl<'a, P: Pixel> RenderContext<'a, P> {
         let (span, pass) = match &self.target {
             RenderTarget::Prepare => (None, None),
             RenderTarget::Span { x, y, pixels, .. } => (Some(PhysicalRect::new(*x, *y, pixels.len() as i32, 1)), None),
-            RenderTarget::Pass {
-                output, clips, clip, ..
-            } => (None, clips.bounds(*clip, self.bounds).map(|bounds| (*output, bounds))),
+            RenderTarget::Pass { output, .. } => (None, self.visible().map(|bounds| (*output, bounds))),
         };
         span.into_iter().chain(
             pass.into_iter()
@@ -87,23 +93,20 @@ impl<'a, P: Pixel> RenderContext<'a, P> {
                     coverage: *coverage,
                     list: self.list,
                     images: self.images,
+                    gradients: self.gradients,
                 });
             }
-            RenderTarget::Pass {
-                target,
-                clips,
-                clip,
-                output,
-            } => {
+            RenderTarget::Pass { target, output } => {
                 for bounds in output.rects().filter_map(|region| region.intersection(area)) {
                     for y in bounds.y..bounds.y + bounds.height {
-                        clips.for_each(*clip, y, bounds.x..bounds.x + bounds.width, |range, coverage| {
+                        self.clips.for_each(self.clip, y, bounds.x..bounds.x + bounds.width, |range, coverage| {
                             draw(Span {
                                 x: range.start,
                                 y,
                                 coverage,
                                 list: self.list,
                                 images: self.images,
+                                gradients: self.gradients,
                                 pixels: target.write_line(y as usize, range.start as usize..range.end as usize),
                             });
                         });
@@ -122,6 +125,7 @@ pub struct Span<'a, P> {
     pub coverage: u8,
     pub(crate) list: &'a DisplayList,
     pub(crate) images: &'a Arena<StoredImage>,
+    pub(crate) gradients: &'a raster::fill::Gradients,
 }
 
 impl<'a, P> Span<'a, P> {
@@ -222,8 +226,6 @@ pub(crate) enum RenderTarget<'a, P> {
     },
     Pass {
         target: &'a mut dyn PixelBuffer<Pixel = P>,
-        clips: &'a ClipStack,
-        clip: u32,
         output: &'a Region,
     },
 }

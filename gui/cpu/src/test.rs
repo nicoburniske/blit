@@ -10,6 +10,7 @@ use blit_gui::{
     display_list::Compare,
     image::{ImageData, ImageFit, ImageFormat, ImagePixels},
     mesh::{Mesh, MeshVertex},
+    path::{FillRule, PathBuilder},
     style::{Border, BorderRadius, ConicGradient, Fill, GradientStop, LinearGradient},
     text::{
         FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextRequest, TextStyle, TextWrap,
@@ -2260,4 +2261,36 @@ fn damage_trackers_preserve_overlapping_reorders() {
     }
     check(|| TileDamage::new(8));
     check(blit_gui::damage::command::CommandDiff::default);
+}
+
+#[test]
+fn paths_antialias_edges_and_follow_fill_rules() {
+    fn check<S: RenderStrategy<VecBuffer<BgrPixel>> + Default>() -> Vec<BgrPixel> {
+        let mut renderer = new_renderer(VecBuffer::new(16, 16), renderer_config()).strategy(S::default());
+        let white = Color::rgb(255, 255, 255);
+        Rectangle::new()
+            .background(Color::BLACK)
+            .paint(LogicalRect::new(0.0, 0.0, 16.0, 16.0), &mut renderer);
+        let mut builder = PathBuilder::new();
+        builder
+            .rect(LogicalRect::new(2.0, 2.0, 4.0, 4.0))
+            .rect(LogicalRect::new(8.5, 2.0, 4.0, 4.0));
+        builder.path().fill(white).paint(&mut renderer);
+        for (x, rule) in [(0.0, FillRule::NonZero), (8.0, FillRule::EvenOdd)] {
+            builder.clear();
+            builder
+                .rect(LogicalRect::new(x, 8.0, 8.0, 8.0))
+                .rect(LogicalRect::new(x + 2.0, 10.0, 4.0, 4.0));
+            builder.path().fill(white).rule(rule).paint(&mut renderer);
+        }
+        renderer.render(0);
+        let pixels = renderer.buffer().pixels().to_vec();
+        let at = |x: usize, y: usize| pixels[y * 16 + x].red;
+        assert_eq!([at(1, 3), at(2, 3), at(5, 5), at(6, 5)], [0, 255, 255, 0]);
+        assert!((120..=135).contains(&at(8, 3)) && (120..=135).contains(&at(12, 3)));
+        assert_eq!(at(9, 3), 255);
+        assert_eq!([at(1, 9), at(3, 11), at(9, 9), at(11, 11)], [255, 255, 255, 0]);
+        pixels
+    }
+    assert_eq!(check::<Direct>(), check::<Scanline>());
 }

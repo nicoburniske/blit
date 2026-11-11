@@ -1,5 +1,7 @@
 //! drawing fills and rectangle styling
 
+use std::hash::{Hash, Hasher};
+
 use crate::color::Color;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -41,6 +43,30 @@ impl Fill<'_> {
             fill
         } else {
             Self::Solid(stops.first().map_or(Color::TRANSPARENT, |stop| stop.color))
+        }
+    }
+}
+
+impl Hash for Fill<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        let (stops, angle) = match *self {
+            Fill::Solid(color) => return color.hash(state),
+            Fill::LinearGradient(gradient) => (gradient.stops, gradient.angle_degrees),
+            Fill::ConicGradient(gradient) => {
+                gradient
+                    .center
+                    .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+                    .hash(state);
+                (gradient.stops, gradient.angle_degrees)
+            }
+        };
+        state.write_u32(if angle == 0.0 { 0 } else { angle.to_bits() });
+        stops.len().hash(state);
+        for stop in stops {
+            let position = stop.position;
+            state.write_u32(if position == 0.0 { 0 } else { position.to_bits() });
+            stop.color.hash(state);
         }
     }
 }

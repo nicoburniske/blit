@@ -1,5 +1,6 @@
 mod blur;
 mod context;
+pub mod path;
 pub mod shadow;
 
 use std::ptr::NonNull;

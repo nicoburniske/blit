@@ -12,12 +12,7 @@ pub struct Direct {
 
 impl<B: PixelBuffer> RenderStrategy<B> for Direct {
     fn render(&mut self, context: &mut RenderState<B>, damage: &impl DamageTracker) {
-        let screen = PhysicalRect {
-            x: context.buffer.x_offset() as i32,
-            y: 0,
-            width: context.buffer.width() as i32,
-            height: context.buffer.height() as i32,
-        };
+        let screen = context.raster.screen;
         let commands = &mut context.raster;
         let list = &context.list;
         let clips = &context.clips;
@@ -26,14 +21,14 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
         let buffer = &mut context.buffer;
 
         for offset in commands.range.clone() {
-            let clip_id = commands.clip(offset);
+            let clip = commands.clip(offset);
             let Some(bounds) = clips
-                .bounds(clip_id, commands.bounds(offset))
+                .bounds(clip, commands.bounds(offset))
                 .and_then(|bounds| bounds.intersection(screen))
             else {
                 continue;
             };
-            if !damage.intersects(bounds, commands.clip(offset)) {
+            if !damage.intersects(bounds, clip) {
                 continue;
             }
             let mut line = bounds.y;
@@ -41,14 +36,15 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                 let end = damage.line_ranges(line, bounds, &mut self.ranges);
                 for line in line..end {
                     for range in &self.ranges {
-                        let clip = PhysicalRect::new(range.start as i32, line, (range.end - range.start) as i32, 1);
-                        if clip_id == 0 {
+                        let span = PhysicalRect::new(range.start as i32, line, (range.end - range.start) as i32, 1);
+                        if clip == 0 {
                             raster::draw_line(
                                 commands,
                                 list,
+                                clips,
                                 offset,
                                 line,
-                                clip,
+                                span,
                                 255,
                                 images,
                                 text,
@@ -58,10 +54,11 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                                 },
                             );
                         } else {
-                            clips.for_each(clip_id, line, clip.x..clip.x + clip.width, |range, coverage| {
+                            clips.for_each(clip, line, span.x..span.x + span.width, |range, coverage| {
                                 raster::draw_line(
                                     commands,
                                     list,
+                                    clips,
                                     offset,
                                     line,
                                     PhysicalRect::new(range.start, line, range.end - range.start, 1),

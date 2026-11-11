@@ -6,6 +6,7 @@ pub mod damage;
 pub mod display_list;
 pub mod image;
 pub mod mesh;
+pub mod path;
 pub mod rectangle;
 pub mod shadow;
 pub mod style;

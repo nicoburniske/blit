@@ -12,6 +12,7 @@ blit-cache.workspace = true
 blit-text = { workspace = true }
 blit-arena.workspace = true
 fearless_simd = "1.1.0"
+kurbo = { version = "0.13.1", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 blit-text-parley.workspace = true
