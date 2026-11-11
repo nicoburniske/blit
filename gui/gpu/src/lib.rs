@@ -2,39 +2,35 @@ mod atlas;
 mod clear;
 mod image;
 mod mesh;
-mod record;
+mod pipeline;
 mod rectangle;
 pub mod render;
 mod shadow;
 mod text;
+
+use std::any::TypeId;
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_arena::Arena;
 use blit_gui::{
     TextSystem,
     color::Color,
-    display_list::DisplayList,
-    image::{ImageData, ImageFormat, ImageHandle, ImageId, ImageTiling},
+    display_list::{DisplayList, Slice},
+    image::{ImageData, ImageFormat, ImageHandle},
     style::BorderRadius,
 };
-use bytemuck::{Pod, Zeroable};
-pub use record::RecordContext;
+use bytemuck::Zeroable;
+use pipeline::{
+    Batch, Clip, DRAW_TEXT, Effects, Frame, GlyphInstance, GradientStop, INITIAL_CLIPS, INITIAL_DRAWS, INITIAL_GLYPHS,
+    INITIAL_INSTANCES, INITIAL_MESH_DATA, INITIAL_STOPS, INSET_SHADOW, Instance, MeshData, OUTSET_SHADOW, Pipeline,
+    StoredImage, data_bind_group, grow_buffer, image_axis, image_flag, physical_radii, physical_rect, premultiplied,
+    push_draw,
+};
+use render::{Call, DispatchContext, ErasedRenderer, State};
 pub use render::{PrepareContext, Render, RenderContext};
 
 /// shared frame transform and rounded clip coverage for custom shaders
 pub const SHADER: &str = include_str!("clip.wgsl");
-
-const INITIAL_INSTANCES: u64 = 256;
-const INITIAL_GLYPHS: u64 = 256;
-const INITIAL_DRAWS: u64 = 256;
-const INITIAL_MESH_DATA: u64 = 256;
-const INITIAL_CLIPS: u64 = 64;
-const INITIAL_STOPS: u64 = 64;
-const FIXED_SHIFT: u32 = 16;
-const OUTSET_SHADOW: u32 = 1;
-const INSET_SHADOW: u32 = 2;
-const DRAW_TEXT: u32 = 1 << 31;
-const DRAW_MESH: u32 = 1 << 30;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RendererConfig {
@@ -734,94 +730,6 @@ impl Renderer {
         }
     }
 
-    fn effects(&mut self, size: [u32; 2]) -> &Effects {
-        let extent = wgpu::Extent3d {
-            width: size[0],
-            height: size[1],
-            depth_or_array_layers: 1,
-        };
-        if self
-            .effects
-            .as_ref()
-            .is_none_or(|cached| cached.target.size() != extent)
-        {
-            let [buffer, snapshot] = ["blit gpu effect target", "blit gpu source"].map(|label| {
-                self.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some(label),
-                    size: extent,
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: self.format,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::COPY_SRC
-                        | wgpu::TextureUsages::COPY_DST
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
-                    view_formats: &[],
-                })
-            });
-            let view = buffer.create_view(&Default::default());
-            let source = snapshot.create_view(&Default::default());
-            let binding = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("blit gpu present"),
-                layout: &self.texture_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                }],
-            });
-            let pipeline = self
-                .effects
-                .as_ref()
-                .map(|cached| cached.pipeline.clone())
-                .unwrap_or_else(|| {
-                    let shader = self.device.create_shader_module(wgpu::include_wgsl!("present.wgsl"));
-                    let layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some("blit gpu present"),
-                        bind_group_layouts: &[Some(&self.texture_bind_group_layout)],
-                        immediate_size: 0,
-                    });
-                    self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                        label: Some("blit gpu present"),
-                        layout: Some(&layout),
-                        vertex: wgpu::VertexState {
-                            module: &shader,
-                            entry_point: Some("vertex"),
-                            compilation_options: Default::default(),
-                            buffers: &[],
-                        },
-                        primitive: wgpu::PrimitiveState {
-                            topology: wgpu::PrimitiveTopology::TriangleStrip,
-                            ..Default::default()
-                        },
-                        depth_stencil: None,
-                        multisample: Default::default(),
-                        fragment: Some(wgpu::FragmentState {
-                            module: &shader,
-                            entry_point: Some("fragment"),
-                            compilation_options: Default::default(),
-                            targets: &[Some(wgpu::ColorTargetState {
-                                format: self.format,
-                                blend: None,
-                                write_mask: wgpu::ColorWrites::ALL,
-                            })],
-                        }),
-                        multiview_mask: None,
-                        cache: None,
-                    })
-                });
-            self.effects = Some(Effects {
-                target: buffer,
-                view,
-                snapshot,
-                source,
-                binding,
-                pipeline,
-            });
-        }
-        self.effects.as_ref().unwrap()
-    }
-
     #[doc(hidden)]
     pub fn batch_count(&self) -> usize {
         self.batches.len()
@@ -838,418 +746,100 @@ impl Renderer {
         self.paint_clips.clear();
         self.text.finish_frame();
     }
-    fn push_instances(&mut self, start: u32, pipeline: Pipeline) {
-        let end = self.instances.len() as u32;
-        if start == end {
-            return;
-        }
-        if matches!(pipeline, Pipeline::Content(_)) {
-            for index in start..end {
-                push_draw(&mut self.draws, &mut self.batches, pipeline, index);
-            }
-        } else if let Some(Batch::Draw {
-            pipeline: previous,
-            end: last,
-            ..
-        }) = self.batches.last_mut()
-            && *previous == pipeline
-        {
-            *last = end;
-        } else {
-            self.batches.push(Batch::Draw { pipeline, start, end });
-        }
-    }
-
-    fn push_mesh_primitive(&mut self, vertices: [u32; 4]) {
-        assert!(self.mesh_data.len() < DRAW_MESH as usize, "too much GPU mesh data");
-        let index = self.mesh_data.len() as u32;
-        self.mesh_data.push(MeshData(vertices));
-        push_draw(
-            &mut self.draws,
-            &mut self.batches,
-            Pipeline::Content(None),
-            DRAW_MESH | index,
-        );
-    }
 }
 
-fn push_draw(draws: &mut Vec<u32>, batches: &mut Vec<Batch>, pipeline: Pipeline, draw: u32) {
-    let start = draws.len() as u32;
-    draws.push(draw);
-    let end = draws.len() as u32;
-    if let Some(Batch::Draw {
-        pipeline: previous,
-        end: last,
-        ..
-    }) = batches.last_mut()
-        && let (Pipeline::Content(current), Pipeline::Content(texture)) = (previous, pipeline)
-        && (current.is_none() || texture.is_none() || *current == texture)
+pub struct RecordContext<'a> {
+    pub scale: f32,
+    pub bounds: PhysicalRect,
+    renderer: &'a mut Renderer,
+}
+
+impl RecordContext<'_> {
+    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> Slice<T> {
+        self.renderer.list.store_slice(values)
+    }
+
+    #[inline]
+    pub fn push<R>(&mut self, input: R::Input)
+    where
+        R: Render,
     {
-        if current.is_none() {
-            *current = texture;
+        let prepare = |input: &R::Input,
+                       _: u32,
+                       command: &blit_gui::display_list::Command,
+                       list: &DisplayList,
+                       dispatch: &mut DispatchContext<'_>| {
+            let Some(bounds) = dispatch.bounds(command, list) else {
+                return;
+            };
+            let scale = dispatch.renderer.scale;
+            let mut context = PrepareContext {
+                scale,
+                bounds,
+                clip: command.clip,
+                size: [dispatch.screen.width as u32, dispatch.screen.height as u32],
+                list,
+                renderer: dispatch.renderer,
+                reads: None,
+            };
+            let kind = TypeId::of::<R>();
+            let index = context
+                .renderer
+                .renderers
+                .iter()
+                .position(|renderer| renderer.kind == kind)
+                .unwrap_or_else(|| {
+                    let value = R::new(&context);
+                    context.renderer.renderers.push(ErasedRenderer::new(value));
+                    context.renderer.renderers.len() - 1
+                });
+            let renderer = context.renderer.renderers[index].value;
+            // safety: lookup selects the entry created for R
+            let state = unsafe { renderer.cast::<State<R>>().as_mut() };
+            context.reads = state
+                .value
+                .reads(input, bounds)
+                .map(|area| area.intersection(dispatch.screen).unwrap_or_default());
+            if context.reads.is_some() {
+                context.renderer.effects(context.size);
+            }
+            if let Some(value) = state.value.prepare(input, &mut context) {
+                let start = state.prepared.len();
+                state.prepared.push(value);
+                let previous = context.renderer.batches.last().and_then(|batch| match batch {
+                    Batch::Custom(index) => context.renderer.calls.get_mut(*index),
+                    _ => None,
+                });
+                if let Some(previous) = previous
+                    && context.reads.is_none()
+                    && previous.reads.is_none()
+                    && previous.renderer == index
+                    && previous.clip == command.clip
+                    && previous.range.end == start
+                {
+                    previous.range.end += 1;
+                    previous.bounds = previous.bounds.union(bounds);
+                } else {
+                    let call = context.renderer.calls.len();
+                    context.renderer.calls.push(Call {
+                        renderer: index,
+                        range: start..start + 1,
+                        bounds,
+                        clip: command.clip,
+                        reads: context.reads,
+                    });
+                    context.renderer.batches.push(Batch::Custom(call));
+                }
+            }
+        };
+        // safety: dispatch uses this renderer's DispatchContext
+        unsafe {
+            self.renderer
+                .list
+                .record(self.bounds, self.renderer.paint_clip, input, prepare);
         }
-        *last = end;
-        return;
     }
-    batches.push(Batch::Draw { pipeline, start, end });
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct Frame {
-    transform: [f32; 4],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct Instance {
-    shape: [f32; 4],
-    draw: [f32; 4],
-    radii: [f32; 4],
-    inner_color: [f32; 4],
-    border_color: [f32; 4],
-    params: [f32; 4],
-    data: [u32; 4],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct GlyphInstance {
-    draw: [f32; 4],
-    atlas: [u32; 2],
-    color: u32,
-    clip: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct MeshData([u32; 4]);
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct Clip {
-    rect: [f32; 4],
-    radii: [f32; 4],
-    data: [u32; 4],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct GradientStop {
-    color: [f32; 4],
-    position: f32,
-    // linear step or conic center
-    x: f32,
-    y: f32,
-    end: u32,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Pipeline {
-    Clear,
-    Content(Option<usize>),
-    Image(ImageId),
-}
-
-struct Effects {
-    target: wgpu::Texture,
-    view: wgpu::TextureView,
-    snapshot: wgpu::Texture,
-    source: wgpu::TextureView,
-    binding: wgpu::BindGroup,
-    pipeline: wgpu::RenderPipeline,
-}
-
-enum Batch {
-    Draw { pipeline: Pipeline, start: u32, end: u32 },
-    Custom(usize),
-}
-
-struct StoredImage {
-    handle: ImageHandle,
-    bind_group: wgpu::BindGroup,
-    mask_color: Option<Color>,
-    texture_origin: [u32; 2],
-}
-
-fn grow_buffer<T>(device: &wgpu::Device, buffer: &mut wgpu::Buffer, items: &[T], label: &str) {
-    let item_size = size_of::<T>() as u64;
-    let required_size = items.len() as u64 * item_size;
-    if required_size <= buffer.size() {
-        return;
-    }
-    let limits = device.limits();
-    let usage = buffer.usage();
-    let limit = if usage.contains(wgpu::BufferUsages::STORAGE) {
-        limits.max_buffer_size.min(limits.max_storage_buffer_binding_size)
-    } else {
-        limits.max_buffer_size
-    };
-    assert!(required_size <= limit, "GPU frame data exceeds device limits");
-    *buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some(label),
-        size: (items.len() as u64)
-            .next_power_of_two()
-            .saturating_mul(item_size)
-            .min(limit),
-        usage,
-        mapped_at_creation: false,
-    });
-}
-
-fn data_bind_group(
-    device: &wgpu::Device,
-    layout: &wgpu::BindGroupLayout,
-    frame: &wgpu::Buffer,
-    instances: &wgpu::Buffer,
-    clips: &wgpu::Buffer,
-    stops: &wgpu::Buffer,
-    glyphs: &wgpu::Buffer,
-    mesh: &wgpu::Buffer,
-) -> wgpu::BindGroup {
-    device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("blit gpu data"),
-        layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: frame.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: instances.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: clips.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: stops.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: glyphs.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 5,
-                resource: mesh.as_entire_binding(),
-            },
-        ],
-    })
-}
-
-fn physical_rect(rect: PhysicalRect) -> [f32; 4] {
-    [rect.x as f32, rect.y as f32, rect.width as f32, rect.height as f32]
-}
-
-fn physical_radii(radius: BorderRadius, scale: f32, width: i32, height: i32) -> [f32; 4] {
-    let mut radii = [
-        (radius.top_left * scale).round().max(0.0) as i32 as f32,
-        (radius.top_right * scale).round().max(0.0) as i32 as f32,
-        (radius.bottom_right * scale).round().max(0.0) as i32 as f32,
-        (radius.bottom_left * scale).round().max(0.0) as i32 as f32,
-    ];
-    let factor = 1.0f32
-        .min(width as f32 / (radii[0] + radii[1]).max(1.0))
-        .min(width as f32 / (radii[3] + radii[2]).max(1.0))
-        .min(height as f32 / (radii[0] + radii[3]).max(1.0))
-        .min(height as f32 / (radii[1] + radii[2]).max(1.0));
-    for radius in &mut radii {
-        *radius = (*radius * factor).round();
-    }
-    radii
-}
-
-fn image_axis(
-    source: u32,
-    target: i32,
-    tiling: ImageTiling,
-    scale_factor: f32,
-    offset: u64,
-) -> (u64, u64, f32, f32, bool) {
-    let (fixed, step, wrap) = match tiling {
-        ImageTiling::None => (
-            ((source as u64) << FIXED_SHIFT) / target as u64,
-            source as f32 / target as f32,
-            false,
-        ),
-        ImageTiling::Repeat => {
-            let tile = (f64::from(source) * f64::from(scale_factor)).round().max(1.0) as u64;
-            (
-                ((source as u64) << FIXED_SHIFT) / tile,
-                source as f32 / tile as f32,
-                true,
-            )
-        }
-        ImageTiling::Round => {
-            let native = (f64::from(source) * f64::from(scale_factor)).max(1.0);
-            let count = (f64::from(target) / native).round().max(1.0) as u64;
-            (
-                u64::try_from(((source as u128 * u128::from(count)) << FIXED_SHIFT) / target as u128)
-                    .expect("image scale is too large"),
-                source as f32 * count as f32 / target as f32,
-                true,
-            )
-        }
-    };
-    let period = (source as u64) << FIXED_SHIFT;
-    let fixed = if wrap { fixed % period } else { fixed };
-    let phase = if wrap {
-        (u128::from(offset) * u128::from(fixed) % u128::from(period)) as u64
-    } else {
-        offset.checked_mul(fixed).expect("image coordinate is too large")
-    };
-    let bilinear = (offset as f64 + 0.5) * step as f64 - 0.5;
-    let bilinear = if wrap {
-        bilinear.rem_euclid(source as f64)
-    } else {
-        bilinear
-    } as f32;
-    (fixed, phase, step, bilinear, wrap)
-}
-
-fn premultiplied(color: Color, opacity: f32) -> [f32; 4] {
-    let alpha = color.alpha as f32 / 255.0 * opacity;
-    [
-        color.red as f32 / 255.0 * alpha,
-        color.green as f32 / 255.0 * alpha,
-        color.blue as f32 / 255.0 * alpha,
-        alpha,
-    ]
-}
-
-mod image_flag {
-    pub const WRAP_X: u32 = 1;
-    pub const WRAP_Y: u32 = 2;
-    pub const BILINEAR: u32 = 4;
-    pub const MASK: u32 = 8;
-    pub const COLORIZE: u32 = 16;
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pipeline_is_valid() {
-        let (device, queue) = wgpu::Device::noop(&Default::default());
-        let mut renderer = Renderer::new(
-            device.clone(),
-            queue,
-            wgpu::TextureFormat::Rgba8Unorm,
-            TextSystem::new(
-                blit_gui::TextConfig {
-                    fonts: Vec::new(),
-                    ..Default::default()
-                },
-                blit_text_parley::Backend::without_system_fonts(),
-            )
-            .unwrap(),
-            RendererConfig::default(),
-        );
-        struct State<const BITS: u8> {
-            kind: u8,
-            used: bool,
-        }
-        impl Render for State<8> {
-            type Input = u8;
-            type Prepared = ();
-            fn new(_: &PrepareContext<'_>) -> Self {
-                Self { kind: 8, used: false }
-            }
-            fn prepare(&mut self, input: &u8, _: &mut PrepareContext<'_>) -> Option<()> {
-                assert_eq!(self.kind, 8);
-                assert!(!self.used);
-                self.used = true;
-                assert_eq!(*input, 0, "failed preparation");
-                None
-            }
-            fn render(&mut self, _: &[()], _: &mut RenderContext<'_>) {}
-            fn finish_frame(&mut self) {
-                self.used = false;
-            }
-        }
-        impl Render for State<16> {
-            type Input = u16;
-            type Prepared = ();
-            fn new(_: &PrepareContext<'_>) -> Self {
-                Self { kind: 16, used: false }
-            }
-            fn prepare(&mut self, _: &u16, _: &mut PrepareContext<'_>) -> Option<()> {
-                assert_eq!(self.kind, 16);
-                assert!(!self.used);
-                self.used = true;
-                None
-            }
-            fn render(&mut self, _: &[()], _: &mut RenderContext<'_>) {}
-            fn finish_frame(&mut self) {
-                self.used = false;
-            }
-        }
-        let target = device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: wgpu::Extent3d {
-                width: 8,
-                height: 8,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        for _ in 0..2 {
-            let bounds = blit::LogicalRect::new(0.0, 0.0, 8.0, 8.0);
-            let mut recording = renderer.record(bounds);
-            recording.push::<State<8>>(0u8);
-            recording.push::<State<16>>(0u16);
-            renderer.render(&target);
-            assert_eq!(renderer.renderers.len(), 2);
-        }
-        let bounds = blit::LogicalRect::new(0.0, 0.0, 8.0, 8.0);
-        renderer.record(bounds).push::<State<8>>(1u8);
-        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| renderer.render(&target)));
-        assert!(failure.is_err());
-        renderer.record(bounds).push::<State<8>>(0u8);
-        renderer.render(&target);
-    }
-
-    #[test]
-    fn wrapped_image_phase_handles_large_clipped_offsets() {
-        let (fixed, phase, step, bilinear, wrap) =
-            image_axis(3, i32::MAX, ImageTiling::Repeat, 1.0, i32::MAX as u64 - 2);
-
-        assert_eq!(fixed, 1 << FIXED_SHIFT);
-        assert_eq!(phase, 2 << FIXED_SHIFT);
-        assert_eq!(step, 1.0);
-        assert_eq!(bilinear, 2.0);
-        assert!(wrap);
-    }
-
-    #[test]
-    fn nearest_image_axis_preserves_wide_fixed_point_values() {
-        let (fixed, phase, _, _, wrap) = image_axis(u32::MAX, 2, ImageTiling::None, 1.0, 1);
-
-        assert_eq!(fixed, (u32::MAX as u64) << (FIXED_SHIFT - 1));
-        assert_eq!(phase, fixed);
-        assert!(!wrap);
-    }
-
-    #[test]
-    fn bilinear_image_phase_is_unclamped_and_handles_large_offsets() {
-        let (_, _, step, phase, wrap) = image_axis(2, 8, ImageTiling::None, 1.0, 0);
-
-        assert_eq!(step, 0.25);
-        assert_eq!(phase, -0.375);
-        assert!(!wrap);
-
-        let (_, _, step, phase, wrap) = image_axis(3, i32::MAX, ImageTiling::Repeat, 1.0, 20_000_003);
-
-        assert_eq!(step, 1.0);
-        assert_eq!(phase, 2.0);
-        assert!(wrap);
-    }
-}
+mod test;

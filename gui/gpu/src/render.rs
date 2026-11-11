@@ -3,7 +3,7 @@ use std::{any::TypeId, hash::Hash, ops::Range, ptr::NonNull};
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_gui::display_list::{Compare, DisplayList, Slice};
 
-use crate::Renderer;
+use crate::{Effects, Renderer};
 
 /// prepares GPU resources and encodes ordered drawing commands
 pub trait Render: Sized + 'static {
@@ -209,6 +209,94 @@ impl Renderer {
                 },
             );
         }
+    }
+
+    pub(super) fn effects(&mut self, size: [u32; 2]) -> &Effects {
+        let extent = wgpu::Extent3d {
+            width: size[0],
+            height: size[1],
+            depth_or_array_layers: 1,
+        };
+        if self
+            .effects
+            .as_ref()
+            .is_none_or(|cached| cached.target.size() != extent)
+        {
+            let [buffer, snapshot] = ["blit gpu effect target", "blit gpu source"].map(|label| {
+                self.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: extent,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: self.format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::COPY_SRC
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                })
+            });
+            let view = buffer.create_view(&Default::default());
+            let source = snapshot.create_view(&Default::default());
+            let binding = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("blit gpu present"),
+                layout: &self.texture_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                }],
+            });
+            let pipeline = self
+                .effects
+                .as_ref()
+                .map(|cached| cached.pipeline.clone())
+                .unwrap_or_else(|| {
+                    let shader = self.device.create_shader_module(wgpu::include_wgsl!("present.wgsl"));
+                    let layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("blit gpu present"),
+                        bind_group_layouts: &[Some(&self.texture_bind_group_layout)],
+                        immediate_size: 0,
+                    });
+                    self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                        label: Some("blit gpu present"),
+                        layout: Some(&layout),
+                        vertex: wgpu::VertexState {
+                            module: &shader,
+                            entry_point: Some("vertex"),
+                            compilation_options: Default::default(),
+                            buffers: &[],
+                        },
+                        primitive: wgpu::PrimitiveState {
+                            topology: wgpu::PrimitiveTopology::TriangleStrip,
+                            ..Default::default()
+                        },
+                        depth_stencil: None,
+                        multisample: Default::default(),
+                        fragment: Some(wgpu::FragmentState {
+                            module: &shader,
+                            entry_point: Some("fragment"),
+                            compilation_options: Default::default(),
+                            targets: &[Some(wgpu::ColorTargetState {
+                                format: self.format,
+                                blend: None,
+                                write_mask: wgpu::ColorWrites::ALL,
+                            })],
+                        }),
+                        multiview_mask: None,
+                        cache: None,
+                    })
+                });
+            self.effects = Some(Effects {
+                target: buffer,
+                view,
+                snapshot,
+                source,
+                binding,
+                pipeline,
+            });
+        }
+        self.effects.as_ref().unwrap()
     }
 }
 
