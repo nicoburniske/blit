@@ -127,7 +127,7 @@ impl Atom<DesktopContext> for Ribbons {
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Ribbons> for Renderer<B, S, D> {
     fn paint(&mut self, area: LogicalRect, sculpture: Ribbons) {
-        self.record::<RibbonsHandler>(area).draw(
+        self.record(area).draw::<RibbonsHandler>(
             (
                 [area.x, area.y, area.width, area.height].map(f32::to_bits),
                 sculpture.axis.map(f32::to_bits),

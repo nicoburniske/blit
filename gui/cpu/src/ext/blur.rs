@@ -13,12 +13,12 @@ where
         if !blur.radius.is_finite() || blur.radius <= 0.0 {
             return;
         }
-        let mut recording = self.record::<Handler>(bounds);
+        let mut recording = self.record(bounds);
         let radius = (blur.radius * recording.scale)
             .round()
             .min(B::Pixel::MAX_BLUR_RADIUS as f32);
         if radius != 0.0 {
-            recording.pass(radius as usize);
+            recording.pass::<Handler>(radius as usize);
         }
     }
 }

@@ -108,7 +108,7 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
         D: DamageTracker,
     {
         fn paint(&mut self, bounds: LogicalRect, key: Key) {
-            self.record::<KeyHandler>(bounds).draw(key, None);
+            self.record(bounds).draw::<KeyHandler>(key, None);
         }
     }
 
@@ -120,8 +120,8 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
         T: 'static,
     {
         fn paint(&mut self, bounds: LogicalRect, command: (Key, T)) {
-            self.record::<KeyedHandler<T>>(bounds)
-                .draw(Keyed(command.0, command.1), None);
+            self.record(bounds)
+                .draw::<KeyedHandler<T>>(Keyed(command.0, command.1), None);
         }
     }
 
@@ -265,15 +265,16 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
             renderer = renderer.handler(Fill::<0>(red, 0, drops.clone()));
         }
         renderer
-            .record::<Fill<0>>(LogicalRect::new(0.0, 0.0, 1.0, 1.0))
-            .draw_ready((), None);
-        renderer.record::<Fill<1>>(LogicalRect::default()).draw_ready((), None);
-        renderer.record::<Fill<2>>(LogicalRect::default()).draw_ready((), None);
-        renderer.record::<Fill<3>>(LogicalRect::default()).draw_ready((), None);
-        renderer.record::<Fill<4>>(LogicalRect::default()).draw_ready((), None);
+            .record(LogicalRect::new(0.0, 0.0, 1.0, 1.0))
+            .draw_ready::<Fill<0>>((), None);
+        let mut recording = renderer.record(LogicalRect::default());
+        recording.draw_ready::<Fill<1>>((), None);
+        recording.draw_ready::<Fill<2>>((), None);
+        recording.draw_ready::<Fill<3>>((), None);
+        recording.draw_ready::<Fill<4>>((), None);
         renderer
-            .record::<Fill<16>>(LogicalRect::new(1.0, 0.0, 1.0, 1.0))
-            .draw_ready((), None);
+            .record(LogicalRect::new(1.0, 0.0, 1.0, 1.0))
+            .draw_ready::<Fill<16>>((), None);
         renderer.render(1);
         assert_eq!(
             renderer.buffer().pixels(),
@@ -288,11 +289,11 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
 
     let mut renderer = new_renderer(VecBuffer::new(64, 64), renderer_config());
     for pass in [false, true, true, false] {
-        let mut recording = renderer.record::<Fill<16>>(LogicalRect::new(40.0, 40.0, 1.0, 1.0));
+        let mut recording = renderer.record(LogicalRect::new(40.0, 40.0, 1.0, 1.0));
         if pass {
-            recording.pass(());
+            recording.pass::<Fill<16>>(());
         } else {
-            recording.draw_ready((), None);
+            recording.draw_ready::<Fill<16>>((), None);
         }
         renderer.render(1);
         assert_eq!(
@@ -353,7 +354,7 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
         D: DamageTracker,
     {
         fn paint(&mut self, bounds: LogicalRect, under: Under) {
-            self.record::<UnderHandler>(bounds).draw(under, None);
+            self.record(bounds).draw::<UnderHandler>(under, None);
         }
     }
 
@@ -380,13 +381,13 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
         D: DamageTracker,
     {
         fn paint(&mut self, bounds: LogicalRect, cover: Cover) {
-            let mut cx = self.record::<CoverHandler>(bounds);
+            let mut cx = self.record(bounds);
             let area = cover.area;
             let opaque = cover.report.then_some(area);
             if cover.prepared {
-                cx.draw(cover, opaque)
+                cx.draw::<CoverHandler>(cover, opaque)
             } else {
-                cx.draw_ready(cover, opaque)
+                cx.draw_ready::<CoverHandler>(cover, opaque)
             }
         }
     }
@@ -530,9 +531,9 @@ fn prepared_draws_capture_data_and_drop_results_once() {
         D: DamageTracker,
     {
         fn paint(&mut self, bounds: LogicalRect, samples: Samples<'_>) {
-            let mut cx = self.record::<SamplesHandler>(bounds);
+            let mut cx = self.record(bounds);
             let values = cx.store_slice(samples.0.iter().copied());
-            cx.draw(SamplesData(values, samples.1), None);
+            cx.draw::<SamplesHandler>(SamplesData(values, samples.1), None);
         }
     }
 

@@ -17,7 +17,7 @@ where
     D: DamageTracker,
 {
     fn paint(&mut self, bounds: LogicalRect, mesh: Mesh<'_>) {
-        let mut recording = self.record::<()>(bounds);
+        let mut recording = self.record(bounds);
         if mesh.indices.is_empty() || !mesh.is_valid() {
             return;
         }

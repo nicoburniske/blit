@@ -7,8 +7,6 @@ mod rectangle;
 mod shadow;
 mod text;
 
-use std::marker::PhantomData;
-
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_arena::Arena;
 use blit_gui::{
@@ -362,14 +360,13 @@ impl Renderer {
         }
     }
 
-    /// begins recording inputs for H
+    /// begins recording inputs within bounds
     #[inline]
-    pub fn record<H>(&mut self, bounds: LogicalRect) -> PaintContext<'_, H> {
+    pub fn record(&mut self, bounds: LogicalRect) -> PaintContext<'_> {
         PaintContext {
             scale: self.scale,
             bounds: bounds.to_physical(Scale2::uniform(self.scale)),
             renderer: self,
-            marker: PhantomData,
         }
     }
 
@@ -1204,16 +1201,17 @@ mod tests {
         });
         for _ in 0..2 {
             let bounds = blit::LogicalRect::new(0.0, 0.0, 8.0, 8.0);
-            renderer.record::<State<8>>(bounds).draw(0u8);
-            renderer.record::<State<16>>(bounds).draw(0u16);
+            let mut recording = renderer.record(bounds);
+            recording.draw::<State<8>>(0u8);
+            recording.draw::<State<16>>(0u16);
             renderer.render(&target);
             assert_eq!(renderer.handlers.len(), 2);
         }
         let bounds = blit::LogicalRect::new(0.0, 0.0, 8.0, 8.0);
-        renderer.record::<State<8>>(bounds).draw(1u8);
+        renderer.record(bounds).draw::<State<8>>(1u8);
         let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| renderer.render(&target)));
         assert!(failure.is_err());
-        renderer.record::<State<8>>(bounds).draw(0u8);
+        renderer.record(bounds).draw::<State<8>>(0u8);
         renderer.render(&target);
     }
 

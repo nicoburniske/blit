@@ -38,8 +38,8 @@ impl Default for Handler {
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Shadow> for Renderer<B, S, D> {
     fn paint(&mut self, area: LogicalRect, shadow: Shadow) {
-        let mut cx = self.record::<Handler>(shadow.bounds(area));
-        cx.draw(Input { area, shadow }, None);
+        let mut cx = self.record(shadow.bounds(area));
+        cx.draw::<Handler>(Input { area, shadow }, None);
     }
 }
 

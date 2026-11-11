@@ -38,7 +38,7 @@ impl Atom<DesktopContext> for Interference {
 
 impl Paint<Interference> for Renderer {
     fn paint(&mut self, bounds: LogicalRect, signal: Interference) {
-        self.record::<SignalShader>(bounds).draw(signal.phase.to_bits());
+        self.record(bounds).draw::<SignalShader>(signal.phase.to_bits());
     }
 }
 

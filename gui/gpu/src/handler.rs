@@ -1,4 +1,4 @@
-use std::{any::TypeId, hash::Hash, marker::PhantomData, ops::Range, ptr::NonNull};
+use std::{any::TypeId, hash::Hash, ops::Range, ptr::NonNull};
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_gui::display_list::{Compare, DisplayList, Slice};
@@ -33,20 +33,19 @@ pub trait Handler: Sized + 'static {
     fn finish_frame(&mut self) {}
 }
 
-pub struct PaintContext<'a, H> {
+pub struct PaintContext<'a> {
     pub scale: f32,
     pub bounds: PhysicalRect,
     pub(super) renderer: &'a mut Renderer,
-    pub(super) marker: PhantomData<H>,
 }
 
-impl<H> PaintContext<'_, H> {
+impl PaintContext<'_> {
     pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> Slice<T> {
         self.renderer.list.store_slice(values)
     }
 
     #[inline]
-    pub fn draw(&mut self, input: H::Input)
+    pub fn draw<H>(&mut self, input: H::Input)
     where
         H: Handler,
     {

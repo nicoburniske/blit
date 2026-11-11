@@ -23,7 +23,7 @@ where
     D: DamageTracker,
 {
     fn paint(&mut self, area: LogicalRect, rectangle: Rectangle<'_>) {
-        let mut recording = self.record::<()>(area);
+        let mut recording = self.record(area);
         let value = blit_gui::rectangle::Stored::new(area, rectangle, recording.list);
         recording.record_input(
             recording.bounds,

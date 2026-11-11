@@ -14,7 +14,7 @@ where
     D: DamageTracker,
 {
     fn paint(&mut self, bounds: LogicalRect, _: blit_gui::Clear) {
-        let mut recording = self.record::<()>(bounds);
+        let mut recording = self.record(bounds);
         recording.record_input(recording.bounds, 0, (), |_, _, record, _, context| {
             let target = &mut *context.commands;
             let call = ErasedCommand::ready(&mut target.prepared, Payload::Clear);

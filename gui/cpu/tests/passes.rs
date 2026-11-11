@@ -66,7 +66,7 @@ fn pass_barriers_read_current_frame_and_respect_nested_clips() {
         D: DamageTracker,
     {
         fn paint(&mut self, bounds: LogicalRect, command: Shift) {
-            self.record::<Shift>(bounds).pass(command);
+            self.record(bounds).pass::<Shift>(command);
         }
     }
     let mut renderer =

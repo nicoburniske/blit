@@ -16,7 +16,7 @@ where
     D: DamageTracker,
 {
     fn paint(&mut self, area: LogicalRect, request: TextRequest<'_>) {
-        let mut recording = self.record::<()>(area);
+        let mut recording = self.record(area);
         let value = blit_gui::text::Stored::new(area, request, recording.list);
         recording.record_input(
             recording.bounds,

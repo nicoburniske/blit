@@ -108,11 +108,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         unsafe { self.handlers[index].cast::<H>() }
     }
 
-    /// records drawing inputs and creates handler state when a custom draw needs it
-    pub fn record<H>(&mut self, bounds: LogicalRect) -> PaintContext<'_, H, B::Pixel>
-    where
-        H: Default + 'static,
-    {
+    /// begins recording drawing inputs within bounds
+    pub fn record(&mut self, bounds: LogicalRect) -> PaintContext<'_, B::Pixel> {
         let context = &mut self.context;
         PaintContext {
             scale: context.scale_factor,

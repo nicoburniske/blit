@@ -18,7 +18,7 @@ where
     D: DamageTracker,
 {
     fn paint(&mut self, area: LogicalRect, request: Image) {
-        let mut recording = self.record::<()>(area);
+        let mut recording = self.record(area);
         recording.record_input(
             recording.bounds,
             recording.clip,
