@@ -219,7 +219,9 @@ impl<P: Pixel> RasterCommands<P> {
                 self.metadata[id as usize].bounds = PhysicalRect::default();
                 continue;
             };
-            if let Some(opaque) = opaque {
+            if let Some(opaque) = opaque
+                && id > self.range.start
+            {
                 // only whole cells are opaque and screen edge cells may be smaller
                 let left = (opaque.x as usize).div_ceil(size) * size;
                 let top = (opaque.y as usize).div_ceil(size) * size;
