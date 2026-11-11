@@ -1,19 +1,15 @@
 use blit::{LogicalRect, Paint};
-use blit_gui::mesh::{self, Mesh};
+use blit_gui::mesh::{self};
 
 use crate::{MeshData, Renderer};
 
-impl Paint<Mesh<'_>> for Renderer {
-    fn paint(&mut self, bounds: LogicalRect, mesh: Mesh<'_>) {
-        if mesh.indices.is_empty() || !mesh.is_valid() {
-            return;
-        }
-        let value = mesh::Stored {
-            vertices: self.list.store_slice(mesh.vertices.iter().copied()),
-            indices: self.list.store_slice(mesh.indices.iter().copied()),
-        };
+impl Paint<mesh::Stored> for Renderer {
+    fn paint(&mut self, bounds: LogicalRect, value: mesh::Stored) {
         self.record_native(bounds, self.paint_clip, value, |value, list, renderer, _, clip| {
             let mesh = value.view(list);
+            if mesh.indices.is_empty() || !mesh.is_valid() {
+                return;
+            }
 
             let scale = renderer.scale;
             let vertex_start = renderer.mesh_data.len() as u32;

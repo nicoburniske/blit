@@ -175,6 +175,6 @@ impl Atom<DesktopContext> for Terrain {
         let bounds = vertices.iter().fold(area, |bounds, vertex| {
             bounds.union(LogicalRect::new(vertex.position.x, vertex.position.y, 0.0, 0.0))
         });
-        cx.context_mut().paint(bounds, Mesh { vertices, indices });
+        Mesh { vertices, indices }.paint(bounds, cx.context_mut());
     }
 }

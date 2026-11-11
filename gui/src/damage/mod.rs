@@ -14,5 +14,6 @@ pub trait DamageTracker {
     fn intersects(&self, bounds: PhysicalRect, clip: u32) -> bool;
     /// writes sorted disjoint spans valid until the returned vertical boundary
     fn line_ranges(&self, line: i32, bounds: PhysicalRect, ranges: &mut Vec<Range<usize>>) -> i32;
-    fn finish_frame(&mut self, _input: &mut DisplayList) {}
+    /// may swap the rendered list for one the renderer clears and reuses
+    fn finish_frame(&mut self, _rendered: &mut DisplayList) {}
 }

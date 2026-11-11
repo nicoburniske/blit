@@ -4,9 +4,7 @@ use std::{
     time::Duration,
 };
 
-use blit::{
-    Animation, Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Motion, Paint, Sides, Size, Tween, Widget,
-};
+use blit::{Animation, Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Motion, Sides, Size, Tween, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, SpringDrag, Transition, select};
 #[cfg(not(feature = "gpu"))]
 use blit_desktop::cpu;

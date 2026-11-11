@@ -12,7 +12,8 @@ pub type TextInputState = blit_widgets::TextInputState<f32>;
 use blit_gui::{
     Context, Rectangle,
     color::Color,
-    text::{TextLayoutRequest, TextOptions, TextRequest, TextRun, TextStyle, TextWrap},
+    rectangle,
+    text::{self, TextLayoutRequest, TextOptions, TextRequest, TextRun, TextStyle, TextWrap},
 };
 
 blit::builder! {
@@ -36,7 +37,7 @@ blit::builder! {
 impl<C, F: Handler<Action = Edit>> Widget<C> for TextInput<'_, F>
 where
     C: Context + blit_widgets::Context,
-    for<'a> C: Paint<Rectangle<'a>> + Paint<TextRequest<'a>>,
+    C: Paint<rectangle::Stored> + Paint<text::Stored>,
 {
     type Response = TextInputResponse;
 
@@ -162,7 +163,7 @@ struct InputAtom {
 
 impl<C: Context> Atom<C> for InputAtom
 where
-    for<'a> C: Paint<Rectangle<'a>> + Paint<TextRequest<'a>>,
+    C: Paint<rectangle::Stored> + Paint<text::Stored>,
 {
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         let size = cx.context_mut().text().measure(&TextLayoutRequest {
@@ -178,7 +179,7 @@ where
         let context = cx.context_mut();
         let area = area.inset(self.padding);
         if self.background != Color::TRANSPARENT {
-            context.paint(area, Rectangle::new().background(self.background));
+            Rectangle::new().background(self.background).paint(area, context);
         }
         let request = TextRequest {
             text: self.text,
@@ -194,7 +195,9 @@ where
             if let Some(selection) =
                 LogicalRect::new(start.x, start.y, end.x - start.x, start.height).intersection(area)
             {
-                context.paint(selection, Rectangle::new().background(self.selection_background));
+                Rectangle::new()
+                    .background(self.selection_background)
+                    .paint(selection, context);
             }
         }
         if self.focused
@@ -203,12 +206,14 @@ where
                 .cursor_rect(area, &request, self.state.cursor, 1.0)
                 .intersection(area)
         {
-            context.paint(cursor, Rectangle::new().background(self.cursor_background));
+            Rectangle::new()
+                .background(self.cursor_background)
+                .paint(cursor, context);
         }
         let request = TextRequest {
             text: self.display,
             ..request
         };
-        context.paint(area, request);
+        request.paint(area, context);
     }
 }

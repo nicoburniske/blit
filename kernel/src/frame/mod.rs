@@ -11,21 +11,18 @@ use std::{any::TypeId, marker::PhantomData, mem::size_of, num::NonZeroU32, time:
 
 use self::{
     animation::{AnimationState, MotionState, Playback},
-    arena::{BumpArena, BumpId, FrameSlice},
+    arena::{BumpArena, BumpId},
     timer::TimerState,
     ui::{NodeTarget, Ui},
 };
 use crate::{
-    Atom, AtomWidget, Clip, ClipShape, ContactId, ContactSource, Context, FrameInfo, Id, IntoWidget, Scalar, Scratch,
-    ScratchBuffer, Widget,
+    Atom, AtomWidget, Clip, ClipShape, ContactId, ContactSource, Context, FrameInfo, FrameSlice, FrameStore, Id,
+    IntoWidget, Scalar, Scratch, ScratchBuffer, Widget,
     animation::{Animation, AnimationOptions, Motion, MotionProps, Tween},
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::{Input, MouseButton, ScrollPhase, TouchPhase},
     interact::{Interact, Phase, ScrollEvent},
-    internal::{
-        animator::Animator,
-        bump::{Bump, Slice},
-    },
+    internal::{animator::Animator, bump::Bump},
     layout::{Axis, Layout},
 };
 

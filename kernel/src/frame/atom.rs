@@ -19,8 +19,11 @@ impl<'a, C: Context> AtomCx<'a, C> {
         self.bump.storage.alloc(capacity)
     }
 
-    pub fn slice<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &'a [T] {
-        self.bump.slice(slice)
+    pub fn slice<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T]
+    where
+        C: FrameStore,
+    {
+        self.context.frame_data().slice(slice)
     }
 }
 

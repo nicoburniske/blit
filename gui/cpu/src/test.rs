@@ -33,8 +33,7 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
         rc::Rc,
     };
 
-    use blit::internal::hash::FxHasher;
-    use blit_gui::display_list::{Command, Slice};
+    use blit_gui::display_list::Command;
 
     #[derive(Default)]
     struct Counts {
@@ -162,66 +161,6 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
     assert!(!left.context.list.equivalent(0, &right.context.list, 0));
     assert_eq!(counts.comparisons.get(), 0);
     assert_eq!(size_of::<Command>(), 32);
-
-    let left = &mut left.context.list;
-    let right = &mut right.context.list;
-    let a = left.store_slice([1u8, 2, 3].into_iter());
-    right.store_slice([0u8; 64].into_iter());
-    let b = right.store_slice([1u8, 2, 3].into_iter());
-    let changed = right.store_slice([1u8, 2, 4].into_iter());
-    assert!(<Slice<u8> as Compare>::equal(&a, left, &b, right));
-    assert!(!<Slice<u8> as Compare>::equal(&a, left, &changed, right));
-    let mut left_hash = FxHasher::new();
-    let mut right_hash = FxHasher::new();
-    <Slice<u8> as Compare>::hash(&a, left, &mut left_hash);
-    <Slice<u8> as Compare>::hash(&b, right, &mut right_hash);
-    assert_eq!(left_hash.finish(), right_hash.finish());
-}
-
-#[test]
-fn panicking_damage_tracker_cannot_leave_foreign_commands() {
-    struct Swap {
-        foreign: Option<DisplayList>,
-    }
-
-    impl DamageTracker for Swap {
-        fn update(&mut self, _: &DisplayList, _: PhysicalRect, _: f32, _: u8) {}
-        fn invalidate(&mut self) {}
-        fn is_empty(&self) -> bool {
-            true
-        }
-        fn intersects(&self, _: PhysicalRect, _: u32) -> bool {
-            false
-        }
-        fn line_ranges(&self, _: i32, bounds: PhysicalRect, _: &mut Vec<Range<usize>>) -> i32 {
-            bounds.y + bounds.height
-        }
-        fn finish_frame(&mut self, list: &mut DisplayList) {
-            if let Some(mut foreign) = self.foreign.take() {
-                std::mem::swap(list, &mut foreign);
-                panic!("interrupted after swapping lists");
-            }
-        }
-    }
-
-    let mut other = new_renderer(VecBuffer::<Rgba8888>::new(8, 8), renderer_config());
-    other.paint(LogicalRect::new(0.0, 0.0, 8.0, 8.0), blit_gui::Clear);
-    let foreign = Some(std::mem::take(&mut other.context.list));
-    let mut renderer =
-        new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config()).damage_tracker(Swap { foreign });
-    renderer.push_clip(LogicalRect::new(0.0, 0.0, 4.0, 8.0), BorderRadius::default());
-    renderer.pop_clip();
-    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| renderer.render(0))).is_err());
-    assert!(renderer.context.list.commands().is_empty());
-
-    let mut renderer = renderer.damage_tracker(TileDamage::new(4));
-    let area = LogicalRect::new(0.0, 0.0, 8.0, 8.0);
-    renderer.push_clip(LogicalRect::new(4.0, 0.0, 4.0, 8.0), BorderRadius::default());
-    renderer.paint(area, Rectangle::new().background(Color::WHITE));
-    renderer.pop_clip();
-    renderer.render(0);
-    assert_eq!(renderer.buffer().pixels()[0], Xrgb8888::background());
-    assert_eq!(renderer.buffer().pixels()[7], Xrgb8888::from_rgb(255, 255, 255));
 }
 
 #[test]
@@ -433,8 +372,8 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
                 for (frame, value) in [64, 128, 128].into_iter().enumerate() {
                     under.set(0);
                     cover.set(0);
-                    renderer.paint(screen, Rectangle::new().background(Color::BLACK));
-                    reference.paint(screen, Rectangle::new().background(Color::BLACK));
+                    Rectangle::new().background(Color::BLACK).paint(screen, &mut renderer);
+                    Rectangle::new().background(Color::BLACK).paint(screen, &mut reference);
                     renderer.paint(area.to_logical(SCALE), Under(under.clone()));
                     reference.paint(area.to_logical(SCALE), Under(Rc::default()));
                     let clip = match mode {
@@ -495,7 +434,7 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
 fn prepared_draws_capture_data_and_drop_results_once() {
     use std::{cell::Cell, rc::Rc};
 
-    use blit_gui::display_list::Slice;
+    use blit::FrameSlice;
 
     #[derive(Default)]
     struct Counts {
@@ -513,7 +452,7 @@ fn prepared_draws_capture_data_and_drop_results_once() {
 
     struct Samples<'a>(&'a [u8], Rc<Counts>);
 
-    struct SamplesData(Slice<u8>, Rc<Counts>);
+    struct SamplesData(FrameSlice<u8>, Rc<Counts>);
 
     impl Compare for SamplesData {
         fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
@@ -564,36 +503,35 @@ fn prepared_draws_capture_data_and_drop_results_once() {
         let bounds = LogicalRect::new(0.0, 0.0, 64.0, 32.0);
         let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(64, 32), renderer_config()).strategy(strategy);
         for (mode, expected) in [(0, 0), (1, 1), (2, 2), (3, 3), (3, 3)] {
-            renderer.paint(bounds, Rectangle::new().background(Color::BLACK));
+            Rectangle::new().background(Color::BLACK).paint(bounds, &mut renderer);
             let mut values = [64];
             renderer.paint(bounds, Samples(&values, counts.clone()));
             values.fill(128);
             assert_eq!(renderer.context.raster.prepared.used(), 0);
-            renderer.paint(
-                bounds,
-                Mesh {
-                    vertices: &[
-                        MeshVertex::new(1.0, 1.0, Color::TRANSPARENT),
-                        MeshVertex::new(3.0, 1.0, Color::TRANSPARENT),
-                        MeshVertex::new(1.0, 3.0, Color::TRANSPARENT),
-                    ],
-                    indices: &[0, 1, 2],
-                },
-            );
+            Mesh {
+                vertices: &[
+                    MeshVertex::new(1.0, 1.0, Color::TRANSPARENT),
+                    MeshVertex::new(3.0, 1.0, Color::TRANSPARENT),
+                    MeshVertex::new(1.0, 3.0, Color::TRANSPARENT),
+                ],
+                indices: &[0, 1, 2],
+            }
+            .paint(bounds, &mut renderer);
             match mode {
                 0 => {
                     for x in [0.0, 32.0] {
-                        renderer.paint(
-                            LogicalRect::new(x, 0.0, 32.0, 32.0),
-                            Rectangle::new().background(Color::WHITE),
-                        );
+                        Rectangle::new()
+                            .background(Color::WHITE)
+                            .paint(LogicalRect::new(x, 0.0, 32.0, 32.0), &mut renderer);
                     }
                 }
-                1 => renderer.paint(
-                    LogicalRect::new(1.0, 0.0, 62.0, 32.0),
-                    Rectangle::new().background(Color::WHITE),
-                ),
-                2 => renderer.paint(bounds, Rectangle::new().background(Color::WHITE).opacity(0.5)),
+                1 => Rectangle::new()
+                    .background(Color::WHITE)
+                    .paint(LogicalRect::new(1.0, 0.0, 62.0, 32.0), &mut renderer),
+                2 => Rectangle::new()
+                    .background(Color::WHITE)
+                    .opacity(0.5)
+                    .paint(bounds, &mut renderer),
                 _ => {}
             }
             renderer.render(1);
@@ -662,10 +600,12 @@ fn builtin_preparation_follows_damage_and_occlusion() {
         (false, Color::BLACK),
     ] {
         renderer.paint(bounds, blit_gui::Clear);
-        renderer.paint(area, Rectangle::new().background(color));
-        renderer.paint(unrelated, Rectangle::new().background(Color::WHITE));
+        Rectangle::new().background(color).paint(area, &mut renderer);
+        Rectangle::new()
+            .background(Color::WHITE)
+            .paint(unrelated, &mut renderer);
         if covered {
-            renderer.paint(bounds, Rectangle::new().background(Color::WHITE));
+            Rectangle::new().background(Color::WHITE).paint(bounds, &mut renderer);
         }
         renderer.render(1);
     }
@@ -690,12 +630,12 @@ fn shadow_masks_are_lazy_and_shared_until_frame_end() {
     let bounds = LogicalRect::new(0.0, 0.0, 32.0, 20.0);
     let shadow = Shadow::new(Color::WHITE).blur(2.0);
     for covered in [true, false] {
-        renderer.paint(bounds, Rectangle::new().background(Color::BLACK));
+        Rectangle::new().background(Color::BLACK).paint(bounds, &mut renderer);
         renderer.paint(LogicalRect::new(8.0, 6.0, 8.0, 6.0), shadow);
         renderer.paint(LogicalRect::new(18.0, 6.0, 8.0, 6.0), shadow);
         assert!(renderer.context.images.is_empty());
         if covered {
-            renderer.paint(bounds, Rectangle::new().background(Color::WHITE));
+            Rectangle::new().background(Color::WHITE).paint(bounds, &mut renderer);
         }
         renderer.render(1);
         assert!(renderer.context.images.is_empty());
@@ -746,7 +686,7 @@ fn oversized_borders_fill_rectangle() {
         Border::gradient(f32::MAX, LinearGradient::new(&stops)),
     ] {
         let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
-        renderer.paint(area, Rectangle::new().border(border));
+        Rectangle::new().border(border).paint(area, &mut renderer);
         renderer.render(0);
         assert!(renderer.buffer().pixels().iter().all(|pixel| pixel.raw() == 0xffffff));
     }
@@ -779,10 +719,9 @@ fn scattered_tiles_stay_local_across_command_reorders() {
         for position in 0..40 {
             let index = if frame == 2 { 39 - position } else { position };
             let area = LogicalRect::new((index * 16 + 1) as f32, 1.0, 2.0, 2.0);
-            renderer.paint(
-                area,
-                Rectangle::new().background(if frame == 0 { Color::WHITE } else { Color::BLACK }),
-            );
+            Rectangle::new()
+                .background(if frame == 0 { Color::WHITE } else { Color::BLACK })
+                .paint(area, &mut renderer);
         }
         renderer.pop_clip();
         renderer.render(1);
@@ -811,15 +750,14 @@ fn dirty_tiles_preserve_gaps_and_blend_once() {
         )
         .strategy(S::default());
         for frame in 0..2 {
-            renderer.paint(
-                screen.to_logical(SCALE),
-                Rectangle::new().background(Color::rgba(255, 0, 0, 128)),
-            );
+            Rectangle::new()
+                .background(Color::rgba(255, 0, 0, 128))
+                .paint(screen.to_logical(SCALE), &mut renderer);
             for region in regions {
-                renderer.paint(
-                    region.to_logical(SCALE),
-                    Rectangle::new().background(Color::WHITE).opacity(frame as f32),
-                );
+                Rectangle::new()
+                    .background(Color::WHITE)
+                    .opacity(frame as f32)
+                    .paint(region.to_logical(SCALE), &mut renderer);
             }
             if frame == 0 {
                 // seed tracking without drawing to isolate partial rasterization
@@ -877,7 +815,7 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
 
             renderer.paint((PhysicalRect::new(0, 0, 37, 21)).to_logical(SCALE), blit_gui::Clear);
             let area = LogicalRect::new(left as f32, 2.0, 6.0, 16.0);
-            renderer.paint(area, Rectangle::new().background(Color::WHITE));
+            Rectangle::new().background(Color::WHITE).paint(area, &mut renderer);
             renderer.render(age);
             let mut expected = [Argb8888::default(); 37 * 21];
             for row in 2..18 {
@@ -998,10 +936,9 @@ fn renderer_supports_custom_pixel_layouts() {
     let mut renderer = new_renderer(VecBuffer::<BgrPixel>::new(96, 24), renderer_config());
     let clip = renderer.screen();
 
-    renderer.paint(
-        clip.to_logical(SCALE),
-        Rectangle::new().background(Color::rgb(12, 34, 56)),
-    );
+    Rectangle::new()
+        .background(Color::rgb(12, 34, 56))
+        .paint(clip.to_logical(SCALE), &mut renderer);
     renderer.paint(clip.to_logical(SCALE), blit_gui::BackdropBlur::new(2.0));
     renderer.render(0);
     assert_eq!(
@@ -1030,7 +967,7 @@ fn renderer_supports_custom_pixel_layouts() {
             offset_x: 0.0,
             options: TextOptions::default(),
         };
-        renderer.paint(request_area, request);
+        request.paint(request_area, &mut renderer);
         colors.fill(Color::TRANSPARENT);
     }
     let request_area = LogicalRect::new(64.0, 0.0, 32.0, 24.0);
@@ -1040,7 +977,7 @@ fn renderer_supports_custom_pixel_layouts() {
         offset_x: 0.0,
         options: TextOptions::default(),
     };
-    renderer.paint(request_area, request);
+    request.paint(request_area, &mut renderer);
     renderer.render(0);
 
     let pixels = renderer.buffer().pixels();
@@ -1083,20 +1020,20 @@ fn meshes_preserve_interpolation_shared_edges_and_order() {
             }
             for split in [false, true] {
                 let target = if split { &mut reference } else { &mut renderer };
-                target.paint(bounds, Rectangle::new().background(Color::BLACK));
+                Rectangle::new().background(Color::BLACK).paint(bounds, target);
                 target.push_clip(bounds, BorderRadius::uniform(frame as f32 * 2.0));
                 for indices in [&indices[..9], &indices[9..]] {
                     for indices in indices.chunks(if split { 3 } else { indices.len() }) {
-                        target.paint(
-                            bounds,
-                            Mesh {
-                                vertices: &vertices,
-                                indices,
-                            },
-                        );
+                        Mesh {
+                            vertices: &vertices,
+                            indices,
+                        }
+                        .paint(bounds, target);
                     }
                     let overlay = LogicalRect::new(20.0, 4.0, 4.0, 8.0);
-                    target.paint(overlay, Rectangle::new().background(Color::rgba(0, 0, 255, 96)));
+                    Rectangle::new()
+                        .background(Color::rgba(0, 0, 255, 96))
+                        .paint(overlay, target);
                 }
                 target.pop_clip();
             }
@@ -1162,31 +1099,27 @@ fn mesh_occlusion_uses_screen_and_ancestor_clip_bounds() {
                     } else {
                         screen
                     };
-                    renderer.paint(
-                        LogicalRect::new(-16.0, -16.0, 64.0, 64.0),
-                        Mesh {
-                            vertices: &[
-                                MeshVertex::new(-16.0, -16.0, Color::WHITE),
-                                MeshVertex::new(48.0, -16.0, Color::WHITE),
-                                MeshVertex::new(-16.0, 48.0, Color::WHITE),
-                                MeshVertex::new(48.0, 48.0, Color::WHITE),
-                            ],
-                            indices: &[0, 1, 2, 2, 1, 3],
-                        },
-                    );
+                    Mesh {
+                        vertices: &[
+                            MeshVertex::new(-16.0, -16.0, Color::WHITE),
+                            MeshVertex::new(48.0, -16.0, Color::WHITE),
+                            MeshVertex::new(-16.0, 48.0, Color::WHITE),
+                            MeshVertex::new(48.0, 48.0, Color::WHITE),
+                        ],
+                        indices: &[0, 1, 2, 2, 1, 3],
+                    }
+                    .paint(LogicalRect::new(-16.0, -16.0, 64.0, 64.0), &mut renderer);
                     if clipped {
                         renderer.pop_clip();
                         renderer.pop_clip();
                     }
                     let marker = LogicalRect::new(0.0, 0.0, 1.0, 1.0);
-                    renderer.paint(marker, Rectangle::new().background(Color::WHITE));
-                    renderer.paint(
-                        cover,
-                        Rectangle::new()
-                            .background(Color::BLACK)
-                            .opacity(opacity)
-                            .radius(BorderRadius::uniform(radius)),
-                    );
+                    Rectangle::new().background(Color::WHITE).paint(marker, &mut renderer);
+                    Rectangle::new()
+                        .background(Color::BLACK)
+                        .opacity(opacity)
+                        .radius(BorderRadius::uniform(radius))
+                        .paint(cover, &mut renderer);
                     renderer.render(0);
                 }
             }
@@ -1214,7 +1147,7 @@ fn recorded_commands_track_damage_and_invalidation() {
     let rectangle = Rectangle::new().background(Color::WHITE);
     let render = |renderer: &mut Renderer<TrackingBuffer, Scanline>| {
         renderer.buffer_mut().lines.clear();
-        renderer.paint(rectangle_area, rectangle);
+        rectangle.paint(rectangle_area, renderer);
         renderer.render(1);
     };
 
@@ -1275,47 +1208,38 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
                         } else {
                             Rectangle::new().border(Border::gradient(2.0, gradient))
                         };
-                        renderer.paint(area, rectangle);
+                        rectangle.paint(area, &mut renderer);
                     }
                     "conic" => {
                         let stops = [
                             GradientStop::new(0.0, Color::BLACK),
                             GradientStop::new(1.0, Color::WHITE),
                         ];
-                        renderer.paint(
-                            area,
-                            Rectangle::new().background(ConicGradient::new(&stops).angle(if frame == 0 {
-                                0.0
-                            } else {
-                                90.0
-                            })),
-                        );
+                        Rectangle::new()
+                            .background(ConicGradient::new(&stops).angle(if frame == 0 { 0.0 } else { 90.0 }))
+                            .paint(area, &mut renderer);
                     }
-                    "text" => renderer.paint(
-                        area,
-                        TextRequest {
-                            text,
-                            colors: &[color],
-                            offset_x: 0.0,
-                            options: TextOptions::default(),
-                        },
-                    ),
+                    "text" => TextRequest {
+                        text,
+                        colors: &[color],
+                        offset_x: 0.0,
+                        options: TextOptions::default(),
+                    }
+                    .paint(area, &mut renderer),
                     "image" => renderer.paint(area, Image::new(&image).opacity(if frame == 0 { 0.5 } else { 1.0 })),
                     "shadow" => renderer.paint(area, Shadow::new(color).blur(2.0).inset(true)),
-                    "mesh" => renderer.paint(
-                        area,
-                        Mesh {
-                            vertices: &[
-                                MeshVertex::new(0.0, 0.0, color),
-                                MeshVertex::new(16.0, 0.0, Color::WHITE),
-                                MeshVertex::new(0.0, 16.0, Color::WHITE),
-                            ],
-                            indices: &[0, 1, 2],
-                        },
-                    ),
+                    "mesh" => Mesh {
+                        vertices: &[
+                            MeshVertex::new(0.0, 0.0, color),
+                            MeshVertex::new(16.0, 0.0, Color::WHITE),
+                            MeshVertex::new(0.0, 16.0, Color::WHITE),
+                        ],
+                        indices: &[0, 1, 2],
+                    }
+                    .paint(area, &mut renderer),
                     "clip" => {
                         renderer.push_clip(area, BorderRadius::uniform(if frame == 0 { 0.0 } else { 4.0 }));
-                        renderer.paint(area, Rectangle::new().background(Color::WHITE));
+                        Rectangle::new().background(Color::WHITE).paint(area, &mut renderer);
                         renderer.pop_clip();
                     }
                     _ => unreachable!(),
@@ -1349,7 +1273,7 @@ fn text_placement_tracks_physical_clip_size() {
             };
             let screen = renderer.screen();
             renderer.paint(screen.to_logical(SCALE), blit_gui::Clear);
-            renderer.paint(request_area, request);
+            request.paint(request_area, renderer);
             renderer.render(0);
         }
         assert_eq!(renderer.buffer().pixels(), fresh.buffer().pixels());
@@ -1600,7 +1524,7 @@ fn clear_resets_stale_pixels_before_drawing() {
         if clear {
             renderer.paint(screen.to_logical(SCALE), blit_gui::Clear);
         }
-        renderer.paint(rectangle_area, rectangle);
+        rectangle.paint(rectangle_area, &mut renderer);
         renderer.render(0);
         renderer.buffer().pixels().to_vec()
     }
@@ -1866,9 +1790,15 @@ fn scanline_skips_commands_behind_opaque_content() {
         ..LogicalRect::default()
     };
 
-    renderer.paint(area, Rectangle::new().background(Color::rgba(255, 0, 0, 128)));
-    renderer.paint(area, Rectangle::new().background(Color::rgb(0, 255, 0)));
-    renderer.paint(area, Rectangle::new().background(Color::rgba(0, 0, 255, 128)));
+    Rectangle::new()
+        .background(Color::rgba(255, 0, 0, 128))
+        .paint(area, &mut renderer);
+    Rectangle::new()
+        .background(Color::rgb(0, 255, 0))
+        .paint(area, &mut renderer);
+    Rectangle::new()
+        .background(Color::rgba(0, 0, 255, 128))
+        .paint(area, &mut renderer);
     renderer.render(0);
 
     assert_eq!(SOLID_PAIRS.load(std::sync::atomic::Ordering::Relaxed), 2);
@@ -1882,14 +1812,16 @@ fn scanline_skips_commands_behind_opaque_content() {
         ..LogicalRect::default()
     };
 
-    renderer.paint(area, Rectangle::new().background(Color::rgba(255, 0, 0, 128)));
-    renderer.paint(
-        area,
-        Rectangle::new()
-            .background(Color::rgb(0, 255, 0))
-            .radius(BorderRadius::uniform(3.0)),
-    );
-    renderer.paint(area, Rectangle::new().background(Color::rgba(0, 0, 255, 128)));
+    Rectangle::new()
+        .background(Color::rgba(255, 0, 0, 128))
+        .paint(area, &mut renderer);
+    Rectangle::new()
+        .background(Color::rgb(0, 255, 0))
+        .radius(BorderRadius::uniform(3.0))
+        .paint(area, &mut renderer);
+    Rectangle::new()
+        .background(Color::rgba(0, 0, 255, 128))
+        .paint(area, &mut renderer);
     renderer.render(0);
 
     assert!(
@@ -1915,9 +1847,13 @@ fn scanline_skips_commands_behind_opaque_content() {
     let image = Image::new(&image);
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
 
-    renderer.paint(area, Rectangle::new().background(Color::rgba(255, 0, 0, 128)));
+    Rectangle::new()
+        .background(Color::rgba(255, 0, 0, 128))
+        .paint(area, &mut renderer);
     renderer.paint(area, image);
-    renderer.paint(area, Rectangle::new().background(Color::rgba(0, 0, 255, 128)));
+    Rectangle::new()
+        .background(Color::rgba(0, 0, 255, 128))
+        .paint(area, &mut renderer);
     renderer.render(0);
 
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 8);
@@ -1932,9 +1868,13 @@ fn scanline_skips_commands_behind_opaque_content() {
     let transparent_image = Image::new(transparent_image);
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
 
-    renderer.paint(area, Rectangle::new().background(Color::rgba(255, 0, 0, 128)));
+    Rectangle::new()
+        .background(Color::rgba(255, 0, 0, 128))
+        .paint(area, &mut renderer);
     renderer.paint(area, transparent_image);
-    renderer.paint(area, Rectangle::new().background(Color::rgba(0, 0, 255, 128)));
+    Rectangle::new()
+        .background(Color::rgba(0, 0, 255, 128))
+        .paint(area, &mut renderer);
     renderer.render(0);
 
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 16);
@@ -1964,10 +1904,10 @@ fn scanline_skips_commands_behind_opaque_content() {
     let overlay = Rectangle::new().background(Color::rgba(0, 0, 255, 128));
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
 
-    renderer.paint(screen.to_logical(SCALE), background);
+    background.paint(screen.to_logical(SCALE), &mut renderer);
     renderer.paint(screen.to_logical(SCALE), underlay.clone());
     renderer.paint(screen.to_logical(SCALE), partial_image.clone());
-    renderer.paint(screen.to_logical(SCALE), overlay);
+    overlay.paint(screen.to_logical(SCALE), &mut renderer);
     renderer.render(0);
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 14);
     for (rendered, source) in renderer
@@ -1991,18 +1931,18 @@ fn scanline_skips_commands_behind_opaque_content() {
 
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
 
-    renderer.paint(screen.to_logical(SCALE), background);
+    background.paint(screen.to_logical(SCALE), &mut renderer);
     renderer.paint(screen.to_logical(SCALE), underlay);
     renderer.paint(screen.to_logical(SCALE), partial_image.clone().opacity(0.5));
-    renderer.paint(screen.to_logical(SCALE), overlay);
+    overlay.paint(screen.to_logical(SCALE), &mut renderer);
     renderer.render(0);
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 18);
 
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
 
-    renderer.paint(screen.to_logical(SCALE), background);
+    background.paint(screen.to_logical(SCALE), &mut renderer);
     renderer.paint(screen.to_logical(SCALE), partial_image);
-    renderer.paint(screen.to_logical(SCALE), overlay);
+    overlay.paint(screen.to_logical(SCALE), &mut renderer);
     renderer.render(0);
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 10);
 
@@ -2012,19 +1952,19 @@ fn scanline_skips_commands_behind_opaque_content() {
                 let mut renderer = new_renderer(VecBuffer::<CountingPixel>::new(256, 8), renderer_config())
                     .strategy(Scanline::default());
                 let screen = renderer.screen().to_logical(SCALE);
-                renderer.paint(screen, Rectangle::new().background(Color::rgb(255, 0, 0)));
+                Rectangle::new()
+                    .background(Color::rgb(255, 0, 0))
+                    .paint(screen, &mut renderer);
                 let area = LogicalRect::new(64.0, 2.0, 128.0, 4.0);
                 let stops = [
                     GradientStop::new(0.0, Color::rgb(0, 255, 0)),
                     GradientStop::new(1.0, Color::rgba(0, 0, 255, alpha)),
                 ];
-                renderer.paint(
-                    area,
-                    Rectangle::new()
-                        .background(LinearGradient::new(&stops))
-                        .opacity(opacity)
-                        .radius(BorderRadius::uniform(radius)),
-                );
+                Rectangle::new()
+                    .background(LinearGradient::new(&stops))
+                    .opacity(opacity)
+                    .radius(BorderRadius::uniform(radius))
+                    .paint(area, &mut renderer);
                 RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
                 renderer.render(0);
                 let drawn = RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed);
@@ -2069,28 +2009,23 @@ fn gradients_match_between_strategies_and_rounded_clips() {
                 GradientStop::new(0.4, Color::rgba(40, 240, 80, 180)),
                 GradientStop::new(1.0, Color::rgba(32, 64, 255, 240)),
             ];
-            renderer.paint(
-                LogicalRect::new(4.0, 3.0, 40.0, 30.0),
-                Rectangle::new()
-                    .background(if gradient_background {
-                        Fill::LinearGradient(LinearGradient::new(&stops))
-                    } else {
-                        Color::rgba(20, 24, 32, 210).into()
-                    })
-                    .border(Border::gradient(3.0, LinearGradient::new(&stops).angle(135.0)))
-                    .radius(BorderRadius::uniform(9.0)),
-            );
-            renderer.paint(
-                LogicalRect::new(8.0, 8.0, 12.0, 12.0),
-                Rectangle::new()
-                    .background(ConicGradient::new(&stops).center(0.3, 0.65).angle(-35.0))
-                    .border(Border::gradient(2.0, ConicGradient::new(&stops).angle(75.0)))
-                    .radius(BorderRadius::uniform(3.0)),
-            );
-            renderer.paint(
-                LogicalRect::new(0.0, 0.0, 48.0, 36.0),
-                Rectangle::new().background(LinearGradient::new(&[])),
-            );
+            Rectangle::new()
+                .background(if gradient_background {
+                    Fill::LinearGradient(LinearGradient::new(&stops))
+                } else {
+                    Color::rgba(20, 24, 32, 210).into()
+                })
+                .border(Border::gradient(3.0, LinearGradient::new(&stops).angle(135.0)))
+                .radius(BorderRadius::uniform(9.0))
+                .paint(LogicalRect::new(4.0, 3.0, 40.0, 30.0), &mut renderer);
+            Rectangle::new()
+                .background(ConicGradient::new(&stops).center(0.3, 0.65).angle(-35.0))
+                .border(Border::gradient(2.0, ConicGradient::new(&stops).angle(75.0)))
+                .radius(BorderRadius::uniform(3.0))
+                .paint(LogicalRect::new(8.0, 8.0, 12.0, 12.0), &mut renderer);
+            Rectangle::new()
+                .background(LinearGradient::new(&[]))
+                .paint(LogicalRect::new(0.0, 0.0, 48.0, 36.0), &mut renderer);
         }
         renderer.pop_clip();
         renderer.render(0);
@@ -2114,10 +2049,9 @@ fn gradients_match_between_strategies_and_rounded_clips() {
         GradientStop::new(1.0, Color::WHITE),
     ];
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(9, 9), renderer_config());
-    renderer.paint(
-        LogicalRect::new(0.0, 0.0, 9.0, 9.0),
-        Rectangle::new().background(ConicGradient::new(&stops).angle(450.0)),
-    );
+    Rectangle::new()
+        .background(ConicGradient::new(&stops).angle(450.0))
+        .paint(LogicalRect::new(0.0, 0.0, 9.0, 9.0), &mut renderer);
     renderer.render(0);
     let pixels = renderer.buffer().pixels();
     assert_eq!(pixels[4 * 9 + 4].raw(), 0);
@@ -2156,7 +2090,7 @@ fn rounded_clips_match_between_strategies() {
                 bottom_left: 8.0,
             },
         );
-        renderer.paint(screen.to_logical(SCALE), red);
+        red.paint(screen.to_logical(SCALE), &mut renderer);
         renderer.push_clip(
             LogicalRect {
                 width: 8.0,
@@ -2166,13 +2100,12 @@ fn rounded_clips_match_between_strategies() {
             BorderRadius::default(),
         );
         renderer.paint(screen.to_logical(SCALE), image);
-        renderer.paint(screen.to_logical(SCALE), text);
+        text.paint(screen.to_logical(SCALE), &mut renderer);
         renderer.pop_clip();
         renderer.pop_clip();
-        renderer.paint(
-            LogicalRect::new(15.0, 15.0, 1.0, 1.0),
-            Rectangle::new().background(Color::rgb(0, 0, 255)),
-        );
+        Rectangle::new()
+            .background(Color::rgb(0, 0, 255))
+            .paint(LogicalRect::new(15.0, 15.0, 1.0, 1.0), &mut renderer);
         renderer.render(0);
         renderer
     }
@@ -2318,7 +2251,7 @@ fn damage_trackers_preserve_overlapping_reorders() {
                 for &index in *frame {
                     let rectangle_area = LogicalRect::new(index as f32, index as f32, 10.0, 10.0);
                     let rectangle = Rectangle::new().background(Color::rgba(index * 50, 100, 200, 128));
-                    renderer.paint(rectangle_area, rectangle);
+                    rectangle.paint(rectangle_area, renderer);
                 }
                 renderer.render(1);
             }

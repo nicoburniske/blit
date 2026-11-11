@@ -9,12 +9,12 @@ mod text;
 
 use std::{any::TypeId, hash::Hasher, marker::PhantomData, mem::offset_of, ptr::NonNull};
 
-use blit::{LogicalRect, PhysicalRect, Scale2, internal::bump::Offset};
+use blit::{FrameSlice, LogicalRect, PhysicalRect, Scale2, internal::bump::Offset};
 use blit_arena::Arena;
 use blit_gui::{
     Context, TextSystem,
     damage::{DamageTracker, tile::TileDamage},
-    display_list::{self, Command, Compare, DisplayList, Slice},
+    display_list::{self, Command, Compare, DisplayList},
     image::{ImageData, ImageHandle},
     style::BorderRadius,
 };
@@ -292,6 +292,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         context.raster.clear();
         context.reads_framebuffer = false;
         context.clips.clear();
+        // taken so a panicking tracker cannot leave a swapped in list behind
         let mut list = std::mem::take(&mut context.list);
         self.damage.finish_frame(&mut list);
         list.clear();
@@ -340,6 +341,16 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> blit::Context for R
     type Scalar = f32;
 }
 
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> blit::FrameStore for Renderer<B, S, D> {
+    fn frame_data(&self) -> &blit::FrameData {
+        self.context.list.inputs()
+    }
+
+    fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T> {
+        self.context.list.store_slice(values)
+    }
+}
+
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Context for Renderer<B, S, D> {
     fn text(&mut self) -> &mut TextSystem {
         &mut self.context.text.system
@@ -375,7 +386,7 @@ pub struct RecordContext<'a, P: Pixel> {
 }
 
 impl<P: Pixel> RecordContext<'_, P> {
-    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> Slice<T> {
+    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T> {
         self.list.store_slice(values)
     }
 

@@ -1,7 +1,7 @@
 use std::{any::TypeId, hash::Hash, ops::Range, ptr::NonNull};
 
-use blit::{LogicalRect, PhysicalRect, Scale2};
-use blit_gui::display_list::{Compare, DisplayList, Slice};
+use blit::{FrameSlice, LogicalRect, PhysicalRect, Scale2};
+use blit_gui::display_list::{Compare, DisplayList};
 
 use crate::{Effects, Renderer};
 
@@ -58,7 +58,7 @@ impl PrepareContext<'_> {
     pub fn layout(&self) -> &wgpu::BindGroupLayout {
         &self.renderer.bind_group_layout
     }
-    pub fn slice<T: Copy + 'static>(&self, value: Slice<T>) -> &[T] {
+    pub fn slice<T: Copy + 'static>(&self, value: FrameSlice<T>) -> &[T] {
         self.list.slice(value)
     }
     /// cached snapshot view whose declared pixels are copied immediately before drawing

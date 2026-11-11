@@ -3,11 +3,10 @@ use std::{
     hash::{Hash, Hasher},
     mem::offset_of,
     ptr::NonNull,
-    sync::atomic::{AtomicU32, Ordering},
 };
 
 use blit::{
-    LogicalRect, PhysicalRect,
+    FrameData, FrameSlice, LogicalRect, PhysicalRect,
     internal::{
         bump::{Bump, Offset},
         hash::FxHasher,
@@ -22,7 +21,7 @@ pub struct DisplayList {
     commands: Vec<Command>,
     clips: Vec<Clip>,
     data: Bump,
-    epoch: u32,
+    inputs: FrameData,
 }
 
 /// content comparison for recorded drawing inputs
@@ -46,18 +45,6 @@ where
     }
 }
 
-impl<T> Compare for Slice<T>
-where
-    T: Copy + PartialEq + Hash + 'static,
-{
-    fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
-        left.slice(*a) == right.slice(*b)
-    }
-    fn hash(input: &Self, list: &DisplayList, state: &mut impl Hasher) {
-        list.slice(*input).hash(state);
-    }
-}
-
 impl DisplayList {
     pub fn commands(&self) -> &[Command] {
         &self.commands
@@ -71,26 +58,16 @@ impl DisplayList {
         &self.data
     }
 
-    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> Slice<T> {
-        static NEXT_EPOCH: AtomicU32 = AtomicU32::new(1);
-        if self.epoch == 0 {
-            self.epoch = NEXT_EPOCH
-                .try_update(Ordering::Relaxed, Ordering::Relaxed, |epoch| epoch.checked_add(1))
-                .expect("display list epochs exhausted");
-        }
-        Slice {
-            slice: self.data.extend(values),
-            epoch: self.epoch,
-        }
+    pub fn inputs(&self) -> &FrameData {
+        &self.inputs
     }
 
-    pub fn slice<T: Copy + 'static>(&self, slice: Slice<T>) -> &[T] {
-        assert_eq!(
-            slice.epoch, self.epoch,
-            "slice belongs to another display list or frame"
-        );
-        // safety: the private slice preserves its type and the epoch identifies its storage
-        unsafe { self.data.slice(slice.slice) }
+    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T> {
+        self.inputs.store_slice(values)
+    }
+
+    pub fn slice<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T] {
+        self.inputs.slice(slice)
     }
 
     /// # Safety
@@ -190,7 +167,7 @@ impl DisplayList {
     }
 
     pub fn clear(&mut self) {
-        self.epoch = 0;
+        self.inputs.clear();
         self.commands.clear();
         self.clips.clear();
         self.data.clear();
@@ -224,13 +201,6 @@ pub struct Ops {
     pub equal: unsafe fn(&DisplayList, u32, &DisplayList, u32) -> bool,
     pub hash: unsafe fn(&DisplayList, u32, &mut FxHasher),
     pub dispatch: unsafe fn(&Command, &DisplayList, NonNull<()>),
-}
-
-/// slices stored until their display list is cleared
-#[derive(Clone, Copy)]
-pub struct Slice<T> {
-    slice: blit::internal::bump::Slice<T>,
-    epoch: u32,
 }
 
 #[derive(Clone, Copy)]

@@ -2,7 +2,7 @@ use blit::{LogicalRect, Paint, PhysicalRect, internal::bump::Offset};
 use blit_gui::{
     damage::DamageTracker,
     display_list::DisplayList,
-    mesh::{self, Mesh},
+    mesh::{self},
 };
 
 use super::triangle;
@@ -10,25 +10,23 @@ use crate::{
     Pixel, PixelBuffer, PixelSpan, RenderStrategy, Renderer, render::ErasedCommand, strategy::command::Payload,
 };
 
-impl<B, S, D> Paint<Mesh<'_>> for Renderer<B, S, D>
+impl<B, S, D> Paint<mesh::Stored> for Renderer<B, S, D>
 where
     B: PixelBuffer,
     S: RenderStrategy<B>,
     D: DamageTracker,
 {
-    fn paint(&mut self, bounds: LogicalRect, mesh: Mesh<'_>) {
+    fn paint(&mut self, bounds: LogicalRect, value: mesh::Stored) {
         let mut recording = self.record(bounds);
-        if mesh.indices.is_empty() || !mesh.is_valid() {
-            return;
-        }
-        let vertices = recording.list.store_slice(mesh.vertices.iter().copied());
-        let indices = recording.list.store_slice(mesh.indices.iter().copied());
-        let value = mesh::Stored { vertices, indices };
         recording.record_input(
             recording.bounds,
             recording.clip,
             value,
-            |_, mesh_offset, record, _, context| {
+            |value, mesh_offset, record, list, context| {
+                let mesh = value.view(list);
+                if mesh.indices.is_empty() || !mesh.is_valid() {
+                    return;
+                }
                 let Some(bounds) = context
                     .clips
                     .bounds(record.clip, record.bounds)

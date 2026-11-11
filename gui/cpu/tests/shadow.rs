@@ -52,10 +52,9 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
                 let mut spare = VecBuffer::new(128, 96);
                 renderer.set_scale(scale);
                 for (step, frame) in [0, 0, 1, 2, 3, 3, 0].into_iter().enumerate() {
-                    renderer.paint(
-                        LogicalRect::new(0.0, 0.0, 128.0 / scale, 96.0 / scale),
-                        Rectangle::new().background(Color::rgb(30, 45, 60)),
-                    );
+                    Rectangle::new()
+                        .background(Color::rgb(30, 45, 60))
+                        .paint(LogicalRect::new(0.0, 0.0, 128.0 / scale, 96.0 / scale), &mut renderer);
                     renderer.push_clip(LogicalRect::new(1.0, 2.0, 118.0, 88.0), BorderRadius::uniform(7.0));
                     renderer.push_clip(
                         LogicalRect::new(3.0, 1.0, if frame == 2 { 70.0 } else { 110.0 }, 90.0),

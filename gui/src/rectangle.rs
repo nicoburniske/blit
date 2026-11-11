@@ -1,10 +1,10 @@
 use std::hash::{Hash, Hasher};
 
-use blit::{Atom, AtomCx, Constraints, FrameSlice, LogicalRect, Paint, Size, Ui, Widget, state};
+use blit::{Atom, AtomCx, Constraints, FrameSlice, FrameStore, LogicalRect, Paint, Size, Ui, Widget, state};
 
 use crate::{
     color::Color,
-    display_list::{Compare, DisplayList, Slice},
+    display_list::{Compare, DisplayList},
     style::{Border, BorderRadius, ConicGradient, Fill, GradientStop, LinearGradient},
 };
 
@@ -22,23 +22,13 @@ blit::builder! {
 
 impl<C> Widget<C, state::Node> for Rectangle<'_>
 where
-    C: for<'a> Paint<Rectangle<'a>, Scalar = f32>,
+    C: FrameStore + Paint<Stored, Scalar = f32>,
 {
     type Response = ();
 
     fn build(self, mut ui: Ui<'_, C, state::Node>) {
-        let [background, border_fill] = [self.background, self.border.fill].map(|fill| match fill {
-            Fill::Solid(color) => FrameFill::Solid(color),
-            Fill::LinearGradient(gradient) => FrameFill::LinearGradient {
-                stops: ui.store_slice(gradient.stops.iter().copied()),
-                angle_degrees: gradient.angle_degrees,
-            },
-            Fill::ConicGradient(gradient) => FrameFill::ConicGradient {
-                stops: ui.store_slice(gradient.stops.iter().copied()),
-                center: gradient.center,
-                angle_degrees: gradient.angle_degrees,
-            },
-        });
+        let background = FrameFill::new(self.background, ui.context_mut());
+        let border_fill = FrameFill::new(self.border.fill, ui.context_mut());
         ui.insert(RectangleAtom {
             background,
             border_fill,
@@ -46,6 +36,21 @@ where
             radius: self.radius,
             opacity: self.opacity,
         });
+    }
+}
+
+impl Rectangle<'_> {
+    /// stores borrowed fills in the context and paints the result
+    pub fn paint<C: FrameStore + Paint<Stored, Scalar = f32>>(self, area: LogicalRect, context: &mut C) {
+        let stored = Stored {
+            area,
+            background: FrameFill::new(self.background, context),
+            border_fill: FrameFill::new(self.border.fill, context),
+            border_width: self.border.width,
+            radius: self.radius,
+            opacity: self.opacity,
+        };
+        context.paint(area, stored);
     }
 }
 
@@ -66,59 +71,23 @@ blit::builder! {
 
 impl<C> Atom<C> for RectangleAtom
 where
-    C: for<'a> Paint<Rectangle<'a>, Scalar = f32>,
+    C: Paint<Stored, Scalar = f32>,
 {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        let rectangle = Rectangle {
-            background: self.background.view(cx),
-            border: Border {
-                width: self.border_width,
-                fill: self.border_fill.view(cx),
-            },
+        let rectangle = Stored {
+            area,
+            background: self.background,
+            border_fill: self.border_fill,
+            border_width: self.border_width,
             radius: self.radius,
             opacity: self.opacity,
         };
-        if rectangle.background != Fill::Solid(Color::TRANSPARENT) || rectangle.border.width > 0.0 {
+        if rectangle.background != FrameFill::Solid(Color::TRANSPARENT) || rectangle.border_width > 0.0 {
             cx.context_mut().paint(area, rectangle);
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum FrameFill {
-    Solid(Color),
-    LinearGradient {
-        stops: FrameSlice<GradientStop>,
-        angle_degrees: f32,
-    },
-    ConicGradient {
-        stops: FrameSlice<GradientStop>,
-        center: [f32; 2],
-        angle_degrees: f32,
-    },
-}
-
-impl FrameFill {
-    fn view<'a, C: blit::Context>(&self, cx: &AtomCx<'a, C>) -> Fill<'a> {
-        match *self {
-            Self::Solid(color) => Fill::Solid(color),
-            Self::LinearGradient { stops, angle_degrees } => Fill::LinearGradient(LinearGradient {
-                stops: cx.slice(stops),
-                angle_degrees,
-            }),
-            Self::ConicGradient {
-                stops,
-                center,
-                angle_degrees,
-            } => Fill::ConicGradient(ConicGradient {
-                stops: cx.slice(stops),
-                center,
-                angle_degrees,
-            }),
         }
     }
 }
@@ -168,29 +137,16 @@ impl Hash for Rectangle<'_> {
     }
 }
 
-#[doc(hidden)]
 pub struct Stored {
     pub area: LogicalRect,
-    pub background: StoredFill,
-    pub border_fill: StoredFill,
+    pub background: FrameFill,
+    pub border_fill: FrameFill,
     pub border_width: f32,
     pub radius: BorderRadius,
     pub opacity: f32,
 }
 
 impl Stored {
-    #[inline]
-    pub fn new(area: LogicalRect, rectangle: Rectangle<'_>, list: &mut DisplayList) -> Self {
-        Self {
-            area,
-            background: StoredFill::new(rectangle.background, list),
-            border_fill: StoredFill::new(rectangle.border.fill, list),
-            border_width: rectangle.border.width,
-            radius: rectangle.radius,
-            opacity: rectangle.opacity,
-        }
-    }
-
     #[inline]
     pub fn view<'a>(&self, list: &'a DisplayList) -> Rectangle<'a> {
         Rectangle {
@@ -219,30 +175,31 @@ impl Compare for Stored {
     }
 }
 
-pub enum StoredFill {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FrameFill {
     Solid(Color),
     LinearGradient {
-        stops: Slice<GradientStop>,
+        stops: FrameSlice<GradientStop>,
         angle_degrees: f32,
     },
     ConicGradient {
-        stops: Slice<GradientStop>,
+        stops: FrameSlice<GradientStop>,
         center: [f32; 2],
         angle_degrees: f32,
     },
 }
 
-impl StoredFill {
+impl FrameFill {
     #[inline]
-    fn new(fill: Fill<'_>, list: &mut DisplayList) -> Self {
+    fn new(fill: Fill<'_>, store: &mut impl FrameStore) -> Self {
         match fill {
             Fill::Solid(color) => Self::Solid(color),
             Fill::LinearGradient(gradient) => Self::LinearGradient {
-                stops: list.store_slice(gradient.stops.iter().copied()),
+                stops: store.store_slice(gradient.stops.iter().copied()),
                 angle_degrees: gradient.angle_degrees,
             },
             Fill::ConicGradient(gradient) => Self::ConicGradient {
-                stops: list.store_slice(gradient.stops.iter().copied()),
+                stops: store.store_slice(gradient.stops.iter().copied()),
                 center: gradient.center,
                 angle_degrees: gradient.angle_degrees,
             },

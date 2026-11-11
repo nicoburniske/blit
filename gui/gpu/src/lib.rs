@@ -10,12 +10,12 @@ mod text;
 
 use std::any::TypeId;
 
-use blit::{LogicalRect, PhysicalRect, Scale2};
+use blit::{FrameSlice, LogicalRect, PhysicalRect, Scale2};
 use blit_arena::Arena;
 use blit_gui::{
     TextSystem,
     color::Color,
-    display_list::{DisplayList, Slice},
+    display_list::DisplayList,
     image::{ImageData, ImageFormat, ImageHandle},
     style::BorderRadius,
 };
@@ -80,6 +80,16 @@ pub struct Renderer {
 
 impl blit::Context for Renderer {
     type Scalar = f32;
+}
+
+impl blit::FrameStore for Renderer {
+    fn frame_data(&self) -> &blit::FrameData {
+        self.list.inputs()
+    }
+
+    fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T> {
+        self.list.store_slice(values)
+    }
 }
 
 impl blit_gui::Context for Renderer {
@@ -755,7 +765,7 @@ pub struct RecordContext<'a> {
 }
 
 impl RecordContext<'_> {
-    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> Slice<T> {
+    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T> {
         self.renderer.list.store_slice(values)
     }
 

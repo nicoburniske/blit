@@ -85,7 +85,7 @@ fn pass_barriers_read_current_frame_and_respect_nested_clips() {
         let source_area = LogicalRect::new(0.0, 0.0, 12.0, 1.0);
         let source = Rectangle::new().background(color);
         renderer.paint(source_area, Shift);
-        renderer.paint(source_area, source);
+        source.paint(source_area, &mut renderer);
         renderer.paint(LogicalRect::new(0.0, 1.0, 12.0, 1.0), Shift);
         renderer.push_clip(LogicalRect::new(1.0, 0.0, 9.0, 8.0), BorderRadius::uniform(3.0));
         renderer.push_clip(LogicalRect::new(2.0, 0.0, 6.0, 8.0), BorderRadius::default());
@@ -107,30 +107,26 @@ where
     S: RenderStrategy<VecBuffer<Xrgb8888>>,
     D: DamageTracker,
 {
-    renderer.paint(
-        LogicalRect::new(0.0, 0.0, 96.0, 64.0),
-        Rectangle::new().background(Color::BLACK),
-    );
+    Rectangle::new()
+        .background(Color::BLACK)
+        .paint(LogicalRect::new(0.0, 0.0, 96.0, 64.0), renderer);
     for x in (0..96).step_by(8) {
-        renderer.paint(
-            LogicalRect::new(x as f32, 4.0, 4.0, 56.0),
-            Rectangle::new().background(Color::rgb(x as u8 * 2, 80, 150)),
-        );
+        Rectangle::new()
+            .background(Color::rgb(x as u8 * 2, 80, 150))
+            .paint(LogicalRect::new(x as f32, 4.0, 4.0, 56.0), renderer);
     }
-    renderer.paint(
-        LogicalRect::new(12.0 + frame as f32 * 4.0, 18.0, 4.0, 8.0),
-        Rectangle::new().background(Color::WHITE),
-    );
+    Rectangle::new()
+        .background(Color::WHITE)
+        .paint(LogicalRect::new(12.0 + frame as f32 * 4.0, 18.0, 4.0, 8.0), renderer);
     renderer.push_clip(LogicalRect::new(3.0, 2.0, 90.0, 60.0), BorderRadius::uniform(8.0));
     if frame != 3 {
         renderer.paint(LogicalRect::new(8.0, 8.0, 48.0, 32.0), BackdropBlur::new(3.0));
         renderer.paint(LogicalRect::new(32.0, 20.0, 40.0, 28.0), BackdropBlur::new(2.0));
     }
     renderer.pop_clip();
-    renderer.paint(
-        LogicalRect::new(20.0, 18.0, 4.0, 8.0),
-        Rectangle::new().background(Color::WHITE),
-    );
+    Rectangle::new()
+        .background(Color::WHITE)
+        .paint(LogicalRect::new(20.0, 18.0, 4.0, 8.0), renderer);
 }
 
 fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B> {

@@ -165,8 +165,8 @@ impl DamageTracker for CommandDiff {
         next
     }
 
-    fn finish_frame(&mut self, input: &mut DisplayList) {
-        std::mem::swap(&mut self.previous, input);
+    fn finish_frame(&mut self, rendered: &mut DisplayList) {
+        std::mem::swap(&mut self.previous, rendered);
         self.history.push_front(std::mem::take(&mut self.current));
         if self.history.len() >= self.max_age as usize {
             self.current = self.history.pop_back().unwrap();

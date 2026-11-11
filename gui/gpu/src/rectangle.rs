@@ -1,16 +1,12 @@
 use blit::{LogicalRect, Paint, Scale2};
-use blit_gui::{
-    Rectangle,
-    style::{BorderRadius, Fill},
-};
+use blit_gui::style::{BorderRadius, Fill};
 
 use crate::{GradientStop, Instance, MeshData, Pipeline, Renderer, physical_radii, physical_rect, premultiplied};
 
 const CONIC_FILL: u32 = 1 << 2;
 
-impl Paint<Rectangle<'_>> for Renderer {
-    fn paint(&mut self, area: LogicalRect, rectangle: Rectangle<'_>) {
-        let value = blit_gui::rectangle::Stored::new(area, rectangle, &mut self.list);
+impl Paint<blit_gui::rectangle::Stored> for Renderer {
+    fn paint(&mut self, area: LogicalRect, value: blit_gui::rectangle::Stored) {
         self.record_native(area, self.paint_clip, value, |value, list, renderer, bounds, clip| {
             let rectangle = value.view(list);
 

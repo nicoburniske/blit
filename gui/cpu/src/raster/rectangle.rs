@@ -16,15 +16,14 @@ use crate::{
     strategy::command::{Coverage, Payload},
 };
 
-impl<B, S, D> Paint<Rectangle<'_>> for Renderer<B, S, D>
+impl<B, S, D> Paint<blit_gui::rectangle::Stored> for Renderer<B, S, D>
 where
     B: PixelBuffer,
     S: RenderStrategy<B>,
     D: DamageTracker,
 {
-    fn paint(&mut self, area: LogicalRect, rectangle: Rectangle<'_>) {
+    fn paint(&mut self, area: LogicalRect, value: blit_gui::rectangle::Stored) {
         let mut recording = self.record(area);
-        let value = blit_gui::rectangle::Stored::new(area, rectangle, recording.list);
         recording.record_input(
             recording.bounds,
             recording.clip,

@@ -44,6 +44,24 @@ impl blit::Context for Backend {
     type Scalar = f32;
 }
 
+impl blit::FrameStore for Backend {
+    fn frame_data(&self) -> &blit::FrameData {
+        self.gpu
+            .as_ref()
+            .expect("GPU renderer is not initialized")
+            .renderer
+            .frame_data()
+    }
+
+    fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> blit::FrameSlice<T> {
+        self.gpu
+            .as_mut()
+            .expect("GPU renderer is not initialized")
+            .renderer
+            .store_slice(values)
+    }
+}
+
 impl<T> Paint<T> for Backend
 where
     Renderer: Paint<T>,

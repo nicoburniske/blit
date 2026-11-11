@@ -5,7 +5,7 @@ use blit_gui::{
     Context, Rectangle,
     color::Color,
     style::{Border, BorderRadius},
-    text::{TextRequest, TextStyle},
+    text::TextStyle,
 };
 use blit_widgets::{FrameProfiler, interact};
 
@@ -46,7 +46,7 @@ blit::builder! {
 impl<C> Widget<C> for Performance<'_>
 where
     C: Context + blit_widgets::Context + AsRef<FrameProfiler>,
-    for<'a> C: Paint<Rectangle<'a>> + Paint<TextRequest<'a>>,
+    C: Paint<blit_gui::rectangle::Stored> + Paint<blit_gui::text::Stored>,
 {
     type Response = ();
 

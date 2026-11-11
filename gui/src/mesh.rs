@@ -1,10 +1,10 @@
 use std::hash::{Hash, Hasher};
 
-use blit::LogicalPoint;
+use blit::{FrameSlice, FrameStore, LogicalPoint, LogicalRect, Paint};
 
 use crate::{
     color::Color,
-    display_list::{Compare, DisplayList, Slice},
+    display_list::{Compare, DisplayList},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -14,6 +14,18 @@ pub struct Mesh<'a> {
 }
 
 impl Mesh<'_> {
+    /// stores borrowed geometry in the context and paints the result
+    pub fn paint<C: FrameStore + Paint<Stored, Scalar = f32>>(self, bounds: LogicalRect, context: &mut C) {
+        if self.indices.is_empty() || !self.is_valid() {
+            return;
+        }
+        let stored = Stored {
+            vertices: context.store_slice(self.vertices.iter().copied()),
+            indices: context.store_slice(self.indices.iter().copied()),
+        };
+        context.paint(bounds, stored);
+    }
+
     pub fn is_valid(&self) -> bool {
         self.indices.len().is_multiple_of(3)
             && self.indices.iter().all(|index| (*index as usize) < self.vertices.len())
@@ -31,10 +43,10 @@ impl Hash for Mesh<'_> {
     }
 }
 
-/// mesh slices owned by a display list
+/// mesh slices stored in a rendering context
 pub struct Stored {
-    pub vertices: Slice<MeshVertex>,
-    pub indices: Slice<u32>,
+    pub vertices: FrameSlice<MeshVertex>,
+    pub indices: FrameSlice<u32>,
 }
 
 impl Stored {

@@ -30,6 +30,16 @@ impl<G: GraphicsBackend> blit::Context for DesktopContext<G> {
     type Scalar = f32;
 }
 
+impl<G: GraphicsBackend> blit::FrameStore for DesktopContext<G> {
+    fn frame_data(&self) -> &blit::FrameData {
+        self.graphics.frame_data()
+    }
+
+    fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> blit::FrameSlice<T> {
+        self.graphics.store_slice(values)
+    }
+}
+
 impl<G: GraphicsBackend> blit_widgets::Context for DesktopContext<G> {
     const SLOP: f32 = 6.0;
 }

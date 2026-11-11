@@ -143,7 +143,7 @@ impl<D: DamageTracker> DamageTracker for StageDamage<'_, D> {
         region.line_ranges(line, bounds, ranges)
     }
 
-    fn finish_frame(&mut self, input: &mut DisplayList) {
-        self.tracker.finish_frame(input);
+    fn finish_frame(&mut self, rendered: &mut DisplayList) {
+        self.tracker.finish_frame(rendered);
     }
 }

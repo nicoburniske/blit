@@ -1,5 +1,3 @@
-use std::sync::atomic::{AtomicU32, Ordering};
-
 use super::*;
 
 #[derive(Clone, Copy)]
@@ -14,40 +12,12 @@ impl BumpId {
     }
 }
 
-/// values stored until the frame that created them is rebuilt
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct FrameSlice<T> {
-    slice: Slice<T>,
-    epoch: u32,
-}
-
 #[derive(Default)]
 pub struct BumpArena {
     pub storage: ScratchBuffer,
-    epoch: u32,
 }
 
 impl BumpArena {
-    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T> {
-        static NEXT_EPOCH: AtomicU32 = AtomicU32::new(1);
-        while self.epoch == 0 {
-            self.epoch = NEXT_EPOCH.fetch_add(1, Ordering::Relaxed);
-        }
-        FrameSlice {
-            slice: self.storage.bump.extend(values),
-            epoch: self.epoch,
-        }
-    }
-
-    pub fn slice<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T] {
-        if slice.slice.len == 0 {
-            return &[];
-        }
-        assert_eq!(slice.epoch, self.epoch, "frame slice belongs to another frame or build");
-        // safety: the epoch identifies the storage and build that wrote these values
-        unsafe { self.storage.bump.slice(slice.slice) }
-    }
-
     pub fn store<T: 'static>(&mut self, value: T) -> BumpId {
         let id = BumpId(self.storage.bump.push(value).byte());
         assert!(id.0 < u32::MAX, "too much frame data");
@@ -65,7 +35,6 @@ impl BumpArena {
     }
 
     pub fn clear(&mut self) {
-        self.epoch = 0;
         self.storage.bump.clear();
     }
 }

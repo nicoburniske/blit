@@ -37,6 +37,7 @@
 
 mod clip;
 mod frame;
+mod frame_data;
 mod macros;
 pub mod scratch;
 
@@ -53,11 +54,11 @@ pub use self::{
     clip::{Clip, ClipShape},
     frame::{
         Frame, NodeId,
-        arena::FrameSlice,
         atom::AtomCx,
         interact::{Contacts, InteractCx},
         ui::{NodeTarget, Ui, state},
     },
+    frame_data::{FrameData, FrameSlice},
     geometry::{
         Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point, Rect,
         Scalar, Scale2, Sides, Size,
@@ -74,6 +75,14 @@ pub trait Context {
 
 impl Context for () {
     type Scalar = f32;
+}
+
+/// owns drawing inputs stored while building and painting until the context renders them
+///
+/// widgets may append and read but only the owner clears
+pub trait FrameStore {
+    fn frame_data(&self) -> &FrameData;
+    fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T>;
 }
 
 /// accepts one kind of drawing operation in frame coordinates

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
-use blit_gui::{GlyphImageId, ResolvedTextLayout, TextSystem, text::TextRequest};
+use blit_gui::{GlyphImageId, ResolvedTextLayout, TextSystem};
 use blit_text::{GlyphImage, GlyphMetrics};
 
 use crate::{
@@ -10,9 +10,8 @@ use crate::{
     physical_rect, push_draw,
 };
 
-impl Paint<TextRequest<'_>> for Renderer {
-    fn paint(&mut self, area: LogicalRect, request: TextRequest<'_>) {
-        let value = blit_gui::text::Stored::new(area, request, &mut self.list);
+impl Paint<blit_gui::text::Stored> for Renderer {
+    fn paint(&mut self, area: LogicalRect, value: blit_gui::text::Stored) {
         self.record_native(area, self.paint_clip, value, |value, list, renderer, bounds, clip| {
             let request = value.view(list);
 

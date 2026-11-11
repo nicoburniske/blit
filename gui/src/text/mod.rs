@@ -4,13 +4,13 @@ use std::{
     ops::Range,
 };
 
-use blit::{Atom, AtomCx, Constraints, FrameSlice, LogicalRect, Paint, Size, Widget, state};
+use blit::{Atom, AtomCx, Constraints, FrameSlice, FrameStore, LogicalRect, Paint, Size, Widget, state};
 pub use blit_text::{FontSettings, FontStyle, OpticalSize};
 
 use crate::{
     Context,
     color::Color,
-    display_list::{Compare, DisplayList, Slice},
+    display_list::{Compare, DisplayList},
 };
 
 mod system;
@@ -29,7 +29,7 @@ blit::builder! {
 
 impl<C> Widget<C, state::Node> for Text<'_>
 where
-    C: Context + for<'a> Paint<TextRequest<'a>>,
+    C: Context + Paint<Stored>,
 {
     type Response = ();
 
@@ -53,7 +53,7 @@ blit::builder! {
 
 impl<C> Widget<C, state::Node> for RichText<'_>
 where
-    C: Context + for<'a> Paint<TextRequest<'a>>,
+    C: Context + Paint<Stored>,
 {
     type Response = ();
 
@@ -83,6 +83,18 @@ pub struct TextRequest<'a> {
 }
 
 impl TextRequest<'_> {
+    /// stores borrowed colors in the context and paints the result
+    pub fn paint<C: FrameStore + Paint<Stored, Scalar = f32>>(self, area: LogicalRect, context: &mut C) {
+        let stored = Stored {
+            area,
+            text: self.text,
+            colors: context.store_slice(self.colors.iter().copied()),
+            offset_x: self.offset_x,
+            options: self.options,
+        };
+        context.paint(area, stored);
+    }
+
     pub fn span_color(&self, span: usize) -> Color {
         self.colors
             .get(span)
@@ -110,27 +122,15 @@ impl Hash for TextRequest<'_> {
     }
 }
 
-#[doc(hidden)]
 pub struct Stored {
     pub area: LogicalRect,
     pub text: TextRun,
-    pub colors: Slice<Color>,
+    pub colors: FrameSlice<Color>,
     pub offset_x: f32,
     pub options: TextOptions,
 }
 
 impl Stored {
-    #[inline]
-    pub fn new(area: LogicalRect, request: TextRequest<'_>, list: &mut DisplayList) -> Self {
-        Self {
-            area,
-            text: request.text,
-            colors: list.store_slice(request.colors.iter().copied()),
-            offset_x: request.offset_x,
-            options: request.options,
-        }
-    }
-
     #[inline]
     pub fn view<'a>(&self, list: &'a DisplayList) -> TextRequest<'a> {
         TextRequest {
@@ -301,7 +301,7 @@ blit::builder! {
 
 impl<C> Atom<C> for TextAtom
 where
-    C: Context + for<'a> Paint<TextRequest<'a>>,
+    C: Context + Paint<Stored>,
 {
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         let measured = cx.context_mut().text().measure(&TextLayoutRequest {
@@ -315,12 +315,12 @@ where
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        let colors = cx.slice(self.colors);
         cx.context_mut().paint(
             area,
-            TextRequest {
+            Stored {
+                area,
                 text: self.text,
-                colors,
+                colors: self.colors,
                 offset_x: self.offset_x,
                 options: self.options,
             },

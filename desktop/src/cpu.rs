@@ -34,6 +34,16 @@ impl blit::Context for Backend {
     type Scalar = f32;
 }
 
+impl blit::FrameStore for Backend {
+    fn frame_data(&self) -> &blit::FrameData {
+        self.renderer.frame_data()
+    }
+
+    fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> blit::FrameSlice<T> {
+        self.renderer.store_slice(values)
+    }
+}
+
 impl<T> Paint<T> for Backend
 where
     Renderer<DesktopBuffer, Scanline>: Paint<T>,

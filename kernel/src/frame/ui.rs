@@ -60,9 +60,19 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
         self.inner.node
     }
 
-    /// stores values that atoms can read until the next build
-    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T> {
-        self.inner.frame.bump.store_slice(values)
+    /// stores drawing inputs in the context until it renders
+    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T>
+    where
+        C: FrameStore,
+    {
+        self.inner.context.store_slice(values)
+    }
+
+    pub fn slice<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T]
+    where
+        C: FrameStore,
+    {
+        self.inner.context.frame_data().slice(slice)
     }
 
     pub fn clip<X: Clip<C>>(self, clip: X) -> Self {

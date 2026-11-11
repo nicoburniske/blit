@@ -9,15 +9,14 @@ use crate::{
     strategy::command::Payload,
 };
 
-impl<B, S, D> Paint<TextRequest<'_>> for Renderer<B, S, D>
+impl<B, S, D> Paint<blit_gui::text::Stored> for Renderer<B, S, D>
 where
     B: PixelBuffer,
     S: RenderStrategy<B>,
     D: DamageTracker,
 {
-    fn paint(&mut self, area: LogicalRect, request: TextRequest<'_>) {
+    fn paint(&mut self, area: LogicalRect, value: blit_gui::text::Stored) {
         let mut recording = self.record(area);
-        let value = blit_gui::text::Stored::new(area, request, recording.list);
         recording.record_input(
             recording.bounds,
             recording.clip,

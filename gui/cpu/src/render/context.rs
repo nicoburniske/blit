@@ -1,7 +1,7 @@
-use blit::{LogicalRect, PhysicalRect, ScratchBuffer};
+use blit::{FrameSlice, LogicalRect, PhysicalRect, ScratchBuffer};
 use blit_arena::Arena;
 use blit_gui::{
-    display_list::{DisplayList, Slice},
+    display_list::DisplayList,
     image::{ImageData, ImageHandle},
 };
 
@@ -32,7 +32,7 @@ impl<'a, P: Pixel> RenderContext<'a, P> {
         Image::new(area, request, scale, self.bounds, self.images)
     }
 
-    pub fn slice<T: Copy + 'static>(&self, slice: Slice<T>) -> &'a [T] {
+    pub fn slice<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &'a [T] {
         self.list.slice(slice)
     }
 
@@ -125,7 +125,7 @@ pub struct Span<'a, P> {
 }
 
 impl<'a, P> Span<'a, P> {
-    pub fn slice<T: Copy + 'static>(&self, slice: Slice<T>) -> &'a [T] {
+    pub fn slice<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &'a [T] {
         self.list.slice(slice)
     }
 

@@ -71,25 +71,23 @@ fn renders_primitives_and_rebuilds_frames() {
     );
     let bounds = LogicalRect::new(0.0, 0.0, 64.0, 64.0);
     renderer.push_clip(LogicalRect::new(0.0, 0.0, 1.0, 1.0), BorderRadius::default());
-    renderer.paint(bounds, Rectangle::new().background(Color::rgb(255, 255, 255)));
+    Rectangle::new()
+        .background(Color::rgb(255, 255, 255))
+        .paint(bounds, &mut renderer);
     renderer.discard_frame();
     renderer.set_scale(2.0);
-    renderer.paint(
-        LogicalRect::new(0.5, 8.0, 0.5, 0.5),
-        Rectangle::new().background(Color::rgb(255, 255, 255)),
-    );
+    Rectangle::new()
+        .background(Color::rgb(255, 255, 255))
+        .paint(LogicalRect::new(0.5, 8.0, 0.5, 0.5), &mut renderer);
     renderer.render(&target);
 
-    renderer.paint(
-        LogicalRect::new(0.0, 0.0, 7.0, 7.0),
-        Rectangle::new()
-            .background(Color::rgb(255, 0, 0))
-            .radius(BorderRadius::uniform(3.0)),
-    );
-    renderer.paint(
-        LogicalRect::new(2.0, 2.0, 2.0, 2.0),
-        Rectangle::new().background(Color::rgba(0, 0, 255, 128)),
-    );
+    Rectangle::new()
+        .background(Color::rgb(255, 0, 0))
+        .radius(BorderRadius::uniform(3.0))
+        .paint(LogicalRect::new(0.0, 0.0, 7.0, 7.0), &mut renderer);
+    Rectangle::new()
+        .background(Color::rgba(0, 0, 255, 128))
+        .paint(LogicalRect::new(2.0, 2.0, 2.0, 2.0), &mut renderer);
     let image = renderer.create_image(ImageData::new(
         ImagePixels::Static(&[255, 255, 0, 255, 0, 255, 255, 255, 255, 0, 255, 255, 255, 255, 255, 255]),
         ImageFormat::Rgba8Premultiplied,
@@ -148,86 +146,73 @@ fn renders_primitives_and_rebuilds_frames() {
     let shadow = Shadow::new(Color::rgb(255, 0, 0)).blur(1.0);
     renderer.paint(LogicalRect::new(14.0, 9.0, 1.0, 1.0), shadow);
     let text = renderer.text().text_run("M", TextStyle::new());
-    renderer.paint(
-        LogicalRect::new(1.0, 20.0, 12.0, 20.0),
-        TextRequest {
-            text,
-            colors: &[Color::rgb(255, 0, 0)],
-            offset_x: 0.0,
-            options: TextOptions::default(),
-        },
-    );
-    renderer.paint(
-        LogicalRect::new(14.0, 14.0, 50.0, 50.0),
-        Rectangle::new().background(Color::rgb(0, 255, 0)).radius(BorderRadius {
+    TextRequest {
+        text,
+        colors: &[Color::rgb(255, 0, 0)],
+        offset_x: 0.0,
+        options: TextOptions::default(),
+    }
+    .paint(LogicalRect::new(1.0, 20.0, 12.0, 20.0), &mut renderer);
+    Rectangle::new()
+        .background(Color::rgb(0, 255, 0))
+        .radius(BorderRadius {
             top_left: 40.0,
             top_right: 10.0,
             ..BorderRadius::default()
-        }),
-    );
+        })
+        .paint(LogicalRect::new(14.0, 14.0, 50.0, 50.0), &mut renderer);
     let mesh_vertices = [
         MeshVertex::new(40.0, 40.0, Color::rgb(255, 0, 0)),
         MeshVertex::new(60.0, 40.0, Color::rgb(255, 0, 0)),
         MeshVertex::new(40.0, 60.0, Color::rgb(255, 0, 0)),
     ];
     BoundsClip.push(&mut renderer, LogicalRect::new(40.0, 40.0, 10.0, 20.0));
-    renderer.paint(
-        bounds,
-        Mesh {
-            vertices: &mesh_vertices,
-            indices: &[0, 1, 2],
-        },
-    );
+    Mesh {
+        vertices: &mesh_vertices,
+        indices: &[0, 1, 2],
+    }
+    .paint(bounds, &mut renderer);
     BoundsClip.pop(&mut renderer);
 
     let stops = [
         GradientStop::new(0.0, Color::rgb(255, 0, 0)),
         GradientStop::new(1.0, Color::rgb(0, 0, 255)),
     ];
-    renderer.paint(
-        LogicalRect::new(24.0, 1.0, 8.0, 8.0),
-        Rectangle::new().background(LinearGradient::new(&stops)),
-    );
-    renderer.paint(
-        LogicalRect::new(32.0, 1.0, 8.0, 8.0),
-        Rectangle::new()
-            .background(LinearGradient::new(&stops))
-            .border(Border::solid(1.0, Color::rgba(0, 255, 0, 128))),
-    );
+    Rectangle::new()
+        .background(LinearGradient::new(&stops))
+        .paint(LogicalRect::new(24.0, 1.0, 8.0, 8.0), &mut renderer);
+    Rectangle::new()
+        .background(LinearGradient::new(&stops))
+        .border(Border::solid(1.0, Color::rgba(0, 255, 0, 128)))
+        .paint(LogicalRect::new(32.0, 1.0, 8.0, 8.0), &mut renderer);
     let border_stops = [
         GradientStop::new(0.0, Color::rgba(0, 255, 0, 128)),
         GradientStop::new(1.0, Color::rgba(255, 255, 255, 128)),
     ];
-    renderer.paint(
-        LogicalRect::new(40.0, 1.0, 8.0, 8.0),
-        Rectangle::new()
-            .background(LinearGradient::new(&stops))
-            .border(Border::gradient(1.0, LinearGradient::new(&border_stops).angle(90.0)))
-            .radius(BorderRadius::uniform(2.0)),
-    );
+    Rectangle::new()
+        .background(LinearGradient::new(&stops))
+        .border(Border::gradient(1.0, LinearGradient::new(&border_stops).angle(90.0)))
+        .radius(BorderRadius::uniform(2.0))
+        .paint(LogicalRect::new(40.0, 1.0, 8.0, 8.0), &mut renderer);
     let translucent_stops = [
         GradientStop::new(0.0, Color::rgba(255, 0, 0, 64)),
         GradientStop::new(0.5, Color::rgba(0, 255, 0, 128)),
         GradientStop::new(1.0, Color::rgba(0, 0, 255, 192)),
     ];
-    renderer.paint(
-        LogicalRect::new(48.0, 1.0, 8.0, 8.0),
-        Rectangle::new()
-            .background(LinearGradient::new(&translucent_stops).angle(-45.0))
-            .opacity(0.5),
-    );
+    Rectangle::new()
+        .background(LinearGradient::new(&translucent_stops).angle(-45.0))
+        .opacity(0.5)
+        .paint(LogicalRect::new(48.0, 1.0, 8.0, 8.0), &mut renderer);
     BoundsClip.push(&mut renderer, LogicalRect::new(58.0, 1.0, 6.0, 8.0));
-    renderer.paint(
-        LogicalRect::new(56.0, 1.0, 8.0, 8.0),
-        Rectangle::new().background(LinearGradient::new(&stops)),
-    );
+    Rectangle::new()
+        .background(LinearGradient::new(&stops))
+        .paint(LogicalRect::new(56.0, 1.0, 8.0, 8.0), &mut renderer);
     BoundsClip.pop(&mut renderer);
     renderer.push_clip(LogicalRect::new(12.5, 1.0, 3.5, 4.0), BorderRadius::default());
     renderer.push_clip(LogicalRect::new(12.0, 1.5, 3.5, 3.5), BorderRadius::default());
-    renderer.paint(
-        LogicalRect::new(12.0, 1.0, 4.0, 4.0),
-        Rectangle::new().border(Border::gradient(1.0, LinearGradient::new(&stops))),
-    );
+    Rectangle::new()
+        .border(Border::gradient(1.0, LinearGradient::new(&stops)))
+        .paint(LogicalRect::new(12.0, 1.0, 4.0, 4.0), &mut renderer);
     renderer.pop_clip();
     renderer.pop_clip();
     let conic_stops = [
@@ -238,13 +223,13 @@ fn renders_primitives_and_rebuilds_frames() {
         GradientStop::new(1.0, Color::rgb(255, 255, 0)),
     ];
     let conic = ConicGradient::new(&conic_stops).center(0.53125, 0.53125);
-    renderer.paint(bounds, Rectangle::new().background(LinearGradient::new(&[])));
-    renderer.paint(
-        LogicalRect::new(48.0, 22.0, 8.0, 8.0),
-        Rectangle::new()
-            .background(conic.angle(450.0))
-            .border(Border::gradient(1.0, conic.angle(180.0))),
-    );
+    Rectangle::new()
+        .background(LinearGradient::new(&[]))
+        .paint(bounds, &mut renderer);
+    Rectangle::new()
+        .background(conic.angle(450.0))
+        .border(Border::gradient(1.0, conic.angle(180.0)))
+        .paint(LogicalRect::new(48.0, 22.0, 8.0, 8.0), &mut renderer);
     let width = device.limits().max_texture_dimension_2d + 1;
     let pixels = vec![255; width as usize].into_boxed_slice();
     let oversized = renderer.create_image(ImageData::new(
@@ -372,23 +357,19 @@ fn renders_primitives_and_rebuilds_frames() {
     assert_eq!(pixel(108, 52), [255, 255, 255, 255]);
 
     renderer.push_clip(LogicalRect::default(), BorderRadius::default());
-    renderer.paint(
-        bounds,
-        Mesh {
-            vertices: &mesh_vertices,
-            indices: &[0, 1, 2],
-        },
-    );
+    Mesh {
+        vertices: &mesh_vertices,
+        indices: &[0, 1, 2],
+    }
+    .paint(bounds, &mut renderer);
     renderer.paint(bounds, Image::new(&image));
-    renderer.paint(
-        bounds,
-        TextRequest {
-            text,
-            colors: &[Color::WHITE],
-            offset_x: 0.0,
-            options: TextOptions::default(),
-        },
-    );
+    TextRequest {
+        text,
+        colors: &[Color::WHITE],
+        offset_x: 0.0,
+        options: TextOptions::default(),
+    }
+    .paint(bounds, &mut renderer);
     renderer.pop_clip();
     renderer.render(&target);
     assert_eq!(renderer.batch_count(), 0);
