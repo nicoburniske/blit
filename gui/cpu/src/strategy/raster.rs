@@ -3,7 +3,7 @@ use blit_arena::Arena;
 use blit_gui::display_list::DisplayList;
 
 use super::command::{CommandId, Payload, RasterCommands};
-use crate::{DrawContext, Pixel, PixelSpan, StoredImage, TextRenderer, raster::DrawTarget};
+use crate::{Pixel, PixelSpan, RenderContext, StoredImage, TextRenderer, render::RenderTarget};
 
 #[inline(always)]
 pub fn draw_line<P: Pixel>(
@@ -30,9 +30,9 @@ pub fn draw_line<P: Pixel>(
             }
             let start = (clip.x - row.x) as usize;
             let pixels = &mut row.pixels[start..start + clip.width as usize];
-            call.draw(
+            call.render(
                 &mut commands.prepared,
-                &mut DrawContext {
+                &mut RenderContext {
                     scale: commands.scale,
                     bounds,
                     list,
@@ -41,7 +41,7 @@ pub fn draw_line<P: Pixel>(
                     images,
                     source: None,
                     scratch: &commands.scratch,
-                    target: DrawTarget::Span {
+                    target: RenderTarget::Span {
                         x: clip.x,
                         y: line,
                         pixels,

@@ -1,11 +1,10 @@
 mod clear;
 mod damage;
-pub mod ext;
 mod glyph;
-mod handler;
 mod pixel;
-pub mod raster;
-mod render;
+mod raster;
+mod record;
+pub mod render;
 mod strategy;
 mod text;
 
@@ -24,21 +23,21 @@ use blit_gui::{
 use self::{
     damage::passes::{PassDamage, StageDamage},
     pixel::PixelSpan,
-    raster::DrawTarget,
-    render::image::StoredImage,
+    raster::image::StoredImage,
+    render::RenderTarget,
     strategy::{clip::ClipStack, command::RasterCommands},
     text::TextRenderer,
 };
 pub use self::{
-    handler::{Handler, PaintContext},
     pixel::{Argb8888, Pixel, PixelBuffer, PremultipliedRgbaColor, Rgb8Pixel, Rgba8888, VecBuffer, Xrgb8888},
-    raster::{DrawContext, Span, Surface},
+    record::RecordContext,
+    render::{Render, RenderContext, Span, Surface},
     strategy::{Direct, RenderStrategy, Scanline},
 };
 
 pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTracker = TileDamage> {
-    context: RenderContext<B>,
-    handlers: Vec<ErasedHandler>,
+    context: RenderState<B>,
+    renderers: Vec<ErasedRenderer>,
     paint_clip: u32,
     paint_clips: Vec<u32>,
     strategy: S,
@@ -50,7 +49,7 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTrac
 impl<B: PixelBuffer> Renderer<B> {
     pub fn new(buffer: B, text: TextSystem, config: RendererConfig) -> Self {
         Self {
-            context: RenderContext {
+            context: RenderState {
                 buffer,
                 scale_factor: 1.0,
                 images: Arena::new(),
@@ -68,7 +67,7 @@ impl<B: PixelBuffer> Renderer<B> {
                 },
                 preserved: Vec::new(),
             },
-            handlers: Vec::new(),
+            renderers: Vec::new(),
             paint_clip: 0,
             paint_clips: Vec::new(),
             strategy: Direct::default(),
@@ -80,42 +79,42 @@ impl<B: PixelBuffer> Renderer<B> {
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
-    /// configures one handler before recording begins
-    pub fn handler<H: 'static>(mut self, handler: H) -> Self {
+    /// registers or replaces a renderer and invalidates retained pixels
+    pub fn register<R: 'static>(mut self, renderer: R) -> Self {
         assert!(
             self.context.list.commands().is_empty(),
-            "cannot replace a handler during a frame"
+            "cannot replace a renderer during a frame"
         );
-        let kind = TypeId::of::<H>();
-        if let Some(value) = self.handlers.iter_mut().find(|value| value.kind == kind) {
-            *value = ErasedHandler::new(handler);
+        let kind = TypeId::of::<R>();
+        if let Some(value) = self.renderers.iter_mut().find(|value| value.kind == kind) {
+            *value = ErasedRenderer::new(renderer);
         } else {
-            self.handlers.push(ErasedHandler::new(handler));
+            self.renderers.push(ErasedRenderer::new(renderer));
         }
         self.damage.invalidate();
         self
     }
 
-    /// returns a handler and invalidates retained pixels
-    pub fn handler_mut<H: Default + 'static>(&mut self) -> &mut H {
+    /// returns mutable renderer state creating its default when needed and invalidating retained pixels
+    pub fn configure<R: Default + 'static>(&mut self) -> &mut R {
         assert!(
             self.context.list.commands().is_empty(),
-            "cannot configure a handler during a frame"
+            "cannot configure a renderer during a frame"
         );
         self.damage.invalidate();
-        let index = handler_index::<H>(&mut self.handlers);
-        // safety: the lookup selects the entry created for H
-        unsafe { self.handlers[index].cast::<H>() }
+        let index = renderer_index::<R>(&mut self.renderers);
+        // safety: the lookup selects the entry created for R
+        unsafe { self.renderers[index].cast::<R>() }
     }
 
     /// begins recording drawing inputs within bounds
-    pub fn record(&mut self, bounds: LogicalRect) -> PaintContext<'_, B::Pixel> {
+    pub fn record(&mut self, bounds: LogicalRect) -> RecordContext<'_, B::Pixel> {
         let context = &mut self.context;
-        PaintContext {
+        RecordContext {
             scale: context.scale_factor,
             bounds: bounds.to_physical(Scale2::uniform(context.scale_factor)),
             clip: self.paint_clip,
-            handlers: &mut self.handlers,
+            renderers: &mut self.renderers,
             marker: PhantomData,
             list: &mut context.list,
             reads_framebuffer: &mut context.reads_framebuffer,
@@ -126,7 +125,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
     pub fn strategy<T: RenderStrategy<B>>(self, strategy: T) -> Renderer<B, T, D> {
         Renderer {
             context: self.context,
-            handlers: self.handlers,
+            renderers: self.renderers,
             paint_clip: self.paint_clip,
             paint_clips: self.paint_clips,
             strategy,
@@ -140,7 +139,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         damage.invalidate();
         Renderer {
             context: self.context,
-            handlers: self.handlers,
+            renderers: self.renderers,
             paint_clip: self.paint_clip,
             paint_clips: self.paint_clips,
             strategy: self.strategy,
@@ -165,7 +164,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         self.damage.update(&self.context.list, screen, scale, buffer_age);
         if !self.damage.is_empty() {
             let context = &mut self.context;
-            let mut preparation = handler::PrepareContext {
+            let mut dispatch = render::DispatchContext {
                 screen,
                 clips: &context.clips,
                 images: &context.images,
@@ -174,9 +173,9 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             for command in context.list.commands() {
                 // todo: restrict effect frame dispatch to damage and required source regions
                 if context.reads_framebuffer || self.damage.intersects(command.bounds, command.clip) {
-                    // safety: recording pairs dispatch with this renderer's preparation context
+                    // safety: recording pairs dispatch with this renderer's dispatch context
                     unsafe {
-                        command.dispatch(&context.list, std::ptr::NonNull::from(&mut preparation).cast());
+                        command.dispatch(&context.list, std::ptr::NonNull::from(&mut dispatch).cast());
                     }
                 }
             }
@@ -250,9 +249,9 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                         }
                     }
                     let bounds = context.raster.bounds(node.index);
-                    context.raster.entries[node.index as usize].draw(
+                    context.raster.entries[node.index as usize].render(
                         &mut context.raster.prepared,
-                        &mut DrawContext {
+                        &mut RenderContext {
                             scale,
                             bounds,
                             list: &context.list,
@@ -261,7 +260,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                             images: &mut context.images,
                             source: Some(snapshot),
                             scratch: &context.raster.scratch,
-                            target: DrawTarget::Pass {
+                            target: RenderTarget::Pass {
                                 target: &mut context.buffer,
                                 clips: &context.clips,
                                 clip,
@@ -297,8 +296,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         list.clear();
         context.list = list;
         context.text.finish_frame();
-        for handler in &mut self.handlers {
-            (handler.finish)(handler);
+        for renderer in &mut self.renderers {
+            (renderer.finish)(renderer);
         }
         context.images.retain(|image| !image.handle.is_uniquely_owned());
         self.paint_clip = 0;
@@ -381,7 +380,7 @@ impl Default for RendererConfig {
 }
 
 #[doc(hidden)]
-pub struct RenderContext<B: PixelBuffer> {
+pub struct RenderState<B: PixelBuffer> {
     buffer: B,
     scale_factor: f32,
     images: Arena<StoredImage>,
@@ -394,48 +393,48 @@ pub struct RenderContext<B: PixelBuffer> {
     preserved: Vec<B::Pixel>,
 }
 
-struct ErasedHandler {
+struct ErasedRenderer {
     kind: TypeId,
     value: NonNull<()>,
     drop: fn(NonNull<()>),
     finish: fn(&mut Self),
 }
 
-impl ErasedHandler {
-    fn new<H: 'static>(handler: H) -> Self {
+impl ErasedRenderer {
+    fn new<R: 'static>(renderer: R) -> Self {
         Self {
-            kind: TypeId::of::<H>(),
-            value: NonNull::from(Box::leak(Box::new(handler))).cast(),
+            kind: TypeId::of::<R>(),
+            value: NonNull::from(Box::leak(Box::new(renderer))).cast(),
             finish: |_| {},
             drop: |value| {
-                // safety: new transfers ownership of one boxed H to this entry
-                unsafe { drop(Box::from_raw(value.cast::<H>().as_ptr())) };
+                // safety: new transfers ownership of one boxed R to this entry
+                unsafe { drop(Box::from_raw(value.cast::<R>().as_ptr())) };
             },
         }
     }
 
-    unsafe fn cast<H>(&mut self) -> &mut H {
+    unsafe fn cast<R>(&mut self) -> &mut R {
         // safety: callers select the type used to create this entry
-        unsafe { self.value.cast::<H>().as_mut() }
+        unsafe { self.value.cast::<R>().as_mut() }
     }
 }
 
-impl Drop for ErasedHandler {
+impl Drop for ErasedRenderer {
     fn drop(&mut self) {
         (self.drop)(self.value);
     }
 }
 
-fn handler_index<H>(handlers: &mut Vec<ErasedHandler>) -> usize
+fn renderer_index<R>(renderers: &mut Vec<ErasedRenderer>) -> usize
 where
-    H: Default + 'static,
+    R: Default + 'static,
 {
-    let kind = TypeId::of::<H>();
-    if let Some(index) = handlers.iter().position(|value| value.kind == kind) {
+    let kind = TypeId::of::<R>();
+    if let Some(index) = renderers.iter().position(|value| value.kind == kind) {
         index
     } else {
-        let index = handlers.len();
-        handlers.push(ErasedHandler::new(H::default()));
+        let index = renderers.len();
+        renderers.push(ErasedRenderer::new(R::default()));
         index
     }
 }

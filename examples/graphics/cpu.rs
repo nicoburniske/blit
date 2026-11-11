@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use blit::{Atom, AtomCx, Constraints, Id, LogicalRect, Paint, Size, Widget};
-use blit_cpu::{DrawContext, Handler, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderStrategy, Renderer};
+use blit_cpu::{Pixel, PixelBuffer, PremultipliedRgbaColor, Render, RenderContext, RenderStrategy, Renderer};
 use blit_gui::{BoundsClip, Rectangle, color::Color, damage::DamageTracker, style::Border, text::TextStyle};
 use blit_gui_widgets::{
     Text, interact,
@@ -127,7 +127,7 @@ impl Atom<DesktopContext> for Ribbons {
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Ribbons> for Renderer<B, S, D> {
     fn paint(&mut self, area: LogicalRect, sculpture: Ribbons) {
-        self.record(area).draw::<RibbonsHandler>(
+        self.record(area).push::<RibbonsRenderer>(
             (
                 [area.x, area.y, area.width, area.height].map(f32::to_bits),
                 sculpture.axis.map(f32::to_bits),
@@ -138,7 +138,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Ribbons> for 
 }
 
 #[derive(Default)]
-struct RibbonsHandler {
+struct RibbonsRenderer {
     key: [u32; 5],
     top: i32,
     rows: Vec<Row>,
@@ -152,11 +152,11 @@ struct Row {
     ribbons: Vec<(Range<i32>, usize)>,
 }
 
-impl<P: Pixel> Handler<P> for RibbonsHandler {
+impl<P: Pixel> Render<P> for RibbonsRenderer {
     type Input = ([u32; 4], [u32; 3]);
     type Prepared = ();
 
-    fn prepare(&mut self, (area, axis): &([u32; 4], [u32; 3]), cx: &mut DrawContext<'_, P>) {
+    fn prepare(&mut self, (area, axis): &([u32; 4], [u32; 3]), cx: &mut RenderContext<'_, P>) {
         let [x, y, width, height] = area.map(f32::from_bits);
         let center = [(x + width * 0.5) * cx.scale, (y + height * 0.5) * cx.scale];
         let radius = width.min(height) * 0.38 * cx.scale;
@@ -270,7 +270,7 @@ impl<P: Pixel> Handler<P> for RibbonsHandler {
         }
     }
 
-    fn draw(&mut self, _: &(), cx: &mut DrawContext<'_, P>) {
+    fn render(&mut self, _: &(), cx: &mut RenderContext<'_, P>) {
         cx.for_each_span(|span| {
             let Some(row) = self.rows.get((span.y - self.top) as usize) else {
                 return;

@@ -5,29 +5,28 @@ use blit_gui::{
     image::{ImageData, ImageHandle},
 };
 
-pub use crate::render::rounded;
 use crate::{
     Pixel, PixelBuffer, StoredImage,
     damage::region::Region,
-    render::{self, image, image_patch},
+    raster::{self, image, image_patch},
     strategy::clip::ClipStack,
     text::TextRenderer,
 };
 
-pub struct DrawContext<'a, P> {
+pub struct RenderContext<'a, P> {
     pub scale: f32,
     /// physical command bounds before clipping
     pub bounds: PhysicalRect,
     pub(crate) list: &'a DisplayList,
     pub(crate) text: &'a mut TextRenderer,
-    pub(crate) gradients: &'a mut render::fill::Gradients,
+    pub(crate) gradients: &'a mut raster::fill::Gradients,
     pub(crate) images: &'a mut Arena<StoredImage>,
     pub(crate) source: Option<&'a Surface<P>>,
     pub(crate) scratch: &'a ScratchBuffer,
-    pub(crate) target: DrawTarget<'a, P>,
+    pub(crate) target: RenderTarget<'a, P>,
 }
 
-impl<'a, P: Pixel> DrawContext<'a, P> {
+impl<'a, P: Pixel> RenderContext<'a, P> {
     /// prepares an image with an explicit logical to physical scale
     pub fn prepare_image(&self, area: LogicalRect, request: &blit_gui::Image, scale: f32) -> Option<Image> {
         Image::new(area, request, scale, self.bounds, self.images)
@@ -53,9 +52,9 @@ impl<'a, P: Pixel> DrawContext<'a, P> {
     /// required output rectangles before precise clip coverage
     pub fn output_regions(&self) -> impl Iterator<Item = PhysicalRect> + 'a {
         let (span, pass) = match &self.target {
-            DrawTarget::Prepare => (None, None),
-            DrawTarget::Span { x, y, pixels, .. } => (Some(PhysicalRect::new(*x, *y, pixels.len() as i32, 1)), None),
-            DrawTarget::Pass {
+            RenderTarget::Prepare => (None, None),
+            RenderTarget::Span { x, y, pixels, .. } => (Some(PhysicalRect::new(*x, *y, pixels.len() as i32, 1)), None),
+            RenderTarget::Pass {
                 output, clips, clip, ..
             } => (None, clips.bounds(*clip, self.bounds).map(|bounds| (*output, bounds))),
         };
@@ -75,8 +74,8 @@ impl<'a, P: Pixel> DrawContext<'a, P> {
             return;
         };
         match &mut self.target {
-            DrawTarget::Prepare => {}
-            DrawTarget::Span { x, y, pixels, coverage } => {
+            RenderTarget::Prepare => {}
+            RenderTarget::Span { x, y, pixels, coverage } => {
                 let Some(bounds) = PhysicalRect::new(*x, *y, pixels.len() as i32, 1).intersection(area) else {
                     return;
                 };
@@ -90,7 +89,7 @@ impl<'a, P: Pixel> DrawContext<'a, P> {
                     images: self.images,
                 });
             }
-            DrawTarget::Pass {
+            RenderTarget::Pass {
                 target,
                 clips,
                 clip,
@@ -193,7 +192,7 @@ impl Image {
     }
 
     #[inline]
-    pub fn draw<P: Pixel>(&self, span: &mut Span<'_, P>) {
+    pub fn render<P: Pixel>(&self, span: &mut Span<'_, P>) {
         let texture = span.images.get(self.image.id().into()).unwrap();
         let row = PhysicalRect::new(span.x, span.y, span.pixels.len() as i32, 1);
         for (image, bounds) in self.patches.iter().flatten() {
@@ -219,7 +218,7 @@ impl Image {
     }
 }
 
-pub(crate) enum DrawTarget<'a, P> {
+pub(crate) enum RenderTarget<'a, P> {
     Prepare,
     Span {
         x: i32,

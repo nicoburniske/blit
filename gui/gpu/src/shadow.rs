@@ -5,8 +5,8 @@ use blit_gui::{Shadow, display_list::DisplayList, style::BorderRadius};
 use bytemuck::Zeroable;
 
 use crate::{
-    INSET_SHADOW, Instance, OUTSET_SHADOW, Pipeline, Renderer, handler::hash_area, physical_radii, physical_rect,
-    premultiplied,
+    INSET_SHADOW, Instance, OUTSET_SHADOW, Pipeline, Renderer, physical_radii, physical_rect, premultiplied,
+    render::hash_area,
 };
 
 impl Paint<Shadow> for Renderer {

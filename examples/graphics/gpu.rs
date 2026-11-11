@@ -1,5 +1,5 @@
 use blit::{Atom, AtomCx, Constraints, LogicalRect, Paint, Size, Widget};
-use blit_gpu::{DrawContext, Handler, PrepareContext, Renderer};
+use blit_gpu::{PrepareContext, Render, RenderContext, Renderer};
 use bytemuck::{Pod, Zeroable};
 
 use super::super::{DesktopContext, Ui};
@@ -38,17 +38,17 @@ impl Atom<DesktopContext> for Interference {
 
 impl Paint<Interference> for Renderer {
     fn paint(&mut self, bounds: LogicalRect, signal: Interference) {
-        self.record(bounds).draw::<SignalShader>(signal.phase.to_bits());
+        self.record(bounds).push::<SignalRenderer>(signal.phase.to_bits());
     }
 }
 
-struct SignalShader {
+struct SignalRenderer {
     pipeline: wgpu::RenderPipeline,
     buffer: wgpu::Buffer,
     group: wgpu::BindGroup,
 }
 
-impl Handler for SignalShader {
+impl Render for SignalRenderer {
     type Input = u32;
     type Prepared = ();
 
@@ -144,7 +144,7 @@ impl Handler for SignalShader {
         Some(())
     }
 
-    fn draw(&mut self, _: &[()], cx: &mut DrawContext<'_>) {
+    fn render(&mut self, _: &[()], cx: &mut RenderContext<'_>) {
         let pass = cx.pass();
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(1, &self.group, &[]);

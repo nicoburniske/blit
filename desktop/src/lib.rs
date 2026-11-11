@@ -85,7 +85,7 @@ pub trait Application: Sized + 'static {
 
     fn input(&mut self, input: Self::Input);
 
-    fn render(&mut self, ui: Ui<'_, Self::Graphics>);
+    fn build(&mut self, ui: Ui<'_, Self::Graphics>);
 }
 
 #[derive(Debug)]

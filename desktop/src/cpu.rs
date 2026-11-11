@@ -2,7 +2,7 @@ use std::{num::NonZeroU32, ptr::NonNull, sync::Arc};
 
 use blit::{LogicalRect, Paint};
 use blit_cpu::{PixelBuffer, Renderer, Scanline, Xrgb8888};
-pub use blit_cpu::{RendererConfig as Config, ext};
+pub use blit_cpu::{RendererConfig as Config, render};
 use blit_gui::{
     TextSystem,
     image::{ImageData, ImageHandle},
@@ -24,8 +24,8 @@ impl Backend {
         Self { active: None, renderer }
     }
 
-    pub fn handler<H: 'static>(mut self, handler: H) -> Self {
-        self.renderer = self.renderer.handler(handler);
+    pub fn register<R: 'static>(mut self, renderer: R) -> Self {
+        self.renderer = self.renderer.register(renderer);
         self
     }
 }

@@ -1,9 +1,9 @@
 use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_gui::{BackdropBlur, damage::DamageTracker};
 
-use crate::{DrawContext, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderStrategy, Renderer};
+use crate::{Pixel, PixelBuffer, PremultipliedRgbaColor, RenderContext, RenderStrategy};
 
-impl<B, S, D> Paint<BackdropBlur> for Renderer<B, S, D>
+impl<B, S, D> Paint<BackdropBlur> for crate::Renderer<B, S, D>
 where
     B: PixelBuffer,
     S: RenderStrategy<B>,
@@ -18,23 +18,23 @@ where
             .round()
             .min(B::Pixel::MAX_BLUR_RADIUS as f32);
         if radius != 0.0 {
-            recording.pass::<Handler>(radius as usize);
+            recording.push_pass::<Renderer>(radius as usize);
         }
     }
 }
 
 #[derive(Default)]
-struct Handler;
+struct Renderer;
 
-impl<P: Pixel> crate::Handler<P> for Handler {
+impl<P: Pixel> crate::Render<P> for Renderer {
     type Input = usize;
     type Prepared = usize;
 
-    fn prepare(&mut self, radius: &usize, _: &mut DrawContext<'_, P>) -> usize {
+    fn prepare(&mut self, radius: &usize, _: &mut RenderContext<'_, P>) -> usize {
         *radius
     }
 
-    fn draw(&mut self, radius: &usize, cx: &mut DrawContext<'_, P>) {
+    fn render(&mut self, radius: &usize, cx: &mut RenderContext<'_, P>) {
         let source = cx.source().unwrap();
         let scratch = cx.scratch();
         for bounds in cx.output_regions() {

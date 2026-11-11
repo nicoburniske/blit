@@ -73,7 +73,7 @@ where
                     .record(bounds, record.clip, offset, |_, offset, prepared, cx| {
                         // safety: recording stores this offset as blit_gui::rectangle::Stored
                         let input = unsafe { cx.list.data().get(Offset::<blit_gui::rectangle::Stored>::new(offset)) };
-                        let value = crate::render::rectangle::Prepared::new(
+                        let value = crate::raster::rectangle::Prepared::new(
                             input.area,
                             &input.view(cx.list),
                             cx.scale,

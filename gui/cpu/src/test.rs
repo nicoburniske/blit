@@ -71,34 +71,34 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
     }
 
     #[derive(Default)]
-    struct KeyHandler;
+    struct KeyRenderer;
 
-    impl Handler<Xrgb8888> for KeyHandler {
+    impl Render<Xrgb8888> for KeyRenderer {
         type Input = Key;
         type Prepared = u8;
 
-        fn prepare(&mut self, key: &Key, _: &mut DrawContext<'_, Xrgb8888>) -> u8 {
+        fn prepare(&mut self, key: &Key, _: &mut RenderContext<'_, Xrgb8888>) -> u8 {
             key.0
         }
 
-        fn draw(&mut self, value: &u8, cx: &mut DrawContext<'_, Xrgb8888>) {
+        fn render(&mut self, value: &u8, cx: &mut RenderContext<'_, Xrgb8888>) {
             cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(*value, 0, 0)));
         }
     }
 
-    struct KeyedHandler<T>(std::marker::PhantomData<T>);
+    struct KeyedRenderer<T>(std::marker::PhantomData<T>);
 
-    impl<T> Default for KeyedHandler<T> {
+    impl<T> Default for KeyedRenderer<T> {
         fn default() -> Self {
             Self(Default::default())
         }
     }
 
-    impl<T: 'static> Handler<Xrgb8888> for KeyedHandler<T> {
+    impl<T: 'static> Render<Xrgb8888> for KeyedRenderer<T> {
         type Input = Keyed<T>;
         type Prepared = ();
-        fn prepare(&mut self, _: &Keyed<T>, _: &mut DrawContext<'_, Xrgb8888>) {}
-        fn draw(&mut self, _: &(), _: &mut DrawContext<'_, Xrgb8888>) {}
+        fn prepare(&mut self, _: &Keyed<T>, _: &mut RenderContext<'_, Xrgb8888>) {}
+        fn render(&mut self, _: &(), _: &mut RenderContext<'_, Xrgb8888>) {}
     }
 
     impl<B, S, D> Paint<Key> for Renderer<B, S, D>
@@ -108,7 +108,7 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
         D: DamageTracker,
     {
         fn paint(&mut self, bounds: LogicalRect, key: Key) {
-            self.record(bounds).draw::<KeyHandler>(key, None);
+            self.record(bounds).push::<KeyRenderer>(key, None);
         }
     }
 
@@ -121,7 +121,7 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
     {
         fn paint(&mut self, bounds: LogicalRect, command: (Key, T)) {
             self.record(bounds)
-                .draw::<KeyedHandler<T>>(Keyed(command.0, command.1), None);
+                .push::<KeyedRenderer<T>>(Keyed(command.0, command.1), None);
         }
     }
 
@@ -225,7 +225,7 @@ fn panicking_damage_tracker_cannot_leave_foreign_commands() {
 }
 
 #[test]
-fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
+fn renderers_keep_independent_state_and_configuration_invalidates_damage() {
     use std::{cell::Cell, rc::Rc};
 
     struct Fill<const VALUE: u8>(u8, usize, Rc<Cell<usize>>);
@@ -242,11 +242,11 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
         }
     }
 
-    impl<const VALUE: u8> Handler<Xrgb8888> for Fill<VALUE> {
+    impl<const VALUE: u8> Render<Xrgb8888> for Fill<VALUE> {
         type Input = ();
         type Prepared = ();
-        fn prepare(&mut self, _: &(), _: &mut DrawContext<'_, Xrgb8888>) {}
-        fn draw(&mut self, _: &(), cx: &mut DrawContext<'_, Xrgb8888>) {
+        fn prepare(&mut self, _: &(), _: &mut RenderContext<'_, Xrgb8888>) {}
+        fn render(&mut self, _: &(), cx: &mut RenderContext<'_, Xrgb8888>) {
             let green = if cx.source().is_some() { self.0 } else { 0 };
             cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(self.0, green, 0)));
         }
@@ -257,24 +257,24 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
     }
 
     let drops = Rc::<Cell<usize>>::default();
-    let mut renderer = new_renderer(VecBuffer::new(2, 1), renderer_config()).handler(Fill::<0>(32, 0, drops.clone()));
+    let mut renderer = new_renderer(VecBuffer::new(2, 1), renderer_config()).register(Fill::<0>(32, 0, drops.clone()));
     for (frame, red) in [32, 64, 96, 96].into_iter().enumerate() {
         if frame == 1 {
-            renderer.handler_mut::<Fill<0>>().0 = red;
+            renderer.configure::<Fill<0>>().0 = red;
         } else if frame == 2 {
-            renderer = renderer.handler(Fill::<0>(red, 0, drops.clone()));
+            renderer = renderer.register(Fill::<0>(red, 0, drops.clone()));
         }
         renderer
             .record(LogicalRect::new(0.0, 0.0, 1.0, 1.0))
-            .draw_ready::<Fill<0>>((), None);
+            .push_ready::<Fill<0>>((), None);
         let mut recording = renderer.record(LogicalRect::default());
-        recording.draw_ready::<Fill<1>>((), None);
-        recording.draw_ready::<Fill<2>>((), None);
-        recording.draw_ready::<Fill<3>>((), None);
-        recording.draw_ready::<Fill<4>>((), None);
+        recording.push_ready::<Fill<1>>((), None);
+        recording.push_ready::<Fill<2>>((), None);
+        recording.push_ready::<Fill<3>>((), None);
+        recording.push_ready::<Fill<4>>((), None);
         renderer
             .record(LogicalRect::new(1.0, 0.0, 1.0, 1.0))
-            .draw_ready::<Fill<16>>((), None);
+            .push_ready::<Fill<16>>((), None);
         renderer.render(1);
         assert_eq!(
             renderer.buffer().pixels(),
@@ -282,7 +282,7 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
         );
     }
     renderer.render(1);
-    assert_eq!(renderer.handler_mut::<Fill<16>>().1, 5);
+    assert_eq!(renderer.configure::<Fill<16>>().1, 5);
     assert_eq!(drops.get(), 1);
     drop(renderer);
     assert_eq!(drops.get(), 2);
@@ -291,9 +291,9 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
     for pass in [false, true, true, false] {
         let mut recording = renderer.record(LogicalRect::new(40.0, 40.0, 1.0, 1.0));
         if pass {
-            recording.pass::<Fill<16>>(());
+            recording.push_pass::<Fill<16>>(());
         } else {
-            recording.draw_ready::<Fill<16>>((), None);
+            recording.push_ready::<Fill<16>>((), None);
         }
         renderer.render(1);
         assert_eq!(
@@ -308,12 +308,12 @@ fn handlers_keep_independent_state_and_configuration_invalidates_damage() {
 }
 
 #[test]
-#[should_panic(expected = "cannot replace a handler during a frame")]
-fn pending_commands_prevent_handler_replacement() {
+#[should_panic(expected = "cannot replace a renderer during a frame")]
+fn pending_commands_prevent_renderer_replacement() {
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
     let shadow = Shadow::new(Color::BLACK);
     renderer.paint(LogicalRect::new(0.0, 0.0, 8.0, 8.0), shadow);
-    let _ = renderer.handler(ext::shadow::Handler::default());
+    let _ = renderer.register(render::shadow::Renderer::default());
 }
 
 #[test]
@@ -354,22 +354,22 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
         D: DamageTracker,
     {
         fn paint(&mut self, bounds: LogicalRect, under: Under) {
-            self.record(bounds).draw::<UnderHandler>(under, None);
+            self.record(bounds).push::<UnderRenderer>(under, None);
         }
     }
 
     #[derive(Default)]
-    struct UnderHandler;
+    struct UnderRenderer;
 
-    impl Handler<Xrgb8888> for UnderHandler {
+    impl Render<Xrgb8888> for UnderRenderer {
         type Input = Under;
         type Prepared = ();
 
-        fn prepare(&mut self, under: &Under, _: &mut DrawContext<'_, Xrgb8888>) {
+        fn prepare(&mut self, under: &Under, _: &mut RenderContext<'_, Xrgb8888>) {
             under.0.set(under.0.get() + 1);
         }
 
-        fn draw(&mut self, _: &(), cx: &mut DrawContext<'_, Xrgb8888>) {
+        fn render(&mut self, _: &(), cx: &mut RenderContext<'_, Xrgb8888>) {
             cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(255, 0, 0)));
         }
     }
@@ -385,26 +385,26 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
             let area = cover.area;
             let opaque = cover.report.then_some(area);
             if cover.prepared {
-                cx.draw::<CoverHandler>(cover, opaque)
+                cx.push::<CoverRenderer>(cover, opaque)
             } else {
-                cx.draw_ready::<CoverHandler>(cover, opaque)
+                cx.push_ready::<CoverRenderer>(cover, opaque)
             }
         }
     }
 
     #[derive(Default)]
-    struct CoverHandler;
+    struct CoverRenderer;
 
-    impl Handler<Xrgb8888> for CoverHandler {
+    impl Render<Xrgb8888> for CoverRenderer {
         type Input = Cover;
         type Prepared = Cover;
 
-        fn prepare(&mut self, cover: &Cover, _: &mut DrawContext<'_, Xrgb8888>) -> Cover {
+        fn prepare(&mut self, cover: &Cover, _: &mut RenderContext<'_, Xrgb8888>) -> Cover {
             cover.prepares.set(cover.prepares.get() + 1);
             cover.clone()
         }
 
-        fn draw(&mut self, cover: &Cover, cx: &mut DrawContext<'_, Xrgb8888>) {
+        fn render(&mut self, cover: &Cover, cx: &mut RenderContext<'_, Xrgb8888>) {
             cx.for_each_span(|span| {
                 let row = PhysicalRect::new(span.x, span.y, span.pixels.len() as i32, 1);
                 if let Some(area) = row.intersection(cover.area) {
@@ -487,7 +487,7 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
 
     check(|| TileDamage::new(8));
     check(blit_gui::damage::command::CommandDiff::default);
-    assert_eq!(size_of::<handler::ErasedCommand<Xrgb8888>>(), 40);
+    assert_eq!(size_of::<render::ErasedCommand<Xrgb8888>>(), 40);
     assert_eq!(size_of::<strategy::command::Metadata>(), 24);
 }
 
@@ -533,27 +533,27 @@ fn prepared_draws_capture_data_and_drop_results_once() {
         fn paint(&mut self, bounds: LogicalRect, samples: Samples<'_>) {
             let mut cx = self.record(bounds);
             let values = cx.store_slice(samples.0.iter().copied());
-            cx.draw::<SamplesHandler>(SamplesData(values, samples.1), None);
+            cx.push::<SamplesRenderer>(SamplesData(values, samples.1), None);
         }
     }
 
     #[derive(Default)]
-    struct SamplesHandler;
+    struct SamplesRenderer;
 
-    impl Handler<Xrgb8888> for SamplesHandler {
+    impl Render<Xrgb8888> for SamplesRenderer {
         type Input = SamplesData;
         type Prepared = Prepared;
 
         fn prepare(
             &mut self,
             SamplesData(values, counts): &SamplesData,
-            cx: &mut DrawContext<'_, Xrgb8888>,
+            cx: &mut RenderContext<'_, Xrgb8888>,
         ) -> Prepared {
             counts.prepares.set(counts.prepares.get() + 1);
             Prepared([cx.slice(*values)[0]; 1024], counts.clone())
         }
 
-        fn draw(&mut self, prepared: &Prepared, cx: &mut DrawContext<'_, Xrgb8888>) {
+        fn render(&mut self, prepared: &Prepared, cx: &mut RenderContext<'_, Xrgb8888>) {
             let value = prepared.0[0];
             cx.for_each_span(|span| span.pixels.fill(Xrgb8888::from_rgb(value, value, value)));
         }
@@ -628,7 +628,7 @@ fn builtin_preparation_follows_damage_and_occlusion() {
     }
 
     impl RenderStrategy<VecBuffer<Xrgb8888>> for Check {
-        fn render(&mut self, context: &mut RenderContext<VecBuffer<Xrgb8888>>, damage: &impl DamageTracker) {
+        fn render(&mut self, context: &mut RenderState<VecBuffer<Xrgb8888>>, damage: &impl DamageTracker) {
             assert_eq!(context.raster.len(), [4, 3, 2][self.calls.get()]);
             assert!(matches!(context.raster.get(1), Payload::Pending));
             if self.calls.get() < 2 {
@@ -677,7 +677,7 @@ fn shadow_masks_are_lazy_and_shared_until_frame_end() {
     struct Check(Scanline, usize);
 
     impl RenderStrategy<VecBuffer<Xrgb8888>> for Check {
-        fn render(&mut self, context: &mut RenderContext<VecBuffer<Xrgb8888>>, damage: &impl DamageTracker) {
+        fn render(&mut self, context: &mut RenderState<VecBuffer<Xrgb8888>>, damage: &impl DamageTracker) {
             self.0.render(context, damage);
             assert_eq!(context.images.len(), self.1);
             self.1 += 1;
@@ -685,7 +685,7 @@ fn shadow_masks_are_lazy_and_shared_until_frame_end() {
     }
 
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(32, 20), text_system(), renderer_config())
-        .handler(ext::shadow::Handler::new(0))
+        .register(render::shadow::Renderer::new(0))
         .strategy(Check(Scanline::default(), 0));
     let bounds = LogicalRect::new(0.0, 0.0, 32.0, 20.0);
     let shadow = Shadow::new(Color::WHITE).blur(2.0);
@@ -729,7 +729,7 @@ fn atoms_record_into_the_renderer_context() {
         frame.paint(&mut renderer);
         renderer.render(1);
         assert!(renderer.context.list.commands().is_empty());
-        assert_eq!(renderer.handlers.len(), 2);
+        assert_eq!(renderer.renderers.len(), 2);
         assert!(renderer.buffer().pixels().iter().any(|pixel| pixel.raw() != 0xffffff));
     }
 }
@@ -1133,7 +1133,7 @@ fn mesh_occlusion_uses_screen_and_ancestor_clip_bounds() {
     struct Check<S>(S, bool);
 
     impl<S: RenderStrategy<VecBuffer<Xrgb8888>>> RenderStrategy<VecBuffer<Xrgb8888>> for Check<S> {
-        fn render(&mut self, context: &mut RenderContext<VecBuffer<Xrgb8888>>, damage: &impl DamageTracker) {
+        fn render(&mut self, context: &mut RenderState<VecBuffer<Xrgb8888>>, damage: &impl DamageTracker) {
             self.0.render(context, damage);
             assert_eq!(context.raster.meshes[0].triangles.len(), if self.1 { 0 } else { 2 });
         }

@@ -3,14 +3,14 @@ use std::{any::TypeId, hash::Hash, ops::Range, ptr::NonNull};
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_gui::display_list::{Compare, DisplayList, Slice};
 
-use crate::{Batch, Renderer};
+use crate::Renderer;
 
 /// prepares GPU resources and encodes ordered drawing commands
-pub trait Handler: Sized + 'static {
+pub trait Render: Sized + 'static {
     type Input: Compare;
     type Prepared: 'static;
 
-    /// creates persistent resources for this handler
+    /// creates persistent resources for this renderer
     fn new(context: &PrepareContext<'_>) -> Self;
 
     /// prepares before encoding any draws using distinct storage for each command's uploads
@@ -20,7 +20,7 @@ pub trait Handler: Sized + 'static {
     /// draws adjacent prepared inputs in painter order with a shared clip
     /// each prepared input retains its own geometry within the batch bounds
     /// framebuffer readers are drawn individually
-    fn draw(&mut self, prepared: &[Self::Prepared], context: &mut DrawContext<'_>);
+    fn render(&mut self, prepared: &[Self::Prepared], context: &mut RenderContext<'_>);
 
     /// uploads accumulated resources after all commands have been prepared
     fn upload(&mut self, _: &wgpu::Device, _: &wgpu::Queue) {}
@@ -33,99 +33,6 @@ pub trait Handler: Sized + 'static {
     fn finish_frame(&mut self) {}
 }
 
-pub struct PaintContext<'a> {
-    pub scale: f32,
-    pub bounds: PhysicalRect,
-    pub(super) renderer: &'a mut Renderer,
-}
-
-impl PaintContext<'_> {
-    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> Slice<T> {
-        self.renderer.list.store_slice(values)
-    }
-
-    #[inline]
-    pub fn draw<H>(&mut self, input: H::Input)
-    where
-        H: Handler,
-    {
-        let prepare = |input: &H::Input,
-                       _: u32,
-                       command: &blit_gui::display_list::Command,
-                       list: &DisplayList,
-                       dispatch: &mut Dispatch<'_>| {
-            let Some(bounds) = dispatch.bounds(command, list) else {
-                return;
-            };
-            let scale = dispatch.renderer.scale;
-            let mut context = PrepareContext {
-                scale,
-                bounds,
-                clip: command.clip,
-                size: [dispatch.screen.width as u32, dispatch.screen.height as u32],
-                list,
-                renderer: dispatch.renderer,
-                reads: None,
-            };
-            let kind = TypeId::of::<H>();
-            let index = context
-                .renderer
-                .handlers
-                .iter()
-                .position(|handler| handler.kind == kind)
-                .unwrap_or_else(|| {
-                    let value = H::new(&context);
-                    context.renderer.handlers.push(ErasedHandler::new(value));
-                    context.renderer.handlers.len() - 1
-                });
-            let handler = context.renderer.handlers[index].value;
-            // safety: lookup selects the entry created for H
-            let state = unsafe { handler.cast::<State<H>>().as_mut() };
-            context.reads = state
-                .value
-                .reads(input, bounds)
-                .map(|area| area.intersection(dispatch.screen).unwrap_or_default());
-            if context.reads.is_some() {
-                context.renderer.effects(context.size);
-            }
-            if let Some(value) = state.value.prepare(input, &mut context) {
-                let start = state.prepared.len();
-                state.prepared.push(value);
-                let previous = context.renderer.batches.last().and_then(|batch| match batch {
-                    Batch::Custom(index) => context.renderer.calls.get_mut(*index),
-                    _ => None,
-                });
-                if let Some(previous) = previous
-                    && context.reads.is_none()
-                    && previous.reads.is_none()
-                    && previous.handler == index
-                    && previous.clip == command.clip
-                    && previous.range.end == start
-                {
-                    previous.range.end += 1;
-                    previous.bounds = previous.bounds.union(bounds);
-                } else {
-                    let call = context.renderer.calls.len();
-                    context.renderer.calls.push(Call {
-                        handler: index,
-                        range: start..start + 1,
-                        bounds,
-                        clip: command.clip,
-                        reads: context.reads,
-                    });
-                    context.renderer.batches.push(Batch::Custom(call));
-                }
-            }
-        };
-        // safety: dispatch uses this renderer's preparation context
-        unsafe {
-            self.renderer
-                .list
-                .record(self.bounds, self.renderer.paint_clip, input, prepare);
-        }
-    }
-}
-
 /// resource preparation before any frame commands are submitted
 pub struct PrepareContext<'a> {
     pub scale: f32,
@@ -135,7 +42,7 @@ pub struct PrepareContext<'a> {
     pub size: [u32; 2],
     pub(super) renderer: &'a mut Renderer,
     pub(super) list: &'a DisplayList,
-    reads: Option<PhysicalRect>,
+    pub(super) reads: Option<PhysicalRect>,
 }
 
 impl PrepareContext<'_> {
@@ -162,7 +69,7 @@ impl PrepareContext<'_> {
 }
 
 /// coordinates the active output pass and effect encoder
-pub struct DrawContext<'a> {
+pub struct RenderContext<'a> {
     /// union scissor for the batch and each prepared input must respect its own bounds
     pub bounds: PhysicalRect,
     pub clip: u32,
@@ -174,7 +81,7 @@ pub struct DrawContext<'a> {
     pub(super) binding: &'a wgpu::BindGroup,
 }
 
-impl DrawContext<'_> {
+impl RenderContext<'_> {
     /// resumes output with shared bindings and the commands' rectangular bounds
     /// shaders apply rounded coverage with SHADER and the clip recorded during preparation
     /// the static lifetime is wgpu encoder tracking and does not extend borrowed user data
@@ -214,67 +121,67 @@ impl DrawContext<'_> {
     }
 }
 
-pub struct Call {
-    pub handler: usize,
+pub(crate) struct Call {
+    pub renderer: usize,
     pub range: Range<usize>,
     pub bounds: PhysicalRect,
     pub clip: u32,
     pub reads: Option<PhysicalRect>,
 }
 
-struct State<H>
+pub(crate) struct State<R>
 where
-    H: Handler,
+    R: Render,
 {
-    value: H,
-    prepared: Vec<H::Prepared>,
+    pub value: R,
+    pub prepared: Vec<R::Prepared>,
 }
 
-pub struct ErasedHandler {
+pub(crate) struct ErasedRenderer {
     pub kind: TypeId,
     pub value: NonNull<()>,
     pub finish: fn(NonNull<()>),
     pub upload: fn(NonNull<()>, &wgpu::Device, &wgpu::Queue),
-    pub draw: fn(NonNull<()>, Range<usize>, &mut DrawContext<'_>),
+    pub render: fn(NonNull<()>, Range<usize>, &mut RenderContext<'_>),
     drop: fn(NonNull<()>),
 }
 
-impl ErasedHandler {
-    fn new<H>(handler: H) -> Self
+impl ErasedRenderer {
+    pub(crate) fn new<R>(renderer: R) -> Self
     where
-        H: Handler,
+        R: Render,
     {
         Self {
-            kind: TypeId::of::<H>(),
-            value: NonNull::from(Box::leak(Box::new(State::<H> {
-                value: handler,
+            kind: TypeId::of::<R>(),
+            value: NonNull::from(Box::leak(Box::new(State::<R> {
+                value: renderer,
                 prepared: Vec::new(),
             })))
             .cast(),
             finish: |value| {
                 // safety: registration pairs this callback with its typed state
-                let state = unsafe { value.cast::<State<H>>().as_mut() };
+                let state = unsafe { value.cast::<State<R>>().as_mut() };
                 state.prepared.clear();
                 state.value.finish_frame();
             },
             upload: |value, device, queue| {
                 // safety: registration pairs this callback with its typed state
-                unsafe { value.cast::<State<H>>().as_mut() }.value.upload(device, queue);
+                unsafe { value.cast::<State<R>>().as_mut() }.value.upload(device, queue);
             },
-            draw: |value, range, context| {
+            render: |value, range, context| {
                 // safety: registration pairs this callback with its typed state
-                let state = unsafe { value.cast::<State<H>>().as_mut() };
-                state.value.draw(&state.prepared[range], context);
+                let state = unsafe { value.cast::<State<R>>().as_mut() };
+                state.value.render(&state.prepared[range], context);
             },
             drop: |value| {
                 // safety: new transfers ownership of one boxed state
-                unsafe { drop(Box::from_raw(value.cast::<State<H>>().as_ptr())) };
+                unsafe { drop(Box::from_raw(value.cast::<State<R>>().as_ptr())) };
             },
         }
     }
 }
 
-impl Drop for ErasedHandler {
+impl Drop for ErasedRenderer {
     fn drop(&mut self) {
         (self.drop)(self.value);
     }
@@ -285,7 +192,7 @@ impl Renderer {
         T: Compare,
         F: Fn(&T, &DisplayList, &mut Renderer, PhysicalRect, u32) + 'static,
     {
-        // safety: this renderer dispatches its list with PrepareContext
+        // safety: this renderer dispatches its list with DispatchContext
         unsafe {
             self.list.record(
                 bounds.to_physical(Scale2::uniform(self.scale)),
@@ -295,7 +202,7 @@ impl Renderer {
                       _,
                       command: &blit_gui::display_list::Command,
                       list: &DisplayList,
-                      context: &mut Dispatch<'_>| {
+                      context: &mut DispatchContext<'_>| {
                     if let Some(bounds) = context.bounds(command, list) {
                         prepare(value, list, context.renderer, bounds, command.clip);
                     }
@@ -305,13 +212,13 @@ impl Renderer {
     }
 }
 
-pub struct Dispatch<'a> {
+pub(crate) struct DispatchContext<'a> {
     pub renderer: &'a mut Renderer,
     pub screen: PhysicalRect,
 }
 
-impl Dispatch<'_> {
-    fn bounds(&self, command: &blit_gui::display_list::Command, list: &DisplayList) -> Option<PhysicalRect> {
+impl DispatchContext<'_> {
+    pub(crate) fn bounds(&self, command: &blit_gui::display_list::Command, list: &DisplayList) -> Option<PhysicalRect> {
         let mut bounds = command.bounds.intersection(self.screen)?;
         let mut clip = command.clip;
         while clip != 0 {

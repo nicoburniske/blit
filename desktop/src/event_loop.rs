@@ -215,7 +215,7 @@ impl<A: Application> Runner<A> {
             active
                 .frame
                 .build(&mut active.context, info, time, input, |ui: Ui<'_, A::Graphics>| {
-                    active.app.render(ui)
+                    active.app.build(ui)
                 });
             active.context.profiler.finish_stage(Stage::Build);
             active.frame.layout(&mut active.context);

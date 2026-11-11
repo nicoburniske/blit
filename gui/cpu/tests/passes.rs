@@ -1,7 +1,7 @@
 use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_cpu::{
-    Direct, DrawContext, Handler, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderStrategy, Renderer, RendererConfig,
-    Scanline, VecBuffer, Xrgb8888,
+    Direct, Pixel, PixelBuffer, PremultipliedRgbaColor, Render, RenderContext, RenderStrategy, Renderer,
+    RendererConfig, Scanline, VecBuffer, Xrgb8888,
 };
 use blit_gui::{
     BackdropBlur, Context, Rectangle, TextConfig, TextSystem,
@@ -37,13 +37,13 @@ fn regional_passes_match_full_rendering_across_buffer_ages_and_scene_changes() {
 fn pass_barriers_read_current_frame_and_respect_nested_clips() {
     #[derive(Clone, Copy, Default, Hash, PartialEq)]
     struct Shift;
-    impl Handler<Xrgb8888> for Shift {
+    impl Render<Xrgb8888> for Shift {
         type Input = Shift;
         type Prepared = Shift;
-        fn prepare(&mut self, command: &Shift, _: &mut DrawContext<'_, Xrgb8888>) -> Shift {
+        fn prepare(&mut self, command: &Shift, _: &mut RenderContext<'_, Xrgb8888>) -> Shift {
             *command
         }
-        fn draw(&mut self, _: &Shift, cx: &mut DrawContext<'_, Xrgb8888>) {
+        fn render(&mut self, _: &Shift, cx: &mut RenderContext<'_, Xrgb8888>) {
             let source = cx.source().unwrap();
             cx.for_each_span(|span| {
                 for (offset, pixel) in span.pixels.iter_mut().enumerate() {
@@ -66,7 +66,7 @@ fn pass_barriers_read_current_frame_and_respect_nested_clips() {
         D: DamageTracker,
     {
         fn paint(&mut self, bounds: LogicalRect, command: Shift) {
-            self.record(bounds).pass::<Shift>(command);
+            self.record(bounds).push_pass::<Shift>(command);
         }
     }
     let mut renderer =

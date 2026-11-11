@@ -1,5 +1,5 @@
 use blit::{LogicalRect, Paint};
-use blit_cpu::{Direct, RenderStrategy, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888, ext::shadow};
+use blit_cpu::{Direct, RenderStrategy, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888, render::shadow};
 use blit_gui::{
     Context, Rectangle, Shadow, TextConfig, TextSystem,
     color::Color,
@@ -46,7 +46,7 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
                     TextSystem::new(TextConfig::default(), blit_text_parley::Backend::without_system_fonts()).unwrap(),
                     RendererConfig::default(),
                 )
-                .handler(shadow::Handler::new(capacity))
+                .register(shadow::Renderer::new(capacity))
                 .strategy(S::default())
                 .damage_tracker(damage());
                 let mut spare = VecBuffer::new(128, 96);

@@ -3,7 +3,7 @@ use blit_gui::damage::DamageTracker;
 
 use crate::{
     PixelBuffer, RenderStrategy, Renderer,
-    handler::ErasedCommand,
+    render::ErasedCommand,
     strategy::command::{Coverage, Payload},
 };
 

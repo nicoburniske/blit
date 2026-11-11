@@ -4,7 +4,7 @@ use blit::PhysicalRect;
 use blit_gui::{damage::DamageTracker, display_list::DisplayList};
 
 use super::region::Region;
-use crate::{PixelBuffer, RenderContext};
+use crate::{PixelBuffer, RenderState};
 
 #[derive(Default)]
 pub struct PassDamage {
@@ -25,7 +25,7 @@ pub struct PassNode {
 impl PassDamage {
     pub fn update<B: PixelBuffer>(
         &mut self,
-        context: &RenderContext<B>,
+        context: &RenderState<B>,
         tracker: &impl DamageTracker,
         screen: PhysicalRect,
         shift: u32,

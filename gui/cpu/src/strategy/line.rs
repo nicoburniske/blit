@@ -10,7 +10,7 @@ use super::{
     command::{CommandId, Coverage, RasterCommands},
     raster,
 };
-use crate::{DamageTracker, Pixel, PixelBuffer, PixelSpan, RenderContext, StoredImage, TextRenderer};
+use crate::{DamageTracker, Pixel, PixelBuffer, PixelSpan, RenderState, StoredImage, TextRenderer};
 
 pub struct Scanline {
     span_occlusion: bool,
@@ -41,7 +41,7 @@ impl Default for Scanline {
 }
 
 impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
-    fn render(&mut self, context: &mut RenderContext<B>, damage: &impl DamageTracker) {
+    fn render(&mut self, context: &mut RenderState<B>, damage: &impl DamageTracker) {
         let width = context.buffer.width();
         let height = context.buffer.height();
         let screen = PhysicalRect::new(0, 0, width as i32, height as i32);

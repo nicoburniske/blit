@@ -126,7 +126,7 @@ impl Application for App {
 
     fn input(&mut self, _: Self::Input) {}
 
-    fn render(&mut self, ui: Ui<'_>) {
+    fn build(&mut self, ui: Ui<'_>) {
         let mut root = ui.layout(flex::column().gap(sz::SM).pad(sz::XL));
         root.insert(Rectangle::new().background(colors::BACKGROUND));
         {

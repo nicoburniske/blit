@@ -8,14 +8,13 @@ use blit_gui::display_list::DisplayList;
 
 use super::clip::{ClipId, ClipStack};
 use crate::{
-    DamageTracker, DrawContext, Pixel, StoredImage,
+    DamageTracker, Pixel, RenderContext, StoredImage,
     damage::region::Region,
-    handler::ErasedCommand,
-    raster::DrawTarget,
-    render::{
+    raster::{
         fill::{Gradients, PreparedFill},
         image_patch, mesh, rectangle,
     },
+    render::{ErasedCommand, RenderTarget},
     text::{PreparedText, TextRenderer},
 };
 
@@ -66,7 +65,7 @@ impl<P: Pixel> RasterCommands<P> {
     ) -> &Payload {
         let command = &mut self.metadata[id as usize];
         let input = &mut self.entries[id as usize];
-        if input.draw.is_some() {
+        if input.render.is_some() {
             return &Payload::Custom;
         }
         if !input.is_pending() {
@@ -75,7 +74,7 @@ impl<P: Pixel> RasterCommands<P> {
         }
         input.prepare(
             &mut self.prepared,
-            &mut DrawContext {
+            &mut RenderContext {
                 scale: self.scale,
                 bounds: command.bounds,
                 list,
@@ -84,7 +83,7 @@ impl<P: Pixel> RasterCommands<P> {
                 images,
                 source: None,
                 scratch: &self.scratch,
-                target: DrawTarget::Prepare,
+                target: RenderTarget::Prepare,
             },
         );
         // safety: entries without a draw callback prepare Payload values
@@ -116,7 +115,7 @@ impl<P: Pixel> RasterCommands<P> {
     #[inline(always)]
     pub fn get(&self, id: CommandId) -> &Payload {
         let input = &self.entries[id as usize];
-        if input.draw.is_some() {
+        if input.render.is_some() {
             &Payload::Custom
         } else if input.is_pending() {
             &Payload::Pending
@@ -266,7 +265,7 @@ impl<P: Pixel> RasterCommands<P> {
                     let position = view.vertices[vertex_index as usize].position;
                     [position.x * self.scale, position.y * self.scale]
                 });
-                let Some(bounds) = crate::render::triangle::bounds(points).intersection(bounds) else {
+                let Some(bounds) = crate::raster::triangle::bounds(points).intersection(bounds) else {
                     continue;
                 };
                 if damage.intersects(bounds, clip) && !self.opaque.contains(bounds) {
@@ -307,13 +306,13 @@ impl<P: Pixel> RasterCommands<P> {
         bounds: PhysicalRect,
         clip: ClipId,
         value: u32,
-        prepare: fn(NonNull<()>, u32, &mut Bump, &mut DrawContext<'_, P>) -> u32,
+        prepare: fn(NonNull<()>, u32, &mut Bump, &mut RenderContext<'_, P>) -> u32,
     ) -> &mut Metadata {
         let input = ErasedCommand {
-            handler: NonNull::dangling(),
+            renderer: NonNull::dangling(),
             value,
             opaque: Offset::new(0),
-            draw: None,
+            render: None,
             reads: None,
             prepare: Some(prepare),
         };

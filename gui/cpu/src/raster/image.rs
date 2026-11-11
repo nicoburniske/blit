@@ -40,7 +40,7 @@ where
                                     let input =
                                         unsafe { cx.list.data().get(Offset::<blit_gui::image::Stored>::new(offset)) };
                                     let value =
-                                        crate::render::image_patch::Prepared::new(&input.image, patch, cx.scale)
+                                        crate::raster::image_patch::Prepared::new(&input.image, patch, cx.scale)
                                             .map(Payload::Image)
                                             .unwrap_or(Payload::Empty);
                                     prepared.push(value).byte()
@@ -208,7 +208,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::{PixelBuffer, VecBuffer, Xrgb8888, render::image_patch::AlphaRows};
+    use crate::{PixelBuffer, VecBuffer, Xrgb8888, raster::image_patch::AlphaRows};
 
     fn draw<B>(
         buffer: &mut B,

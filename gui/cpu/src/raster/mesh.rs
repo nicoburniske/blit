@@ -7,7 +7,7 @@ use blit_gui::{
 
 use super::triangle;
 use crate::{
-    Pixel, PixelBuffer, PixelSpan, RenderStrategy, Renderer, handler::ErasedCommand, strategy::command::Payload,
+    Pixel, PixelBuffer, PixelSpan, RenderStrategy, Renderer, render::ErasedCommand, strategy::command::Payload,
 };
 
 impl<B, S, D> Paint<Mesh<'_>> for Renderer<B, S, D>
@@ -41,7 +41,7 @@ where
                 if index == target.meshes.len() {
                     target
                         .meshes
-                        .push(crate::render::mesh::Prepared::new(Offset::new(mesh_offset)));
+                        .push(crate::raster::mesh::Prepared::new(Offset::new(mesh_offset)));
                 } else {
                     target.meshes[index].source = Offset::new(mesh_offset);
                 }

@@ -3,7 +3,7 @@ use std::ops::Range;
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_gui::style::BorderRadius;
 
-use crate::render::rounded::{Radii, RoundedLine};
+use crate::raster::rounded::{Radii, RoundedLine};
 
 pub type ClipId = u32;
 

@@ -10,18 +10,18 @@ use blit_gui::{
 };
 
 use crate::{
-    DamageTracker, Pixel, PixelBuffer, RenderStrategy, Renderer,
+    DamageTracker, Pixel, PixelBuffer, RenderStrategy,
     raster::rounded::{Radii, RoundedLine},
 };
 
-/// box shadow handler with retained masks created on first use
+/// box shadow renderer with retained masks created on first use
 ///
-/// configure with `.handler(ext::shadow::Handler::new(capacity))`
-pub struct Handler {
+/// configure with `.register(render::shadow::Renderer::new(capacity))`
+pub struct Renderer {
     entries: DeferredCache<KeyData, CachedShadow, ShadowScale>,
 }
 
-impl Handler {
+impl Renderer {
     /// capacity is the maximum retained mask data in bytes
     pub fn new(capacity: usize) -> Self {
         Self {
@@ -30,16 +30,16 @@ impl Handler {
     }
 }
 
-impl Default for Handler {
+impl Default for Renderer {
     fn default() -> Self {
         Self::new(512 * 1024)
     }
 }
 
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Shadow> for Renderer<B, S, D> {
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Shadow> for crate::Renderer<B, S, D> {
     fn paint(&mut self, area: LogicalRect, shadow: Shadow) {
         let mut cx = self.record(shadow.bounds(area));
-        cx.draw::<Handler>(Input { area, shadow }, None);
+        cx.push::<Renderer>(Input { area, shadow }, None);
     }
 }
 
@@ -58,15 +58,15 @@ impl Hash for Input {
     }
 }
 
-impl<P: Pixel> crate::Handler<P> for Handler {
+impl<P: Pixel> crate::Render<P> for Renderer {
     type Input = Input;
-    type Prepared = Option<crate::raster::Image>;
+    type Prepared = Option<crate::render::Image>;
 
     fn finish_frame(&mut self) {
         self.entries.trim_to_weight();
     }
 
-    fn prepare(&mut self, input: &Input, cx: &mut crate::DrawContext<'_, P>) -> Self::Prepared {
+    fn prepare(&mut self, input: &Input, cx: &mut crate::RenderContext<'_, P>) -> Self::Prepared {
         let shadow = &input.shadow;
         let scale_factor = cx.scale;
         if shadow.color.alpha == 0 {
@@ -276,11 +276,11 @@ impl<P: Pixel> crate::Handler<P> for Handler {
         )
     }
 
-    fn draw(&mut self, prepared: &Self::Prepared, cx: &mut crate::DrawContext<'_, P>) {
+    fn render(&mut self, prepared: &Self::Prepared, cx: &mut crate::RenderContext<'_, P>) {
         let Some(image) = prepared else {
             return;
         };
-        cx.for_each_span(|mut span| image.draw(&mut span));
+        cx.for_each_span(|mut span| image.render(&mut span));
     }
 }
 

@@ -1,9 +1,10 @@
 mod atlas;
 mod clear;
-mod handler;
 mod image;
 mod mesh;
+mod record;
 mod rectangle;
+pub mod render;
 mod shadow;
 mod text;
 
@@ -17,7 +18,8 @@ use blit_gui::{
     style::BorderRadius,
 };
 use bytemuck::{Pod, Zeroable};
-pub use handler::{DrawContext, Handler, PaintContext, PrepareContext};
+pub use record::RecordContext;
+pub use render::{PrepareContext, Render, RenderContext};
 
 /// shared frame transform and rounded clip coverage for custom shaders
 pub const SHADER: &str = include_str!("clip.wgsl");
@@ -75,8 +77,8 @@ pub struct Renderer {
     scale: f32,
     paint_clip: u32,
     paint_clips: Vec<u32>,
-    handlers: Vec<handler::ErasedHandler>,
-    calls: Vec<handler::Call>,
+    renderers: Vec<render::ErasedRenderer>,
+    calls: Vec<render::Call>,
     effects: Option<Effects>,
 }
 
@@ -354,7 +356,7 @@ impl Renderer {
             scale: 1.0,
             paint_clip: 0,
             paint_clips: Vec::new(),
-            handlers: Vec::new(),
+            renderers: Vec::new(),
             calls: Vec::new(),
             effects: None,
         }
@@ -362,8 +364,8 @@ impl Renderer {
 
     /// begins recording inputs within bounds
     #[inline]
-    pub fn record(&mut self, bounds: LogicalRect) -> PaintContext<'_> {
-        PaintContext {
+    pub fn record(&mut self, bounds: LogicalRect) -> RecordContext<'_> {
+        RecordContext {
             scale: self.scale,
             bounds: bounds.to_physical(Scale2::uniform(self.scale)),
             renderer: self,
@@ -516,15 +518,15 @@ impl Renderer {
                 width: width.min(i32::MAX as u32) as i32,
                 height: height.min(i32::MAX as u32) as i32,
             };
-            let mut preparation = handler::Dispatch { renderer: self, screen };
+            let mut dispatch = render::DispatchContext { renderer: self, screen };
             for command in display_list.commands() {
-                // safety: recording pairs dispatch with this renderer preparation context
+                // safety: recording pairs dispatch with this renderer dispatch context
                 unsafe {
-                    command.dispatch(&display_list, std::ptr::NonNull::from(&mut preparation).cast());
+                    command.dispatch(&display_list, std::ptr::NonNull::from(&mut dispatch).cast());
                 }
             }
-            for handler in &self.handlers {
-                (handler.upload)(handler.value, &self.device, &self.queue);
+            for renderer in &self.renderers {
+                (renderer.upload)(renderer.value, &self.device, &self.queue);
             }
             let instance_bytes = self.instances.len() as u64 * size_of::<Instance>() as u64;
             let glyph_bytes = self.glyph_instances.len() as u64 * size_of::<GlyphInstance>() as u64;
@@ -627,7 +629,7 @@ impl Renderer {
                     ..Default::default()
                 })
                 .forget_lifetime();
-            let mut context = DrawContext {
+            let mut context = RenderContext {
                 bounds: screen,
                 clip: 0,
                 size: frame_size,
@@ -673,8 +675,8 @@ impl Renderer {
                     }
                     context.bounds = call.bounds;
                     context.clip = call.clip;
-                    let handler = &self.handlers[call.handler];
-                    (handler.draw)(handler.value, call.range.clone(), &mut context);
+                    let renderer = &self.renderers[call.renderer];
+                    (renderer.render)(renderer.value, call.range.clone(), &mut context);
                 } else {
                     context.bounds = screen;
                     context.clip = 0;
@@ -829,8 +831,8 @@ impl Renderer {
     pub fn discard_frame(&mut self) {
         self.list.clear();
         self.calls.clear();
-        for handler in &self.handlers {
-            (handler.finish)(handler.value);
+        for renderer in &self.renderers {
+            (renderer.finish)(renderer.value);
         }
         self.paint_clip = 0;
         self.paint_clips.clear();
@@ -1150,7 +1152,7 @@ mod tests {
             kind: u8,
             used: bool,
         }
-        impl Handler for State<8> {
+        impl Render for State<8> {
             type Input = u8;
             type Prepared = ();
             fn new(_: &PrepareContext<'_>) -> Self {
@@ -1163,12 +1165,12 @@ mod tests {
                 assert_eq!(*input, 0, "failed preparation");
                 None
             }
-            fn draw(&mut self, _: &[()], _: &mut DrawContext<'_>) {}
+            fn render(&mut self, _: &[()], _: &mut RenderContext<'_>) {}
             fn finish_frame(&mut self) {
                 self.used = false;
             }
         }
-        impl Handler for State<16> {
+        impl Render for State<16> {
             type Input = u16;
             type Prepared = ();
             fn new(_: &PrepareContext<'_>) -> Self {
@@ -1180,7 +1182,7 @@ mod tests {
                 self.used = true;
                 None
             }
-            fn draw(&mut self, _: &[()], _: &mut DrawContext<'_>) {}
+            fn render(&mut self, _: &[()], _: &mut RenderContext<'_>) {}
             fn finish_frame(&mut self) {
                 self.used = false;
             }
@@ -1202,16 +1204,16 @@ mod tests {
         for _ in 0..2 {
             let bounds = blit::LogicalRect::new(0.0, 0.0, 8.0, 8.0);
             let mut recording = renderer.record(bounds);
-            recording.draw::<State<8>>(0u8);
-            recording.draw::<State<16>>(0u16);
+            recording.push::<State<8>>(0u8);
+            recording.push::<State<16>>(0u16);
             renderer.render(&target);
-            assert_eq!(renderer.handlers.len(), 2);
+            assert_eq!(renderer.renderers.len(), 2);
         }
         let bounds = blit::LogicalRect::new(0.0, 0.0, 8.0, 8.0);
-        renderer.record(bounds).draw::<State<8>>(1u8);
+        renderer.record(bounds).push::<State<8>>(1u8);
         let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| renderer.render(&target)));
         assert!(failure.is_err());
-        renderer.record(bounds).draw::<State<8>>(0u8);
+        renderer.record(bounds).push::<State<8>>(0u8);
         renderer.render(&target);
     }
 
