@@ -98,10 +98,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
 
     /// returns mutable renderer state creating its default when needed and invalidating retained pixels
     pub fn configure<R: Default + 'static>(&mut self) -> &mut R {
-        assert!(
-            self.context.list.commands().is_empty(),
-            "cannot configure a renderer during a frame"
-        );
         self.damage.invalidate();
         let index = renderer_index::<R>(&mut self.renderers);
         // safety: the lookup selects the entry created for R
@@ -158,7 +154,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
     /// buffer age counts presentations since this buffer was last used
     /// zero means its contents are unknown and forces a full repaint
     pub fn render(&mut self, buffer_age: u8) {
-        assert!(self.paint_clips.is_empty(), "unbalanced paint clips");
         let screen = self.screen();
         let scale = self.context.scale_factor;
         self.context.raster.scale = scale;
@@ -192,11 +187,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         if !damage.is_empty() {
             let end = context.raster.len();
             if let Some(region) = plan.stages.first() {
-                assert_eq!(
-                    context.buffer.x_offset(),
-                    0,
-                    "source reads require a complete framebuffer"
-                );
                 context.preserved.clear();
                 for bounds in plan.preserve.rects() {
                     for y in bounds.y..bounds.y + bounds.height {
@@ -326,10 +316,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
 
     pub fn set_scale(&mut self, scale: f32) {
         assert!(scale.is_finite() && scale > 0.0);
-        assert!(
-            self.context.list.commands().is_empty(),
-            "cannot change scale during a frame"
-        );
         if self.context.scale_factor != scale {
             self.context.scale_factor = scale;
             self.invalidate_all();

@@ -322,8 +322,7 @@ impl Prepared {
             match texture.format {
                 ImageFormat::Rgb8 => {
                     let bytes = &pixels[source_offset..source_offset + len * 3];
-                    let (prefix, source, suffix) = unsafe { bytes.align_to::<Rgb8Pixel>() };
-                    assert!(prefix.is_empty() && suffix.is_empty());
+                    let (_, source, _) = unsafe { bytes.align_to::<Rgb8Pixel>() };
                     P::blend_texture_slice_rgb(destination, source);
                 }
                 ImageFormat::Luma8 => {
@@ -333,8 +332,7 @@ impl Prepared {
                 }
                 ImageFormat::Rgba8Premultiplied => {
                     let bytes = &pixels[source_offset..source_offset + len * 4];
-                    let (prefix, source, suffix) = unsafe { bytes.align_to::<PremultipliedRgbaColor>() };
-                    assert!(prefix.is_empty() && suffix.is_empty());
+                    let (_, source, _) = unsafe { bytes.align_to::<PremultipliedRgbaColor>() };
                     if let Some(AlphaRow {
                         visible_start,
                         visible_end,

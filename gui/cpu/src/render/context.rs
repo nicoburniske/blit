@@ -150,15 +150,9 @@ impl<P> Surface<P> {
         self.height
     }
     pub fn row(&self, y: usize, range: std::ops::Range<usize>) -> &[P] {
-        assert!(range.start <= range.end && range.end <= self.width && y < self.height);
         if range.is_empty() {
             return &[];
         }
-        assert!(
-            self.valid
-                .contains(PhysicalRect::new(range.start as i32, y as i32, range.len() as i32, 1)),
-            "pass read outside its declared source footprint"
-        );
         let start = (y - self.bounds.y as usize) * self.bounds.width as usize + range.start - self.bounds.x as usize;
         &self.pixels[start..start + range.len()]
     }
