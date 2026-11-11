@@ -15,17 +15,32 @@
 //! - [`Layout`] is retained policy for a node's children. it measures them and resolves their
 //!   positions and sizes
 //!
+//! # context
+//!
+//! the [`Context`] is usually your renderer. widgets, layouts and atoms all get mutable access to
+//! it, whether to measure text, paint, or use anything else it provides
+//!
+//! - [`Paint`] is how atoms draw. each implementation accepts one kind of drawing operation in
+//!   frame coordinates, and the context decides what painting means
+//! - [`FrameStore`] lets a context keep slices that its paint commands reference. widgets store
+//!   them with [`Ui::store_slice`] and keep a [`FrameSlice`], a small handle the context resolves
+//!   when it renders
+//!
 //! # frame lifecycle
 //!
 //! ```text
 //! Frame::build
 //!     │ records nodes, Layouts, and Atoms
+//!     │ Ui::store_slice copies drawing inputs into the context
 //!     ▼
 //! retained frame graph
 //!     │ Frame::layout measures Atoms and arranges children
 //!     ▼
 //! resolved node positions and sizes
-//!     │ Frame::paint invokes Atom::paint
+//!     │ Frame::paint invokes Atom::paint, which sends commands through Paint
+//!     ▼
+//! context
+//!     │ renders its commands, then clears their stored inputs
 //!     ▼
 //! output
 //! ```
@@ -34,6 +49,16 @@
 //! frame.
 //!
 //! the graph is rebuilt every frame
+//!
+//! # storage
+//!
+//! ```text
+//! Scratch      Ui::scratch, LayoutCx::scratch, AtomCx::scratch
+//!              temporary slices for the current step, reclaimed when it ends
+//!
+//! FrameSlice   Ui::store_slice
+//!              drawing inputs owned by the context until it renders
+//! ```
 
 mod clip;
 mod frame;
@@ -69,7 +94,9 @@ pub use self::{
     scratch::{Scratch, ScratchBuffer},
 };
 
+/// resources shared by every widget, layout and atom in a frame
 pub trait Context {
+    /// coordinate type for all frame geometry
     type Scalar: Scalar;
 }
 
@@ -77,18 +104,16 @@ impl Context for () {
     type Scalar = f32;
 }
 
-/// owns drawing inputs stored while building and painting until the context renders them
-///
-/// widgets may append and read but only the owner clears
-pub trait FrameStore {
-    fn frame_data(&self) -> &FrameData;
-    fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T>;
-}
-
 /// accepts one kind of drawing operation in frame coordinates
 pub trait Paint<T>: Context {
     /// area supplies placement and dimensions while the operation defines any outsets
     fn paint(&mut self, area: Rect<Self::Scalar>, command: T);
+}
+
+/// holds drawing inputs referenced by paint commands until they are rendered
+pub trait FrameStore {
+    fn frame_data(&self) -> &FrameData;
+    fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T>;
 }
 
 builder! {
