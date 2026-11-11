@@ -33,6 +33,8 @@ struct Inertia {
     tracking: bool,
     last_frame: Option<Duration>,
     remainder: f32,
+    sample_time: Option<Duration>,
+    pending_delta: f32,
 }
 
 impl<T: Scalar> ScrollState<T> {
@@ -83,6 +85,8 @@ impl Inertia {
         self.remainder = 0.0;
         self.velocity = 0.0;
         self.tracking = false;
+        self.sample_time = None;
+        self.pending_delta = 0.0;
     }
 
     fn pixel_delta<T: Scalar>(&mut self, amount: f32) -> T {
@@ -398,10 +402,15 @@ fn content_motion<C: Context>(
     motion: interact::scroll::Response,
 ) -> f32 {
     let now = ui.time();
-    let elapsed = state
-        .last_frame
-        .replace(now)
-        .map_or(0.0, |previous| now.saturating_sub(previous).as_secs_f32());
+    let previous = state.last_frame.replace(now);
+    let elapsed = previous.map_or(0.0, |previous| now.saturating_sub(previous).as_secs_f32());
+    if matches!(ui.input(), blit::Input::Touch { phase: blit::TouchPhase::Down, position, .. }
+        if ui.area(ui.current_id()).is_some_and(|area| area.contains(position)))
+    {
+        state.stop();
+        state.sample_time = Some(now);
+        return 0.0;
+    }
     let moving = motion.active || motion.deactivated || motion.delta != Point::ZERO;
     let mut delta = match axis {
         Axis::Horizontal => motion.delta.x,
@@ -411,12 +420,20 @@ fn content_motion<C: Context>(
         delta = motion.delta.y;
     }
     let mut direct_delta = delta * scroll_speed;
-    let mut sample_velocity = false;
     if motion.continuous {
-        // a sequence that started this update has no earlier sample to measure against
-        sample_velocity = state.tracking && !motion.activated;
         if motion.activated || motion.deactivated && !motion.released {
             state.velocity = 0.0;
+            state.pending_delta = 0.0;
+        }
+        if motion.activated {
+            if matches!(ui.input(), blit::Input::Touch { .. }) {
+                let distance = motion.delta.x.hypot(motion.delta.y);
+                if distance > 0.0 {
+                    direct_delta *= (1.0 - C::SLOP.to_f32() / distance).max(0.0);
+                }
+            } else {
+                state.sample_time = previous;
+            }
         }
         state.tracking = motion.active;
     } else if moving {
@@ -424,8 +441,24 @@ fn content_motion<C: Context>(
         state.tracking = false;
     }
 
-    if direct_delta != 0.0 && sample_velocity && elapsed > 0.0 {
-        state.velocity = (direct_delta / elapsed).clamp(-MAX_SCROLL_VELOCITY, MAX_SCROLL_VELOCITY);
+    if motion.continuous && (motion.active || motion.released) {
+        let sample_time = state.sample_time.get_or_insert(previous.unwrap_or(now));
+        let sample_elapsed = now.saturating_sub(*sample_time).as_secs_f32();
+        if delta != 0.0 {
+            state.pending_delta += delta * scroll_speed;
+            if sample_elapsed > 0.0 {
+                let velocity = (state.pending_delta / sample_elapsed).clamp(-MAX_SCROLL_VELOCITY, MAX_SCROLL_VELOCITY);
+                state.velocity = if state.velocity == 0.0 {
+                    velocity
+                } else {
+                    (state.velocity + velocity) * 0.5
+                };
+                state.pending_delta = 0.0;
+                *sample_time = now;
+            }
+        } else if sample_elapsed >= 0.1 {
+            state.velocity = 0.0;
+        }
     }
 
     if !state.tracking && state.velocity != 0.0 {
@@ -551,6 +584,93 @@ mod tests {
 
     use super::*;
     use crate::test::TestContext;
+
+    #[test]
+    fn release_preserves_recent_velocity() {
+        for gap in [0, 16, 33, 100, 500] {
+            let mut frame = Frame::default();
+            let mut inertia = Inertia {
+                velocity: 1000.0,
+                tracking: true,
+                last_frame: Some(Duration::from_millis(64)),
+                sample_time: Some(Duration::from_millis(64)),
+                ..Inertia::default()
+            };
+            frame.build(
+                &mut TestContext,
+                FrameInfo::new(Size::uniform(200.0)),
+                Duration::from_millis(64 + gap),
+                Input::None,
+                |mut ui: Ui<'_, TestContext>| {
+                    content_motion(
+                        &mut inertia,
+                        &mut ui,
+                        Axis::Vertical,
+                        1.0,
+                        2.5,
+                        interact::scroll::Response {
+                            continuous: true,
+                            released: true,
+                            deactivated: true,
+                            ..Default::default()
+                        },
+                    );
+                },
+            );
+            assert_eq!(inertia.velocity, if gap < 100 { 1000.0 } else { 0.0 });
+        }
+    }
+
+    #[test]
+    fn touch_motion_stops_and_survives_batched_release() {
+        use blit::{Atom, AtomCx, Rect, TouchPhase};
+
+        struct Content;
+        impl Atom<TestContext> for Content {
+            fn measure(&self, _: &mut AtomCx<'_, TestContext>, bounds: Constraints<f32>) -> Size<f32> {
+                bounds.constrain(Size::new(200.0, 4000.0))
+            }
+            fn paint(&self, _: &mut AtomCx<'_, TestContext>, _: Rect<f32>) {}
+        }
+        for held in [false, true] {
+            let mut frame = Frame::default();
+            let mut state = ScrollState::<f32>::new();
+            let mut step = |millis, phase: Option<TouchPhase>, y| {
+                frame.build(
+                    &mut TestContext,
+                    FrameInfo::new(Size::uniform(200.0)),
+                    Duration::from_millis(millis),
+                    phase.map_or(Input::None, |phase| Input::Touch {
+                        id: 1,
+                        position: Point::new(50.0, y),
+                        phase,
+                    }),
+                    |ui: Ui<'_, TestContext>| {
+                        ui.build(ScrollArea::new(&mut state).build(|mut ui: Ui<'_, TestContext>| {
+                            ui.insert(Content);
+                        }))
+                    },
+                );
+                frame.layout(&mut TestContext);
+                (state.offset, state.is_moving())
+            };
+            step(0, None, 0.0);
+            step(16, None, 0.0);
+            step(32, Some(TouchPhase::Down), 180.0);
+            let (offset, _) = step(48, Some(TouchPhase::Move), 150.0);
+            assert!((offset - 24.0).abs() < 0.001);
+            if held {
+                assert!(!step(500, Some(TouchPhase::Up), 150.0).1);
+                assert_eq!(step(516, None, 0.0).0, offset);
+            } else {
+                assert!(step(48, Some(TouchPhase::Up), 130.0).1);
+                let (coasting, _) = step(64, None, 0.0);
+                assert!(coasting > offset + 20.0);
+                assert_eq!(step(80, Some(TouchPhase::Down), 100.0), (coasting, false));
+                assert_eq!(step(96, None, 0.0), (coasting, false));
+            }
+        }
+    }
 
     #[test]
     fn animated_requests_retarget_bound_and_settle() {

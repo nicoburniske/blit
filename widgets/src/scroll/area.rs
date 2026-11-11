@@ -11,7 +11,7 @@ blit::builder! {
         new(state: &'a mut ScrollState<T>),
         axis: Axis = Axis::Vertical,
         scroll_speed: f32 = 1.0,
-        inertia_friction: f32 = 6.0,
+        inertia_friction: f32 = 2.5,
         scrollbar_thickness: T = T::from_f32(1.0),
         minimum_thumb_extent: T = T::from_f32(1.0),
         clip<X = ()>: X = (),

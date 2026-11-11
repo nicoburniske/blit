@@ -18,7 +18,7 @@ blit::builder! {
         #[into]
         count: Option<usize> = None,
         scroll_speed: f32 = 1.0,
-        inertia_friction: f32 = 6.0,
+        inertia_friction: f32 = 2.5,
         scrollbar_thickness: T = T::from_f32(1.0),
         minimum_thumb_extent: T = T::from_f32(1.0),
         #[bounds(FnMut(Id, usize) -> Id)]
