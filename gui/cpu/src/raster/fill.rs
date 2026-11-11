@@ -169,13 +169,19 @@ impl PreparedFill {
                         alpha: 255,
                     };
                 }
-                let stops = &gradients.stops[gradient.stops.start as usize..gradient.stops.end as usize];
                 let position = if matches!(*self, Self::ConicGradient(_)) {
                     conic_position(gradient, x, y)
                 } else {
                     gradient.offset + gradient.y * y as f32 + gradient.x * x as f32
                 };
-                sample_stops(stops, position, x, y)
+                let stops = &gradients.stops[gradient.stops.start as usize..gradient.stops.end as usize];
+                let index = stops
+                    .partition_point(|stop| stop.position <= position)
+                    .saturating_sub(1)
+                    .min(stops.len() - 2);
+                let inverse = 1.0 / (stops[index + 1].position - stops[index].position);
+                let amount = ((position - stops[index].position) * inverse).clamp(0.0, 1.0);
+                interpolate_gradient(amount, stops[index].color, stops[index + 1].color, x, y)
             }
         }
     }
@@ -187,7 +193,7 @@ impl PreparedFill {
                 let color = color.coverage(coverage as u32);
                 P::blend_slice(pixels, color);
             }
-            Self::Gradient(index) => {
+            Self::Gradient(index) | Self::ConicGradient(index) => {
                 let gradient = &gradients.entries[index as usize];
                 if let Some(ramp) = &gradient.ramp
                     && coverage == 255
@@ -236,15 +242,17 @@ impl PreparedFill {
                     return;
                 }
                 let stops = &gradients.stops[gradient.stops.start as usize..gradient.stops.end as usize];
+                let conic = matches!(*self, Self::ConicGradient(_));
                 let row_position = gradient.offset + gradient.y * y as f32;
-                let position = row_position + gradient.x * x as f32;
-                let mut index = stops
-                    .partition_point(|stop| stop.position <= position)
-                    .saturating_sub(1)
-                    .min(stops.len() - 2);
-                let mut inverse = 1.0 / (stops[index + 1].position - stops[index].position);
-                for (i, pixel) in pixels.iter_mut().enumerate() {
-                    let position = row_position + gradient.x * (x as f32 + i as f32);
+                // neighboring pixels usually share a stop span so the search walks from the last one
+                let mut index = 0;
+                let mut inverse = 1.0 / (stops[1].position - stops[0].position);
+                blend_colors(pixels, x, coverage, |x| {
+                    let position = if conic {
+                        conic_position(gradient, x, y)
+                    } else {
+                        row_position + gradient.x * x as f32
+                    };
                     let previous = index;
                     while index + 1 < stops.len() - 1 && position >= stops[index + 1].position {
                         index += 1;
@@ -256,19 +264,26 @@ impl PreparedFill {
                         inverse = 1.0 / (stops[index + 1].position - stops[index].position);
                     }
                     let amount = ((position - stops[index].position) * inverse).clamp(0.0, 1.0);
-                    let color =
-                        interpolate_gradient(amount, stops[index].color, stops[index + 1].color, x + i as i32, y);
-                    pixel.blend(color.coverage(coverage as u32));
-                }
+                    interpolate_gradient(amount, stops[index].color, stops[index + 1].color, x, y)
+                });
             }
-            Self::ConicGradient(index) => {
-                let gradient = &gradients.entries[index as usize];
-                let stops = &gradients.stops[gradient.stops.start as usize..gradient.stops.end as usize];
-                for (i, pixel) in pixels.iter_mut().enumerate() {
-                    let x = x + i as i32;
-                    let color = sample_stops(stops, conic_position(gradient, x, y), x, y);
-                    pixel.blend(color.coverage(coverage as u32));
+        }
+
+        // computes colors a chunk at a time so blending runs in simd lanes
+        fn blend_colors<P: Pixel>(
+            pixels: &mut [P],
+            x: i32,
+            coverage: u8,
+            mut color: impl FnMut(i32) -> PremultipliedRgbaColor,
+        ) {
+            let mut colors = [PremultipliedRgbaColor::default(); 64];
+            for (index, chunk) in pixels.chunks_mut(colors.len()).enumerate() {
+                let start = x + (index * colors.len()) as i32;
+                let colors = &mut colors[..chunk.len()];
+                for (offset, slot) in colors.iter_mut().enumerate() {
+                    *slot = color(start + offset as i32);
                 }
+                P::blend_texture_slice_rgba(chunk, colors, coverage);
             }
         }
     }
@@ -280,16 +295,20 @@ fn conic_position(gradient: &Gradient, x: i32, y: i32) -> f32 {
     if dx == 0.0 && dy == 0.0 {
         return 0.0;
     }
-    let position = dy.atan2(dx) / std::f32::consts::TAU - gradient.offset;
+    // atan in turns adapted from tiny-skia 0.12.0
+    let (horizontal, vertical) = (dx.abs(), dy.abs());
+    let slope = horizontal.min(vertical) / horizontal.max(vertical);
+    let square = slope * slope;
+    let mut turn = slope * (0.159_121_17 + square * (-5.185_397e-2 + square * (2.476_102e-2 + square * -7.054_738e-3)));
+    if horizontal < vertical {
+        turn = 0.25 - turn;
+    }
+    if dx < 0.0 {
+        turn = 0.5 - turn;
+    }
+    if dy < 0.0 {
+        turn = 1.0 - turn;
+    }
+    let position = turn - gradient.offset;
     position - position.floor()
-}
-
-fn sample_stops(stops: &[Stop], position: f32, x: i32, y: i32) -> PremultipliedRgbaColor {
-    let index = stops
-        .partition_point(|stop| stop.position <= position)
-        .saturating_sub(1)
-        .min(stops.len() - 2);
-    let inverse = 1.0 / (stops[index + 1].position - stops[index].position);
-    let amount = ((position - stops[index].position) * inverse).clamp(0.0, 1.0);
-    interpolate_gradient(amount, stops[index].color, stops[index + 1].color, x, y)
 }
