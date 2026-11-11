@@ -16,28 +16,28 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
                 (
                     1.0,
                     [
-                        0xcdad6a98810983ab,
-                        0xf81307921dac8f87,
-                        0xa76adcaea35edd0c,
-                        0x667beaedce43f43d,
+                        0x3a34150e97d2c469,
+                        0xb6a4f69cf9ae57b9,
+                        0x53f3bf33d82ad519,
+                        0xbdfbd0e01d4ed00b,
                     ],
                 ),
                 (
                     1.5,
                     [
-                        0x1dbe81214cb462ff,
-                        0xa816dfda8b38f31c,
-                        0x9efb2de3e9cb3a8c,
-                        0x28570af67a8e7b79,
+                        0xe3d686db3ca331a9,
+                        0xc43a0c7e5df4a749,
+                        0x89004504fb98162b,
+                        0x385c9cf4edaae4e5,
                     ],
                 ),
                 (
                     2.0,
                     [
-                        0x8240d8cfd3f20d19,
-                        0x584d94dba5834684,
-                        0x7d189c040bc033cc,
-                        0x66aa5382073e021b,
+                        0x982b19b54c52318b,
+                        0x32093364bcefb167,
+                        0xee8c71de1b005c2e,
+                        0x9e30e3975b1f2253,
                     ],
                 ),
             ] {

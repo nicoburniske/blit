@@ -203,6 +203,12 @@ pub trait Pixel: Copy + 'static {
         }
     }
 
+    /// composites a solid color through an alpha mask using fixed point precision
+    /// a single mask byte applies to the entire span
+    fn blend_mask_slice(pixels: &mut [Self], color: Color, mask: &[u8], coverage: u8, rounding: [u32; 4]) {
+        blend_mask_scalar(pixels, color, mask, coverage, rounding);
+    }
+
     fn blend_texture_slice_rgb(pixels: &mut [Self], source: &[Rgb8Pixel]) {
         for (pixel, source) in pixels.iter_mut().zip(source) {
             *pixel = Self::from_rgb(source.red, source.green, source.blue);
@@ -512,6 +518,51 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         }
     }
 
+    fn blend_mask_slice(pixels: &mut [Self], color: Color, mask: &[u8], coverage: u8, rounding: [u32; 4]) {
+        if mask.is_empty() || color.alpha == 0 || coverage == 0 {
+            return;
+        }
+        let solid = mask.len() == 1;
+        let len = if solid {
+            pixels.len()
+        } else {
+            pixels.len().min(mask.len())
+        };
+        let (chunks, tail) = pixels[..len].as_chunks_mut::<8>();
+        let opacity = (u32::from(color.alpha) * u32::from(coverage) * 65536 + 32512) / 65025;
+        dispatch!(Level::new(), simd => {
+            let rounding = u32x8::simd_from(simd, std::array::from_fn(|i| rounding[i & 3]));
+            let constant_alpha = u32x8::splat(simd, (u32::from(mask[0]) * opacity + 127) / 255);
+            for (index, pixels) in chunks.iter_mut().enumerate() {
+                let alpha = if solid {
+                    constant_alpha
+                } else {
+                    let mask = u32x8::simd_from(simd, std::array::from_fn(|i| u32::from(mask[index * 8 + i])));
+                    let alpha = mask * opacity + 128;
+                    let alpha = alpha + (alpha >> 8);
+                    (alpha + (alpha >> 16)) >> 8
+                };
+                let inverse = u32x8::splat(simd, 65536) - alpha;
+                let destination = u32x8::simd_from(simd, (*pixels).map(|pixel| pixel.0));
+                let channel = |shift: u32, source: u32| {
+                    let value = ((destination >> shift) & 255) * inverse + alpha * source + rounding;
+                    (value >> 16) << shift
+                };
+                let mut output = channel(RED as u32, color.red as u32)
+                    | channel(GREEN as u32, color.green as u32)
+                    | channel(BLUE as u32, color.blue as u32);
+                if ALPHA != 0 {
+                    let shift = ALPHA.trailing_zeros();
+                    let value = ((destination & ALPHA) >> shift) * inverse + alpha * 255 + rounding;
+                    output |= (value >> 16) << shift;
+                }
+                *pixels = <[u32; 8]>::from(output).map(Self);
+            }
+        });
+        let mask = if solid { mask } else { &mask[chunks.len() * 8..] };
+        blend_mask_scalar(tail, color, mask, coverage, rounding);
+    }
+
     fn blend_texture_slice_rgba(pixels: &mut [Self], source: &[PremultipliedRgbaColor], opacity: u8) {
         if opacity == 0 {
             return;
@@ -543,6 +594,33 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
                 source.coverage(opacity as u32)
             });
         }
+    }
+}
+
+#[inline(always)]
+fn blend_mask_scalar<P: Pixel>(pixels: &mut [P], color: Color, mask: &[u8], coverage: u8, rounding: [u32; 4]) {
+    if mask.is_empty() || color.alpha == 0 || coverage == 0 {
+        return;
+    }
+    let solid = mask.len() == 1;
+    let len = if solid {
+        pixels.len()
+    } else {
+        pixels.len().min(mask.len())
+    };
+    let opacity = (u32::from(color.alpha) * u32::from(coverage) * 65536 + 32512) / 65025;
+    for (index, pixel) in pixels[..len].iter_mut().enumerate() {
+        let alpha = (u32::from(mask[if solid { 0 } else { index }]) * opacity + 127) / 255;
+        let destination = pixel.to_rgba();
+        let blend = |source: u8, destination: u8| {
+            ((u32::from(source) * alpha + u32::from(destination) * (65536 - alpha) + rounding[index & 3]) >> 16) as u8
+        };
+        *pixel = P::from_rgba(PremultipliedRgbaColor {
+            red: blend(color.red, destination.red),
+            green: blend(color.green, destination.green),
+            blue: blend(color.blue, destination.blue),
+            alpha: blend(255, destination.alpha),
+        });
     }
 }
 
@@ -757,6 +835,32 @@ mod test {
         assert_eq!(rgba.raw(), 0x6432_1980);
         rgba.blend(color);
         assert_eq!(rgba.raw(), 0x954a_25bf);
+    }
+
+    #[test]
+    fn mask_spans_match_scalar_for_constant_masks_tails_and_pixel_formats() {
+        fn check<P: Pixel + std::fmt::Debug + PartialEq>() {
+            let original: [P; 19] = std::array::from_fn(|i| {
+                P::from_rgba(PremultipliedRgbaColor::new(Color::rgba(120, 80, 40, 180), i as u8 * 13))
+            });
+            let mask: [u8; 19] = std::array::from_fn(|i| i as u8 * 13);
+            for alpha in [0, 1, 88, 255] {
+                for coverage in [0, 127, 255] {
+                    for mask in [&mask[..], &[0][..], &[128][..], &[255][..]] {
+                        let color = Color::rgba(230, 35, 120, alpha);
+                        let rounding = [2048, 34816, 10240, 43008];
+                        let mut actual = original;
+                        let mut expected = original;
+                        P::blend_mask_slice(&mut actual, color, mask, coverage, rounding);
+                        blend_mask_scalar(&mut expected, color, mask, coverage, rounding);
+                        assert_eq!(actual, expected);
+                    }
+                }
+            }
+        }
+        check::<Xrgb8888>();
+        check::<Argb8888>();
+        check::<Rgba8888>();
     }
 
     #[test]

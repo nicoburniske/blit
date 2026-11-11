@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
 use blit_gui::{
-    Image, Shadow,
+    Shadow,
     color::Color,
     image::{ImageData, ImageFormat, ImageHandle, ImagePixels, NineSlice},
     style::BorderRadius,
@@ -11,6 +11,7 @@ use blit_gui::{
 
 use crate::{
     DamageTracker, Pixel, PixelBuffer, RenderStrategy,
+    pixel::BAYER,
     raster::rounded::{Radii, RoundedLine},
 };
 
@@ -19,6 +20,13 @@ use crate::{
 /// configure with `.register(render::shadow::Renderer::new(capacity))`
 pub struct Renderer {
     entries: DeferredCache<KeyData, CachedShadow, ShadowScale>,
+}
+
+pub struct Prepared {
+    image: ImageHandle,
+    bounds: PhysicalRect,
+    nine_slice: NineSlice,
+    color: Color,
 }
 
 impl Renderer {
@@ -60,7 +68,7 @@ impl Hash for Input {
 
 impl<P: Pixel> crate::Render<P> for Renderer {
     type Input = Input;
-    type Prepared = Option<crate::render::Image>;
+    type Prepared = Option<Prepared>;
 
     fn finish_frame(&mut self) {
         self.entries.trim_to_weight();
@@ -267,20 +275,68 @@ impl<P: Pixel> crate::Render<P> for Renderer {
             let (cached, _) = self.entries.get_or_insert(key, |key| (key, cached));
             (cached.image.clone(), cached.nine_slice)
         };
-        cx.prepare_image(
-            bounds.to_logical(Scale2::IDENTITY),
-            &Image::new(image)
-                .colorize(Some(shadow.color))
-                .nine_slice(Some(nine_slice)),
-            1.0,
-        )
+        Some(Prepared {
+            image,
+            bounds,
+            nine_slice,
+            color: shadow.color,
+        })
     }
 
     fn render(&mut self, prepared: &Self::Prepared, cx: &mut crate::RenderContext<'_, P>) {
-        let Some(image) = prepared else {
+        let Some(prepared) = prepared else {
             return;
         };
-        cx.for_each_span(|mut span| image.render(&mut span));
+        cx.for_each_span_in(prepared.bounds, |span| {
+            let Some(image) = span.image(&prepared.image) else {
+                return;
+            };
+            let bounds = prepared.bounds;
+            let slice = prepared.nine_slice;
+            let y = (span.y - bounds.y) as usize;
+            let source_y = if y < slice.top as usize {
+                y
+            } else if y >= bounds.height as usize - slice.bottom as usize {
+                image.size.height as usize - (bounds.height as usize - y)
+            } else {
+                slice.top as usize
+            };
+            let mask = &image.pixels.bytes()[source_y * image.stride_bytes..];
+            let start = (span.x - bounds.x) as usize;
+            let end = start + span.pixels.len();
+            let left = slice.left as usize;
+            let right = bounds.width as usize - slice.right as usize;
+            for (range, source) in [
+                (0..left, 0),
+                (left..right, left),
+                (
+                    right..bounds.width as usize,
+                    image.size.width as usize - slice.right as usize,
+                ),
+            ] {
+                let first = start.max(range.start);
+                let last = end.min(range.end);
+                if first >= last {
+                    continue;
+                }
+                let mask = if range.start == left && range.end == right {
+                    &mask[left..left + 1]
+                } else {
+                    &mask[source + first - range.start..source + last - range.start]
+                };
+                let x = bounds.x + first as i32;
+                let rounding = std::array::from_fn(|i| {
+                    (u32::from(BAYER[(span.y as usize & 3) * 4 + ((x as usize + i) & 3)]) * 4096) + 2048
+                });
+                P::blend_mask_slice(
+                    &mut span.pixels[first - start..last - start],
+                    prepared.color,
+                    mask,
+                    span.coverage,
+                    rounding,
+                );
+            }
+        });
     }
 }
 
