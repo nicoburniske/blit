@@ -40,9 +40,15 @@ impl Path<'_> {
         let Some(bounds) = self.bounds() else {
             return;
         };
+        let mut verbs = context.slice(self.verbs.len());
+        verbs.extend(self.verbs.iter().copied());
+        let verbs = verbs.finish();
+        let mut points = context.slice(self.points.len());
+        points.extend(self.points.iter().copied());
+        let points = points.finish();
         let stored = Stored {
-            verbs: context.store_slice(self.verbs.iter().copied()),
-            points: context.store_slice(self.points.iter().copied()),
+            verbs,
+            points,
             fill: FrameFill::new(self.fill, context),
             rule: self.rule,
             stroke: self.stroke,
@@ -261,8 +267,8 @@ pub struct Stored {
 impl Stored {
     pub fn view<'a>(&self, list: &'a DisplayList) -> Path<'a> {
         Path {
-            verbs: list.slice(self.verbs),
-            points: list.slice(self.points),
+            verbs: list.get(self.verbs),
+            points: list.get(self.points),
             fill: self.fill.view(list),
             rule: self.rule,
             stroke: self.stroke,

@@ -62,12 +62,12 @@ impl DisplayList {
         &self.inputs
     }
 
-    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T> {
-        self.inputs.store_slice(values)
+    pub fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> blit::FrameSliceBuilder<'_, T> {
+        self.inputs.slice(capacity)
     }
 
-    pub fn slice<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T] {
-        self.inputs.slice(slice)
+    pub fn get<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T] {
+        self.inputs.get(slice)
     }
 
     /// # Safety

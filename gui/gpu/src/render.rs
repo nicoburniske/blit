@@ -58,8 +58,8 @@ impl PrepareContext<'_> {
     pub fn layout(&self) -> &wgpu::BindGroupLayout {
         &self.renderer.bind_group_layout
     }
-    pub fn slice<T: Copy + 'static>(&self, value: FrameSlice<T>) -> &[T] {
-        self.list.slice(value)
+    pub fn get<T: Copy + 'static>(&self, value: FrameSlice<T>) -> &[T] {
+        self.list.get(value)
     }
     /// cached snapshot view whose declared pixels are copied immediately before drawing
     pub fn source(&self) -> Option<&wgpu::TextureView> {

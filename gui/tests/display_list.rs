@@ -60,26 +60,43 @@ fn values_and_slices_survive_growth_and_release_resources() {
     let mut list = DisplayList::default();
     // safety: the table describes Rc<str> and does not access backend state
     unsafe { list.push(PhysicalRect::default(), 0, resource.clone(), ops::<Rc<str>>()) };
-    let points = list.store_slice((0..10_000).map(|index| [index, index + 1]));
+    let mut points = list.slice(10_000);
+    points.extend((0..10_000).map(|index| [index, index + 1]));
+    let points = points.finish();
     // safety: the first command stores Rc<str>
     let value = unsafe { list.data().get(Offset::<Rc<str>>::new(list.commands()[0].offset())) };
     assert_eq!(value.as_ref(), resource.as_ref());
-    assert_eq!(list.slice(points)[9999], [9999, 10000]);
+    assert_eq!(list.get(points)[9999], [9999, 10000]);
     assert_eq!(Rc::strong_count(&resource), 2);
     list.clear();
     assert_eq!(Rc::strong_count(&resource), 1);
 }
 
 #[test]
+fn slice_builders_publish_only_initialized_values_without_copying() {
+    let mut list = DisplayList::default();
+    let mut values = list.slice(8);
+    values.extend([1u32, 2, 3]);
+    let pointer = values.as_ptr();
+    let values = values.finish();
+    assert_eq!(list.get(values), &[1, 2, 3]);
+    assert_eq!(list.get(values).as_ptr(), pointer);
+    list.slice::<u64>(10_000);
+    assert_eq!(list.get(values), &[1, 2, 3]);
+}
+
+#[test]
 fn foreign_and_expired_slices_are_rejected() {
     let mut list = DisplayList::default();
     let mut other = DisplayList::default();
-    let slice = list.store_slice([1u8, 2, 3].into_iter());
-    other.store_slice([0u64; 4].into_iter());
-    assert!(std::panic::catch_unwind(AssertUnwindSafe(|| other.slice(slice))).is_err());
+    let mut slice = list.slice(3);
+    slice.extend([1u8, 2, 3]);
+    let slice = slice.finish();
+    other.slice::<u64>(4);
+    assert!(std::panic::catch_unwind(AssertUnwindSafe(|| other.get(slice))).is_err());
     list.clear();
-    list.store_slice([0u64; 4].into_iter());
-    assert!(std::panic::catch_unwind(AssertUnwindSafe(|| list.slice(slice))).is_err());
+    list.slice::<u64>(4);
+    assert!(std::panic::catch_unwind(AssertUnwindSafe(|| list.get(slice))).is_err());
 }
 
 #[test]
@@ -91,11 +108,13 @@ fn panicking_destructors_invalidate_slices_before_dropping_values() {
         }
     }
     let mut list = DisplayList::default();
-    let slice = list.store_slice([1u8].into_iter());
+    let mut slice = list.slice(1);
+    slice.push(1u8);
+    let slice = slice.finish();
     // safety: the table describes Resource and does not access backend state
     unsafe { list.push(PhysicalRect::default(), 0, Resource, ops::<Resource>()) };
     assert!(std::panic::catch_unwind(AssertUnwindSafe(|| list.clear())).is_err());
-    assert!(std::panic::catch_unwind(AssertUnwindSafe(|| list.slice(slice))).is_err());
+    assert!(std::panic::catch_unwind(AssertUnwindSafe(|| list.get(slice))).is_err());
     list.clear();
 }
 

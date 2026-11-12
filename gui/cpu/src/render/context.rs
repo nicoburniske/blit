@@ -40,8 +40,8 @@ impl<'a, P: Pixel> RenderContext<'a, P> {
         Image::new(area, request, scale, self.bounds, self.images)
     }
 
-    pub fn slice<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &'a [T] {
-        self.list.slice(slice)
+    pub fn get<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &'a [T] {
+        self.list.get(slice)
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
@@ -129,8 +129,8 @@ pub struct Span<'a, P> {
 }
 
 impl<'a, P> Span<'a, P> {
-    pub fn slice<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &'a [T] {
-        self.list.slice(slice)
+    pub fn get<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &'a [T] {
+        self.list.get(slice)
     }
 
     pub fn image(&self, image: &ImageHandle) -> Option<&'a ImageData> {

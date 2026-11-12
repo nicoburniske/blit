@@ -16,8 +16,8 @@ use self::{
     ui::{NodeTarget, Ui},
 };
 use crate::{
-    Atom, AtomWidget, Clip, ClipShape, ContactId, ContactSource, Context, FrameInfo, FrameSlice, FrameStore, Id,
-    IntoWidget, Scalar, Scratch, ScratchBuffer, Widget,
+    Atom, AtomWidget, Clip, ClipShape, ContactId, ContactSource, Context, FrameInfo, FrameSlice, FrameSliceBuilder,
+    FrameStore, Id, IntoWidget, Scalar, Scratch, ScratchBuffer, Widget,
     animation::{Animation, AnimationOptions, Motion, MotionProps, Tween},
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::{Input, MouseButton, ScrollPhase, TouchPhase},

@@ -122,8 +122,9 @@ impl Bump {
         self.len = 0;
     }
 
+    /// reserves aligned uninitialized storage
     #[inline]
-    fn allocate<T>(&mut self, len: usize) -> Offset<T> {
+    pub fn allocate<T>(&mut self, len: usize) -> Offset<T> {
         const {
             assert!(
                 align_of::<T>() <= Self::ALIGNMENT,

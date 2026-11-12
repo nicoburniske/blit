@@ -60,19 +60,19 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
         self.inner.node
     }
 
-    /// stores drawing inputs in the context until it renders
-    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T>
+    /// reserves drawing inputs in the context until it renders
+    pub fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> FrameSliceBuilder<'_, T>
     where
         C: FrameStore,
     {
-        self.inner.context.store_slice(values)
+        self.inner.context.slice(capacity)
     }
 
-    pub fn slice<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T]
+    pub fn get<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T]
     where
         C: FrameStore,
     {
-        self.inner.context.frame_data().slice(slice)
+        self.inner.context.frame_data().get(slice)
     }
 
     pub fn clip<X: Clip<C>>(self, clip: X) -> Self {

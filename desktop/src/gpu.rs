@@ -53,12 +53,12 @@ impl blit::FrameStore for Backend {
             .frame_data()
     }
 
-    fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> blit::FrameSlice<T> {
+    fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> blit::FrameSliceBuilder<'_, T> {
         self.gpu
             .as_mut()
             .expect("GPU renderer is not initialized")
             .renderer
-            .store_slice(values)
+            .slice(capacity)
     }
 }
 

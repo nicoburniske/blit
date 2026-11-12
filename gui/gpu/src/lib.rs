@@ -11,7 +11,7 @@ mod text;
 
 use std::any::TypeId;
 
-use blit::{FrameSlice, LogicalRect, PhysicalRect, Scale2};
+use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_arena::Arena;
 use blit_gui::{
     TextSystem,
@@ -88,8 +88,8 @@ impl blit::FrameStore for Renderer {
         self.list.inputs()
     }
 
-    fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T> {
-        self.list.store_slice(values)
+    fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> blit::FrameSliceBuilder<'_, T> {
+        self.list.slice(capacity)
     }
 }
 
@@ -766,8 +766,8 @@ pub struct RecordContext<'a> {
 }
 
 impl RecordContext<'_> {
-    pub fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T> {
-        self.renderer.list.store_slice(values)
+    pub fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> blit::FrameSliceBuilder<'_, T> {
+        self.renderer.list.slice(capacity)
     }
 
     #[inline]

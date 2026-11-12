@@ -35,8 +35,8 @@ impl<G: GraphicsBackend> blit::FrameStore for DesktopContext<G> {
         self.graphics.frame_data()
     }
 
-    fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> blit::FrameSlice<T> {
-        self.graphics.store_slice(values)
+    fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> blit::FrameSliceBuilder<'_, T> {
+        self.graphics.slice(capacity)
     }
 }
 

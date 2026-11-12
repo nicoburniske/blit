@@ -23,15 +23,15 @@
 //! - [`Paint`] is how atoms draw. each implementation accepts one kind of drawing operation in
 //!   frame coordinates, and the context decides what painting means
 //! - [`FrameStore`] lets a context keep slices that its paint commands reference. widgets store
-//!   them with [`Ui::store_slice`] and keep a [`FrameSlice`], a small handle the context resolves
-//!   when it renders
+//!   them with [`Ui::slice`], fill the builder and finish it into a [`FrameSlice`]
+//!   the context resolves this handle when rendering
 //!
 //! # frame lifecycle
 //!
 //! ```text
 //! Frame::build
 //!     │ records nodes, Layouts, and Atoms
-//!     │ Ui::store_slice copies drawing inputs into the context
+//!     │ Ui::slice reserves drawing inputs in the context
 //!     ▼
 //! retained frame graph
 //!     │ Frame::layout measures Atoms and arranges children
@@ -56,7 +56,7 @@
 //! Scratch      Ui::scratch, LayoutCx::scratch, AtomCx::scratch
 //!              temporary slices for the current step, reclaimed when it ends
 //!
-//! FrameSlice   Ui::store_slice
+//! FrameSlice   Ui::slice
 //!              drawing inputs owned by the context until it renders
 //! ```
 
@@ -83,7 +83,7 @@ pub use self::{
         interact::{Contacts, InteractCx},
         ui::{NodeTarget, Ui, state},
     },
-    frame_data::{FrameData, FrameSlice},
+    frame_data::{FrameData, FrameSlice, FrameSliceBuilder},
     geometry::{
         Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point, Rect,
         Scalar, Scale2, Sides, Size,
@@ -113,7 +113,7 @@ pub trait Paint<T>: Context {
 /// holds drawing inputs referenced by paint commands until they are rendered
 pub trait FrameStore {
     fn frame_data(&self) -> &FrameData;
-    fn store_slice<T: Copy + 'static>(&mut self, values: impl ExactSizeIterator<Item = T>) -> FrameSlice<T>;
+    fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> FrameSliceBuilder<'_, T>;
 }
 
 builder! {

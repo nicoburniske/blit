@@ -35,7 +35,9 @@ where
 
     fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
         let run = ui.context_mut().text().text_run(self.text, self.style);
-        let colors = ui.store_slice(std::iter::once(self.style.color));
+        let mut colors = ui.slice(1);
+        colors.push(self.style.color);
+        let colors = colors.finish();
         ui.insert(TextAtom::new(run, colors).offset_x(self.offset_x).options(self.options));
     }
 }
@@ -60,15 +62,17 @@ where
     fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
         let run = ui.context_mut().text().rich_text(self.text, self.spans, self.style);
         // empty spans lay out as one span in the base color
-        let colors = if self.spans.is_empty() {
-            ui.store_slice(std::iter::once(self.style.color))
+        let mut colors = ui.slice(self.spans.len().max(1));
+        if self.spans.is_empty() {
+            colors.push(self.style.color);
         } else {
-            ui.store_slice(
+            colors.extend(
                 self.spans
                     .iter()
                     .map(|span| span.style.color.unwrap_or(self.style.color)),
             )
-        };
+        }
+        let colors = colors.finish();
         ui.insert(TextAtom::new(run, colors).offset_x(self.offset_x).options(self.options));
     }
 }
@@ -85,10 +89,12 @@ pub struct TextRequest<'a> {
 impl TextRequest<'_> {
     /// stores borrowed colors in the context and paints the result
     pub fn paint<C: FrameStore + Paint<Stored, Scalar = f32>>(self, area: LogicalRect, context: &mut C) {
+        let mut colors = context.slice(self.colors.len());
+        colors.extend(self.colors.iter().copied());
         let stored = Stored {
             area,
             text: self.text,
-            colors: context.store_slice(self.colors.iter().copied()),
+            colors: colors.finish(),
             offset_x: self.offset_x,
             options: self.options,
         };
@@ -134,7 +140,7 @@ impl Stored {
     #[inline]
     pub fn view<'a>(&self, list: &'a DisplayList) -> TextRequest<'a> {
         TextRequest {
-            colors: list.slice(self.colors),
+            colors: list.get(self.colors),
             text: self.text,
             offset_x: self.offset_x,
             options: self.options,
