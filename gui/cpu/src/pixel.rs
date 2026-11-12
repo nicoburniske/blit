@@ -203,6 +203,13 @@ pub trait Pixel: Copy + 'static {
         }
     }
 
+    fn blend_colorized_rgba_slice(pixels: &mut [Self], color: Color, source: &[u8], opacity: u8) {
+        for (pixel, source) in pixels.iter_mut().zip(source.chunks_exact(4)) {
+            let alpha = (u16::from(source[3]) * u16::from(opacity) / 255) as u8;
+            pixel.blend(PremultipliedRgbaColor::new(color, alpha));
+        }
+    }
+
     /// composites a solid color through an alpha mask using fixed point precision
     /// a single mask byte applies to the entire span
     fn blend_mask_slice(pixels: &mut [Self], color: Color, mask: &[u8], coverage: u8, rounding: [u32; 4]) {
@@ -515,6 +522,36 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         });
         for (pixel, alpha) in pixel_tail.iter_mut().zip(alpha_tail) {
             pixel.blend(PremultipliedRgbaColor::new(color, *alpha));
+        }
+    }
+
+    fn blend_colorized_rgba_slice(pixels: &mut [Self], color: Color, source: &[u8], opacity: u8) {
+        if color.alpha == 0 || opacity == 0 {
+            return;
+        }
+        let len = pixels.len().min(source.len() / 4);
+        let (pixel_chunks, pixel_tail) = pixels[..len].as_chunks_mut::<8>();
+        let (source_chunks, source_tail) = source[..len * 4].as_chunks::<32>();
+        dispatch!(Level::new(), simd => {
+            for (pixels, source) in pixel_chunks.iter_mut().zip(source_chunks) {
+                let mut alpha = u32x8::simd_from(simd, std::array::from_fn(|i| u32::from(source[i * 4 + 3])));
+                if opacity != 255 {
+                    alpha = divide_by_255(alpha * u32::from(opacity));
+                }
+                if color.alpha != 255 {
+                    alpha = divide_by_255(alpha * u32::from(color.alpha));
+                }
+                let red = divide_by_255(alpha * u32::from(color.red));
+                let green = divide_by_255(alpha * u32::from(color.green));
+                let blue = divide_by_255(alpha * u32::from(color.blue));
+                let destination = u32x8::simd_from(simd, (*pixels).map(|pixel| pixel.0));
+                *pixels = <[u32; 8]>::from(blend::<_, RED, GREEN, BLUE, ALPHA>(destination, alpha, red, green, blue))
+                    .map(Self);
+            }
+        });
+        for (pixel, source) in pixel_tail.iter_mut().zip(source_tail.chunks_exact(4)) {
+            let alpha = (u16::from(source[3]) * u16::from(opacity) / 255) as u8;
+            pixel.blend(PremultipliedRgbaColor::new(color, alpha));
         }
     }
 
@@ -835,6 +872,43 @@ mod test {
         assert_eq!(rgba.raw(), 0x6432_1980);
         rgba.blend(color);
         assert_eq!(rgba.raw(), 0x954a_25bf);
+    }
+
+    #[test]
+    fn colorized_rgba_matches_scalar_for_tails_opacity_and_pixel_formats() {
+        fn check<P: Pixel + std::fmt::Debug + PartialEq>() {
+            let original: [P; 19] = std::array::from_fn(|i| {
+                P::from_rgba(PremultipliedRgbaColor::new(Color::rgba(120, 80, 40, 180), i as u8 * 13))
+            });
+            let source: [u8; 79] = std::array::from_fn(|i| {
+                if i % 4 == 3 {
+                    [0, 1, 32, 64, 96, 127, 128, 160, 224, 254, 255][i / 4 % 11]
+                } else {
+                    (i as u8).wrapping_mul(17)
+                }
+            });
+            for len in [0, 1, 7, 8, 9, 15, 16, 19] {
+                for source_len in [0, 3, 4, 7, 31, 32, 35, 76, 79] {
+                    for opacity in [0, 1, 127, 254, 255] {
+                        for alpha in [0, 1, 177, 255] {
+                            let color = Color::rgba(230, 35, 120, alpha);
+                            let mut actual = original;
+                            let mut expected = original;
+                            P::blend_colorized_rgba_slice(&mut actual[..len], color, &source[..source_len], opacity);
+                            for (pixel, source) in expected[..len].iter_mut().zip(source[..source_len].chunks_exact(4))
+                            {
+                                let alpha = (u16::from(source[3]) * u16::from(opacity) / 255) as u8;
+                                pixel.blend(PremultipliedRgbaColor::new(color, alpha));
+                            }
+                            assert_eq!(actual, expected);
+                        }
+                    }
+                }
+            }
+        }
+        check::<Xrgb8888>();
+        check::<Argb8888>();
+        check::<Rgba8888>();
     }
 
     #[test]

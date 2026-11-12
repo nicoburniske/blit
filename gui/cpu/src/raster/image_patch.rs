@@ -150,7 +150,29 @@ impl Prepared {
         }
         let source_row = (source_y - texture_y) * texture.stride_bytes;
         let texture_right = texture_x + texture.texture_rect.width as usize;
-        if self.colorize.is_some() && !matches!(texture.format, ImageFormat::Alpha8(_)) {
+        if let Some(color) = self.colorize
+            && !matches!(texture.format, ImageFormat::Alpha8(_))
+        {
+            if self.step_x == FIXED_ONE
+                && self.flags & flag::WRAP_X == 0
+                && matches!(texture.format, ImageFormat::Rgba8 | ImageFormat::Rgba8Premultiplied)
+            {
+                let source_x = self.source.x as usize + (self.source_fixed_x(clipped.x) >> FIXED_SHIFT) as usize;
+                let skipped = texture_x.saturating_sub(source_x).min(clipped.width as usize);
+                let source_x = source_x + skipped;
+                let len = (clipped.width as usize - skipped).min(texture_right.saturating_sub(source_x));
+                if len != 0 {
+                    let source = source_row + (source_x - texture_x) * 4;
+                    let start = (clipped.x - screen_x) as usize + skipped;
+                    P::blend_colorized_rgba_slice(
+                        &mut row[start..start + len],
+                        color,
+                        &pixels[source..source + len * 4],
+                        self.opacity,
+                    );
+                }
+                return;
+            }
             self.for_each_nearest_x(row, clipped, screen_x, |destination, source_x| {
                 destination.blend(self.source_pixel(texture, pixels, source_x, source_y));
             });
