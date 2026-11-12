@@ -1,5 +1,5 @@
 use blit::{Clip, ClipShape, PhysicalRect};
-use blit_widgets::FrameProfiler;
+use blit_widgets::performance::FrameProfiler;
 
 use crate::{RendererConfig, TuiRenderer};
 

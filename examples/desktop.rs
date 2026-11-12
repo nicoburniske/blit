@@ -8,13 +8,14 @@ use blit_desktop::cpu;
 use blit_desktop::gpu;
 use blit_desktop::{Application, Config, EventLoopProxy, Scope};
 use blit_gui::{
-    BoundsClip, Family, FontData, FontStack, Rectangle, TextConfig, TextSystem,
+    clip::BoundsClip,
     color::Color,
     mesh::{Mesh, MeshVertex},
+    rectangle::Rectangle,
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::{
-        FontId, FontStyle, HorizontalAlign, Span, SpanStyle, TextOptions, TextOverflow, TextStyle, TextWrap,
-        VerticalAlign,
+        FontId, HorizontalAlign, Span, SpanStyle, TextOptions, TextOverflow, TextStyle, TextWrap, VerticalAlign,
+        system::{FontStack, TextConfig, TextSystem},
     },
 };
 use blit_gui_widgets::{
@@ -23,6 +24,7 @@ use blit_gui_widgets::{
     VirtualListState, interact,
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, pad, wrap},
 };
+use blit_text::{Family, FontData, FontStyle};
 
 fn main() {
     let fonts = std::fs::read_dir(std::path::Path::new(env!("BLIT_TEST_FONT")).with_file_name(""))

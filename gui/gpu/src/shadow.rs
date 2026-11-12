@@ -1,7 +1,7 @@
 use std::hash::Hash;
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
-use blit_gui::{Shadow, display_list::DisplayList, style::BorderRadius};
+use blit_gui::{display_list::DisplayList, shadow::Shadow, style::BorderRadius};
 use bytemuck::Zeroable;
 
 use crate::{

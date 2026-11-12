@@ -5,13 +5,20 @@ use std::{sync::mpsc, time::Duration};
 use blit::{Clip, LogicalRect, Paint, Rect, Size};
 use blit_gpu::{Renderer, RendererConfig};
 use blit_gui::{
-    BoundsClip, Context, FontData, FontStack, Image, Rectangle, Shadow, TextConfig, TextSystem,
+    Context,
+    clip::BoundsClip,
     color::Color,
-    image::{ImageData, ImageFormat, ImagePixels, ImageSampling, ImageTiling},
+    image::{Image, ImageData, ImageFormat, ImagePixels, ImageSampling, ImageTiling},
     mesh::{Mesh, MeshVertex},
+    rectangle::Rectangle,
+    shadow::Shadow,
     style::{Border, BorderRadius, ConicGradient, GradientStop, LinearGradient},
-    text::{FontId, TextOptions, TextRequest, TextStyle},
+    text::{
+        FontId, TextOptions, TextRequest, TextStyle,
+        system::{FontStack, TextConfig, TextSystem},
+    },
 };
+use blit_text::FontData;
 
 #[test]
 fn renders_primitives_and_rebuilds_frames() {
@@ -52,7 +59,7 @@ fn renders_primitives_and_rebuilds_frames() {
         TextConfig {
             fonts: vec![FontStack {
                 id: FontId::default(),
-                families: vec![blit_gui::Family::embedded([FontData::Static(include_bytes!(env!(
+                families: vec![blit_text::Family::embedded([FontData::Static(include_bytes!(env!(
                     "BLIT_TEST_FONT"
                 )))])],
             }],

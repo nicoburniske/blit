@@ -26,6 +26,7 @@ blit-gpu = { workspace = true, optional = true }
 wgpu = { workspace = true, optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }
 blit-text-parley.workspace = true
+blit-text.workspace = true
 blit-tui = { path = "../tui" }
 
 [[example]]

@@ -2,8 +2,8 @@ use std::ops::Range;
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2, internal::bump::Offset};
 use blit_gui::{
-    Rectangle,
     damage::DamageTracker,
+    rectangle::Rectangle,
     style::{ConicGradient, Fill, LinearGradient},
 };
 

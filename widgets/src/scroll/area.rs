@@ -1,7 +1,6 @@
 use blit::{Axis, Clip, Scalar, Ui, Widget};
 
-pub use super::ScrollState;
-use super::{Request, ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
+use super::{Request, ScrollLayout, ScrollState, Scrollbar, Target, animate, build_scroll, update};
 use crate::Context;
 
 blit::builder! {

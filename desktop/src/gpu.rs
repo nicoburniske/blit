@@ -3,9 +3,9 @@ use std::{io::Error as IoError, sync::Arc};
 use blit::{LogicalRect, Paint};
 use blit_gpu::Renderer;
 use blit_gui::{
-    TextSystem,
     image::{ImageData, ImageHandle},
     style::BorderRadius,
+    text::system::TextSystem,
 };
 use wgpu::{CurrentSurfaceTexture, SurfaceConfiguration};
 use winit::{dpi::PhysicalSize, window::Window};

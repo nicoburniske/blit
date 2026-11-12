@@ -11,7 +11,7 @@ fn pipeline_is_valid() {
         queue,
         wgpu::TextureFormat::Rgba8Unorm,
         TextSystem::new(
-            blit_gui::TextConfig {
+            blit_gui::text::system::TextConfig {
                 fonts: Vec::new(),
                 ..Default::default()
             },

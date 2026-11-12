@@ -5,21 +5,24 @@ use std::{
 
 use blit::{LogicalPoint, LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_gui::{
-    FontData, FontStack, Image, Rectangle, Shadow, TextConfig, TextSystem,
+    clear::Clear,
     color::Color,
     display_list::Compare,
-    image::{ImageData, ImageFit, ImageFormat, ImagePixels},
+    image::{Image, ImageData, ImageFit, ImageFormat, ImagePixels},
     mesh::{Mesh, MeshVertex},
     path::{Cap, FillRule, PathBuilder, Stroke},
+    rectangle::Rectangle,
+    shadow::Shadow,
     style::{Border, BorderRadius, ConicGradient, Fill, GradientStop, LinearGradient},
     text::{
         FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextRequest, TextStyle, TextWrap,
         VerticalAlign,
+        system::{FontStack, TextConfig, TextSystem},
     },
 };
 use blit_text::{
-    Caret, Family, FontError, FontStackId, GlyphImage, GlyphRequest, LayoutLine, LayoutRequest, PreparedGlyph,
-    TextLayout, TextLayoutEngine,
+    Caret, Family, FontData, FontError, FontStackId, GlyphImage, GlyphRequest, LayoutLine, LayoutRequest,
+    PreparedGlyph, TextLayout, TextLayoutEngine,
 };
 
 use super::*;
@@ -602,7 +605,7 @@ fn builtin_preparation_follows_damage_and_occlusion() {
         (false, Color::BLACK),
         (false, Color::BLACK),
     ] {
-        renderer.paint(bounds, blit_gui::Clear);
+        renderer.paint(bounds, Clear);
         Rectangle::new().background(color).paint(area, &mut renderer);
         Rectangle::new()
             .background(Color::WHITE)
@@ -650,7 +653,7 @@ fn atoms_record_into_the_renderer_context() {
     use std::time::Duration;
 
     use blit::{Frame, FrameInfo, Input, LogicalSize};
-    use blit_gui::{BoundsClip, Rectangle, Shadow, Text};
+    use blit_gui::{clip::BoundsClip, rectangle::Rectangle, shadow::Shadow, text::Text};
 
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(64, 48), text_system(), renderer_config());
     let mut frame = Frame::default();
@@ -664,7 +667,7 @@ fn atoms_record_into_the_renderer_context() {
                 let mut panel = ui.layout(()).clip(BoundsClip);
                 panel.insert(Rectangle::new().background(Color::WHITE));
                 panel.insert(Shadow::new(Color::BLACK).blur(4.0).inset(true));
-                panel.insert(blit_gui::BackdropBlur::new(2.0));
+                panel.insert(blit_gui::blur::BackdropBlur::new(2.0));
                 panel.insert(Text::new("paint"));
             },
         );
@@ -714,7 +717,7 @@ fn scattered_tiles_stay_local_across_command_reorders() {
     for frame in 0..3 {
         renderer.buffer_mut().ranges.clear();
 
-        renderer.paint((PhysicalRect::new(0, 0, 643, 53)).to_logical(SCALE), blit_gui::Clear);
+        renderer.paint((PhysicalRect::new(0, 0, 643, 53)).to_logical(SCALE), Clear);
         renderer.push_clip(
             LogicalRect::new(0.0, 0.0, if frame == 2 { 635.0 } else { 643.0 }, 53.0),
             BorderRadius::default(),
@@ -816,7 +819,7 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
             std::mem::swap(renderer.buffer_mut(), &mut buffers[index]);
             let left = frame.min(19) % 5 * 7;
 
-            renderer.paint((PhysicalRect::new(0, 0, 37, 21)).to_logical(SCALE), blit_gui::Clear);
+            renderer.paint((PhysicalRect::new(0, 0, 37, 21)).to_logical(SCALE), Clear);
             let area = LogicalRect::new(left as f32, 2.0, 6.0, 16.0);
             Rectangle::new().background(Color::WHITE).paint(area, &mut renderer);
             renderer.render(age);
@@ -922,7 +925,7 @@ fn text_system() -> TextSystem {
         TextConfig {
             fonts: vec![FontStack {
                 id: FontId::default(),
-                families: vec![blit_gui::Family::embedded([FontData::Static(include_bytes!(env!(
+                families: vec![Family::embedded([FontData::Static(include_bytes!(env!(
                     "BLIT_TEST_FONT"
                 )))])],
             }],
@@ -942,7 +945,7 @@ fn renderer_supports_custom_pixel_layouts() {
     Rectangle::new()
         .background(Color::rgb(12, 34, 56))
         .paint(clip.to_logical(SCALE), &mut renderer);
-    renderer.paint(clip.to_logical(SCALE), blit_gui::BackdropBlur::new(2.0));
+    renderer.paint(clip.to_logical(SCALE), blit_gui::blur::BackdropBlur::new(2.0));
     renderer.render(0);
     assert_eq!(
         renderer.buffer().pixels()[0],
@@ -1105,7 +1108,7 @@ fn mesh_occlusion_uses_screen_and_ancestor_clip_bounds() {
                     .strategy(Check(make(), hidden));
                     renderer.set_scale(scale);
                     let screen = renderer.screen().to_logical(Scale2::uniform(scale));
-                    renderer.paint(screen, blit_gui::Clear);
+                    renderer.paint(screen, Clear);
                     let cover = if clipped {
                         renderer.push_clip(LogicalRect::new(8.0, 8.0, 8.0, 8.0), BorderRadius::uniform(2.0));
                         renderer.push_clip(LogicalRect::new(4.0, 4.0, 16.0, 16.0), BorderRadius::default());
@@ -1212,7 +1215,7 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
             let text = renderer.text().text_run("M", TextStyle::default());
             for (frame, color) in [Color::BLACK, Color::WHITE, Color::WHITE].into_iter().enumerate() {
                 renderer.buffer_mut().ranges.clear();
-                renderer.paint(area, blit_gui::Clear);
+                renderer.paint(area, Clear);
                 match case {
                     "fill" | "border" => {
                         let stops = [GradientStop::new(0.0, Color::BLACK), GradientStop::new(1.0, color)];
@@ -1286,7 +1289,7 @@ fn text_placement_tracks_physical_clip_size() {
                 options: TextOptions::default(),
             };
             let screen = renderer.screen();
-            renderer.paint(screen.to_logical(SCALE), blit_gui::Clear);
+            renderer.paint(screen.to_logical(SCALE), Clear);
             request.paint(request_area, renderer);
             renderer.render(0);
         }
@@ -1536,7 +1539,7 @@ fn clear_resets_stale_pixels_before_drawing() {
             .radius(BorderRadius::uniform(5.0));
 
         if clear {
-            renderer.paint(screen.to_logical(SCALE), blit_gui::Clear);
+            renderer.paint(screen.to_logical(SCALE), Clear);
         }
         rectangle.paint(rectangle_area, &mut renderer);
         renderer.render(0);
@@ -1558,7 +1561,7 @@ fn clear_resets_stale_pixels_before_drawing() {
     renderer.buffer_mut().pixels_mut().fill(stale);
     let screen = renderer.screen();
 
-    renderer.paint(screen.to_logical(SCALE), blit_gui::Clear);
+    renderer.paint(screen.to_logical(SCALE), Clear);
     renderer.render(0);
     assert!(renderer.buffer().pixels().iter().all(|pixel| *pixel == transparent));
 }
@@ -1597,7 +1600,7 @@ fn images_keep_native_size_and_ownership_until_last_reference() {
         );
         frame.layout(&mut renderer);
         let screen = renderer.screen().to_logical(SCALE);
-        renderer.paint(screen, blit_gui::Clear);
+        renderer.paint(screen, Clear);
         frame.paint(&mut renderer);
         renderer.render(1);
         assert_eq!(renderer.buffer().pixels()[0], Xrgb8888::from_rgb(255, 255, 255));
@@ -2145,7 +2148,7 @@ fn dropped_image_remains_valid_until_frame_end() {
     let image = renderer.create_image(ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgba8, 1, 1));
     let screen = renderer.screen();
 
-    renderer.paint(screen.to_logical(SCALE), blit_gui::Clear);
+    renderer.paint(screen.to_logical(SCALE), Clear);
     renderer.paint(screen.to_logical(SCALE), Image::new(&image));
     let image_id = image.id();
     drop(image);
@@ -2162,7 +2165,7 @@ fn dropped_image_remains_valid_until_frame_end() {
         1,
     ));
     assert_ne!(replacement.id(), image_id);
-    renderer.paint(screen.to_logical(SCALE), blit_gui::Clear);
+    renderer.paint(screen.to_logical(SCALE), Clear);
     renderer.render(0);
     assert_eq!(renderer.buffer().pixels()[0].raw(), 0);
 }
@@ -2187,7 +2190,7 @@ fn text_runs_are_keyed_by_content_and_style() {
     assert_eq!(white, text);
     assert_ne!(gui.text_run("changed", style), text);
     assert_ne!(gui.text_run("same", TextStyle { weight: 500, ..style }), text);
-    use blit_gui::text::{FontSettings, OpticalSize};
+    use blit_text::{FontSettings, OpticalSize};
     for settings in [
         FontSettings {
             features: &[(*b"liga", 0)],
@@ -2261,7 +2264,7 @@ fn damage_trackers_preserve_overlapping_reorders() {
         for frame in frames {
             reference.invalidate_all();
             for renderer in [&mut incremental, &mut reference] {
-                renderer.paint((PhysicalRect::new(0, 0, 16, 16)).to_logical(SCALE), blit_gui::Clear);
+                renderer.paint((PhysicalRect::new(0, 0, 16, 16)).to_logical(SCALE), Clear);
                 for &index in *frame {
                     let rectangle_area = LogicalRect::new(index as f32, index as f32, 10.0, 10.0);
                     let rectangle = Rectangle::new().background(Color::rgba(index * 50, 100, 200, 128));

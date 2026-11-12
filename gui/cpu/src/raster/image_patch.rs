@@ -2,9 +2,8 @@ use std::ops::Range;
 
 use blit::{PhysicalRect, Rect};
 use blit_gui::{
-    Image,
     color::Color,
-    image::{ImageData, ImageFormat, ImageId, ImagePatch, ImageSampling, ImageTiling},
+    image::{Image, ImageData, ImageFormat, ImageId, ImagePatch, ImageSampling, ImageTiling},
 };
 
 use crate::{Pixel, PremultipliedRgbaColor, Rgb8Pixel};

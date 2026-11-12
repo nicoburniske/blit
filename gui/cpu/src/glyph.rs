@@ -1,7 +1,7 @@
 use std::mem::size_of;
 
 use blit_cache::{DeferredCache, Scale};
-use blit_gui::{GlyphImageId, ResolvedTextLayout, TextSystem};
+use blit_gui::text::system::{GlyphImageId, ResolvedTextLayout, TextSystem};
 use blit_text::{GlyphImage, GlyphMetrics, GlyphPixels};
 
 pub struct CachedGlyph {

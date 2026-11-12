@@ -4,10 +4,13 @@ use blit_cpu::{
     RendererConfig, Scanline, VecBuffer, Xrgb8888,
 };
 use blit_gui::{
-    BackdropBlur, Context, Rectangle, TextConfig, TextSystem,
+    Context,
+    blur::BackdropBlur,
     color::Color,
     damage::{DamageTracker, command::CommandDiff, tile::TileDamage},
+    rectangle::Rectangle,
     style::BorderRadius,
+    text::system::{TextConfig, TextSystem},
 };
 
 #[test]

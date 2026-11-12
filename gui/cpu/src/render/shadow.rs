@@ -3,9 +3,9 @@ use std::hash::{Hash, Hasher};
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
 use blit_gui::{
-    Shadow,
     color::Color,
     image::{ImageData, ImageFormat, ImageHandle, ImagePixels, NineSlice},
+    shadow::Shadow,
     style::BorderRadius,
 };
 

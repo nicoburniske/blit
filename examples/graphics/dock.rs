@@ -41,7 +41,7 @@ impl Dock {
             .motion(Motion::new(Tween::new(Duration::from_millis(220), Easing::EASE_IN_OUT)).size());
         toolbar.interact(interact::press());
         toolbar.insert(
-            blit_gui::Shadow::new(Color::rgba(0, 0, 0, 88))
+            blit_gui::shadow::Shadow::new(Color::rgba(0, 0, 0, 88))
                 .radius(BorderRadius::uniform(16.0))
                 .offset(0.0, 3.0)
                 .blur(12.0),

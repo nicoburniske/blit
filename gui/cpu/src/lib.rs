@@ -12,11 +12,12 @@ use std::{any::TypeId, hash::Hasher, marker::PhantomData, mem::offset_of, ptr::N
 use blit::{LogicalRect, PhysicalRect, Scale2, internal::bump::Offset};
 use blit_arena::Arena;
 use blit_gui::{
-    Context, TextSystem,
+    Context,
     damage::{DamageTracker, tile::TileDamage},
     display_list::{self, Command, Compare, DisplayList},
     image::{ImageData, ImageHandle},
     style::BorderRadius,
+    text::system::TextSystem,
 };
 
 use self::{

@@ -24,13 +24,21 @@ pub mod layout {
 }
 
 pub use blit_widgets::{
-    Popover, PopoverClose, PopoverState, Resize, ResizeEdge, ResizeGrip, ScrollArea, Split, SplitDivider, Stage,
-    UniformList, UniformListResponse, VirtualList, VirtualListResponse, interact,
+    interact,
+    performance::Stage,
+    popover::{Popover, PopoverClose, PopoverState},
+    resize::{Resize, ResizeEdge, ResizeGrip},
+    scroll::{
+        area::ScrollArea,
+        uniform_list::{Response as UniformListResponse, UniformList},
+        virtual_list::{Response as VirtualListResponse, VirtualList},
+    },
+    split::{Split, SplitDivider},
 };
-pub type ResizeState = blit_widgets::ResizeState<i32>;
-pub type SplitState = blit_widgets::SplitState<i32>;
-pub type ScrollState = blit_widgets::ScrollState<i32>;
-pub type VirtualListState = blit_widgets::VirtualListState<i32>;
+pub type ResizeState = blit_widgets::resize::ResizeState<i32>;
+pub type SplitState = blit_widgets::split::SplitState<i32>;
+pub type ScrollState = blit_widgets::scroll::ScrollState<i32>;
+pub type VirtualListState = blit_widgets::scroll::virtual_list::VirtualListState<i32>;
 
 pub use self::{
     context::{BoundsClip, TuiContext},

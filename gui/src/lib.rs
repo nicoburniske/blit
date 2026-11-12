@@ -1,7 +1,7 @@
-mod blur;
-mod clear;
+pub mod blur;
+pub mod clear;
+pub mod clip;
 pub mod color;
-mod context;
 pub mod damage;
 pub mod display_list;
 pub mod image;
@@ -12,16 +12,12 @@ pub mod shadow;
 pub mod style;
 pub mod text;
 
-pub use blit::Ui;
-pub use blit_text::{Family, FontData, FontError, TextLayoutEngine};
+use blit::LogicalRect;
 
-pub use self::{
-    blur::BackdropBlur,
-    clear::Clear,
-    context::{BoundsClip, Context},
-    image::Image,
-    mesh::{Mesh, MeshVertex},
-    rectangle::{Rectangle, RectangleAtom},
-    shadow::Shadow,
-    text::{FontStack, GlyphImageId, ResolvedTextLayout, RichText, Text, TextAtom, TextConfig, TextSystem},
-};
+use crate::{style::BorderRadius, text::system::TextSystem};
+
+pub trait Context: blit::Context<Scalar = f32> + blit::HasFrameStore {
+    fn text(&mut self) -> &mut TextSystem;
+    fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius);
+    fn pop_clip(&mut self);
+}

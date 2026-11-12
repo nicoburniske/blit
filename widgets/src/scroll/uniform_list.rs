@@ -3,7 +3,7 @@ use std::ops::Range;
 use blit::{Axis, Clip, Constraints, Id, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget};
 
 use super::{Request, ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
-use crate::{Context, ScrollState};
+use crate::{Context, scroll::ScrollState};
 
 blit::builder! {
     /// use for large lists with a known fixed item height or width

@@ -1,8 +1,7 @@
 use blit::{LogicalRect, Paint, PhysicalRect, internal::bump::Offset};
 use blit_gui::{
-    Image,
     damage::DamageTracker,
-    image::{ImageData, ImageFormat, ImageHandle, ImageId, ImagePatch, ImageSampling, ImageTiling},
+    image::{Image, ImageData, ImageFormat, ImageHandle, ImageId, ImagePatch, ImageSampling, ImageTiling},
 };
 
 use super::image_patch::{AlphaRows, Prepared};

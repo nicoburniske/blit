@@ -1,10 +1,13 @@
 use blit::{LogicalRect, Paint};
 use blit_cpu::{Direct, RenderStrategy, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888, render::shadow};
 use blit_gui::{
-    Context, Rectangle, Shadow, TextConfig, TextSystem,
+    Context,
     color::Color,
     damage::{DamageTracker, command::CommandDiff, tile::TileDamage},
+    rectangle::Rectangle,
+    shadow::Shadow,
     style::BorderRadius,
+    text::system::{TextConfig, TextSystem},
 };
 
 #[test]

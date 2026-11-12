@@ -2,7 +2,9 @@ use std::ops::Range;
 
 use blit::{Atom, AtomCx, Constraints, Id, LogicalRect, Paint, Size, Widget};
 use blit_cpu::{Pixel, PixelBuffer, PremultipliedRgbaColor, Render, RenderContext, RenderStrategy, Renderer};
-use blit_gui::{BoundsClip, Rectangle, color::Color, damage::DamageTracker, style::Border, text::TextStyle};
+use blit_gui::{
+    clip::BoundsClip, color::Color, damage::DamageTracker, rectangle::Rectangle, style::Border, text::TextStyle,
+};
 use blit_gui_widgets::{
     Text, interact,
     layout::{Justify, absolute, absolute::Anchor, flex},
@@ -92,7 +94,7 @@ impl View {
                         .height(absolute::Sizing::fixed(96.0)),
                 )
                 .clip(BoundsClip);
-            panel.insert(blit_gui::BackdropBlur::new(5.0));
+            panel.insert(blit_gui::blur::BackdropBlur::new(5.0));
             panel.insert(Rectangle::new().border(Border::solid(1.0, colors::TEXT_DIM)));
             panel
                 .child()

@@ -2,12 +2,13 @@ use std::fmt::Write as _;
 
 use blit::{Paint, Sides, Size, Widget};
 use blit_gui::{
-    Context, Rectangle,
+    Context,
     color::Color,
+    rectangle::Rectangle,
     style::{Border, BorderRadius},
     text::TextStyle,
 };
-use blit_widgets::{FrameProfiler, interact};
+use blit_widgets::{interact, performance::FrameProfiler};
 
 use crate::{
     Popover, PopoverClose, PopoverState, Text,

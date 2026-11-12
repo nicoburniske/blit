@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 
 use blit::{Sides, Widget};
-use blit_widgets::{FrameProfiler, interact};
+use blit_widgets::{interact, performance::FrameProfiler};
 
 use crate::{
     Block, Border, BorderStyle, Context, Popover, PopoverClose, PopoverState, Text,

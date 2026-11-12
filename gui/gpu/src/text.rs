@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
-use blit_gui::{GlyphImageId, ResolvedTextLayout, TextSystem};
+use blit_gui::text::system::{GlyphImageId, ResolvedTextLayout, TextSystem};
 use blit_text::{GlyphImage, GlyphMetrics};
 
 use crate::{
@@ -399,14 +399,14 @@ mod tests {
         let mut atlas = GlyphAtlas::new(&device, layout.clone());
         atlas.begin_frame();
 
-        use blit_gui::{
-            TextConfig, TextSystem,
-            text::{FontId, TextOptions, TextRequest, TextSource, TextStyle},
+        use blit_gui::text::{
+            FontId, TextOptions, TextRequest, TextSource, TextStyle,
+            system::{TextConfig, TextSystem},
         };
         let mut text = TextSystem::new(
             TextConfig::new().font(
                 FontId::default(),
-                [blit_gui::Family::embedded([blit_gui::FontData::Static(
+                [blit_text::Family::embedded([blit_text::FontData::Static(
                     include_bytes!(env!("BLIT_TEST_FONT")),
                 )])],
             ),

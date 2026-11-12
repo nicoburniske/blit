@@ -1,5 +1,5 @@
 use blit::{LogicalRect, Paint, PhysicalRect};
-use blit_gui::{BackdropBlur, damage::DamageTracker};
+use blit_gui::{blur::BackdropBlur, damage::DamageTracker};
 
 use crate::{Pixel, PixelBuffer, PremultipliedRgbaColor, RenderContext, RenderStrategy};
 

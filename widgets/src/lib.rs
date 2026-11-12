@@ -1,20 +1,10 @@
 pub mod interact;
-mod performance;
-mod popover;
-mod resize;
-mod scroll;
-mod split;
+pub mod performance;
+pub mod popover;
+pub mod resize;
+pub mod scroll;
+pub mod split;
 pub mod text_input;
-
-pub use blit::{Clip, Id, Ui, Widget, state};
-pub use performance::{FrameProfiler, Stage};
-pub use popover::{Popover, PopoverClose, PopoverState};
-pub use resize::{Resize, ResizeEdge, ResizeGrip, ResizeState};
-pub use scroll::{
-    ScrollArea, ScrollState, UniformList, UniformListResponse, VirtualList, VirtualListResponse, VirtualListState,
-};
-pub use split::{Split, SplitDivider, SplitState};
-pub use text_input::{Response as TextInputResponse, State as TextInputState};
 
 /// how a backend tunes the built-in widgets
 pub trait Context: blit::Context {

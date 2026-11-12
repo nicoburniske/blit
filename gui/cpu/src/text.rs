@@ -1,7 +1,11 @@
 use std::{ops::Range, ptr::NonNull};
 
 use blit::{LogicalRect, Paint, PhysicalRect, Point, Scale2, internal::bump::Offset};
-use blit_gui::{TextSystem, color::Color, damage::DamageTracker, text::TextRequest};
+use blit_gui::{
+    color::Color,
+    damage::DamageTracker,
+    text::{TextRequest, system::TextSystem},
+};
 use blit_text::GlyphRequest;
 
 use crate::{

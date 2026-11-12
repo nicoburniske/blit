@@ -14,11 +14,11 @@ use std::any::TypeId;
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_arena::Arena;
 use blit_gui::{
-    TextSystem,
     color::Color,
     display_list::DisplayList,
     image::{ImageData, ImageFormat, ImageHandle},
     style::BorderRadius,
+    text::system::TextSystem,
 };
 use bytemuck::Zeroable;
 use pipeline::{

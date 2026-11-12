@@ -8,7 +8,7 @@ use blit::{
     input::{Input, Key, KeyInput, Modifiers, MouseButton, ScrollPhase},
 };
 use blit_executor::LocalExecutor;
-use blit_widgets::Stage;
+use blit_widgets::performance::Stage;
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize as WindowSize, PhysicalPosition, PhysicalSize},

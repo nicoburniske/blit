@@ -1,10 +1,10 @@
 use blit::{LogicalRect, Paint};
 use blit_gui::{
-    TextSystem,
     image::{ImageData, ImageHandle},
     style::BorderRadius,
+    text::system::TextSystem,
 };
-use blit_widgets::FrameProfiler;
+use blit_widgets::performance::FrameProfiler;
 
 use crate::{GraphicsBackend, GraphicsError};
 

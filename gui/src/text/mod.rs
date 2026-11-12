@@ -5,7 +5,7 @@ use std::{
 };
 
 use blit::{Atom, AtomCx, Constraints, FrameSlice, HasFrameStore, LogicalRect, Paint, Size, Widget, state};
-pub use blit_text::{FontSettings, FontStyle, OpticalSize};
+use blit_text::{FontSettings, FontStyle};
 
 use crate::{
     Context,
@@ -13,9 +13,7 @@ use crate::{
     display_list::{Compare, DisplayList},
 };
 
-mod system;
-
-pub use system::{FontStack, GlyphImageId, ResolvedTextLayout, TextConfig, TextSystem};
+pub mod system;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug)]

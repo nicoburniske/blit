@@ -36,7 +36,7 @@ impl<'a, P: Pixel> RenderContext<'a, P> {
     }
 
     /// prepares an image with an explicit logical to physical scale
-    pub fn prepare_image(&self, area: LogicalRect, request: &blit_gui::Image, scale: f32) -> Option<Image> {
+    pub fn prepare_image(&self, area: LogicalRect, request: &blit_gui::image::Image, scale: f32) -> Option<Image> {
         Image::new(area, request, scale, self.bounds, self.images)
     }
 
@@ -171,7 +171,7 @@ pub struct Image {
 impl Image {
     pub(crate) fn new(
         area: LogicalRect,
-        request: &blit_gui::Image,
+        request: &blit_gui::image::Image,
         scale: f32,
         bounds: PhysicalRect,
         images: &blit_arena::Arena<StoredImage>,

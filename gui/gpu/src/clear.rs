@@ -1,5 +1,5 @@
 use blit::{LogicalRect, Paint};
-use blit_gui::Clear;
+use blit_gui::clear::Clear;
 use bytemuck::Zeroable;
 
 use crate::{Instance, Pipeline, Renderer, physical_rect};

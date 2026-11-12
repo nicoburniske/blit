@@ -1,6 +1,6 @@
-mod area;
-mod uniform_list;
-mod virtual_list;
+pub mod area;
+pub mod uniform_list;
+pub mod virtual_list;
 
 use std::time::Duration;
 
@@ -9,11 +9,6 @@ use blit::{
     Widget, internal::animator::Animator,
 };
 
-pub use self::{
-    area::ScrollArea,
-    uniform_list::{Response as UniformListResponse, UniformList},
-    virtual_list::{Response as VirtualListResponse, VirtualList, VirtualListState},
-};
 use crate::{Context, interact};
 
 /// persistent scroll position and motion
@@ -582,7 +577,7 @@ const MAX_SCROLL_VELOCITY: f32 = 12_000.0;
 mod tests {
     use blit::{Frame, FrameInfo, Input, Spring};
 
-    use super::*;
+    use super::{area::ScrollArea, *};
     use crate::test::TestContext;
 
     #[test]

@@ -1,5 +1,5 @@
 use blit::{LogicalRect, Paint};
-use blit_gui::{Image, image::ImageSampling};
+use blit_gui::image::{Image, ImageSampling};
 
 use crate::{Instance, Pipeline, Renderer, image_axis, image_flag, physical_rect, premultiplied};
 

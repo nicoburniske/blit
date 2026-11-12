@@ -3,16 +3,13 @@ use blit::{
     Widget,
 };
 use blit_widgets::interact::{self, keyboard::Handler};
-pub use blit_widgets::{
-    TextInputResponse,
-    text_input::{Edit, default_keymap},
-};
-pub type TextInputState = blit_widgets::TextInputState<f32>;
+pub use blit_widgets::text_input::{Edit, Response as TextInputResponse, default_keymap};
+pub type TextInputState = blit_widgets::text_input::State<f32>;
 
 use blit_gui::{
-    Context, Rectangle,
+    Context,
     color::Color,
-    rectangle,
+    rectangle::{self, Rectangle},
     text::{self, TextLayoutRequest, TextOptions, TextRequest, TextRun, TextStyle, TextWrap},
 };
 

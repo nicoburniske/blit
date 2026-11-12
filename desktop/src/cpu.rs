@@ -4,9 +4,9 @@ use blit::{LogicalRect, Paint};
 use blit_cpu::{PixelBuffer, Renderer, Scanline, Xrgb8888};
 pub use blit_cpu::{RendererConfig as Config, render};
 use blit_gui::{
-    TextSystem,
     image::{ImageData, ImageHandle},
     style::BorderRadius,
+    text::system::TextSystem,
 };
 use softbuffer::{Context, Surface};
 use winit::{dpi::PhysicalSize, window::Window};
