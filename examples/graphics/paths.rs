@@ -32,8 +32,8 @@ impl Atom<DesktopContext> for Paths {
         ];
         // the knot is the largest path at 242 verbs and 241 points
         let mut builder = PathBuilder {
-            verbs: cx.scratch(242),
-            points: cx.scratch(241),
+            verbs: cx.scratch().slice(242),
+            points: cx.scratch().slice(241),
         };
         let context = cx.context_mut();
         let turn = self.phase * TAU;

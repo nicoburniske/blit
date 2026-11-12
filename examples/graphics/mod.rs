@@ -4,6 +4,7 @@ use super::*;
 #[cfg_attr(not(feature = "gpu"), path = "cpu.rs")]
 mod backend;
 mod dock;
-mod terrain;
+mod knot;
+mod tiles;
 
 pub use backend::View;

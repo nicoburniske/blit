@@ -7,7 +7,8 @@ use super::*;
 #[derive(Default)]
 pub struct View {
     dock: dock::Dock,
-    terrain: terrain::View,
+    knot: knot::View,
+    tiles: tiles::View,
 }
 
 impl Widget<DesktopContext> for &mut View {
@@ -17,18 +18,19 @@ impl Widget<DesktopContext> for &mut View {
         let mut stage = ui.layout(()).clip(BoundsClip);
         stage.insert(Rectangle::new().background(colors::TRACK));
         stage.child().build(|ui: Ui<'_>| {
-            self.dock
-                .build(ui, &[("custom shader", 0), (terrain::View::TITLE, 1)], |tab| {
-                    let terrain = &mut self.terrain;
-                    (tab != 0).then_some(move |ui: Ui<'_>| terrain.controls(ui))
-                });
+            self.dock.build(
+                ui,
+                &[("custom shader", 0), (knot::View::TITLE, 1), (tiles::View::TITLE, 2)],
+                |_| None::<fn(Ui<'_>)>,
+            );
         });
         if self.dock.selected == 0 {
             stage.insert(Interference { phase: self.dock.phase });
         } else {
-            stage
-                .child()
-                .build(|ui: Ui<'_>| self.terrain.build(ui, self.dock.phase));
+            stage.child().build(|ui: Ui<'_>| match self.dock.selected {
+                1 => self.knot.build(ui, self.dock.phase),
+                _ => self.tiles.build(ui, self.dock.phase),
+            });
         }
         stage.insert(Rectangle::new().border(Border::solid(1.0, colors::BORDER)));
     }

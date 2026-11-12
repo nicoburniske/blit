@@ -10,7 +10,8 @@ pub struct View {
     dock: dock::Dock,
     ribbons: ribbons::View,
     paths: paths::View,
-    terrain: terrain::View,
+    knot: knot::View,
+    tiles: tiles::View,
 }
 
 impl Widget<DesktopContext> for &mut View {
@@ -25,22 +26,20 @@ impl Widget<DesktopContext> for &mut View {
                 &[
                     (ribbons::View::TITLE, 0),
                     (paths::View::TITLE, 1),
-                    (terrain::View::TITLE, 2),
+                    (knot::View::TITLE, 2),
+                    (tiles::View::TITLE, 3),
                 ],
                 |tab| {
                     let ribbons = &mut self.ribbons;
-                    let terrain = &mut self.terrain;
-                    (tab != 1).then_some(move |ui: Ui<'_>| match tab {
-                        0 => ribbons.controls(ui),
-                        _ => terrain.controls(ui),
-                    })
+                    (tab == 0).then_some(move |ui: Ui<'_>| ribbons.controls(ui))
                 },
             );
         });
         if stage.child().build(|ui: Ui<'_>| match self.dock.selected {
             0 => self.ribbons.build(ui, self.dock.phase),
             1 => self.paths.build(ui, self.dock.phase),
-            _ => self.terrain.build(ui, self.dock.phase),
+            2 => self.knot.build(ui, self.dock.phase),
+            _ => self.tiles.build(ui, self.dock.phase),
         }) {
             self.dock.running = false;
         }
