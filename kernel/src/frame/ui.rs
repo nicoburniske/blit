@@ -60,19 +60,18 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
         self.inner.node
     }
 
-    /// reserves drawing inputs in the context until it renders
-    pub fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> FrameSliceBuilder<'_, T>
+    pub fn storage(&self) -> &FrameStore
     where
-        C: FrameStore,
+        C: HasFrameStore,
     {
-        self.inner.context.slice(capacity)
+        self.inner.context.storage()
     }
 
-    pub fn get<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T]
+    pub fn storage_mut(&mut self) -> &mut FrameStore
     where
-        C: FrameStore,
+        C: HasFrameStore,
     {
-        self.inner.context.frame_data().get(slice)
+        self.inner.context.storage_mut()
     }
 
     pub fn clip<X: Clip<C>>(self, clip: X) -> Self {

@@ -83,13 +83,13 @@ impl blit::Context for Renderer {
     type Scalar = f32;
 }
 
-impl blit::FrameStore for Renderer {
-    fn frame_data(&self) -> &blit::FrameData {
-        self.list.inputs()
+impl blit::HasFrameStore for Renderer {
+    fn storage(&self) -> &blit::FrameStore {
+        self.list.storage()
     }
 
-    fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> blit::FrameSliceBuilder<'_, T> {
-        self.list.slice(capacity)
+    fn storage_mut(&mut self) -> &mut blit::FrameStore {
+        self.list.storage_mut()
     }
 }
 
@@ -766,8 +766,12 @@ pub struct RecordContext<'a> {
 }
 
 impl RecordContext<'_> {
-    pub fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> blit::FrameSliceBuilder<'_, T> {
-        self.renderer.list.slice(capacity)
+    pub fn storage(&self) -> &blit::FrameStore {
+        self.renderer.list.storage()
+    }
+
+    pub fn storage_mut(&mut self) -> &mut blit::FrameStore {
+        self.renderer.list.storage_mut()
     }
 
     #[inline]

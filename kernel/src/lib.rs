@@ -22,8 +22,8 @@
 //!
 //! - [`Paint`] is how atoms draw. each implementation accepts one kind of drawing operation in
 //!   frame coordinates, and the context decides what painting means
-//! - [`FrameStore`] lets a context keep slices that its paint commands reference. widgets store
-//!   them with [`Ui::slice`], fill the builder and finish it into a [`FrameSlice`]
+//! - [`HasFrameStore`] provides access to a context's [`FrameStore`]. widgets reserve drawing inputs
+//!   with [`FrameStore::slice`], fill the builder and finish it into a [`FrameSlice`]
 //!   the context resolves this handle when rendering
 //!
 //! # frame lifecycle
@@ -31,7 +31,7 @@
 //! ```text
 //! Frame::build
 //!     │ records nodes, Layouts, and Atoms
-//!     │ Ui::slice reserves drawing inputs in the context
+//!     │ Ui::storage_mut provides frame storage for drawing inputs
 //!     ▼
 //! retained frame graph
 //!     │ Frame::layout measures Atoms and arranges children
@@ -56,13 +56,13 @@
 //! Scratch      Ui::scratch, LayoutCx::scratch, AtomCx::scratch
 //!              temporary slices for the current step, reclaimed when it ends
 //!
-//! FrameSlice   Ui::slice
+//! FrameSlice   Ui::storage_mut().slice(capacity)
 //!              drawing inputs owned by the context until it renders
 //! ```
 
 mod clip;
 mod frame;
-mod frame_data;
+mod frame_store;
 mod macros;
 pub mod scratch;
 
@@ -83,7 +83,7 @@ pub use self::{
         interact::{Contacts, InteractCx},
         ui::{NodeTarget, Ui, state},
     },
-    frame_data::{FrameData, FrameSlice, FrameSliceBuilder},
+    frame_store::{FrameSlice, FrameSliceBuilder, FrameStore},
     geometry::{
         Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point, Rect,
         Scalar, Scale2, Sides, Size,
@@ -110,10 +110,10 @@ pub trait Paint<T>: Context {
     fn paint(&mut self, area: Rect<Self::Scalar>, command: T);
 }
 
-/// holds drawing inputs referenced by paint commands until they are rendered
-pub trait FrameStore {
-    fn frame_data(&self) -> &FrameData;
-    fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> FrameSliceBuilder<'_, T>;
+/// provides access to drawing inputs owned by a context
+pub trait HasFrameStore {
+    fn storage(&self) -> &FrameStore;
+    fn storage_mut(&mut self) -> &mut FrameStore;
 }
 
 builder! {

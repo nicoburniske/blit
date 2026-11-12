@@ -44,21 +44,21 @@ impl blit::Context for Backend {
     type Scalar = f32;
 }
 
-impl blit::FrameStore for Backend {
-    fn frame_data(&self) -> &blit::FrameData {
+impl blit::HasFrameStore for Backend {
+    fn storage(&self) -> &blit::FrameStore {
         self.gpu
             .as_ref()
             .expect("GPU renderer is not initialized")
             .renderer
-            .frame_data()
+            .storage()
     }
 
-    fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> blit::FrameSliceBuilder<'_, T> {
+    fn storage_mut(&mut self) -> &mut blit::FrameStore {
         self.gpu
             .as_mut()
             .expect("GPU renderer is not initialized")
             .renderer
-            .slice(capacity)
+            .storage_mut()
     }
 }
 

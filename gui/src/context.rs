@@ -2,7 +2,7 @@ use blit::{Clip, ClipShape, LogicalRect};
 
 use crate::{TextSystem, style::BorderRadius};
 
-pub trait Context: blit::Context<Scalar = f32> + blit::FrameStore {
+pub trait Context: blit::Context<Scalar = f32> + blit::HasFrameStore {
     fn text(&mut self) -> &mut TextSystem;
     fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius);
     fn pop_clip(&mut self);

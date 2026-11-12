@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use blit::{Atom, AtomCx, Constraints, FrameSlice, FrameStore, LogicalRect, Paint, Size, Ui, Widget, state};
+use blit::{Atom, AtomCx, Constraints, FrameSlice, HasFrameStore, LogicalRect, Paint, Size, Ui, Widget, state};
 
 use crate::{
     color::Color,
@@ -22,7 +22,7 @@ blit::builder! {
 
 impl<C> Widget<C, state::Node> for Rectangle<'_>
 where
-    C: FrameStore + Paint<Stored, Scalar = f32>,
+    C: HasFrameStore + Paint<Stored, Scalar = f32>,
 {
     type Response = ();
 
@@ -41,7 +41,7 @@ where
 
 impl Rectangle<'_> {
     /// stores borrowed fills in the context and paints the result
-    pub fn paint<C: FrameStore + Paint<Stored, Scalar = f32>>(self, area: LogicalRect, context: &mut C) {
+    pub fn paint<C: HasFrameStore + Paint<Stored, Scalar = f32>>(self, area: LogicalRect, context: &mut C) {
         let stored = Stored {
             area,
             background: FrameFill::new(self.background, context),
@@ -169,12 +169,12 @@ pub enum FrameFill {
 
 impl FrameFill {
     #[inline]
-    pub(crate) fn new(fill: Fill<'_>, store: &mut impl FrameStore) -> Self {
+    pub(crate) fn new(fill: Fill<'_>, store: &mut impl HasFrameStore) -> Self {
         match fill {
             Fill::Solid(color) => Self::Solid(color),
             Fill::LinearGradient(gradient) => Self::LinearGradient {
                 stops: {
-                    let mut stops = store.slice(gradient.stops.len());
+                    let mut stops = store.storage_mut().slice(gradient.stops.len());
                     stops.extend(gradient.stops.iter().copied());
                     stops.finish()
                 },
@@ -182,7 +182,7 @@ impl FrameFill {
             },
             Fill::ConicGradient(gradient) => Self::ConicGradient {
                 stops: {
-                    let mut stops = store.slice(gradient.stops.len());
+                    let mut stops = store.storage_mut().slice(gradient.stops.len());
                     stops.extend(gradient.stops.iter().copied());
                     stops.finish()
                 },
@@ -197,11 +197,11 @@ impl FrameFill {
         match *self {
             Self::Solid(color) => Fill::Solid(color),
             Self::LinearGradient { stops, angle } => Fill::LinearGradient(LinearGradient {
-                stops: list.get(stops),
+                stops: list.storage().view(stops),
                 angle,
             }),
             Self::ConicGradient { stops, center, angle } => Fill::ConicGradient(ConicGradient {
-                stops: list.get(stops),
+                stops: list.storage().view(stops),
                 center,
                 angle,
             }),

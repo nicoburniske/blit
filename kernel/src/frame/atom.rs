@@ -19,11 +19,18 @@ impl<'a, C: Context> AtomCx<'a, C> {
         self.bump.storage.alloc(capacity)
     }
 
-    pub fn get<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T]
+    pub fn storage(&self) -> &FrameStore
     where
-        C: FrameStore,
+        C: HasFrameStore,
     {
-        self.context.frame_data().get(slice)
+        self.context.storage()
+    }
+
+    pub fn storage_mut(&mut self) -> &mut FrameStore
+    where
+        C: HasFrameStore,
+    {
+        self.context.storage_mut()
     }
 }
 

@@ -1,6 +1,6 @@
 use std::{any::TypeId, hash::Hash, ops::Range, ptr::NonNull};
 
-use blit::{FrameSlice, LogicalRect, PhysicalRect, Scale2};
+use blit::{FrameStore, LogicalRect, PhysicalRect, Scale2};
 use blit_gui::display_list::{Compare, DisplayList};
 
 use crate::{Effects, Renderer};
@@ -58,8 +58,8 @@ impl PrepareContext<'_> {
     pub fn layout(&self) -> &wgpu::BindGroupLayout {
         &self.renderer.bind_group_layout
     }
-    pub fn get<T: Copy + 'static>(&self, value: FrameSlice<T>) -> &[T] {
-        self.list.get(value)
+    pub fn storage(&self) -> &FrameStore {
+        self.list.storage()
     }
     /// cached snapshot view whose declared pixels are copied immediately before drawing
     pub fn source(&self) -> Option<&wgpu::TextureView> {

@@ -8,12 +8,12 @@ use crate::internal::bump::{Bump, Slice};
 
 /// drawing inputs owned by a rendering context until it clears them
 #[derive(Default)]
-pub struct FrameData {
+pub struct FrameStore {
     data: Bump,
     epoch: u32,
 }
 
-/// a typed slice resolved through the FrameData that allocated it
+/// a typed slice resolved through the FrameStore that allocated it
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrameSlice<T> {
     slice: Slice<T>,
@@ -23,18 +23,18 @@ pub struct FrameSlice<T> {
 /// reserved frame storage exposing only its initialized prefix
 ///
 /// ```
-/// let mut frame = blit::FrameData::default();
+/// let mut frame = blit::FrameStore::default();
 /// let mut values = frame.slice(4);
 /// values.extend([3, 1, 2]);
 /// values.sort_unstable();
 /// let values = values.finish();
-/// assert_eq!(frame.get(values), &[1, 2, 3]);
+/// assert_eq!(frame.view(values), &[1, 2, 3]);
 /// ```
 ///
 /// storage cannot grow or clear while a builder is open
 ///
 /// ```compile_fail
-/// let mut frame = blit::FrameData::default();
+/// let mut frame = blit::FrameStore::default();
 /// let mut values = frame.slice(4);
 /// frame.clear();
 /// values.push(1u32);
@@ -45,7 +45,7 @@ pub struct FrameSliceBuilder<'a, T: Copy> {
     epoch: u32,
 }
 
-impl FrameData {
+impl FrameStore {
     /// reserves uninitialized drawing inputs until this storage is cleared
     pub fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> FrameSliceBuilder<'_, T> {
         u32::try_from(capacity).expect("too much frame data");
@@ -66,7 +66,7 @@ impl FrameData {
         }
     }
 
-    pub fn get<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T] {
+    pub fn view<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T] {
         if slice.slice.len == 0 {
             return &[];
         }

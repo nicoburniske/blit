@@ -332,13 +332,13 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> blit::Context for R
     type Scalar = f32;
 }
 
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> blit::FrameStore for Renderer<B, S, D> {
-    fn frame_data(&self) -> &blit::FrameData {
-        self.context.list.inputs()
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> blit::HasFrameStore for Renderer<B, S, D> {
+    fn storage(&self) -> &blit::FrameStore {
+        self.context.list.storage()
     }
 
-    fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> blit::FrameSliceBuilder<'_, T> {
-        self.context.list.slice(capacity)
+    fn storage_mut(&mut self) -> &mut blit::FrameStore {
+        self.context.list.storage_mut()
     }
 }
 
@@ -377,8 +377,12 @@ pub struct RecordContext<'a, P: Pixel> {
 }
 
 impl<P: Pixel> RecordContext<'_, P> {
-    pub fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> blit::FrameSliceBuilder<'_, T> {
-        self.list.slice(capacity)
+    pub fn storage(&self) -> &blit::FrameStore {
+        self.list.storage()
+    }
+
+    pub fn storage_mut(&mut self) -> &mut blit::FrameStore {
+        self.list.storage_mut()
     }
 
     /// records an already prepared value without running preparation

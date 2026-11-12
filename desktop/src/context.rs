@@ -30,13 +30,13 @@ impl<G: GraphicsBackend> blit::Context for DesktopContext<G> {
     type Scalar = f32;
 }
 
-impl<G: GraphicsBackend> blit::FrameStore for DesktopContext<G> {
-    fn frame_data(&self) -> &blit::FrameData {
-        self.graphics.frame_data()
+impl<G: GraphicsBackend> blit::HasFrameStore for DesktopContext<G> {
+    fn storage(&self) -> &blit::FrameStore {
+        self.graphics.storage()
     }
 
-    fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> blit::FrameSliceBuilder<'_, T> {
-        self.graphics.slice(capacity)
+    fn storage_mut(&mut self) -> &mut blit::FrameStore {
+        self.graphics.storage_mut()
     }
 }
 

@@ -4,7 +4,7 @@ use std::{
     ops::Range,
 };
 
-use blit::{Atom, AtomCx, Constraints, FrameSlice, FrameStore, LogicalRect, Paint, Size, Widget, state};
+use blit::{Atom, AtomCx, Constraints, FrameSlice, HasFrameStore, LogicalRect, Paint, Size, Widget, state};
 pub use blit_text::{FontSettings, FontStyle, OpticalSize};
 
 use crate::{
@@ -35,7 +35,7 @@ where
 
     fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
         let run = ui.context_mut().text().text_run(self.text, self.style);
-        let mut colors = ui.slice(1);
+        let mut colors = ui.storage_mut().slice(1);
         colors.push(self.style.color);
         let colors = colors.finish();
         ui.insert(TextAtom::new(run, colors).offset_x(self.offset_x).options(self.options));
@@ -62,7 +62,7 @@ where
     fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
         let run = ui.context_mut().text().rich_text(self.text, self.spans, self.style);
         // empty spans lay out as one span in the base color
-        let mut colors = ui.slice(self.spans.len().max(1));
+        let mut colors = ui.storage_mut().slice(self.spans.len().max(1));
         if self.spans.is_empty() {
             colors.push(self.style.color);
         } else {
@@ -88,8 +88,8 @@ pub struct TextRequest<'a> {
 
 impl TextRequest<'_> {
     /// stores borrowed colors in the context and paints the result
-    pub fn paint<C: FrameStore + Paint<Stored, Scalar = f32>>(self, area: LogicalRect, context: &mut C) {
-        let mut colors = context.slice(self.colors.len());
+    pub fn paint<C: HasFrameStore + Paint<Stored, Scalar = f32>>(self, area: LogicalRect, context: &mut C) {
+        let mut colors = context.storage_mut().slice(self.colors.len());
         colors.extend(self.colors.iter().copied());
         let stored = Stored {
             area,
@@ -140,7 +140,7 @@ impl Stored {
     #[inline]
     pub fn view<'a>(&self, list: &'a DisplayList) -> TextRequest<'a> {
         TextRequest {
-            colors: list.get(self.colors),
+            colors: list.storage().view(self.colors),
             text: self.text,
             offset_x: self.offset_x,
             options: self.options,

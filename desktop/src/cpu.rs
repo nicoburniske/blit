@@ -34,13 +34,13 @@ impl blit::Context for Backend {
     type Scalar = f32;
 }
 
-impl blit::FrameStore for Backend {
-    fn frame_data(&self) -> &blit::FrameData {
-        self.renderer.frame_data()
+impl blit::HasFrameStore for Backend {
+    fn storage(&self) -> &blit::FrameStore {
+        self.renderer.storage()
     }
 
-    fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> blit::FrameSliceBuilder<'_, T> {
-        self.renderer.slice(capacity)
+    fn storage_mut(&mut self) -> &mut blit::FrameStore {
+        self.renderer.storage_mut()
     }
 }
 

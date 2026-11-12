@@ -6,7 +6,7 @@ use std::{
 };
 
 use blit::{
-    FrameData, FrameSlice, LogicalRect, PhysicalRect,
+    FrameStore, LogicalRect, PhysicalRect,
     internal::{
         bump::{Bump, Offset},
         hash::FxHasher,
@@ -21,7 +21,7 @@ pub struct DisplayList {
     commands: Vec<Command>,
     clips: Vec<Clip>,
     data: Bump,
-    inputs: FrameData,
+    storage: FrameStore,
 }
 
 /// content comparison for recorded drawing inputs
@@ -58,16 +58,12 @@ impl DisplayList {
         &self.data
     }
 
-    pub fn inputs(&self) -> &FrameData {
-        &self.inputs
+    pub fn storage(&self) -> &FrameStore {
+        &self.storage
     }
 
-    pub fn slice<T: Copy + 'static>(&mut self, capacity: usize) -> blit::FrameSliceBuilder<'_, T> {
-        self.inputs.slice(capacity)
-    }
-
-    pub fn get<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T] {
-        self.inputs.get(slice)
+    pub fn storage_mut(&mut self) -> &mut FrameStore {
+        &mut self.storage
     }
 
     /// # Safety
@@ -167,7 +163,7 @@ impl DisplayList {
     }
 
     pub fn clear(&mut self) {
-        self.inputs.clear();
+        self.storage.clear();
         self.commands.clear();
         self.clips.clear();
         self.data.clear();

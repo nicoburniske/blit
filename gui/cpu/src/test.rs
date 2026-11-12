@@ -457,10 +457,10 @@ fn prepared_draws_capture_data_and_drop_results_once() {
 
     impl Compare for SamplesData {
         fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
-            left.get(a.0) == right.get(b.0)
+            left.storage().view(a.0) == right.storage().view(b.0)
         }
         fn hash(input: &Self, list: &DisplayList, state: &mut impl Hasher) {
-            list.get(input.0).hash(state);
+            list.storage().view(input.0).hash(state);
         }
     }
 
@@ -472,7 +472,7 @@ fn prepared_draws_capture_data_and_drop_results_once() {
     {
         fn paint(&mut self, bounds: LogicalRect, samples: Samples<'_>) {
             let mut cx = self.record(bounds);
-            let mut values = cx.slice(samples.0.len());
+            let mut values = cx.storage_mut().slice(samples.0.len());
             values.extend(samples.0.iter().copied());
             let values = values.finish();
             cx.push::<SamplesRenderer>(SamplesData(values, samples.1), None);
@@ -492,7 +492,7 @@ fn prepared_draws_capture_data_and_drop_results_once() {
             cx: &mut RenderContext<'_, Xrgb8888>,
         ) -> Prepared {
             counts.prepares.set(counts.prepares.get() + 1);
-            Prepared([cx.get(*values)[0]; 1024], counts.clone())
+            Prepared([cx.storage().view(*values)[0]; 1024], counts.clone())
         }
 
         fn render(&mut self, prepared: &Prepared, cx: &mut RenderContext<'_, Xrgb8888>) {

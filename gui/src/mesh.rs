@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use blit::{FrameSlice, FrameStore, LogicalPoint, LogicalRect, Paint};
+use blit::{FrameSlice, HasFrameStore, LogicalPoint, LogicalRect, Paint};
 
 use crate::{
     color::Color,
@@ -15,14 +15,14 @@ pub struct Mesh<'a> {
 
 impl Mesh<'_> {
     /// stores borrowed geometry in the context and paints the result
-    pub fn paint<C: FrameStore + Paint<Stored, Scalar = f32>>(self, bounds: LogicalRect, context: &mut C) {
+    pub fn paint<C: HasFrameStore + Paint<Stored, Scalar = f32>>(self, bounds: LogicalRect, context: &mut C) {
         if self.indices.is_empty() || !self.is_valid() {
             return;
         }
-        let mut vertices = context.slice(self.vertices.len());
+        let mut vertices = context.storage_mut().slice(self.vertices.len());
         vertices.extend(self.vertices.iter().copied());
         let vertices = vertices.finish();
-        let mut indices = context.slice(self.indices.len());
+        let mut indices = context.storage_mut().slice(self.indices.len());
         indices.extend(self.indices.iter().copied());
         let stored = Stored {
             vertices,
@@ -57,8 +57,8 @@ pub struct Stored {
 impl Stored {
     pub fn view<'a>(&self, list: &'a DisplayList) -> Mesh<'a> {
         Mesh {
-            vertices: list.get(self.vertices),
-            indices: list.get(self.indices),
+            vertices: list.storage().view(self.vertices),
+            indices: list.storage().view(self.indices),
         }
     }
 }
