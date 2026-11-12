@@ -60,18 +60,18 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
         self.inner.node
     }
 
-    pub fn storage(&self) -> &FrameStore
+    pub fn store(&self) -> &FrameStore
     where
         C: HasFrameStore,
     {
-        self.inner.context.storage()
+        self.inner.context.store()
     }
 
-    pub fn storage_mut(&mut self) -> &mut FrameStore
+    pub fn store_mut(&mut self) -> &mut FrameStore
     where
         C: HasFrameStore,
     {
-        self.inner.context.storage_mut()
+        self.inner.context.store_mut()
     }
 
     pub fn clip<X: Clip<C>>(self, clip: X) -> Self {

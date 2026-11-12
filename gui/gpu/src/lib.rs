@@ -84,12 +84,12 @@ impl blit::Context for Renderer {
 }
 
 impl blit::HasFrameStore for Renderer {
-    fn storage(&self) -> &blit::FrameStore {
-        self.list.storage()
+    fn store(&self) -> &blit::FrameStore {
+        self.list.store()
     }
 
-    fn storage_mut(&mut self) -> &mut blit::FrameStore {
-        self.list.storage_mut()
+    fn store_mut(&mut self) -> &mut blit::FrameStore {
+        self.list.store_mut()
     }
 }
 
@@ -766,12 +766,12 @@ pub struct RecordContext<'a> {
 }
 
 impl RecordContext<'_> {
-    pub fn storage(&self) -> &blit::FrameStore {
-        self.renderer.list.storage()
+    pub fn store(&self) -> &blit::FrameStore {
+        self.renderer.list.store()
     }
 
-    pub fn storage_mut(&mut self) -> &mut blit::FrameStore {
-        self.renderer.list.storage_mut()
+    pub fn store_mut(&mut self) -> &mut blit::FrameStore {
+        self.renderer.list.store_mut()
     }
 
     #[inline]

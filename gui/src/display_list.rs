@@ -21,7 +21,7 @@ pub struct DisplayList {
     commands: Vec<Command>,
     clips: Vec<Clip>,
     data: Bump,
-    storage: FrameStore,
+    store: FrameStore,
 }
 
 /// content comparison for recorded drawing inputs
@@ -58,12 +58,12 @@ impl DisplayList {
         &self.data
     }
 
-    pub fn storage(&self) -> &FrameStore {
-        &self.storage
+    pub fn store(&self) -> &FrameStore {
+        &self.store
     }
 
-    pub fn storage_mut(&mut self) -> &mut FrameStore {
-        &mut self.storage
+    pub fn store_mut(&mut self) -> &mut FrameStore {
+        &mut self.store
     }
 
     /// # Safety
@@ -163,7 +163,7 @@ impl DisplayList {
     }
 
     pub fn clear(&mut self) {
-        self.storage.clear();
+        self.store.clear();
         self.commands.clear();
         self.clips.clear();
         self.data.clear();

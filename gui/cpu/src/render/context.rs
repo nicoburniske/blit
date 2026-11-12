@@ -40,8 +40,8 @@ impl<'a, P: Pixel> RenderContext<'a, P> {
         Image::new(area, request, scale, self.bounds, self.images)
     }
 
-    pub fn storage(&self) -> &'a FrameStore {
-        self.list.storage()
+    pub fn store(&self) -> &'a FrameStore {
+        self.list.store()
     }
 
     pub fn create_image(&mut self, data: ImageData) -> ImageHandle {
@@ -129,8 +129,8 @@ pub struct Span<'a, P> {
 }
 
 impl<'a, P> Span<'a, P> {
-    pub fn storage(&self) -> &'a FrameStore {
-        self.list.storage()
+    pub fn store(&self) -> &'a FrameStore {
+        self.list.store()
     }
 
     pub fn image(&self, image: &ImageHandle) -> Option<&'a ImageData> {

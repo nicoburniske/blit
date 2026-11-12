@@ -33,7 +33,7 @@ impl Atom<DesktopContext> for Tiles {
         order.extend(0..81);
         order.sort_unstable_by_key(|index| index / 9 + index % 9);
         let context = cx.context_mut();
-        let mut vertices = context.storage_mut().slice(81 * 12);
+        let mut vertices = context.store_mut().slice(81 * 12);
         vertices.extend((0..81 * 12).map(|index| {
             let block = index / 12;
             let (row, column) = ((block / 9) as f32, (block % 9) as f32);
@@ -73,7 +73,7 @@ impl Atom<DesktopContext> for Tiles {
             MeshVertex::new(x, y, Color::rgb(rgb[0], rgb[1], rgb[2]))
         }));
         let vertices = vertices.finish();
-        let mut indices = context.storage_mut().slice(81 * 18);
+        let mut indices = context.store_mut().slice(81 * 18);
         indices.extend((0..81 * 18).map(|index| {
             let block = order[index as usize / 18];
             let face = index % 18 / 6;

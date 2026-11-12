@@ -174,7 +174,7 @@ impl FrameFill {
             Fill::Solid(color) => Self::Solid(color),
             Fill::LinearGradient(gradient) => Self::LinearGradient {
                 stops: {
-                    let mut stops = store.storage_mut().slice(gradient.stops.len());
+                    let mut stops = store.store_mut().slice(gradient.stops.len());
                     stops.extend(gradient.stops.iter().copied());
                     stops.finish()
                 },
@@ -182,7 +182,7 @@ impl FrameFill {
             },
             Fill::ConicGradient(gradient) => Self::ConicGradient {
                 stops: {
-                    let mut stops = store.storage_mut().slice(gradient.stops.len());
+                    let mut stops = store.store_mut().slice(gradient.stops.len());
                     stops.extend(gradient.stops.iter().copied());
                     stops.finish()
                 },
@@ -197,11 +197,11 @@ impl FrameFill {
         match *self {
             Self::Solid(color) => Fill::Solid(color),
             Self::LinearGradient { stops, angle } => Fill::LinearGradient(LinearGradient {
-                stops: list.storage().view(stops),
+                stops: list.store().view(stops),
                 angle,
             }),
             Self::ConicGradient { stops, center, angle } => Fill::ConicGradient(ConicGradient {
-                stops: list.storage().view(stops),
+                stops: list.store().view(stops),
                 center,
                 angle,
             }),

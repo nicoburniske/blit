@@ -31,7 +31,7 @@
 //! ```text
 //! Frame::build
 //!     │ records nodes, Layouts, and Atoms
-//!     │ Ui::storage_mut provides frame storage for drawing inputs
+//!     │ Ui::store_mut provides frame storage for drawing inputs
 //!     ▼
 //! retained frame graph
 //!     │ Frame::layout measures Atoms and arranges children
@@ -56,7 +56,7 @@
 //! Scratch      Ui::scratch().slice(capacity), also on LayoutCx and AtomCx
 //!              temporary slices for the current step, reclaimed when it ends
 //!
-//! FrameSlice   Ui::storage_mut().slice(capacity)
+//! FrameSlice   Ui::store_mut().slice(capacity)
 //!              drawing inputs owned by the context until it renders
 //! ```
 
@@ -112,8 +112,8 @@ pub trait Paint<T>: Context {
 
 /// provides access to drawing inputs owned by a context
 pub trait HasFrameStore {
-    fn storage(&self) -> &FrameStore;
-    fn storage_mut(&mut self) -> &mut FrameStore;
+    fn store(&self) -> &FrameStore;
+    fn store_mut(&mut self) -> &mut FrameStore;
 }
 
 builder! {

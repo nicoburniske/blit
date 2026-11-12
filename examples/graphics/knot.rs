@@ -89,7 +89,7 @@ impl Atom<DesktopContext> for Knot {
         order.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
         let size = area.width.min(area.height) * 0.33;
         let context = cx.context_mut();
-        let mut vertices = context.storage_mut().slice(points.len());
+        let mut vertices = context.store_mut().slice(points.len());
         vertices.extend(points.iter().map(|&(position, normal)| {
             let diffuse = (-normal[0] * 0.45 + normal[1] * 0.6 + normal[2] * 0.7).max(0.0);
             let specular = (-normal[0] * 0.24 + normal[1] * 0.32 + normal[2] * 0.9165)
@@ -108,7 +108,7 @@ impl Atom<DesktopContext> for Knot {
             )
         }));
         let vertices = vertices.finish();
-        let mut indices = context.storage_mut().slice(order.len() * 3);
+        let mut indices = context.store_mut().slice(order.len() * 3);
         indices.extend((0..order.len() * 3).map(|index| triangle(order[index / 3].0)[index % 3] as u32));
         let indices = indices.finish();
         context.paint(area, mesh::Stored { vertices, indices });

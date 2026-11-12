@@ -31,12 +31,12 @@ impl<G: GraphicsBackend> blit::Context for DesktopContext<G> {
 }
 
 impl<G: GraphicsBackend> blit::HasFrameStore for DesktopContext<G> {
-    fn storage(&self) -> &blit::FrameStore {
-        self.graphics.storage()
+    fn store(&self) -> &blit::FrameStore {
+        self.graphics.store()
     }
 
-    fn storage_mut(&mut self) -> &mut blit::FrameStore {
-        self.graphics.storage_mut()
+    fn store_mut(&mut self) -> &mut blit::FrameStore {
+        self.graphics.store_mut()
     }
 }
 

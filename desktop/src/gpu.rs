@@ -45,20 +45,20 @@ impl blit::Context for Backend {
 }
 
 impl blit::HasFrameStore for Backend {
-    fn storage(&self) -> &blit::FrameStore {
+    fn store(&self) -> &blit::FrameStore {
         self.gpu
             .as_ref()
             .expect("GPU renderer is not initialized")
             .renderer
-            .storage()
+            .store()
     }
 
-    fn storage_mut(&mut self) -> &mut blit::FrameStore {
+    fn store_mut(&mut self) -> &mut blit::FrameStore {
         self.gpu
             .as_mut()
             .expect("GPU renderer is not initialized")
             .renderer
-            .storage_mut()
+            .store_mut()
     }
 }
 

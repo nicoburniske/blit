@@ -19,10 +19,10 @@ impl Mesh<'_> {
         if self.indices.is_empty() || !self.is_valid() {
             return;
         }
-        let mut vertices = context.storage_mut().slice(self.vertices.len());
+        let mut vertices = context.store_mut().slice(self.vertices.len());
         vertices.extend(self.vertices.iter().copied());
         let vertices = vertices.finish();
-        let mut indices = context.storage_mut().slice(self.indices.len());
+        let mut indices = context.store_mut().slice(self.indices.len());
         indices.extend(self.indices.iter().copied());
         let stored = Stored {
             vertices,
@@ -57,8 +57,8 @@ pub struct Stored {
 impl Stored {
     pub fn view<'a>(&self, list: &'a DisplayList) -> Mesh<'a> {
         Mesh {
-            vertices: list.storage().view(self.vertices),
-            indices: list.storage().view(self.indices),
+            vertices: list.store().view(self.vertices),
+            indices: list.store().view(self.indices),
         }
     }
 }

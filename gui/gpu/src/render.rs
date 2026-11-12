@@ -58,8 +58,8 @@ impl PrepareContext<'_> {
     pub fn layout(&self) -> &wgpu::BindGroupLayout {
         &self.renderer.bind_group_layout
     }
-    pub fn storage(&self) -> &FrameStore {
-        self.list.storage()
+    pub fn store(&self) -> &FrameStore {
+        self.list.store()
     }
     /// cached snapshot view whose declared pixels are copied immediately before drawing
     pub fn source(&self) -> Option<&wgpu::TextureView> {

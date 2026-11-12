@@ -35,12 +35,12 @@ impl blit::Context for Backend {
 }
 
 impl blit::HasFrameStore for Backend {
-    fn storage(&self) -> &blit::FrameStore {
-        self.renderer.storage()
+    fn store(&self) -> &blit::FrameStore {
+        self.renderer.store()
     }
 
-    fn storage_mut(&mut self) -> &mut blit::FrameStore {
-        self.renderer.storage_mut()
+    fn store_mut(&mut self) -> &mut blit::FrameStore {
+        self.renderer.store_mut()
     }
 }
 

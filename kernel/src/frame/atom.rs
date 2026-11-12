@@ -19,18 +19,18 @@ impl<'a, C: Context> AtomCx<'a, C> {
         &self.bump.storage
     }
 
-    pub fn storage(&self) -> &FrameStore
+    pub fn store(&self) -> &FrameStore
     where
         C: HasFrameStore,
     {
-        self.context.storage()
+        self.context.store()
     }
 
-    pub fn storage_mut(&mut self) -> &mut FrameStore
+    pub fn store_mut(&mut self) -> &mut FrameStore
     where
         C: HasFrameStore,
     {
-        self.context.storage_mut()
+        self.context.store_mut()
     }
 }
 

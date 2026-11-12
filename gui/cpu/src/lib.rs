@@ -333,12 +333,12 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> blit::Context for R
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> blit::HasFrameStore for Renderer<B, S, D> {
-    fn storage(&self) -> &blit::FrameStore {
-        self.context.list.storage()
+    fn store(&self) -> &blit::FrameStore {
+        self.context.list.store()
     }
 
-    fn storage_mut(&mut self) -> &mut blit::FrameStore {
-        self.context.list.storage_mut()
+    fn store_mut(&mut self) -> &mut blit::FrameStore {
+        self.context.list.store_mut()
     }
 }
 
@@ -377,12 +377,12 @@ pub struct RecordContext<'a, P: Pixel> {
 }
 
 impl<P: Pixel> RecordContext<'_, P> {
-    pub fn storage(&self) -> &blit::FrameStore {
-        self.list.storage()
+    pub fn store(&self) -> &blit::FrameStore {
+        self.list.store()
     }
 
-    pub fn storage_mut(&mut self) -> &mut blit::FrameStore {
-        self.list.storage_mut()
+    pub fn store_mut(&mut self) -> &mut blit::FrameStore {
+        self.list.store_mut()
     }
 
     /// records an already prepared value without running preparation
