@@ -108,7 +108,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
             let gap = self.gap.max(T::ZERO);
             let main_max = self.axis.extent(bounds.max);
             let cross_max = cross_axis.extent(bounds.max);
-            let mut caps = cx.scratch(if main_max.is_finite() { cap_count } else { 0 });
+            let mut caps = cx.scratch().slice(if main_max.is_finite() { cap_count } else { 0 });
             if count == 0 {
                 return bounds.constrain(Size::ZERO);
             }

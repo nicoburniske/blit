@@ -92,7 +92,7 @@ where
                 })
                 .content(|ui: blit::Ui<'_, C>| {
                     let profiler: &FrameProfiler = ui.context().as_ref();
-                    let mut graph_values = ui.scratch(columns);
+                    let mut graph_values = ui.scratch().slice(columns);
                     graph_values.resize(columns, 0.0_f32);
                     for (value, millis) in graph_values.iter_mut().zip(profiler.graph(columns)) {
                         *value = millis;

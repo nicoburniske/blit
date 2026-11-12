@@ -53,7 +53,7 @@
 //! # storage
 //!
 //! ```text
-//! Scratch      Ui::scratch, LayoutCx::scratch, AtomCx::scratch
+//! Scratch      Ui::scratch().slice(capacity), also on LayoutCx and AtomCx
 //!              temporary slices for the current step, reclaimed when it ends
 //!
 //! FrameSlice   Ui::storage_mut().slice(capacity)

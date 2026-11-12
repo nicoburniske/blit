@@ -15,8 +15,8 @@ impl<'a, C: Context> AtomCx<'a, C> {
         self.context
     }
 
-    pub fn scratch<T: Copy>(&self, capacity: usize) -> Scratch<'a, T> {
-        self.bump.storage.alloc(capacity)
+    pub fn scratch(&self) -> &'a ScratchBuffer {
+        &self.bump.storage
     }
 
     pub fn storage(&self) -> &FrameStore

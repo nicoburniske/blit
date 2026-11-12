@@ -6,14 +6,14 @@ use blit::internal::bump::{Bump, Offset, Slice};
 fn scratch_preserves_live_buffers_and_reuses_storage() {
     let mut buffer = blit::ScratchBuffer::default();
     for _ in 0..2 {
-        let mut first = buffer.alloc::<u64>(4);
-        first.resize(4, 17);
-        let mut second = buffer.alloc::<u128>(2);
+        let mut first = buffer.slice::<u64>(4);
+        first.extend((0..8).filter(|index| index % 2 == 0).map(|_| 17));
+        let mut second = buffer.slice::<u128>(2);
         second.resize(2, 31);
         assert_eq!(second.as_ptr().addr() % align_of::<u128>(), 0);
         assert_eq!(&*first, &[17; 4]);
         drop(first);
-        let mut third = buffer.alloc::<u8>(8);
+        let mut third = buffer.slice::<u8>(8);
         third.resize(8, 47);
         assert_eq!(&*second, &[31, 31]);
         drop(second);

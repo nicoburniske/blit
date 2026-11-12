@@ -144,8 +144,8 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     }
 
     /// temporary storage that stays usable while building this node
-    pub fn scratch<T: Copy>(&self, capacity: usize) -> Scratch<'ui, T> {
-        self.inner.scratch.alloc(capacity)
+    pub fn scratch(&self) -> &'ui ScratchBuffer {
+        self.inner.scratch
     }
 }
 

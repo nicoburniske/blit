@@ -84,7 +84,7 @@ fn escape(frame: &mut Frame<()>) {
         FrameInfo::new(Size::uniform(1.0)),
         Duration::ZERO,
         Input::None,
-        |ui: Ui<'_, ()>| ui.scratch(1, 0_u8),
+        |ui: Ui<'_, ()>| ui.scratch().slice::<u8>(1),
     );
 }
 ```

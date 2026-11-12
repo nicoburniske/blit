@@ -107,7 +107,7 @@ pub trait Pixel: Copy + 'static {
         }
         let height = pixels.len() / width;
         let radius = radius.min(Self::MAX_BLUR_RADIUS) as usize;
-        let mut stack = scratch.alloc::<[i32; N]>(radius * 2 + 1);
+        let mut stack = scratch.slice::<[i32; N]>(radius * 2 + 1);
         stack.resize(radius * 2 + 1, [0; N]);
         for row in 0..height {
             line(pixels, row * width, 1, width, radius, &mut stack);
@@ -274,7 +274,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         }
         let height = pixels.len() / width;
         let radius = radius.min(Self::MAX_BLUR_RADIUS) as usize;
-        let mut stack = scratch.alloc::<[i32; 8]>(radius * 2 + 1);
+        let mut stack = scratch.slice::<[i32; 8]>(radius * 2 + 1);
         stack.resize(radius * 2 + 1, [0; 8]);
         dispatch!(Level::new(), simd => {
             pass::<_, N, true>(simd, pixels, width, height, radius, &mut stack);

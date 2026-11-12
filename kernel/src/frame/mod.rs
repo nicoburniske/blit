@@ -17,7 +17,7 @@ use self::{
 };
 use crate::{
     Atom, AtomWidget, Clip, ClipShape, ContactId, ContactSource, Context, FrameInfo, FrameStore, HasFrameStore, Id,
-    IntoWidget, Scalar, Scratch, ScratchBuffer, Widget,
+    IntoWidget, Scalar, ScratchBuffer, Widget,
     animation::{Animation, AnimationOptions, Motion, MotionProps, Tween},
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::{Input, MouseButton, ScrollPhase, TouchPhase},

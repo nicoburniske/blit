@@ -43,7 +43,7 @@ impl<P: Pixel> crate::Render<P> for Renderer {
             let right = (bounds.x as usize + bounds.width as usize + radius).min(source.width());
             let bottom = (bounds.y as usize + bounds.height as usize + radius).min(source.height());
             let stride = right - x;
-            let mut pixels = scratch.alloc(stride * (bottom - y));
+            let mut pixels = scratch.slice(stride * (bottom - y));
             for row in y..bottom {
                 pixels.extend(source.row(row, x..right).iter().map(|pixel| {
                     let color = pixel.to_rgba();

@@ -13,7 +13,7 @@ pub fn resolve_order<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
         return;
     }
 
-    let mut scratch = bump.storage.alloc(count);
+    let mut scratch = bump.storage.slice(count);
     scratch.resize(count, PaintLinks::default());
     let links = &mut scratch[..count];
     // zero marks the end of a child list since the root has no parent

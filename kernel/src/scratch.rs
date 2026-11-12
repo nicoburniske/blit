@@ -17,7 +17,7 @@ pub struct ScratchBuffer {
 
 impl ScratchBuffer {
     /// reserves a fixed capacity without initializing elements
-    pub fn alloc<T: Copy>(&self, capacity: usize) -> Scratch<'_, T> {
+    pub fn slice<T: Copy>(&self, capacity: usize) -> Scratch<'_, T> {
         const {
             assert!(
                 align_of::<T>() <= Bump::ALIGNMENT,
@@ -81,17 +81,8 @@ impl<T: Copy> Scratch<'_, T> {
     }
 
     pub fn push(&mut self, value: T) {
-        self.spare_capacity_mut()[0].write(value);
+        self.inner.as_mut_slice()[self.len].write(value);
         self.len += 1;
-    }
-
-    pub fn extend(&mut self, mut values: impl ExactSizeIterator<Item = T>) {
-        let count = values.len();
-        for slot in &mut self.spare_capacity_mut()[..count] {
-            slot.write(values.next().expect("invalid iter len"));
-        }
-        assert!(values.next().is_none(), "invalid iter len");
-        self.len += count;
     }
 
     pub fn resize(&mut self, len: usize, value: T) {
@@ -103,17 +94,6 @@ impl<T: Copy> Scratch<'_, T> {
 
     pub fn clear(&mut self) {
         self.len = 0;
-    }
-
-    pub fn spare_capacity_mut(&mut self) -> &mut [MaybeUninit<T>] {
-        &mut self.inner.as_mut_slice()[self.len..]
-    }
-
-    /// # Safety
-    /// every element before len must be initialized
-    pub unsafe fn set_len(&mut self, len: usize) {
-        assert!(len <= self.capacity(), "scratch capacity exceeded");
-        self.len = len;
     }
 }
 

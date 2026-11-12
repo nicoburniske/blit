@@ -95,6 +95,10 @@ impl<T: Copy> FrameSliceBuilder<'_, T> {
         self.slice.len += 1;
     }
 
+    pub fn clear(&mut self) {
+        self.slice.len = 0;
+    }
+
     /// finishes the initialized prefix without copying it
     pub fn finish(self) -> FrameSlice<T> {
         FrameSlice {
