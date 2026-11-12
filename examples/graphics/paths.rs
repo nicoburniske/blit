@@ -5,25 +5,19 @@ use blit_gui::path::{Cap, FillRule, Join, PathBuilder, Stroke};
 use super::*;
 
 #[derive(Default)]
-pub struct View {
-    builder: Rc<RefCell<PathBuilder>>,
-}
+pub struct View;
 
 impl View {
     pub const TITLE: &str = "paths";
 
     pub fn build(&mut self, mut ui: Ui<'_>, phase: f32) -> bool {
-        ui.insert(Paths {
-            phase,
-            builder: Rc::clone(&self.builder),
-        });
+        ui.insert(Paths { phase });
         false
     }
 }
 
 struct Paths {
     phase: f32,
-    builder: Rc<RefCell<PathBuilder>>,
 }
 
 impl Atom<DesktopContext> for Paths {
@@ -36,13 +30,16 @@ impl Atom<DesktopContext> for Paths {
             GradientStop::new(0.0, colors::ACCENT),
             GradientStop::new(1.0, colors::ITEMS[2]),
         ];
+        // the knot is the largest path at 242 verbs and 241 points
+        let mut builder = PathBuilder {
+            verbs: cx.scratch(242),
+            points: cx.scratch(241),
+        };
         let context = cx.context_mut();
-        let mut builder = self.builder.borrow_mut();
         let turn = self.phase * TAU;
         let radius = area.width.min(area.height) * 0.22;
 
         // a ring mostly outside the stage only rasterizes its visible arc
-        builder.clear();
         builder.circle(area.x + area.width, area.y, area.width.min(area.height) * 0.55);
         builder
             .path()

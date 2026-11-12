@@ -1,4 +1,7 @@
-use std::hash::{Hash, Hasher};
+use std::{
+    hash::{Hash, Hasher},
+    ops::Deref,
+};
 
 use blit::{FrameSlice, FrameStore, LogicalPoint, LogicalRect, Paint};
 
@@ -134,11 +137,11 @@ pub enum FillRule {
     EvenOdd,
 }
 
-/// owned path geometry
+/// builds path geometry in owned or borrowed buffers
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct PathBuilder {
-    pub verbs: Vec<Verb>,
-    pub points: Vec<LogicalPoint>,
+pub struct PathBuilder<V = Vec<Verb>, P = Vec<LogicalPoint>> {
+    pub verbs: V,
+    pub points: P,
 }
 
 impl PathBuilder {
@@ -146,31 +149,49 @@ impl PathBuilder {
         Self::default()
     }
 
+    pub fn clear(&mut self) {
+        self.verbs.clear();
+        self.points.clear();
+    }
+}
+
+impl PathBuilder<blit::Scratch<'_, Verb>, blit::Scratch<'_, LogicalPoint>> {
+    pub fn clear(&mut self) {
+        self.verbs.clear();
+        self.points.clear();
+    }
+}
+
+impl<V, P> PathBuilder<V, P>
+where
+    V: Deref<Target = [Verb]> + Extend<Verb>,
+    P: Deref<Target = [LogicalPoint]> + Extend<LogicalPoint>,
+{
     pub fn path(&self) -> Path<'_> {
         Path::new(&self.verbs, &self.points)
     }
 
     pub fn move_to(&mut self, x: f32, y: f32) -> &mut Self {
-        self.verbs.push(Verb::Move);
-        self.points.push(LogicalPoint { x, y });
+        self.verbs.extend([Verb::Move]);
+        self.points.extend([LogicalPoint { x, y }]);
         self
     }
 
     pub fn line_to(&mut self, x: f32, y: f32) -> &mut Self {
-        self.verbs.push(Verb::Line);
-        self.points.push(LogicalPoint { x, y });
+        self.verbs.extend([Verb::Line]);
+        self.points.extend([LogicalPoint { x, y }]);
         self
     }
 
     pub fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) -> &mut Self {
-        self.verbs.push(Verb::Quad);
+        self.verbs.extend([Verb::Quad]);
         self.points
             .extend([LogicalPoint { x: cx, y: cy }, LogicalPoint { x, y }]);
         self
     }
 
     pub fn cubic_to(&mut self, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32) -> &mut Self {
-        self.verbs.push(Verb::Cubic);
+        self.verbs.extend([Verb::Cubic]);
         self.points.extend([
             LogicalPoint { x: c1x, y: c1y },
             LogicalPoint { x: c2x, y: c2y },
@@ -180,7 +201,7 @@ impl PathBuilder {
     }
 
     pub fn close(&mut self) -> &mut Self {
-        self.verbs.push(Verb::Close);
+        self.verbs.extend([Verb::Close]);
         self
     }
 
@@ -203,11 +224,6 @@ impl PathBuilder {
             .cubic_to(x - radius, y - k, x - k, y - radius, x, y - radius)
             .cubic_to(x + k, y - radius, x + radius, y - k, x + radius, y)
             .close()
-    }
-
-    pub fn clear(&mut self) {
-        self.verbs.clear();
-        self.points.clear();
     }
 }
 

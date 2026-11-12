@@ -126,6 +126,14 @@ impl<T: Copy> Deref for Scratch<'_, T> {
     }
 }
 
+impl<T: Copy> Extend<T> for Scratch<'_, T> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        for value in iter {
+            self.push(value);
+        }
+    }
+}
+
 impl<T: Copy> DerefMut for Scratch<'_, T> {
     fn deref_mut(&mut self) -> &mut [T] {
         // safety: len only includes initialized elements and this borrow is exclusive
