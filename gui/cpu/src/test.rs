@@ -10,7 +10,7 @@ use blit_gui::{
     display_list::Compare,
     image::{ImageData, ImageFit, ImageFormat, ImagePixels},
     mesh::{Mesh, MeshVertex},
-    path::{FillRule, PathBuilder},
+    path::{Cap, FillRule, PathBuilder, Stroke},
     style::{Border, BorderRadius, ConicGradient, Fill, GradientStop, LinearGradient},
     text::{
         FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextRequest, TextStyle, TextWrap,
@@ -2293,4 +2293,155 @@ fn paths_antialias_edges_and_follow_fill_rules() {
         pixels
     }
     assert_eq!(check::<Direct>(), check::<Scanline>());
+}
+
+#[test]
+fn path_strokes_match_rectangles_and_keep_gradient_coordinates() {
+    fn check<S: RenderStrategy<VecBuffer<BgrPixel>> + Default>() {
+        let stops = [
+            GradientStop::new(0.0, Color::BLACK),
+            GradientStop::new(1.0, Color::WHITE),
+        ];
+        let fill = LinearGradient::new(&stops);
+        let mut path = new_renderer(VecBuffer::new(128, 64), renderer_config()).strategy(S::default());
+        let mut reference = new_renderer(VecBuffer::new(128, 64), renderer_config()).strategy(S::default());
+        let mut builder = PathBuilder::new();
+        builder.move_to(10.0, 30.0).line_to(110.0, 30.0);
+        builder
+            .path()
+            .fill(fill)
+            .stroke(Stroke::new(2.0).miter_limit(32.0))
+            .paint(&mut path);
+        Rectangle::new()
+            .background(fill)
+            .paint(LogicalRect::new(10.0, 29.0, 100.0, 2.0), &mut reference);
+        path.render(0);
+        reference.render(0);
+        assert_eq!(path.buffer().pixels(), reference.buffer().pixels());
+    }
+    check::<Direct>();
+    check::<Scanline>();
+}
+
+#[test]
+fn zero_length_strokes_respect_caps() {
+    for cap in [Cap::Butt, Cap::Round, Cap::Square] {
+        let mut renderer = new_renderer(VecBuffer::<BgrPixel>::new(24, 24), renderer_config());
+        let mut builder = PathBuilder::new();
+        builder.move_to(10.0, 10.0).line_to(10.0, 10.0);
+        builder
+            .path()
+            .fill(Color::WHITE)
+            .stroke(Stroke::new(6.0).cap(cap))
+            .paint(&mut renderer);
+        renderer.render(0);
+        let pixels = renderer.buffer().pixels();
+        match cap {
+            Cap::Butt => assert!(pixels.iter().all(|pixel| pixel.red == 0)),
+            Cap::Square => assert_eq!(pixels.iter().filter(|pixel| pixel.red == 255).count(), 36),
+            Cap::Round => {
+                assert_eq!(pixels[10 * 24 + 10].red, 255);
+                assert!(pixels[7 * 24 + 7].red < 100);
+                let area = pixels.iter().map(|pixel| u32::from(pixel.red)).sum::<u32>();
+                assert!((6500..=7500).contains(&area), "{area}");
+            }
+        }
+    }
+}
+
+#[test]
+fn compound_paths_resolve_winding_before_antialiasing() {
+    fn check<S: RenderStrategy<VecBuffer<BgrPixel>> + Default>() {
+        let mut renderer = new_renderer(VecBuffer::new(16, 16), renderer_config()).strategy(S::default());
+        let mut render = |builder: &PathBuilder, rule| {
+            Rectangle::new()
+                .background(Color::BLACK)
+                .paint(LogicalRect::new(0.0, 0.0, 16.0, 16.0), &mut renderer);
+            builder.path().fill(Color::WHITE).rule(rule).paint(&mut renderer);
+            renderer.render(0);
+            renderer.buffer().pixels().to_vec()
+        };
+        let mut single = PathBuilder::new();
+        single.rect(LogicalRect::new(2.5, 2.5, 4.0, 4.0));
+        let expected = render(&single, FillRule::NonZero);
+        let mut double = single.clone();
+        double.rect(LogicalRect::new(2.5, 2.5, 4.0, 4.0));
+        assert_eq!(render(&double, FillRule::NonZero), expected);
+        assert!(render(&double, FillRule::EvenOdd).iter().all(|pixel| pixel.red == 0));
+        double.clear();
+        double
+            .rect(LogicalRect::new(2.5, 2.5, 4.0, 4.0))
+            .rect(LogicalRect::new(4.5, 2.5, 4.0, 4.0));
+        single.clear();
+        single.rect(LogicalRect::new(2.5, 2.5, 6.0, 4.0));
+        assert_eq!(render(&double, FillRule::NonZero), render(&single, FillRule::NonZero));
+        single.clear();
+        single
+            .rect(LogicalRect::new(2.5, 2.5, 2.0, 4.0))
+            .rect(LogicalRect::new(6.5, 2.5, 2.0, 4.0));
+        assert_eq!(render(&double, FillRule::EvenOdd), render(&single, FillRule::NonZero));
+        single.clear();
+        single
+            .move_to(0.78125, 3.34375)
+            .line_to(10.28125, 15.40625)
+            .line_to(-1.6875, 10.9375)
+            .close();
+        double = single.clone();
+        double.rect(LogicalRect::new(20.0, 1.5, 1.0, 1.0));
+        assert_eq!(render(&single, FillRule::NonZero), render(&double, FillRule::NonZero));
+        single.clear();
+        single
+            .move_to(0.8, 0.0)
+            .line_to(f32::from_bits(0.8_f32.to_bits() + 1), 1e9)
+            .line_to(10.0, 1e9)
+            .line_to(10.0, 0.0)
+            .close();
+        let pixels = render(&single, FillRule::NonZero);
+        assert!(pixels.chunks_exact(16).all(|row| row[0].red == 51));
+    }
+    check::<Direct>();
+    check::<Scanline>();
+}
+
+#[test]
+fn paths_continue_after_close_across_redraws() {
+    fn check<S: RenderStrategy<VecBuffer<BgrPixel>> + Default>() {
+        let mut incremental = new_renderer(VecBuffer::new(36, 36), renderer_config()).strategy(S::default());
+        let mut reference = new_renderer(VecBuffer::new(36, 36), renderer_config()).strategy(S::default());
+        incremental.set_scale(1.5);
+        reference.set_scale(1.5);
+        for offset in [0.0, -6.0] {
+            let mut implicit = PathBuilder::new();
+            implicit
+                .move_to(4.0 + offset, 4.0)
+                .line_to(8.0, 4.0)
+                .line_to(8.0, 8.0)
+                .close();
+            let mut explicit = implicit.clone();
+            explicit.move_to(4.0 + offset, 4.0);
+            for builder in [&mut implicit, &mut explicit] {
+                builder.quad_to(16.0, 4.0, 16.0, 16.0).line_to(4.0, 16.0).close();
+            }
+            explicit.move_to(4.0 + offset, 4.0);
+            for builder in [&mut implicit, &mut explicit] {
+                builder.cubic_to(12.0, -4.0, 24.0, 8.0, 14.0, 20.0).close();
+            }
+            for stroke in [None, Some(Stroke::new(1.5).cap(Cap::Round))] {
+                for (renderer, builder, age) in [(&mut incremental, &implicit, 1), (&mut reference, &explicit, 0)] {
+                    Rectangle::new()
+                        .background(Color::BLACK)
+                        .paint(LogicalRect::new(0.0, 0.0, 24.0, 24.0), renderer);
+                    builder.path().fill(Color::WHITE).stroke(stroke).paint(renderer);
+                    renderer.render(age);
+                }
+                assert_eq!(
+                    incremental.buffer().pixels(),
+                    reference.buffer().pixels(),
+                    "offset {offset}, stroke {stroke:?}"
+                );
+            }
+        }
+    }
+    check::<Direct>();
+    check::<Scanline>();
 }

@@ -204,10 +204,7 @@ pub trait Pixel: Copy + 'static {
     }
 
     fn blend_colorized_rgba_slice(pixels: &mut [Self], color: Color, source: &[u8], opacity: u8) {
-        for (pixel, source) in pixels.iter_mut().zip(source.chunks_exact(4)) {
-            let alpha = (u16::from(source[3]) * u16::from(opacity) / 255) as u8;
-            pixel.blend(PremultipliedRgbaColor::new(color, alpha));
-        }
+        blend_colorized_rgba_scalar(pixels, color, source, opacity);
     }
 
     /// composites a solid color through an alpha mask using fixed point precision
@@ -530,6 +527,10 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
             return;
         }
         let len = pixels.len().min(source.len() / 4);
+        // long spans with both opacity factors benefit from llvm auto vectorization
+        if len >= 1024 && opacity != 255 && color.alpha != 255 {
+            return blend_colorized_rgba_scalar(pixels, color, source, opacity);
+        }
         let (pixel_chunks, pixel_tail) = pixels[..len].as_chunks_mut::<8>();
         let (source_chunks, source_tail) = source[..len * 4].as_chunks::<32>();
         dispatch!(Level::new(), simd => {
@@ -549,10 +550,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
                     .map(Self);
             }
         });
-        for (pixel, source) in pixel_tail.iter_mut().zip(source_tail.chunks_exact(4)) {
-            let alpha = (u16::from(source[3]) * u16::from(opacity) / 255) as u8;
-            pixel.blend(PremultipliedRgbaColor::new(color, alpha));
-        }
+        blend_colorized_rgba_scalar(pixel_tail, color, source_tail, opacity);
     }
 
     fn blend_mask_slice(pixels: &mut [Self], color: Color, mask: &[u8], coverage: u8, rounding: [u32; 4]) {
@@ -631,6 +629,14 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
                 source.coverage(opacity as u32)
             });
         }
+    }
+}
+
+#[inline(never)]
+fn blend_colorized_rgba_scalar<P: Pixel>(pixels: &mut [P], color: Color, source: &[u8], opacity: u8) {
+    for (pixel, source) in pixels.iter_mut().zip(source.chunks_exact(4)) {
+        let alpha = (u16::from(source[3]) * u16::from(opacity) / 255) as u8;
+        pixel.blend(PremultipliedRgbaColor::new(color, alpha));
     }
 }
 
@@ -905,6 +911,15 @@ mod test {
                     }
                 }
             }
+            let mut actual = [original[7]; 1031];
+            let mut expected = actual;
+            let source = [93; 4127];
+            let color = Color::rgba(230, 35, 120, 177);
+            P::blend_colorized_rgba_slice(&mut actual, color, &source, 177);
+            for pixel in &mut expected {
+                pixel.blend(PremultipliedRgbaColor::new(color, 64));
+            }
+            assert_eq!(actual, expected);
         }
         check::<Xrgb8888>();
         check::<Argb8888>();
