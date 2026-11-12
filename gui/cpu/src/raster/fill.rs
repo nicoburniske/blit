@@ -58,12 +58,12 @@ impl PreparedFill {
                 });
             }
             Fill::LinearGradient(gradient) => {
-                let (dy, dx) = match gradient.angle_degrees {
+                let (dy, dx) = match gradient.angle {
                     0.0 => (0.0, 1.0),
                     90.0 => (1.0, 0.0),
                     180.0 => (0.0, -1.0),
                     270.0 => (-1.0, 0.0),
-                    _ => gradient.angle_degrees.to_radians().sin_cos(),
+                    _ => gradient.angle.to_radians().sin_cos(),
                 };
                 let extent = dx.abs() * bounds.width as f32 + dy.abs() * bounds.height as f32;
                 let minimum = dx.min(0.0) * bounds.width as f32 + dy.min(0.0) * bounds.height as f32;
@@ -78,7 +78,7 @@ impl PreparedFill {
                 gradient.stops,
                 bounds.x as f32 + gradient.center[0] * bounds.width as f32,
                 bounds.y as f32 + gradient.center[1] * bounds.height as f32,
-                gradient.angle_degrees / 360.0,
+                gradient.angle / 360.0,
             ),
         };
         let index = u32::try_from(gradients.entries.len()).expect("too many gradients");

@@ -17,16 +17,16 @@ impl Fill<'_> {
         let (stops, fill) = match self {
             Self::Solid(_) => return self,
             Self::LinearGradient(mut gradient) => {
-                gradient.angle_degrees = if gradient.angle_degrees.is_finite() {
-                    gradient.angle_degrees.rem_euclid(360.0)
+                gradient.angle = if gradient.angle.is_finite() {
+                    gradient.angle.rem_euclid(360.0)
                 } else {
                     0.0
                 };
                 (gradient.stops, Self::LinearGradient(gradient))
             }
             Self::ConicGradient(mut gradient) => {
-                gradient.angle_degrees = if gradient.angle_degrees.is_finite() {
-                    gradient.angle_degrees.rem_euclid(360.0)
+                gradient.angle = if gradient.angle.is_finite() {
+                    gradient.angle.rem_euclid(360.0)
                 } else {
                     0.0
                 };
@@ -52,13 +52,13 @@ impl Hash for Fill<'_> {
         std::mem::discriminant(self).hash(state);
         let (stops, angle) = match *self {
             Fill::Solid(color) => return color.hash(state),
-            Fill::LinearGradient(gradient) => (gradient.stops, gradient.angle_degrees),
+            Fill::LinearGradient(gradient) => (gradient.stops, gradient.angle),
             Fill::ConicGradient(gradient) => {
                 gradient
                     .center
                     .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
                     .hash(state);
-                (gradient.stops, gradient.angle_degrees)
+                (gradient.stops, gradient.angle)
             }
         };
         state.write_u32(if angle == 0.0 { 0 } else { angle.to_bits() });
@@ -138,52 +138,22 @@ impl BorderRadius {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct LinearGradient<'a> {
-    pub stops: &'a [GradientStop],
-    pub angle_degrees: f32,
-}
-
-impl<'a> LinearGradient<'a> {
-    pub const fn new(stops: &'a [GradientStop]) -> Self {
-        Self {
-            stops,
-            angle_degrees: 0.0,
-        }
-    }
-
-    pub const fn angle(mut self, angle: f32) -> Self {
-        self.angle_degrees = angle;
-        self
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct LinearGradient<'a> {
+        new(stops: &'a [GradientStop]),
+        angle: f32 = 0.0,
     }
 }
 
-/// a clockwise sweep with zero degrees pointing right and a center relative to the rectangle
-/// the exact center uses the first stop
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ConicGradient<'a> {
-    pub stops: &'a [GradientStop],
-    pub center: [f32; 2],
-    pub angle_degrees: f32,
-}
-
-impl<'a> ConicGradient<'a> {
-    pub const fn new(stops: &'a [GradientStop]) -> Self {
-        Self {
-            stops,
-            center: [0.5, 0.5],
-            angle_degrees: 0.0,
-        }
-    }
-
-    pub const fn center(mut self, x: f32, y: f32) -> Self {
-        self.center = [x, y];
-        self
-    }
-
-    pub const fn angle(mut self, angle: f32) -> Self {
-        self.angle_degrees = angle;
-        self
+blit::builder! {
+    /// a clockwise sweep with zero degrees pointing right and a center relative to the rectangle
+    /// the exact center uses the first stop
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct ConicGradient<'a> {
+        new(stops: &'a [GradientStop]),
+        center: [f32; 2] = [0.5, 0.5],
+        angle: f32 = 0.0,
     }
 }
 

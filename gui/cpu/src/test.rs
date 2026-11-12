@@ -2020,7 +2020,7 @@ fn gradients_match_between_strategies_and_rounded_clips() {
                 .radius(BorderRadius::uniform(9.0))
                 .paint(LogicalRect::new(4.0, 3.0, 40.0, 30.0), &mut renderer);
             Rectangle::new()
-                .background(ConicGradient::new(&stops).center(0.3, 0.65).angle(-35.0))
+                .background(ConicGradient::new(&stops).center([0.3, 0.65]).angle(-35.0))
                 .border(Border::gradient(2.0, ConicGradient::new(&stops).angle(75.0)))
                 .radius(BorderRadius::uniform(3.0))
                 .paint(LogicalRect::new(8.0, 8.0, 12.0, 12.0), &mut renderer);

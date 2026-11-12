@@ -80,38 +80,14 @@ impl Path<'_> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Stroke {
-    pub width: f32,
-    pub join: Join,
-    pub cap: Cap,
-    /// miter length over width before a miter join falls back to bevel
-    pub miter_limit: f32,
-}
-
-impl Stroke {
-    pub const fn new(width: f32) -> Self {
-        Self {
-            width,
-            join: Join::Miter,
-            cap: Cap::Butt,
-            miter_limit: 4.0,
-        }
-    }
-
-    pub const fn join(mut self, join: Join) -> Self {
-        self.join = join;
-        self
-    }
-
-    pub const fn cap(mut self, cap: Cap) -> Self {
-        self.cap = cap;
-        self
-    }
-
-    pub const fn miter_limit(mut self, miter_limit: f32) -> Self {
-        self.miter_limit = miter_limit;
-        self
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Stroke {
+        new(width: f32),
+        join: Join = Join::Miter,
+        cap: Cap = Cap::Butt,
+        /// miter length over width before a miter join falls back to bevel
+        miter_limit: f32 = 4.0,
     }
 }
 

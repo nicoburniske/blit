@@ -59,13 +59,13 @@ impl Paint<blit_gui::rectangle::Stored> for Renderer {
                         continue;
                     }
                     Fill::LinearGradient(gradient) => {
-                        let (direction_y, direction_x) = gradient.angle_degrees.to_radians().sin_cos();
+                        let (direction_y, direction_x) = gradient.angle.to_radians().sin_cos();
                         let extent = direction_x.abs() * area.width as f32 + direction_y.abs() * area.height as f32;
                         (gradient.stops, direction_x / extent, direction_y / extent)
                     }
                     Fill::ConicGradient(gradient) => {
                         data[3] |= CONIC_FILL << index;
-                        angles[index] = gradient.angle_degrees / 360.0;
+                        angles[index] = gradient.angle / 360.0;
                         (
                             gradient.stops,
                             area.x as f32 + gradient.center[0] * area.width as f32,

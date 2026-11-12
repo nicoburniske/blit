@@ -222,7 +222,7 @@ fn renders_primitives_and_rebuilds_frames() {
         GradientStop::new(0.75, Color::WHITE),
         GradientStop::new(1.0, Color::rgb(255, 255, 0)),
     ];
-    let conic = ConicGradient::new(&conic_stops).center(0.53125, 0.53125);
+    let conic = ConicGradient::new(&conic_stops).center([0.53125, 0.53125]);
     Rectangle::new()
         .background(LinearGradient::new(&[]))
         .paint(bounds, &mut renderer);

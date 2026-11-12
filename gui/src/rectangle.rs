@@ -158,12 +158,12 @@ pub enum FrameFill {
     Solid(Color),
     LinearGradient {
         stops: FrameSlice<GradientStop>,
-        angle_degrees: f32,
+        angle: f32,
     },
     ConicGradient {
         stops: FrameSlice<GradientStop>,
         center: [f32; 2],
-        angle_degrees: f32,
+        angle: f32,
     },
 }
 
@@ -174,12 +174,12 @@ impl FrameFill {
             Fill::Solid(color) => Self::Solid(color),
             Fill::LinearGradient(gradient) => Self::LinearGradient {
                 stops: store.store_slice(gradient.stops.iter().copied()),
-                angle_degrees: gradient.angle_degrees,
+                angle: gradient.angle,
             },
             Fill::ConicGradient(gradient) => Self::ConicGradient {
                 stops: store.store_slice(gradient.stops.iter().copied()),
                 center: gradient.center,
-                angle_degrees: gradient.angle_degrees,
+                angle: gradient.angle,
             },
         }
     }
@@ -188,18 +188,14 @@ impl FrameFill {
     pub(crate) fn view<'a>(&self, list: &'a DisplayList) -> Fill<'a> {
         match *self {
             Self::Solid(color) => Fill::Solid(color),
-            Self::LinearGradient { stops, angle_degrees } => Fill::LinearGradient(LinearGradient {
+            Self::LinearGradient { stops, angle } => Fill::LinearGradient(LinearGradient {
                 stops: list.slice(stops),
-                angle_degrees,
+                angle,
             }),
-            Self::ConicGradient {
-                stops,
-                center,
-                angle_degrees,
-            } => Fill::ConicGradient(ConicGradient {
+            Self::ConicGradient { stops, center, angle } => Fill::ConicGradient(ConicGradient {
                 stops: list.slice(stops),
                 center,
-                angle_degrees,
+                angle,
             }),
         }
     }
