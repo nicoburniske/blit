@@ -1,9 +1,11 @@
+use blit::{FrameStore, Paint};
+use blit_gui::mesh;
+
 use super::*;
 
 #[derive(Default)]
 pub struct View {
     detail: Detail,
-    buffers: Rc<RefCell<TerrainBuffers>>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -34,12 +36,7 @@ impl View {
             Detail::High => (256, 144),
         };
         let mut stage = ui.layout(());
-        stage.insert(Terrain {
-            columns,
-            rows,
-            phase,
-            buffers: Rc::clone(&self.buffers),
-        });
+        stage.insert(Terrain { columns, rows, phase });
         false
     }
 }
@@ -48,14 +45,6 @@ struct Terrain {
     columns: usize,
     rows: usize,
     phase: f32,
-    buffers: Rc<RefCell<TerrainBuffers>>,
-}
-
-#[derive(Default)]
-struct TerrainBuffers {
-    points: Vec<(f32, f32, f32, f32)>,
-    vertices: Vec<MeshVertex>,
-    indices: Vec<u32>,
 }
 
 impl Atom<DesktopContext> for Terrain {
@@ -65,15 +54,7 @@ impl Atom<DesktopContext> for Terrain {
 
     fn paint(&self, cx: &mut AtomCx<'_, DesktopContext>, area: LogicalRect) {
         let travel = self.phase * std::f32::consts::TAU;
-        let mut buffers = self.buffers.borrow_mut();
-        let TerrainBuffers {
-            points,
-            vertices,
-            indices,
-        } = &mut *buffers;
-        points.clear();
-        vertices.clear();
-        indices.clear();
+        let mut points = cx.scratch((self.rows + 1) * (self.columns + 1));
         for row in 0..=self.rows {
             let depth = row as f32 / self.rows as f32;
             let perspective = depth * depth;
@@ -105,29 +86,33 @@ impl Atom<DesktopContext> for Terrain {
             )
         };
         let stride = self.columns + 1;
-        for row in 0..self.rows {
-            for column in 0..self.columns {
-                let top = row * stride + column;
+        let count = u32::try_from(self.rows * self.columns * 6).expect("terrain mesh is too large");
+        let mut triangle = [MeshVertex::new(0.0, 0.0, Color::TRANSPARENT); 3];
+        let mut bounds = area;
+        let context = cx.context_mut();
+        let vertices = context.store_slice((0..count).map(|index| {
+            if index % 3 == 0 {
+                let cell = index as usize / 6;
+                let top = cell / self.columns * stride + cell % self.columns;
                 let a = points[top];
                 let b = points[top + 1];
                 let c = points[top + stride];
                 let d = points[top + stride + 1];
-                for (triangle, slope) in [
-                    ([a, b, c], (a.2 - b.2) * 0.7 + (a.2 - c.2) * 0.3),
-                    ([b, d, c], (c.2 - d.2) * 0.7 + (b.2 - d.2) * 0.3),
-                ] {
-                    let elevation = (triangle[0].2 + triangle[1].2 + triangle[2].2) / 3.0;
-                    let depth = (triangle[0].3 + triangle[1].3 + triangle[2].3) / 3.0;
-                    let color = shade(elevation, depth, slope);
-                    let first = u32::try_from(vertices.len()).expect("terrain mesh is too large");
-                    vertices.extend(triangle.map(|point| MeshVertex::new(point.0, point.1, color)));
-                    indices.extend(first..first + 3);
-                }
+                let (points, slope) = if index % 6 == 0 {
+                    ([a, b, c], (a.2 - b.2) * 0.7 + (a.2 - c.2) * 0.3)
+                } else {
+                    ([b, d, c], (c.2 - d.2) * 0.7 + (b.2 - d.2) * 0.3)
+                };
+                let elevation = (points[0].2 + points[1].2 + points[2].2) / 3.0;
+                let depth = (points[0].3 + points[1].3 + points[2].3) / 3.0;
+                let color = shade(elevation, depth, slope);
+                triangle = points.map(|point| MeshVertex::new(point.0, point.1, color));
             }
-        }
-        let bounds = vertices.iter().fold(area, |bounds, vertex| {
-            bounds.union(LogicalRect::new(vertex.position.x, vertex.position.y, 0.0, 0.0))
-        });
-        Mesh { vertices, indices }.paint(bounds, cx.context_mut());
+            let vertex = triangle[index as usize % 3];
+            bounds = bounds.union(LogicalRect::new(vertex.position.x, vertex.position.y, 0.0, 0.0));
+            vertex
+        }));
+        let indices = context.store_slice(0..count);
+        context.paint(bounds, mesh::Stored { vertices, indices });
     }
 }
