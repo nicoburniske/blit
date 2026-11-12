@@ -144,7 +144,7 @@ impl Prepared {
         ];
         let offset_x = x + left as f32 - first[0];
         let offset_y = y - first[1];
-        let mut color = std::array::from_fn::<_, 4, _>(|channel| {
+        let color = std::array::from_fn::<_, 4, _>(|channel| {
             base[channel] + self.color_step_x[channel] * offset_x + self.color_step_y[channel] * offset_y
         });
         if self.color_kind == ColorKind::Opaque && coverage == 255 {
@@ -155,47 +155,7 @@ impl Prepared {
             );
             return;
         }
-        if self.color_step_x[3] == 0.0 && self.color_step_y[3] == 0.0 {
-            let alpha = self.color.coverage(coverage as u32).alpha;
-            if alpha == 0 {
-                return;
-            }
-            if alpha < 255 {
-                for pixel in pixels {
-                    let sample = PremultipliedRgbaColor {
-                        red: (color[0] + 0.5) as u8,
-                        green: (color[1] + 0.5) as u8,
-                        blue: (color[2] + 0.5) as u8,
-                        alpha: self.color.alpha,
-                    };
-                    pixel.blend_translucent(if coverage == 255 {
-                        sample
-                    } else {
-                        sample.coverage(coverage as u32)
-                    });
-                    for (channel, step) in color[..3].iter_mut().zip(&self.color_step_x) {
-                        *channel += *step;
-                    }
-                }
-                return;
-            }
-        }
-        for pixel in pixels {
-            let sample = PremultipliedRgbaColor {
-                red: (color[0] + 0.5) as u8,
-                green: (color[1] + 0.5) as u8,
-                blue: (color[2] + 0.5) as u8,
-                alpha: (color[3] + 0.5) as u8,
-            };
-            pixel.blend(if coverage == 255 {
-                sample
-            } else {
-                sample.coverage(coverage as u32)
-            });
-            for (channel, step) in color.iter_mut().zip(&self.color_step_x) {
-                *channel += *step;
-            }
-        }
+        P::blend_rgba_ramp(pixels, color, self.color_step_x, coverage);
     }
 }
 

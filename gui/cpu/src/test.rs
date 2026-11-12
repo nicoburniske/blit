@@ -1013,9 +1013,12 @@ fn meshes_preserve_interpolation_shared_edges_and_order() {
             MeshVertex::new(16.0, 0.0, green),
             MeshVertex::new(32.0, 0.0, green),
             MeshVertex::new(24.0, 12.0, green),
+            MeshVertex::new(0.0, 8.0, Color::rgba(255, 0, 0, 128)),
+            MeshVertex::new(16.0, 8.0, Color::rgba(0, 255, 0, 96)),
+            MeshVertex::new(0.0, 16.0, Color::rgba(0, 0, 255, 64)),
         ];
         for frame in [0, 1, 1, 0] {
-            let mut indices = [0, 1, 2, 2, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+            let mut indices = [0, 1, 2, 2, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
             if frame == 1 {
                 indices[9..].rotate_left(3);
             }
@@ -1058,6 +1061,14 @@ fn meshes_preserve_interpolation_shared_edges_and_order() {
                 assert!(pixels[32 + 9].red > pixels[32 + 9].green);
                 assert!(pixels[32 + 13].green > pixels[32 + 13].red);
                 assert!(pixels[5 * 32 + 9].blue > pixels[5 * 32 + 9].red);
+                assert_eq!(
+                    pixels[9 * 32 + 1],
+                    BgrPixel {
+                        red: 92,
+                        green: 9,
+                        blue: 12
+                    }
+                );
             }
         }
     }
