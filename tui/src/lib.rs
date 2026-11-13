@@ -19,9 +19,7 @@ mod renderer;
 mod terminal;
 pub mod text;
 pub mod widgets;
-pub mod layout {
-    blit_layout::export!(i32);
-}
+pub use blit_layout as layout;
 
 pub use blit_widgets::{
     interact,

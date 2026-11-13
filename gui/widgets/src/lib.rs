@@ -24,6 +24,4 @@ pub use self::{
     text_input::{TextInput, TextInputResponse, TextInputState},
 };
 
-pub mod layout {
-    blit_layout::export!(f32);
-}
+pub use blit_layout as layout;
