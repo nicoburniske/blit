@@ -96,18 +96,24 @@ where
             return None;
         }
 
-        let mut popup = root.child().parent(self.parent).z_index(1).layout(
-            absolute::place(())
-                .target(self.parent)
-                .width(Sizing::full())
-                .height(Sizing::full()),
-        );
+        let mut popup = root
+            .child()
+            .parent(self.parent)
+            .z_index(1)
+            .place(
+                self.parent,
+                absolute::place().width(Sizing::full()).height(Sizing::full()),
+            )
+            .layout(());
         if self.close != PopoverClose::Manual {
             popup.interact(BlockInput);
             popup
                 .child()
-                .layout(absolute::place(()).width(Sizing::full()).height(Sizing::full()))
                 .id(backdrop_id)
+                .place(
+                    NodeTarget::Parent,
+                    absolute::place().width(Sizing::full()).height(Sizing::full()),
+                )
                 .insert(());
         }
         Some(
@@ -121,16 +127,17 @@ where
                         .left(self.x.max(C::Scalar::ZERO)),
                 )
                 .id(content_id)
-                .layout(
-                    absolute::place(())
+                .place(
+                    anchor,
+                    absolute::place()
                         .target_anchor(self.target_anchor)
                         .child_anchor(self.child_anchor)
-                        .target(anchor)
                         .x(self.x)
                         .y(self.y)
                         .width(self.width)
                         .height(self.height),
                 )
+                .layout(())
                 .child()
                 .build(content),
         )

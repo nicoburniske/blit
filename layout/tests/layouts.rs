@@ -4,7 +4,7 @@ use blit::{
     Atom, AtomCx, Constraints, Context, Easing, Frame, FrameInfo, Id, Input, Motion, Rect, Scalar, Sides, Size, Tween,
     Ui, Widget,
 };
-use blit_layout::{Align, Sizing, absolute, absolute::Anchor, flex, grid, pad, wrap};
+use blit_layout::{Align, Sizing, absolute, absolute::Anchor, flex, grid, wrap};
 
 #[derive(Default)]
 struct TestContext;
@@ -76,23 +76,20 @@ fn absolute_positions_use_the_target_and_sizes_use_the_parent() {
         &mut TestContext,
         FrameInfo::new(Size::new(10.0, 4.0)),
         |ui: Ui<'_, TestContext>| {
-            let mut root = ui.layout(pad(
-                (),
-                Sides {
-                    left: 2.0,
-                    right: 2.0,
-                    top: 1.0,
-                    bottom: 1.0,
-                },
-            ));
+            let mut root = ui.layout(flex::column().pad(Sides {
+                left: 2.0,
+                right: 2.0,
+                top: 1.0,
+                bottom: 1.0,
+            }));
             let target = root.child().build(|mut ui: Ui<'_, TestContext>| {
                 ui.insert(BoxAtom(Size::new(6.0, 2.0)));
                 ui.node_id()
             });
-            root.child().id(id).layout(
-                absolute::place(())
+            root.child().id(id).place(
+                target,
+                absolute::place()
                     .target_anchor(Anchor::BottomRight)
-                    .target(target)
                     .width(absolute::Sizing::percent(0.5))
                     .height(absolute::Sizing::full()),
             );
@@ -289,7 +286,7 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
                     let mut outer = ui.layout(flex::column().align(Align::Start));
                     let mut root = outer
                         .child()
-                        .layout(pad(CountedFlex(flex::layout(axis).gap(4.0), 0), 2.0));
+                        .layout(CountedFlex(flex::layout(axis).gap(4.0).pad(2.0), 0));
                     let grow_item = match (axis, cross_fixed) {
                         (_, true) => flex::item().grow(),
                         (Axis::Horizontal, false) => flex::item().width(Sizing::grow()),
@@ -300,13 +297,12 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
                             .child()
                             .item(grow_item)
                             .id(branch_id)
-                            .layout(pad(CountedFlex(flex::layout(axis), 1), 1.0));
-                        let mut nested = branch.child().item(grow_item).layout(pad(
-                            CountedFlex(
-                                flex::layout(axis).align(if cross_fixed { Align::Stretch } else { Align::Start }),
-                                2,
-                            ),
-                            1.0,
+                            .layout(CountedFlex(flex::layout(axis).pad(1.0), 1));
+                        let mut nested = branch.child().item(grow_item).layout(CountedFlex(
+                            flex::layout(axis)
+                                .align(if cross_fixed { Align::Stretch } else { Align::Start })
+                                .pad(1.0),
+                            2,
                         ));
                         nested.child().id(leaf).insert(BoxAtom(Size::uniform(10.0)));
                     }
@@ -501,12 +497,7 @@ fn flex_size_motion_preserves_exact_overflow_and_reflows_siblings() {
 #[test]
 fn empty_layouts_keep_padding() {
     let mut frame = Frame::default();
-    let ids = [
-        Id::new("empty flex"),
-        Id::new("empty wrap"),
-        Id::new("empty grid"),
-        Id::new("empty plain"),
-    ];
+    let ids = [Id::new("empty flex"), Id::new("empty wrap"), Id::new("empty grid")];
     layout_frame(
         &mut frame,
         &mut Cells,
@@ -517,10 +508,9 @@ fn empty_layouts_keep_padding() {
             root.child().id(ids[0]).layout(flex::row().pad(padding));
             root.child().id(ids[1]).layout(wrap::horizontal().pad(padding));
             root.child().id(ids[2]).layout(grid::new(2).pad(padding));
-            root.child().id(ids[3]).layout(pad((), padding));
         },
     );
-    assert_eq!(ids.map(|id| frame.area(id).unwrap().size()), [Size::uniform(4); 4]);
+    assert_eq!(ids.map(|id| frame.area(id).unwrap().size()), [Size::uniform(4); 3]);
 }
 
 #[test]
@@ -695,8 +685,11 @@ fn parent_percentages_apply_once_before_padding() {
                 .child()
                 .id(container)
                 .item(flex::item().width(Sizing::percent(0.5)).height(Sizing::percent(0.5)))
-                .layout(pad((), 1.0));
-            fit.child().id(percent).insert(BoxAtom(Size::new(4.0, 2.0)));
+                .layout(flex::column().align(Align::Stretch).pad(1.0));
+            fit.child()
+                .item(flex::item().grow())
+                .id(percent)
+                .insert(BoxAtom(Size::new(4.0, 2.0)));
         },
     );
     assert_eq!(frame.area(container), Some(Rect::new(0.0, 0.0, 10.0, 5.0)));

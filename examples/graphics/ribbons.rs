@@ -86,13 +86,15 @@ impl View {
         if self.blur {
             let mut panel = stage
                 .child()
-                .layout(
-                    absolute::place(flex::column().justify(Justify::End).pad(sz::LG))
+                .place(
+                    blit::NodeTarget::Parent,
+                    absolute::place()
                         .target_anchor(Anchor::Center)
                         .child_anchor(Anchor::Center)
                         .width(absolute::Sizing::fixed(220.0))
                         .height(absolute::Sizing::fixed(96.0)),
                 )
+                .layout(flex::column().justify(Justify::End).pad(sz::LG))
                 .clip(BoundsClip);
             panel.insert(blit_gui::blur::BackdropBlur::new(5.0));
             panel.insert(Rectangle::new().border(Border::solid(1.0, colors::TEXT_DIM)));

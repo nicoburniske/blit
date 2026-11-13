@@ -5,7 +5,9 @@ use std::{
     time::Duration,
 };
 
-use blit::{Animation, Axis, Easing, Id, Input, Key, KeyboardEvent, Motion, Scalar, Sides, Size, Tween, Widget};
+use blit::{
+    Animation, Axis, Easing, Id, Input, Key, KeyboardEvent, Motion, NodeTarget, Scalar, Sides, Size, Tween, Widget,
+};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, SpringDrag, Transition, select};
 use blit_tui::{
     Bar, BarChart, Block, Border, BorderSides, BorderStyle, BoundsClip, Gauge, Performance, PerformanceState, Popover,
@@ -13,7 +15,7 @@ use blit_tui::{
     Sparkline, Split, SplitState, Text, TextInput, TextInputState, Tint, Title, TuiContext, Ui, UniformList,
     color::Color,
     interact,
-    layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, pad, wrap},
+    layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, wrap},
     text::{HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign},
 };
 
@@ -142,14 +144,15 @@ impl Demo {
         root.context_mut().profiler.set_enabled(self.show_performance);
         if self.show_performance {
             root.child()
-                .layout(
-                    absolute::place(())
-                        .target(blit::NodeTarget::Root)
+                .place(
+                    blit::NodeTarget::Root,
+                    absolute::place()
                         .target_anchor(Anchor::BottomRight)
                         .child_anchor(Anchor::BottomRight)
                         .x(-1)
                         .y(-1),
                 )
+                .layout(())
                 .child()
                 .build(
                     Performance::new(&mut self.performance)
@@ -278,19 +281,23 @@ impl Widget<TuiContext> for &mut AnimationPage {
                                 .layout(())
                                 .clip(BoundsClip);
                             track.insert(Block::new().background(colors::SURFACE_HIGH));
-                            let mut range = track.child().layout(
-                                absolute::place(())
-                                    .target_anchor(Anchor::Center)
-                                    .child_anchor(Anchor::Center)
-                                    .width(absolute::Sizing::percent(0.65))
-                                    .height(absolute::Sizing::full()),
-                            );
-                            let marker = absolute::place(())
+                            let mut range = track
+                                .child()
+                                .place(
+                                    NodeTarget::Parent,
+                                    absolute::place()
+                                        .target_anchor(Anchor::Center)
+                                        .child_anchor(Anchor::Center)
+                                        .width(absolute::Sizing::percent(0.65))
+                                        .height(absolute::Sizing::full()),
+                                )
+                                .layout(());
+                            let marker = absolute::place()
                                 .target_anchor(if *right { Anchor::Right } else { Anchor::Left })
                                 .child_anchor(Anchor::Center)
                                 .width(absolute::Sizing::fixed(3))
                                 .height(absolute::Sizing::fixed(1));
-                            range.child().layout(marker).insert(
+                            range.child().place(NodeTarget::Parent, marker).insert(
                                 Text::new("│")
                                     .color(colors::TEXT)
                                     .options(TextOptions::new().horizontal_align(HorizontalAlign::Center)),
@@ -298,7 +305,7 @@ impl Widget<TuiContext> for &mut AnimationPage {
                             range
                                 .child()
                                 .id(Id::new(("retarget", index)))
-                                .layout(marker)
+                                .place(NodeTarget::Parent, marker)
                                 .motion(Motion::new(animation).x().restart(restart))
                                 .insert(Block::new().background(if restart {
                                     colors::ACCENT_DARK
@@ -310,7 +317,8 @@ impl Widget<TuiContext> for &mut AnimationPage {
                     }
                     let mut canvas = preview.child().item(flex::item().grow()).layout(()).clip(BoundsClip);
                     canvas.insert(Block::new().background(colors::CANVAS));
-                    let card = absolute::place(flex::column().align(Align::Center).justify(Justify::Center))
+                    let content = flex::column().align(Align::Center).justify(Justify::Center);
+                    let card = absolute::place()
                         .target_anchor(Anchor::Center)
                         .child_anchor(Anchor::Center)
                         .width(absolute::Sizing::fixed(12))
@@ -318,13 +326,15 @@ impl Widget<TuiContext> for &mut AnimationPage {
                     canvas
                         .child()
                         .id(Id::new((id, "home")))
-                        .layout(card)
+                        .place(NodeTarget::Parent, card)
+                        .layout(content)
                         .insert(Block::new().border(Border::new(colors::CANVAS_BORDER).style(BorderStyle::Rounded)));
                     let mut handle = canvas
                         .child()
                         .id(id)
-                        .layout(card.x(position.x).y(position.y))
-                        .motion(Motion::new(spring).position());
+                        .place(NodeTarget::Parent, card.x(position.x).y(position.y))
+                        .motion(Motion::new(spring).position())
+                        .layout(content);
                     handle.insert(
                         Block::new()
                             .background(if active { colors::ACCENT_DARK } else { colors::SELECTED })
@@ -399,18 +409,24 @@ impl Widget<TuiContext> for &mut Modal {
             .parent(blit::NodeTarget::Root)
             .z_index(1)
             .id(backdrop_id)
-            .layout(
-                absolute::place(())
-                    .target(blit::NodeTarget::Root)
+            .place(
+                blit::NodeTarget::Root,
+                absolute::place()
                     .width(absolute::Sizing::full())
                     .height(absolute::Sizing::full()),
-            );
+            )
+            .layout(());
         modal.insert(Tint::new([0, 0, 0], if self.dim { 180 } else { 80 }));
-        let mut panel = modal.child().id(panel_id).layout(
-            absolute::place(flex::column().gap(1).pad(1))
-                .target_anchor(Anchor::Center)
-                .child_anchor(Anchor::Center),
-        );
+        let mut panel = modal
+            .child()
+            .id(panel_id)
+            .place(
+                NodeTarget::Parent,
+                absolute::place()
+                    .target_anchor(Anchor::Center)
+                    .child_anchor(Anchor::Center),
+            )
+            .layout(flex::column().gap(1).pad(1));
         panel.insert(
             Block::new()
                 .background(colors::SURFACE)
@@ -812,10 +828,11 @@ impl Widget<TuiContext> for &mut TextPage {
                     let mut resizable = preview
                         .child()
                         .item(flex::item().grow())
-                        .layout(pad((), 1));
+                        .layout(flex::column().align(Align::Stretch).pad(1));
                     resizable.insert(panel(colors::SURFACE, " text "));
                     let mut viewport = resizable
                         .child()
+                        .item(flex::item().grow())
                         .layout(flex::column())
                         .clip(BoundsClip);
                     viewport.insert(Block::new().background(colors::TRACK));
@@ -1269,9 +1286,8 @@ impl Widget<TuiContext> for Canvas {
             CanvasLayout::Grid => {
                 let grid = grid::new(5)
                     .column_gap(gap(Axis::Horizontal))
-                    .row_gap(gap(Axis::Vertical))
-                    .pad(padding);
-                let mut canvas = ui.layout(grid).clip(BoundsClip);
+                    .row_gap(gap(Axis::Vertical));
+                let mut canvas = ui.layout(grid.pad(padding)).clip(BoundsClip);
                 canvas.insert(background);
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
@@ -1309,13 +1325,16 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
             .parent(Id::new("tui canvas"))
             .z_index(1)
             .build(|ui: Ui<'_>| {
-                let mut badge = ui.layout(
-                    absolute::place(flex::row().align(Align::Center).justify(Justify::Center))
-                        .target_anchor(anchor)
-                        .child_anchor(Anchor::Center)
-                        .width(absolute::Sizing::fixed(unit.width * 2))
-                        .height(absolute::Sizing::fixed(unit.height)),
-                );
+                let mut badge = ui
+                    .place(
+                        NodeTarget::Parent,
+                        absolute::place()
+                            .target_anchor(anchor)
+                            .child_anchor(Anchor::Center)
+                            .width(absolute::Sizing::fixed(unit.width * 2))
+                            .height(absolute::Sizing::fixed(unit.height)),
+                    )
+                    .layout(flex::row().align(Align::Center).justify(Justify::Center));
                 badge.insert(Block::new().background(colors::ACCENT_DARK));
                 badge.child().insert(Text::new("A").color(colors::TEXT));
             });

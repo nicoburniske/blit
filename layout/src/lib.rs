@@ -3,7 +3,6 @@ pub mod flex;
 pub mod grid;
 mod pad;
 pub mod rect;
-pub use pad::{Pad, pad};
 pub mod wrap;
 
 use blit::{Axis, Constraints, Context, LayoutCx, NodeId, Scalar, Size};
@@ -151,15 +150,13 @@ macro_rules! export {
     ($coord:ty) => {
         pub use $crate::{Align, Justify, rect};
         pub type Sizing = $crate::Sizing<$coord>;
-        pub type Pad<L> = $crate::Pad<L, $coord>;
-        pub fn pad<L>(inner: L, padding: impl Into<::blit::Sides<$coord>>) -> Pad<L> { $crate::pad(inner, padding) }
 
         pub mod absolute {
             pub use $crate::absolute::Anchor;
-            pub type Layout<L> = $crate::absolute::Layout<L, $coord>;
+            pub type Place = $crate::absolute::Place<$coord>;
             pub type Sizing = $crate::absolute::Sizing<$coord>;
-            pub fn place<L>(inner: L) -> Layout<L> {
-                $crate::absolute::place(inner)
+            pub fn place() -> Place {
+                $crate::absolute::place()
             }
         }
         $crate::export!(@ $coord, flex, [Layout, Item], [

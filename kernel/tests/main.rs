@@ -10,7 +10,7 @@ use blit::{
     Context, Easing, Frame, FrameInfo, Id, Input, Interact, InteractCx, Layout, LayoutCx, Modifiers, Motion,
     MouseButton, NodeTarget,
     Phase::{Cancelled, Ended, Held, Started},
-    Point, Rect, ScrollPhase, Size, Spring, TouchPhase,
+    Place, PlaceCx, Point, Rect, ScrollPhase, Size, Spring, TouchPhase,
     TouchPhase::{Cancel, Down, Move, Up},
     Tween, Widget,
 };
@@ -201,26 +201,23 @@ impl Layout<TestContext> for Fixed {
     }
 }
 
-struct At<L>(L, fn(Size<f32>) -> Point<f32>);
+/// positions from the target size under unbounded constraints
+struct At(fn(Size<f32>) -> Point<f32>);
 
-impl<L: Layout<TestContext>> Layout<TestContext> for At<L> {
-    type Item = L::Item;
-    fn on_insert<'a>(&self, ui: Ui<'a>) -> Ui<'a> {
-        ui.relative(NodeTarget::Parent)
-    }
-    fn layout(&self, cx: &mut LayoutCx<'_, TestContext, Self::Item>, bounds: Constraints<f32>) -> Size<f32> {
-        let size = self.0.layout(cx, bounds);
-        cx.set_position((self.1)(cx.size(cx.relative())));
-        size
+impl Place<TestContext> for At {
+    fn place(&self, cx: &mut PlaceCx<'_, TestContext>) -> Point<f32> {
+        cx.resolve(Constraints::loose(Size::uniform(f32::INFINITY)));
+        (self.0)(cx.target().size())
     }
 }
 
-struct Full;
+/// fills the visual parent
+struct Full(fn(Size<f32>) -> Point<f32>);
 
-impl Layout<TestContext> for Full {
-    type Item = ();
-    fn layout(&self, cx: &mut LayoutCx<'_, TestContext>, _: Constraints<f32>) -> Size<f32> {
-        ().layout(cx, Constraints::tight(cx.size(cx.parent())))
+impl Place<TestContext> for Full {
+    fn place(&self, cx: &mut PlaceCx<'_, TestContext>) -> Point<f32> {
+        cx.resolve(Constraints::tight(cx.parent()));
+        (self.0)(cx.target().size())
     }
 }
 

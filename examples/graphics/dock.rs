@@ -32,12 +32,14 @@ impl Dock {
         let mut toolbar = ui
             .id(Id::new("graphics dock"))
             .z_index(1)
-            .layout(
-                absolute::place(flex::row().gap(sz::SM).pad(sz::XS).align(Align::Center))
+            .place(
+                blit::NodeTarget::Parent,
+                absolute::place()
                     .target_anchor(Anchor::Bottom)
                     .child_anchor(Anchor::Bottom)
                     .y(-sz::LG),
             )
+            .layout(flex::row().gap(sz::SM).align(Align::Center).pad(sz::XS))
             .motion(Motion::new(Tween::new(Duration::from_millis(220), Easing::EASE_IN_OUT)).size());
         toolbar.interact(interact::press());
         toolbar.insert(

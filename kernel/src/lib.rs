@@ -90,7 +90,7 @@ pub use self::{
     },
     input::{Input, Key, KeyInput, Modifiers, MouseButton, ScrollPhase, TouchPhase},
     interact::{Contact, ContactId, ContactSource, Interact, KeyboardEvent, Phase, ScrollEvent},
-    layout::{Axis, Layout, LayoutCx},
+    layout::{Axis, Layout, LayoutCx, Place, PlaceCx},
     scratch::{Scratch, ScratchBuffer},
 };
 

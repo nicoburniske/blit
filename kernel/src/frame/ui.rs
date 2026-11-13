@@ -55,6 +55,22 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
         self
     }
 
+    /// takes this node out of its parent's flow
+    /// `place` sizes it and positions it against `target` after flow layout
+    pub fn place<P: Place<C>>(self, target: impl Into<NodeTarget>, place: P) -> Self {
+        let frame = &mut *self.inner.frame;
+        let reference = frame.resolve_target(self.inner.node, target.into());
+        let id = PlaceId::new(frame.places.len());
+        frame.places.push(StoredPlace {
+            bump_id: frame.bump.store(place),
+            run: layout::place::<C, P>,
+        });
+        let node = &mut frame.nodes[self.inner.node.index()];
+        node.relative = reference;
+        node.place = id;
+        self
+    }
+
     /// identifies this node for references within the current render
     pub fn node_id(&self) -> NodeId {
         self.inner.node
@@ -104,15 +120,6 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     pub fn parent(self, target: impl Into<NodeTarget>) -> Self {
         let parent = self.inner.frame.resolve_target(self.inner.node, target.into());
         self.inner.frame.nodes[self.inner.node.index()].visual_parent = parent;
-        self
-    }
-
-    /// positions this node against a reference outside its parent's flow
-    pub fn relative(self, target: impl Into<NodeTarget>) -> Self {
-        let reference = self.inner.frame.resolve_target(self.inner.node, target.into());
-        let node = &mut self.inner.frame.nodes[self.inner.node.index()];
-        node.relative = reference;
-        node.out_of_flow = true;
         self
     }
 
@@ -172,7 +179,7 @@ impl<'ui, C: Context> Ui<'ui, C, state::Build> {
         let node = inner.node;
         let response = widget.build(Ui::new(inner.frame, inner.context, inner.scratch, node));
         assert!(
-            !inner.frame.nodes[node.index()].out_of_flow,
+            inner.frame.nodes[node.index()].place.index().is_none(),
             "measured widgets must stay in flow"
         );
         let mut bump = std::mem::take(&mut inner.frame.bump);
@@ -184,7 +191,7 @@ impl<'ui, C: Context> Ui<'ui, C, state::Build> {
 
     /// establishes the current node's layout
     pub fn layout<L: Layout<C>>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
-        let Ui { inner, .. } = layout.on_insert(self);
+        let Ui { inner, .. } = self;
         inner.frame.store_layout(inner.node, layout);
         Ui {
             inner,
@@ -401,7 +408,7 @@ impl<C: Context, A: Atom<C>> Widget<C, state::Node> for AtomWidget<A> {
     }
 }
 
-/// selects a node for visual parenting or absolute positioning
+/// selects a node for visual parenting or placement
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NodeTarget {
     /// the node's structural parent

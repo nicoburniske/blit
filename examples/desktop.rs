@@ -1,6 +1,8 @@
 use std::{cell::Cell, time::Duration};
 
-use blit::{Animation, Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Motion, Sides, Size, Tween, Widget};
+use blit::{
+    Animation, Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Motion, NodeTarget, Sides, Size, Tween, Widget,
+};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, SpringDrag, Transition, select};
 #[cfg(not(feature = "gpu"))]
 use blit_desktop::cpu;
@@ -22,7 +24,7 @@ use blit_gui_widgets::{
     Performance, PerformanceState, Popover, PopoverClose, PopoverState, Resize, ResizeEdge, ResizeGrip, ResizeState,
     RichText, ScrollArea, ScrollState, Split, SplitState, Text, TextInput, TextInputState, UniformList, VirtualList,
     VirtualListState, interact,
-    layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, pad, wrap},
+    layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, wrap},
 };
 use blit_text::{Family, FontData, FontStyle};
 
@@ -207,14 +209,15 @@ impl Application for App {
         root.context_mut().profiler.set_enabled(self.show_performance);
         if self.show_performance {
             root.child()
-                .layout(
-                    absolute::place(())
-                        .target(blit::NodeTarget::Root)
+                .place(
+                    NodeTarget::Root,
+                    absolute::place()
                         .target_anchor(Anchor::BottomRight)
                         .child_anchor(Anchor::BottomRight)
                         .x(-sz::LG)
                         .y(-sz::LG),
                 )
+                .layout(())
                 .child()
                 .build(
                     Performance::new(&mut self.performance)
@@ -338,19 +341,23 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                             );
                             let mut lane = row.child().item(flex::item().grow()).layout(()).clip(BoundsClip);
                             lane.insert(panel(colors::CANVAS));
-                            let mut track = lane.child().layout(
-                                absolute::place(())
-                                    .target_anchor(Anchor::Center)
-                                    .child_anchor(Anchor::Center)
-                                    .width(absolute::Sizing::percent(0.65))
-                                    .height(absolute::Sizing::full()),
-                            );
-                            let marker = absolute::place(())
+                            let mut track = lane
+                                .child()
+                                .place(
+                                    NodeTarget::Parent,
+                                    absolute::place()
+                                        .target_anchor(Anchor::Center)
+                                        .child_anchor(Anchor::Center)
+                                        .width(absolute::Sizing::percent(0.65))
+                                        .height(absolute::Sizing::full()),
+                                )
+                                .layout(());
+                            let marker = absolute::place()
                                 .target_anchor(if *right { Anchor::Right } else { Anchor::Left })
                                 .child_anchor(Anchor::Center)
                                 .width(absolute::Sizing::fixed(20.0))
                                 .height(absolute::Sizing::fixed(20.0));
-                            track.child().layout(marker).insert(
+                            track.child().place(NodeTarget::Parent, marker).insert(
                                 Rectangle::new()
                                     .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
                                     .radius(BorderRadius::uniform(sz::XXS)),
@@ -358,7 +365,7 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                             track
                                 .child()
                                 .id(Id::new(("retarget", index)))
-                                .layout(marker)
+                                .place(NodeTarget::Parent, marker)
                                 .motion(Motion::new(animation).x().restart(restart))
                                 .insert(
                                     Rectangle::new()
@@ -370,21 +377,28 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                     }
                     let mut canvas = preview.child().item(flex::item().grow()).layout(()).clip(BoundsClip);
                     canvas.insert(panel(colors::CANVAS));
-                    let card = absolute::place(flex::column().align(Align::Center).justify(Justify::Center))
+                    let content = flex::column().align(Align::Center).justify(Justify::Center);
+                    let card = absolute::place()
                         .target_anchor(Anchor::Center)
                         .child_anchor(Anchor::Center)
                         .width(absolute::Sizing::fixed(128.0))
                         .height(absolute::Sizing::fixed(96.0));
-                    canvas.child().id(Id::new((id, "home"))).layout(card).insert(
-                        Rectangle::new()
-                            .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
-                            .radius(BorderRadius::uniform(sz::SM)),
-                    );
+                    canvas
+                        .child()
+                        .id(Id::new((id, "home")))
+                        .place(NodeTarget::Parent, card)
+                        .layout(content)
+                        .insert(
+                            Rectangle::new()
+                                .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
+                                .radius(BorderRadius::uniform(sz::SM)),
+                        );
                     let mut handle = canvas
                         .child()
                         .id(id)
-                        .layout(card.x(position.x).y(position.y))
-                        .motion(Motion::new(spring).position());
+                        .place(NodeTarget::Parent, card.x(position.x).y(position.y))
+                        .motion(Motion::new(spring).position())
+                        .layout(content);
                     handle.insert(
                         Rectangle::new()
                             .background(if active { colors::ACCENT_DARK } else { colors::ACCENT })
@@ -571,7 +585,9 @@ impl Widget<DesktopContext> for &mut TextPage {
                                 .maximum(screen)
                                 .grip_size(Size::uniform(sz::MD))
                                 .content(|ui: Ui<'_>| {
-                                    let mut paragraph = ui.layout(pad((), sz::LG)).clip(BoundsClip);
+                                    let mut paragraph = ui
+                                        .layout(flex::column().align(Align::Stretch).pad(sz::LG))
+                                        .clip(BoundsClip);
                                     paragraph.insert(
                                         Rectangle::new()
                                             .background(colors::CANVAS)
@@ -1111,9 +1127,8 @@ impl Widget<DesktopContext> for Canvas {
             CanvasLayout::Grid => {
                 let grid = grid::new(5)
                     .column_gap(self.config.gap(Axis::Horizontal, self.unit))
-                    .row_gap(self.config.gap(Axis::Vertical, self.unit))
-                    .pad(self.config.padding(self.unit));
-                let mut canvas = ui.layout(grid).clip(BoundsClip);
+                    .row_gap(self.config.gap(Axis::Vertical, self.unit));
+                let mut canvas = ui.layout(grid.pad(self.config.padding(self.unit))).clip(BoundsClip);
                 canvas.insert(background);
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
@@ -1174,13 +1189,16 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
             .parent(Id::new("desktop canvas"))
             .z_index(1)
             .build(|ui: Ui<'_>| {
-                let mut badge = ui.layout(
-                    absolute::place(flex::row().align(Align::Center).justify(Justify::Center))
-                        .target_anchor(anchor)
-                        .child_anchor(Anchor::Center)
-                        .width(absolute::Sizing::fixed(sz::BADGE_WIDTH * config.zoom))
-                        .height(absolute::Sizing::fixed(sz::LG * config.zoom)),
-                );
+                let mut badge = ui
+                    .place(
+                        NodeTarget::Parent,
+                        absolute::place()
+                            .target_anchor(anchor)
+                            .child_anchor(Anchor::Center)
+                            .width(absolute::Sizing::fixed(sz::BADGE_WIDTH * config.zoom))
+                            .height(absolute::Sizing::fixed(sz::LG * config.zoom)),
+                    )
+                    .layout(flex::row().align(Align::Center).justify(Justify::Center));
                 badge.insert(
                     Rectangle::new()
                         .background(colors::BACKGROUND)

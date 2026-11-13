@@ -23,7 +23,7 @@ use crate::{
     input::{Input, MouseButton, ScrollPhase, TouchPhase},
     interact::{Interact, Phase, ScrollEvent},
     internal::{animator::Animator, bump::Bump},
-    layout::{Axis, Layout},
+    layout::{Axis, Layout, Place},
 };
 
 pub struct Frame<C: Context> {
@@ -32,6 +32,7 @@ pub struct Frame<C: Context> {
     atoms: Vec<StoredAtom>,
     clips: Vec<StoredClip>,
     limits: Vec<Constraints<C::Scalar>>,
+    places: Vec<StoredPlace<C>>,
     bounds: Vec<Bounds<C::Scalar>>,
     atom_kinds: Vec<AtomKind<C>>,
     layout_kinds: Vec<LayoutKind<C>>,
@@ -68,6 +69,7 @@ impl<C: Context> Default for Frame<C> {
             atoms: Vec::new(),
             clips: Vec::new(),
             limits: Vec::new(),
+            places: Vec::new(),
             bounds: Vec::new(),
             atom_kinds: Vec::new(),
             layout_kinds: Vec::new(),
@@ -127,6 +129,7 @@ impl<C: Context> Frame<C> {
         self.atoms.clear();
         self.clips.clear();
         self.limits.clear();
+        self.places.clear();
         self.bounds.clear();
         self.areas_requested.clear();
         self.bump.clear();
@@ -326,10 +329,10 @@ impl<C: Context> Frame<C> {
             layout: BumpId::NONE,
             layout_kind: 0,
             limits: LimitsId::NONE,
+            place: PlaceId::NONE,
             clip: StoredClipId::NONE,
             item: BumpId::NONE,
             relative: parent.unwrap_or(id),
-            out_of_flow: false,
             interactive: false,
             bounds: BoundsId::NONE,
             resolved_clip: ResolvedClipId::NONE,
@@ -437,10 +440,10 @@ pub struct StoredNode {
     layout: BumpId,
     layout_kind: u16,
     limits: LimitsId,
+    place: PlaceId,
     clip: StoredClipId,
     item: BumpId,
     relative: NodeId,
-    out_of_flow: bool,
     interactive: bool,
     bounds: BoundsId,
     resolved_clip: ResolvedClipId,
@@ -482,6 +485,19 @@ struct StoredAtom {
     next: StoredAtomId,
 }
 
+struct StoredPlace<C: Context> {
+    bump_id: BumpId,
+    run: for<'a> fn(&mut layout::PlaceCx<'a, C>, BumpId) -> Point<C::Scalar>,
+}
+
+impl<C: Context> Clone for StoredPlace<C> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<C: Context> Copy for StoredPlace<C> {}
+
 #[derive(Clone, Copy)]
 struct StoredClip {
     kind: u16,
@@ -506,6 +522,7 @@ impl<T> Index<T> {
 type StoredAtomId = Index<StoredAtom>;
 type StoredClipId = Index<StoredClip>;
 type LimitsId = Index<Constraints<()>>;
+type PlaceId = Index<StoredPlace<()>>;
 type BoundsId = Index<Bounds<()>>;
 type ResolvedClipId = Index<ResolvedClip<()>>;
 

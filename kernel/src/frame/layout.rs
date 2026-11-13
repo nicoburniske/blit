@@ -10,7 +10,6 @@ pub struct LayoutCx<'a, C: Context, I = ()> {
     target_start: usize,
     node: NodeId,
     content_origin: Point<C::Scalar>,
-    position_origin: Point<C::Scalar>,
     default_item: BumpId,
     item: PhantomData<fn() -> I>,
 }
@@ -20,17 +19,10 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         self.node
     }
 
-    pub fn relative(&self) -> NodeId {
-        self.frame.nodes[self.node.index()].relative
-    }
-
-    #[expect(clippy::misnamed_getters, reason = "layout uses the visual parent")]
-    pub fn parent(&self) -> NodeId {
-        self.frame.nodes[self.node.index()].visual_parent
-    }
-
-    pub fn size(&self, node: NodeId) -> Size<C::Scalar> {
-        self.placements[node.index()].area.size()
+    pub fn size(&self, child: NodeId) -> Size<C::Scalar> {
+        #[cfg(debug_assertions)]
+        self.assert_child(child);
+        self.placements[child.index()].area.size()
     }
 
     pub fn measure_atoms(&mut self, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
@@ -38,14 +30,7 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         self.cast::<()>().measure(node, constraints)
     }
 
-    pub fn set_position(&mut self, position: Point<C::Scalar>) {
-        let area = &mut self.placements[self.node.index()].area;
-        area.x = position.x.endpoint(self.position_origin.x);
-        area.y = position.y.endpoint(self.position_origin.y);
-    }
-
     /// offsets current flow children and subsequent child position writes
-    /// self position writes compensate for the content offset
     pub fn offset(&mut self, offset: Point<C::Scalar>) -> LayoutCx<'_, C, I> {
         for child in self.children() {
             let area = &mut self.placements[child.index()].area;
@@ -59,10 +44,6 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
             content_origin: Point::new(
                 self.content_origin.x.endpoint(offset.x),
                 self.content_origin.y.endpoint(offset.y),
-            ),
-            position_origin: Point::new(
-                self.position_origin.x.endpoint(-offset.x),
-                self.position_origin.y.endpoint(-offset.y),
             ),
             ..*self
         }
@@ -104,11 +85,13 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     }
 
     pub fn target_size(&self, child: NodeId) -> Size<C::Scalar> {
+        #[cfg(debug_assertions)]
+        self.assert_child(child);
         child
             .index()
             .checked_sub(self.target_start)
             .and_then(|index| self.frame.target_sizes.get(index))
-            .map_or_else(|| self.size(child), |target| target.size)
+            .map_or_else(|| self.placements[child.index()].area.size(), |target| target.size)
     }
 
     pub fn set_child_position(&mut self, child: NodeId, position: Point<C::Scalar>) {
@@ -149,7 +132,7 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         else {
             return (None, None);
         };
-        let current = self.size(child);
+        let current = self.placements[child.index()].area.size();
         (
             target
                 .properties
@@ -168,7 +151,7 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     fn assert_child(&self, child: NodeId) -> &'a StoredNode {
         let stored = &self.frame.nodes[child.index()];
         assert!(
-            child != self.node && stored.parent == self.node && !stored.out_of_flow,
+            child != self.node && stored.parent == self.node && stored.place.index().is_none(),
             "layout can only access direct flow children"
         );
         stored
@@ -228,7 +211,6 @@ impl<'a, C: Context> LayoutCx<'a, C> {
                 target_start: self.target_start,
                 node,
                 content_origin: Point::ZERO,
-                position_origin: self.content_origin,
                 default_item: kind.default_item,
                 item: PhantomData,
             };
@@ -253,6 +235,65 @@ impl<'a, C: Context> LayoutCx<'a, C> {
     }
 }
 
+/// resolves an out of flow node after all flow layout
+pub struct PlaceCx<'a, C: Context> {
+    layout: LayoutCx<'a, C>,
+    node: NodeId,
+    parent: Size<C::Scalar>,
+    target: Rect<C::Scalar>,
+}
+
+impl<C: Context> PlaceCx<'_, C> {
+    pub fn node(&self) -> NodeId {
+        self.node
+    }
+
+    /// the visual parent's size
+    pub fn parent(&self) -> Size<C::Scalar> {
+        self.parent
+    }
+
+    /// the target's area in frame coordinates
+    pub fn target(&self) -> Rect<C::Scalar> {
+        self.target
+    }
+
+    pub fn screen(&self) -> Rect<C::Scalar> {
+        self.layout.frame.screen
+    }
+
+    /// lays out this node and returns its current size
+    pub fn resolve(&mut self, bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
+        self.layout.resolve(self.node, bounds)
+    }
+
+    /// this node's size once size motion settles
+    /// use it for structural decisions such as flipping
+    pub fn target_size(&self) -> Size<C::Scalar> {
+        let layout = &self.layout;
+        self.node
+            .index()
+            .checked_sub(layout.target_start)
+            .and_then(|index| layout.frame.target_sizes.get(index))
+            .map_or_else(
+                || layout.placements[self.node.index()].area.size(),
+                |target| target.size,
+            )
+    }
+
+    pub fn request_frame(&mut self) {
+        self.layout.request_frame();
+    }
+
+    pub fn context(&self) -> &C {
+        self.layout.context
+    }
+
+    pub fn context_mut(&mut self) -> &mut C {
+        self.layout.context
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Children<'a> {
     nodes: &'a [StoredNode],
@@ -268,7 +309,7 @@ impl Iterator for Children<'_> {
             let node = self.next;
             let stored = &self.nodes[node.index()];
             self.next.value = stored.subtree_end + 1;
-            if !stored.out_of_flow {
+            if stored.place.index().is_none() {
                 return Some(node);
             }
         }
@@ -300,7 +341,7 @@ pub fn resolve<C: Context>(
     let mut index = start;
     while index < end {
         let stored = &nodes[index];
-        if !commit && start != 0 && stored.out_of_flow {
+        if !commit && start != 0 && stored.place.index().is_some() {
             index = stored.subtree_end as usize + 1;
             continue;
         }
@@ -394,6 +435,11 @@ pub fn position<C: Context>(frame: &mut Frame<C>) {
     }
 }
 
+pub fn place<C: Context, P: Place<C>>(cx: &mut PlaceCx<'_, C>, id: BumpId) -> Point<C::Scalar> {
+    let bump = cx.layout.bump;
+    bump.load::<P>(id).place(cx)
+}
+
 pub fn run<'a, C: Context, L: Layout<C>>(
     cx: &mut LayoutCx<'a, C>,
     id: BumpId,
@@ -421,23 +467,46 @@ fn arrange<C: Context>(
         target_start: node.index(),
         node,
         content_origin: Point::ZERO,
-        position_origin: Point::ZERO,
         default_item: BumpId::NONE,
         item: PhantomData::<fn() -> ()>,
     };
     let size = cx.resolve(node, bounds);
     if node.value == 0 {
         for index in 1..cx.frame.nodes.len() {
-            if !cx.frame.nodes[index].out_of_flow {
+            let stored = &cx.frame.nodes[index];
+            let Some(place) = stored.place.index() else {
                 continue;
+            };
+            let place = cx.frame.places[place];
+            // earlier areas are final and relative to their references
+            let mut reference = stored.relative;
+            let mut origin = Point::ZERO;
+            loop {
+                let area = cx.placements[reference.index()].area;
+                origin = Point::new(origin.x + area.x, origin.y + area.y);
+                let next = cx.frame.nodes[reference.index()].relative;
+                if next == reference {
+                    break;
+                }
+                reference = next;
             }
+            let size = cx.placements[stored.relative.index()].area.size();
+            let parent = cx.placements[stored.visual_parent.index()].area.size();
+            let mut place_cx = PlaceCx {
+                layout: LayoutCx {
+                    placements: &mut *cx.placements,
+                    context: &mut *cx.context,
+                    frame_requested: &mut *cx.frame_requested,
+                    ..cx
+                },
+                node: NodeId::new(index),
+                parent,
+                target: Rect::new(origin.x, origin.y, size.width, size.height),
+            };
+            let position = (place.run)(&mut place_cx, place.bump_id);
             let area = &mut cx.placements[index].area;
-            area.x = C::Scalar::ZERO;
-            area.y = C::Scalar::ZERO;
-            cx.resolve(
-                NodeId::new(index),
-                Constraints::loose(Size::uniform(C::Scalar::UNBOUNDED)),
-            );
+            area.x = position.x;
+            area.y = position.y;
         }
     }
     frame.placements = placements;

@@ -65,7 +65,7 @@ fn layout_and_paint() {
             panel.child().insert(Fill('C', Size::uniform(1.0)));
         });
         column.child();
-        column.child().layout(At((), |_| Point::ZERO));
+        column.child().place(NodeTarget::Parent, At(|_| Point::ZERO));
     });
     assert_eq!(
         context.commands,
@@ -163,16 +163,18 @@ fn owned_values_and_paint_bounds() {
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
         for (index, offset) in [Point::ZERO, Point::new(-4.0, 0.0)].into_iter().enumerate() {
-            root.child().layout(At((), |_| Point::new(4.0, 0.0))).insert(Probe {
-                result: results[index].clone(),
-                offset,
-            });
+            root.child()
+                .place(NodeTarget::Parent, At(|_| Point::new(4.0, 0.0)))
+                .insert(Probe {
+                    result: results[index].clone(),
+                    offset,
+                });
         }
         root.child()
             .layout(Fixed(Size::uniform(1.0)))
             .clip(TestClip)
             .child()
-            .layout(At((), |_| Point::new(1.0, 0.0)))
+            .place(NodeTarget::Parent, At(|_| Point::new(1.0, 0.0)))
             .insert(Probe {
                 result: results[2].clone(),
                 offset: Point::ZERO,
@@ -195,8 +197,7 @@ fn anchors_and_clip_parents() {
         let mut root = ui.layout(Overlay);
         root.child().id(anchor).insert(Fill('T', Size::uniform(2.0)));
         root.child()
-            .layout(At((), |size| Point::new(size.width, size.height)))
-            .relative(anchor)
+            .place(anchor, At(|size| Point::new(size.width, size.height)))
             .insert(Fill('A', Size::uniform(1.0)));
     });
     assert_eq!(
@@ -245,20 +246,22 @@ fn visual_parent_and_hit_order() {
             let mut root = ui.layout(Overlay);
             if open {
                 root.child()
-                    .layout(At(Full, |_| Point::ZERO))
+                    .place(NodeTarget::Parent, Full(|_| Point::ZERO))
                     .z_index(1)
                     .id(modal)
                     .insert(Fill('M', Size::ZERO));
             }
             root.child().clip(TestClip).build(|ui: Ui<'_>| {
                 let outer = ui.node_id();
-                ui.layout(At(Fixed(Size::uniform(5.0)), |_| Point::new(1.0, 0.0)))
+                ui.place(NodeTarget::Parent, At(|_| Point::new(1.0, 0.0)))
+                    .layout(Fixed(Size::uniform(5.0)))
                     .child()
                     .clip(TestClip)
                     .build(|ui: Ui<'_>| {
-                        ui.layout(At(Fixed(Size::uniform(1.0)), |_| Point::new(2.0, 2.0)))
+                        ui.place(NodeTarget::Parent, At(|_| Point::new(2.0, 2.0)))
+                            .layout(Fixed(Size::uniform(1.0)))
                             .child()
-                            .layout(At(Full, |_| Point::new(-2.0, -2.0)))
+                            .place(NodeTarget::Parent, Full(|_| Point::new(-2.0, -2.0)))
                             .parent(outer)
                             .z_index(i16::MAX)
                             .id(popup)
@@ -322,7 +325,7 @@ fn targets_reject_invalid_references() {
         },
         |ui, id| {
             let mut root = ui.layout(Overlay);
-            root.child().layout(At((), |_| Point::ZERO)).relative(id).insert(());
+            root.child().place(id, At(|_| Point::ZERO)).insert(());
             root.id(id).insert(());
         },
         |ui, id| ui.id(id).parent(id).insert(()),
@@ -382,10 +385,7 @@ fn node_targets_reject_previous_renders() {
                 render(&mut frame, &mut context, |ui: Ui<'_>| {
                     let mut root = ui.layout(Overlay);
                     if anchor {
-                        root.child()
-                            .layout(At((), |_| Point::ZERO))
-                            .relative(previous)
-                            .insert(());
+                        root.child().place(previous, At(|_| Point::ZERO)).insert(());
                     } else {
                         root.child().parent(previous).insert(());
                     }
@@ -425,7 +425,7 @@ fn bindings_and_geometry() {
             if count != 0 {
                 root.child().id(b).insert(());
                 root.child().id(a).parent(b).insert(());
-                root.child().layout(At((), |_| Point::ZERO)).relative(a).insert(());
+                root.child().place(a, At(|_| Point::ZERO)).insert(());
             }
         });
         assert_eq!(frame.area(a).is_some(), count != 0);

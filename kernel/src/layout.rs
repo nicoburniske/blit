@@ -1,10 +1,10 @@
 use crate::{
-    Context, Ui,
+    Context, Scalar,
     geometry::{Constraints, Point, Size},
 };
 pub use crate::{
     Scratch,
-    frame::layout::{Children, LayoutCx},
+    frame::layout::{Children, LayoutCx, PlaceCx},
 };
 
 pub trait Layout<C: Context>: 'static {
@@ -15,10 +15,19 @@ pub trait Layout<C: Context>: 'static {
     /// sizes and positions children and returns a constrained size
     /// the kernel resets flow child positions before invoking this layout
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<C::Scalar>) -> Size<C::Scalar>;
+}
 
-    /// configures this node before the layout is stored
-    fn on_insert<'a>(&self, ui: Ui<'a, C>) -> Ui<'a, C> {
-        ui
+/// sizes and positions an out of flow node in place of a parent layout
+pub trait Place<C: Context>: 'static {
+    /// resolves this node through `cx` and returns its position relative to the target
+    fn place(&self, cx: &mut PlaceCx<'_, C>) -> Point<C::Scalar>;
+}
+
+/// places at the target's origin under unbounded constraints
+impl<C: Context> Place<C> for () {
+    fn place(&self, cx: &mut PlaceCx<'_, C>) -> Point<C::Scalar> {
+        cx.resolve(Constraints::loose(Size::uniform(C::Scalar::UNBOUNDED)));
+        Point::ZERO
     }
 }
 

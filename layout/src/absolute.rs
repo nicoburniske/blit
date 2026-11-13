@@ -1,24 +1,26 @@
-use blit::{Constraints, Context, LayoutCx, NodeTarget, Point, Scalar, Size, Ui};
+use blit::{Axis, Constraints, Context, PlaceCx, Point, Scalar, Size};
 
 use super::sizing_range;
 
-pub fn place<L, T: Scalar>(inner: L) -> Layout<L, T> {
-    Layout::new(inner)
+pub fn place<T: Scalar>() -> Place<T> {
+    Place::new()
 }
 
 blit::builder! {
-    /// positions a layout outside its parent's flow with x and y offsets from its anchors
+    /// sizes against the visual parent and positions with x and y offsets from anchors on the target
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Layout<L, T: Scalar> {
-        new(inner: L),
-        #[into]
-        target: NodeTarget = NodeTarget::Parent,
+    pub struct Place<T: Scalar> {
+        new(),
         target_anchor: Anchor = Anchor::TopLeft,
         child_anchor: Anchor = Anchor::TopLeft,
         x: T = T::ZERO,
         y: T = T::ZERO,
         width: Sizing<T> = Sizing::fit(),
         height: Sizing<T> = Sizing::fit(),
+        /// mirrors anchors and offset on an axis that overflows the screen when the mirror fits
+        flip: bool = false,
+        /// shifts into the screen after flipping
+        clamp: bool = false,
     }
 }
 
@@ -65,15 +67,8 @@ pub enum Anchor {
     BottomRight,
 }
 
-impl<C: Context<Scalar = T>, L: blit::Layout<C>, T: Scalar> blit::Layout<C> for Layout<L, T> {
-    type Item = L::Item;
-
-    fn on_insert<'a>(&self, ui: Ui<'a, C>) -> Ui<'a, C> {
-        self.inner.on_insert(ui).relative(self.target)
-    }
-
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<T>) -> Size<T> {
-        let available = cx.size(cx.parent());
+impl<C: Context<Scalar = T>, T: Scalar> blit::Place<C> for Place<T> {
+    fn place(&self, cx: &mut PlaceCx<'_, C>) -> Point<T> {
         let range = |sizing, available| {
             let sizing = match sizing {
                 Sizing::Fit { min, max } => crate::Sizing::Fit { min, max },
@@ -82,15 +77,13 @@ impl<C: Context<Scalar = T>, L: blit::Layout<C>, T: Scalar> blit::Layout<C> for 
             };
             sizing_range(sizing, available)
         };
-        let width = range(self.width, available.width);
-        let height = range(self.height, available.height);
-        let size = self.inner.layout(
-            cx,
-            Constraints {
-                min: bounds.constrain(Size::new(width.0, height.0)),
-                max: bounds.constrain(Size::new(width.1, height.1)),
-            },
-        );
+        let parent = cx.parent();
+        let width = range(self.width, parent.width);
+        let height = range(self.height, parent.height);
+        let size = cx.resolve(Constraints {
+            min: Size::new(width.0, height.0),
+            max: Size::new(width.1, height.1),
+        });
         let anchor = |anchor| match anchor {
             Anchor::TopLeft => Point::new(0.0, 0.0),
             Anchor::Top => Point::new(0.5, 0.0),
@@ -102,20 +95,48 @@ impl<C: Context<Scalar = T>, L: blit::Layout<C>, T: Scalar> blit::Layout<C> for 
             Anchor::Bottom => Point::new(0.5, 1.0),
             Anchor::BottomRight => Point::new(1.0, 1.0),
         };
-        let target = cx.size(cx.relative());
         let target_anchor = anchor(self.target_anchor);
         let child_anchor = anchor(self.child_anchor);
-        let offset = |target, child, target_anchor, child_anchor| {
-            let start =
-                if target_anchor == 1.0 { target } else { T::ZERO } - if child_anchor == 1.0 { child } else { T::ZERO };
-            let end =
-                if target_anchor == 0.0 { T::ZERO } else { target } - if child_anchor == 0.0 { T::ZERO } else { child };
-            start.lerp(end, 0.5)
+        let settled = cx.target_size();
+        let target = cx.target();
+        let screen = cx.screen();
+        // offsets are relative to the target while overflow tests use frame coordinates
+        let axis = |axis: Axis, offset: T, target_anchor: f32, child_anchor: f32| {
+            let (start, screen_start) = match axis {
+                Axis::Horizontal => (target.x, screen.x),
+                Axis::Vertical => (target.y, screen.y),
+            };
+            let extent = axis.extent(target.size());
+            let screen_end = screen_start.endpoint(axis.extent(screen.size()));
+            let position = |size: T, target_anchor: f32, child_anchor: f32, offset: T| {
+                let from = if target_anchor == 1.0 { extent } else { T::ZERO }
+                    - if child_anchor == 1.0 { size } else { T::ZERO };
+                let to = if target_anchor == 0.0 { T::ZERO } else { extent }
+                    - if child_anchor == 0.0 { T::ZERO } else { size };
+                from.lerp(to, 0.5) + offset
+            };
+            // flipping tests the settled size so size motion does not switch sides midway
+            let settled = axis.extent(settled);
+            let overflows = |target_anchor, child_anchor, offset| {
+                let position = start + position(settled, target_anchor, child_anchor, offset);
+                position < screen_start || position.endpoint(settled) > screen_end
+            };
+            let size = axis.extent(size);
+            let mut result = position(size, target_anchor, child_anchor, offset);
+            if self.flip
+                && overflows(target_anchor, child_anchor, offset)
+                && !overflows(1.0 - target_anchor, 1.0 - child_anchor, T::ZERO - offset)
+            {
+                result = position(size, 1.0 - target_anchor, 1.0 - child_anchor, T::ZERO - offset);
+            }
+            if self.clamp {
+                result = (start + result).min(screen_end - size).max(screen_start) - start;
+            }
+            result
         };
-        cx.set_position(Point::new(
-            offset(target.width, size.width, target_anchor.x, child_anchor.x) + self.x,
-            offset(target.height, size.height, target_anchor.y, child_anchor.y) + self.y,
-        ));
-        size
+        Point::new(
+            axis(Axis::Horizontal, self.x, target_anchor.x, child_anchor.x),
+            axis(Axis::Vertical, self.y, target_anchor.y, child_anchor.y),
+        )
     }
 }
