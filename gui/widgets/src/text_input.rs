@@ -205,9 +205,8 @@ where
                 .background(self.cursor_background)
                 .paint(cursor, context);
         }
-        let mut colors = context.store_mut().slice(1);
-        colors.push(self.color);
-        let text = TextAtom::new(self.display, colors.finish())
+        let colors = context.store_mut().slice_from(&[self.color]);
+        let text = TextAtom::new(self.display, colors)
             .offset_x(self.state.offset_x)
             .options(self.options);
         context.paint(area, text);

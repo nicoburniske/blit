@@ -66,6 +66,14 @@ impl FrameStore {
         }
     }
 
+    /// copies values into storage until this storage is cleared
+    pub fn slice_from<T: Copy + 'static>(&mut self, values: &[T]) -> FrameSlice<T> {
+        let mut slice = self.slice(values.len());
+        slice.values.write_copy_of_slice(values);
+        slice.slice.len = values.len() as u32;
+        slice.finish()
+    }
+
     pub fn view<T: Copy + 'static>(&self, slice: FrameSlice<T>) -> &[T] {
         if slice.slice.len == 0 {
             return &[];
@@ -110,9 +118,24 @@ impl<T: Copy> FrameSliceBuilder<'_, T> {
 
 impl<T: Copy> Extend<T> for FrameSliceBuilder<'_, T> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, values: I) {
-        for value in values {
-            self.push(value);
-        }
+        let values = values.into_iter();
+        let start = self.slice.len as usize;
+        let slots = &mut self.values[start..];
+        let (lower, upper) = values.size_hint();
+        assert!(lower <= slots.len(), "frame slice capacity exceeded");
+        // an exact hint trims the slots so the indexed writes need no capacity check
+        let slots = if upper == Some(lower) {
+            &mut slots[..lower]
+        } else {
+            slots
+        };
+        let mut written = 0;
+        values.for_each(|value| {
+            slots[written].write(value);
+            written += 1;
+        });
+        // committed last so a panicking iterator never counts unwritten slots
+        self.slice.len = (start + written) as u32;
     }
 }
 

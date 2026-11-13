@@ -40,12 +40,8 @@ impl Path<'_> {
         let Some(bounds) = self.bounds() else {
             return;
         };
-        let mut verbs = context.store_mut().slice(self.verbs.len());
-        verbs.extend(self.verbs.iter().copied());
-        let verbs = verbs.finish();
-        let mut points = context.store_mut().slice(self.points.len());
-        points.extend(self.points.iter().copied());
-        let points = points.finish();
+        let verbs = context.store_mut().slice_from(self.verbs);
+        let points = context.store_mut().slice_from(self.points);
         let stored = Stored {
             verbs,
             points,

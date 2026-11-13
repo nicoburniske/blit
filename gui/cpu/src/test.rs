@@ -475,9 +475,7 @@ fn prepared_draws_capture_data_and_drop_results_once() {
     {
         fn paint(&mut self, bounds: LogicalRect, samples: Samples<'_>) {
             let mut cx = self.record(bounds);
-            let mut values = cx.store_mut().slice(samples.0.len());
-            values.extend(samples.0.iter().copied());
-            let values = values.finish();
+            let values = cx.store_mut().slice_from(samples.0);
             cx.push::<SamplesRenderer>(SamplesData(values, samples.1), None);
         }
     }
@@ -966,15 +964,11 @@ fn renderer_supports_custom_pixel_layouts() {
         (0.0, [Color::WHITE, Color::rgb(255, 0, 0)]),
         (32.0, [Color::rgb(255, 0, 0), Color::WHITE]),
     ] {
-        let mut stored = renderer.store_mut().slice(colors.len());
-        stored.extend(colors);
-        let stored = stored.finish();
+        let stored = renderer.store_mut().slice_from(&colors);
         renderer.paint(LogicalRect::new(x, 0.0, 32.0, 24.0), TextAtom::new(text, stored));
         colors.fill(Color::TRANSPARENT);
     }
-    let mut stored = renderer.store_mut().slice(1);
-    stored.push(Color::WHITE);
-    let stored = stored.finish();
+    let stored = renderer.store_mut().slice_from(&[Color::WHITE]);
     renderer.paint(LogicalRect::new(64.0, 0.0, 32.0, 24.0), TextAtom::new(text, stored));
     renderer.render(0);
 
@@ -1229,9 +1223,7 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
                             .paint(area, &mut renderer);
                     }
                     "text" => {
-                        let mut colors = renderer.store_mut().slice(1);
-                        colors.push(color);
-                        let colors = colors.finish();
+                        let colors = renderer.store_mut().slice_from(&[color]);
                         renderer.paint(area, TextAtom::new(text, colors));
                     }
                     "image" => renderer.paint(area, Image::new(&image).opacity(if frame == 0 { 0.5 } else { 1.0 })),
@@ -1274,9 +1266,7 @@ fn text_placement_tracks_physical_clip_size() {
                     .rich_text("MM", &[Span::new(0..1), Span::new(1..2)], TextStyle::new().size(20.0));
             let screen = renderer.screen();
             renderer.paint(screen.to_logical(SCALE), Clear);
-            let mut colors = renderer.store_mut().slice(2);
-            colors.extend([Color::rgb(255, 0, 0), Color::WHITE]);
-            let colors = colors.finish();
+            let colors = renderer.store_mut().slice_from(&[Color::rgb(255, 0, 0), Color::WHITE]);
             renderer.paint(
                 LogicalRect::new(x, y, 8.0, 8.0),
                 TextAtom::new(text, colors).offset_x(12.0),
@@ -2079,9 +2069,8 @@ fn rounded_clips_match_between_strategies() {
         };
         let red = Rectangle::new().background(Color::rgb(255, 0, 0));
         let image = Image::new(&image);
-        let mut colors = renderer.store_mut().slice(1);
-        colors.push(Color::WHITE);
-        let text = TextAtom::new(string, colors.finish());
+        let colors = renderer.store_mut().slice_from(&[Color::WHITE]);
+        let text = TextAtom::new(string, colors);
 
         renderer.push_clip(
             area,

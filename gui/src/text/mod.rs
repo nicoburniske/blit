@@ -37,9 +37,7 @@ where
 
     fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
         let run = ui.context_mut().text().text_run(self.text, self.style);
-        let mut colors = ui.store_mut().slice(1);
-        colors.push(self.style.color);
-        let colors = colors.finish();
+        let colors = ui.store_mut().slice_from(&[self.style.color]);
         ui.insert(TextAtom::new(run, colors).offset_x(self.offset_x).options(self.options));
     }
 }

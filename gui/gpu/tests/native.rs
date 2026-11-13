@@ -153,9 +153,7 @@ fn renders_primitives_and_rebuilds_frames() {
     let shadow = Shadow::new(Color::rgb(255, 0, 0)).blur(1.0);
     renderer.paint(LogicalRect::new(14.0, 9.0, 1.0, 1.0), shadow);
     let text = renderer.text().text_run("M", TextStyle::new());
-    let mut colors = renderer.store_mut().slice(1);
-    colors.push(Color::rgb(255, 0, 0));
-    let colors = colors.finish();
+    let colors = renderer.store_mut().slice_from(&[Color::rgb(255, 0, 0)]);
     renderer.paint(LogicalRect::new(1.0, 20.0, 12.0, 20.0), TextAtom::new(text, colors));
     Rectangle::new()
         .background(Color::rgb(0, 255, 0))
@@ -367,9 +365,7 @@ fn renders_primitives_and_rebuilds_frames() {
     }
     .paint(bounds, &mut renderer);
     renderer.paint(bounds, Image::new(&image));
-    let mut colors = renderer.store_mut().slice(1);
-    colors.push(Color::WHITE);
-    let colors = colors.finish();
+    let colors = renderer.store_mut().slice_from(&[Color::WHITE]);
     renderer.paint(bounds, TextAtom::new(text, colors));
     renderer.pop_clip();
     renderer.render(&target);

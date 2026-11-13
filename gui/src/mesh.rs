@@ -19,14 +19,9 @@ impl Mesh<'_> {
         if self.indices.is_empty() || !self.is_valid() {
             return;
         }
-        let mut vertices = context.store_mut().slice(self.vertices.len());
-        vertices.extend(self.vertices.iter().copied());
-        let vertices = vertices.finish();
-        let mut indices = context.store_mut().slice(self.indices.len());
-        indices.extend(self.indices.iter().copied());
         let stored = Stored {
-            vertices,
-            indices: indices.finish(),
+            vertices: context.store_mut().slice_from(self.vertices),
+            indices: context.store_mut().slice_from(self.indices),
         };
         context.paint(bounds, stored);
     }
