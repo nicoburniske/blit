@@ -4,7 +4,7 @@ use blit::{LogicalRect, Paint, PhysicalRect, Point, Scale2, internal::bump::Offs
 use blit_gui::{
     color::Color,
     damage::DamageTracker,
-    text::{TextRequest, system::TextSystem},
+    text::{TextAtom, TextRequest, system::TextSystem},
 };
 use blit_text::GlyphRequest;
 
@@ -13,27 +13,27 @@ use crate::{
     strategy::command::Payload,
 };
 
-impl<B, S, D> Paint<blit_gui::text::Stored> for Renderer<B, S, D>
+impl<B, S, D> Paint<TextAtom> for Renderer<B, S, D>
 where
     B: PixelBuffer,
     S: RenderStrategy<B>,
     D: DamageTracker,
 {
-    fn paint(&mut self, area: LogicalRect, value: blit_gui::text::Stored) {
+    fn paint(&mut self, area: LogicalRect, value: TextAtom) {
         let mut recording = self.record(area);
         recording.record_input(
             recording.bounds,
             recording.clip,
             value,
-            |input, offset, record, _, context| {
+            |_, offset, record, _, context| {
                 let scale = context.commands.scale;
                 let target = &mut *context.commands;
-                let area = input.area.to_physical(Scale2::uniform(scale));
+                let area = record.area.to_physical(Scale2::uniform(scale));
                 if let Some(bounds) = area.intersection(record.bounds) {
                     target.record(bounds, record.clip, offset, |_, offset, prepared, cx| {
-                        // safety: recording stores this offset as blit_gui::text::Stored
-                        let input = unsafe { cx.list.data().get(Offset::<blit_gui::text::Stored>::new(offset)) };
-                        let (text, bounds) = cx.text.prepare(input.area, &input.view(cx.list), cx.scale);
+                        // safety: recording stores this offset as TextAtom
+                        let input = unsafe { cx.list.data().get(Offset::<TextAtom>::new(offset)) };
+                        let (text, bounds) = cx.text.prepare(cx.area, &input.view(cx.list), cx.scale);
                         prepared.push(Payload::Text(text, bounds)).byte()
                     });
                 }

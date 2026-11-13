@@ -164,7 +164,7 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
     right.paint(bounds, (Key(1, counts.clone()), 0u16));
     assert!(!left.context.list.equivalent(0, &right.context.list, 0));
     assert_eq!(counts.comparisons.get(), 0);
-    assert_eq!(size_of::<Command>(), 32);
+    assert_eq!(size_of::<Command>(), 48);
 }
 
 #[test]
@@ -431,7 +431,7 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
     check(|| TileDamage::new(8));
     check(blit_gui::damage::command::CommandDiff::default);
     assert_eq!(size_of::<render::ErasedCommand<Xrgb8888>>(), 40);
-    assert_eq!(size_of::<strategy::command::Metadata>(), 24);
+    assert_eq!(size_of::<strategy::command::Metadata>(), 28);
 }
 
 #[test]

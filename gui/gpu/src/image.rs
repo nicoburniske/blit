@@ -7,10 +7,11 @@ impl Paint<Image> for Renderer {
     fn paint(&mut self, area: LogicalRect, request: Image) {
         self.record_native(
             area,
+            area,
             self.paint_clip,
-            blit_gui::image::Stored { area, image: request },
-            |value, _, renderer, bounds, clip| {
-                let request = &value.image;
+            request,
+            |request, command, _, renderer, bounds| {
+                let clip = command.clip;
 
                 let scale = renderer.scale;
                 let start = renderer.instances.len() as u32;
@@ -23,7 +24,7 @@ impl Paint<Image> for Renderer {
                 };
                 let mask_color = image.mask_color.map(|color| premultiplied(color, 1.0));
                 let colorize = request.colorize.map(|color| premultiplied(color, 1.0));
-                request.for_each_patch(value.area, scale, |patch| {
+                request.for_each_patch(command.area, scale, |patch| {
                     let Some(draw) = patch.bounds.intersection(bounds) else {
                         return;
                     };

@@ -39,6 +39,7 @@ pub fn draw_line<P: Pixel>(
                 &mut commands.prepared,
                 &mut RenderContext {
                     scale: commands.scale,
+                    area: list.commands()[commands.metadata[command as usize].source as usize].area,
                     bounds,
                     clips,
                     clip,

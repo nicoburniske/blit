@@ -27,7 +27,7 @@ blit::builder! {
 
 impl<C> Widget<C, state::Node> for Text<'_>
 where
-    C: Context + Paint<Stored>,
+    C: Context + Paint<TextAtom>,
 {
     type Response = ();
 
@@ -53,7 +53,7 @@ blit::builder! {
 
 impl<C> Widget<C, state::Node> for RichText<'_>
 where
-    C: Context + Paint<Stored>,
+    C: Context + Paint<TextAtom>,
 {
     type Response = ();
 
@@ -86,17 +86,16 @@ pub struct TextRequest<'a> {
 
 impl TextRequest<'_> {
     /// stores borrowed colors in the context and paints the result
-    pub fn paint<C: HasFrameStore + Paint<Stored, Scalar = f32>>(self, area: LogicalRect, context: &mut C) {
+    pub fn paint<C: HasFrameStore + Paint<TextAtom, Scalar = f32>>(self, area: LogicalRect, context: &mut C) {
         let mut colors = context.store_mut().slice(self.colors.len());
         colors.extend(self.colors.iter().copied());
-        let stored = Stored {
-            area,
+        let text = TextAtom {
             text: self.text,
             colors: colors.finish(),
             offset_x: self.offset_x,
             options: self.options,
         };
-        context.paint(area, stored);
+        context.paint(area, text);
     }
 
     pub fn span_color(&self, span: usize) -> Color {
@@ -126,15 +125,7 @@ impl Hash for TextRequest<'_> {
     }
 }
 
-pub struct Stored {
-    pub area: LogicalRect,
-    pub text: TextRun,
-    pub colors: FrameSlice<Color>,
-    pub offset_x: f32,
-    pub options: TextOptions,
-}
-
-impl Stored {
+impl TextAtom {
     #[inline]
     pub fn view<'a>(&self, list: &'a DisplayList) -> TextRequest<'a> {
         TextRequest {
@@ -146,16 +137,13 @@ impl Stored {
     }
 }
 
-impl Compare for Stored {
+impl Compare for TextAtom {
     #[inline]
     fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
-        a.area == b.area && a.view(left) == b.view(right)
+        a.view(left) == b.view(right)
     }
 
     fn hash(value: &Self, list: &DisplayList, state: &mut impl Hasher) {
-        [value.area.x, value.area.y, value.area.width, value.area.height]
-            .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
-            .hash(state);
         value.view(list).hash(state);
     }
 }
@@ -305,7 +293,7 @@ blit::builder! {
 
 impl<C> Atom<C> for TextAtom
 where
-    C: Context + Paint<Stored>,
+    C: Context + Paint<Self>,
 {
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         let measured = cx.context_mut().text().measure(&TextLayoutRequest {
@@ -319,15 +307,6 @@ where
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        cx.context_mut().paint(
-            area,
-            Stored {
-                area,
-                text: self.text,
-                colors: self.colors,
-                offset_x: self.offset_x,
-                options: self.options,
-            },
-        );
+        cx.context_mut().paint(area, *self);
     }
 }

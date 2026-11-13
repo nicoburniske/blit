@@ -1,7 +1,7 @@
-use std::{any::TypeId, hash::Hash, ops::Range, ptr::NonNull};
+use std::{any::TypeId, ops::Range, ptr::NonNull};
 
 use blit::{FrameStore, LogicalRect, PhysicalRect, Scale2};
-use blit_gui::display_list::{Compare, DisplayList};
+use blit_gui::display_list::{Command, Compare, DisplayList};
 
 use crate::{Effects, Renderer};
 
@@ -36,6 +36,8 @@ pub trait Render: Sized + 'static {
 /// resource preparation before any frame commands are submitted
 pub struct PrepareContext<'a> {
     pub scale: f32,
+    /// logical layout area of the recorded command
+    pub area: LogicalRect,
     /// visible physical output after screen and rectangular ancestor clipping
     pub bounds: PhysicalRect,
     pub clip: u32,
@@ -187,24 +189,28 @@ impl Drop for ErasedRenderer {
     }
 }
 impl Renderer {
-    pub(crate) fn record_native<T, F>(&mut self, bounds: LogicalRect, clip: u32, value: T, prepare: F)
-    where
+    /// bounds are the logical pixels touched which may extend past area
+    pub(crate) fn record_native<T, F>(
+        &mut self,
+        area: LogicalRect,
+        bounds: LogicalRect,
+        clip: u32,
+        value: T,
+        prepare: F,
+    ) where
         T: Compare,
-        F: Fn(&T, &DisplayList, &mut Renderer, PhysicalRect, u32) + 'static,
+        F: Fn(&T, &Command, &DisplayList, &mut Renderer, PhysicalRect) + 'static,
     {
         // safety: this renderer dispatches its list with DispatchContext
         unsafe {
             self.list.record(
+                area,
                 bounds.to_physical(Scale2::uniform(self.scale)),
                 clip,
                 value,
-                move |value: &T,
-                      _,
-                      command: &blit_gui::display_list::Command,
-                      list: &DisplayList,
-                      context: &mut DispatchContext<'_>| {
+                move |value: &T, _, command: &Command, list: &DisplayList, context: &mut DispatchContext<'_>| {
                     if let Some(bounds) = context.bounds(command, list) {
-                        prepare(value, list, context.renderer, bounds, command.clip);
+                        prepare(value, command, list, context.renderer, bounds);
                     }
                 },
             );
@@ -316,10 +322,4 @@ impl DispatchContext<'_> {
         }
         Some(bounds)
     }
-}
-
-pub fn hash_area(area: LogicalRect, state: &mut impl std::hash::Hasher) {
-    [area.x, area.y, area.width, area.height]
-        .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
-        .hash(state);
 }

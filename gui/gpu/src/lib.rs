@@ -371,10 +371,13 @@ impl Renderer {
 
     /// begins recording inputs within bounds
     #[inline]
-    pub fn record(&mut self, bounds: LogicalRect) -> RecordContext<'_> {
+    /// begins recording drawing inputs for a logical area
+    /// bounds start as the physical area and may be widened for outsets
+    pub fn record(&mut self, area: LogicalRect) -> RecordContext<'_> {
         RecordContext {
             scale: self.scale,
-            bounds: bounds.to_physical(Scale2::uniform(self.scale)),
+            area,
+            bounds: area.to_physical(Scale2::uniform(self.scale)),
             renderer: self,
         }
     }
@@ -761,6 +764,7 @@ impl Renderer {
 
 pub struct RecordContext<'a> {
     pub scale: f32,
+    pub area: LogicalRect,
     pub bounds: PhysicalRect,
     renderer: &'a mut Renderer,
 }
@@ -790,6 +794,7 @@ impl RecordContext<'_> {
             let scale = dispatch.renderer.scale;
             let mut context = PrepareContext {
                 scale,
+                area: command.area,
                 bounds,
                 clip: command.clip,
                 size: [dispatch.screen.width as u32, dispatch.screen.height as u32],
@@ -851,7 +856,7 @@ impl RecordContext<'_> {
         unsafe {
             self.renderer
                 .list
-                .record(self.bounds, self.renderer.paint_clip, input, prepare);
+                .record(self.area, self.bounds, self.renderer.paint_clip, input, prepare);
         }
     }
 }

@@ -15,6 +15,8 @@ use crate::{
 
 pub struct RenderContext<'a, P> {
     pub scale: f32,
+    /// logical layout area of the recorded command
+    pub area: LogicalRect,
     /// physical command bounds before clipping
     pub bounds: PhysicalRect,
     pub(crate) clips: &'a ClipStack,
@@ -100,17 +102,18 @@ impl<'a, P: Pixel> RenderContext<'a, P> {
             RenderTarget::Pass { target, output } => {
                 for bounds in output.rects().filter_map(|region| region.intersection(area)) {
                     for y in bounds.y..bounds.y + bounds.height {
-                        self.clips.for_each(self.clip, y, bounds.x..bounds.x + bounds.width, |range, coverage| {
-                            draw(Span {
-                                x: range.start,
-                                y,
-                                coverage,
-                                list: self.list,
-                                images: self.images,
-                                gradients: self.gradients,
-                                pixels: target.write_line(y as usize, range.start as usize..range.end as usize),
+                        self.clips
+                            .for_each(self.clip, y, bounds.x..bounds.x + bounds.width, |range, coverage| {
+                                draw(Span {
+                                    x: range.start,
+                                    y,
+                                    coverage,
+                                    list: self.list,
+                                    images: self.images,
+                                    gradients: self.gradients,
+                                    pixels: target.write_line(y as usize, range.start as usize..range.end as usize),
+                                });
                             });
-                        });
                     }
                 }
             }

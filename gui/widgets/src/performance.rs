@@ -47,7 +47,7 @@ blit::builder! {
 impl<C> Widget<C> for Performance<'_>
 where
     C: Context + blit_widgets::Context + AsRef<FrameProfiler>,
-    C: Paint<blit_gui::rectangle::Stored> + Paint<blit_gui::text::Stored>,
+    C: Paint<blit_gui::rectangle::RectangleAtom> + Paint<blit_gui::text::TextAtom>,
 {
     type Response = ();
 

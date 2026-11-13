@@ -70,9 +70,17 @@ impl DisplayList {
     /// the operations must match T and its backend interpretation
     /// matching kinds must have the same representation and comparison semantics
     /// all referenced storage must belong to this list
-    pub unsafe fn push<T: 'static>(&mut self, bounds: PhysicalRect, clip: u32, value: T, ops: &'static Ops) {
+    pub unsafe fn push<T: 'static>(
+        &mut self,
+        area: LogicalRect,
+        bounds: PhysicalRect,
+        clip: u32,
+        value: T,
+        ops: &'static Ops,
+    ) {
         assert!(clip as usize <= self.clips.len(), "invalid paint clip");
         self.commands.push(Command {
+            area,
             bounds,
             clip,
             value: self.data.push(value).byte(),
@@ -85,7 +93,7 @@ impl DisplayList {
     /// # Safety
     /// commands must be dispatched with a context matching C
     /// all referenced storage must belong to this list
-    pub unsafe fn record<T, F, C>(&mut self, bounds: PhysicalRect, clip: u32, value: T, prepare: F)
+    pub unsafe fn record<T, F, C>(&mut self, area: LogicalRect, bounds: PhysicalRect, clip: u32, value: T, prepare: F)
     where
         T: Compare,
         F: Fn(&T, u32, &Command, &DisplayList, &mut C) + 'static,
@@ -115,7 +123,7 @@ impl DisplayList {
         };
         // safety: the table matches this tuple and the caller guarantees the backend context
         unsafe {
-            self.push(bounds, clip, (value, prepare), ops);
+            self.push(area, bounds, clip, (value, prepare), ops);
         }
     }
 
@@ -131,6 +139,10 @@ impl DisplayList {
         let command = &self.commands[index];
         let operations = command.ops;
         operations.kind.hash(state);
+        let area = command.area;
+        [area.x, area.y, area.width, area.height]
+            .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+            .hash(state);
         // safety: insertion pairs the operations with their recorded data
         unsafe { (operations.hash)(self, command.value, state) };
     }
@@ -139,7 +151,7 @@ impl DisplayList {
         let left = &self.commands[index];
         let right = &other.commands[other_index];
         let operations = left.ops;
-        if left.bounds != right.bounds || operations.kind != right.ops.kind {
+        if left.area != right.area || left.bounds != right.bounds || operations.kind != right.ops.kind {
             return false;
         }
         let mut clip = left.clip;
@@ -171,6 +183,9 @@ impl DisplayList {
 }
 
 pub struct Command {
+    /// logical layout area given to paint
+    pub area: LogicalRect,
+    /// physical pixels the command may touch
     pub bounds: PhysicalRect,
     pub clip: u32,
     value: u32,

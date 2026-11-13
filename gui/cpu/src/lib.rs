@@ -105,12 +105,14 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         unsafe { self.renderers[index].cast::<R>() }
     }
 
-    /// begins recording drawing inputs within bounds
-    pub fn record(&mut self, bounds: LogicalRect) -> RecordContext<'_, B::Pixel> {
+    /// begins recording drawing inputs for a logical area
+    /// bounds start as the physical area and may be widened for outsets
+    pub fn record(&mut self, area: LogicalRect) -> RecordContext<'_, B::Pixel> {
         let context = &mut self.context;
         RecordContext {
             scale: context.scale_factor,
-            bounds: bounds.to_physical(Scale2::uniform(context.scale_factor)),
+            area,
+            bounds: area.to_physical(Scale2::uniform(context.scale_factor)),
             clip: self.paint_clip,
             renderers: &mut self.renderers,
             marker: PhantomData,
@@ -171,9 +173,11 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                 images: &context.images,
                 commands: &mut context.raster,
             };
-            for command in context.list.commands() {
+            for (index, command) in context.list.commands().iter().enumerate() {
                 // todo: restrict effect frame dispatch to damage and required source regions
                 if context.reads_framebuffer || self.damage.intersects(command.bounds, command.clip) {
+                    // entries pushed by this dispatch inherit the index as their source
+                    dispatch.commands.source = index as u32;
                     // safety: recording pairs dispatch with this renderer's dispatch context
                     unsafe {
                         command.dispatch(&context.list, std::ptr::NonNull::from(&mut dispatch).cast());
@@ -250,10 +254,13 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                         }
                     }
                     let bounds = context.raster.bounds(node.index);
+                    let area =
+                        context.list.commands()[context.raster.metadata[node.index as usize].source as usize].area;
                     context.raster.entries[node.index as usize].render(
                         &mut context.raster.prepared,
                         &mut RenderContext {
                             scale,
+                            area,
                             bounds,
                             clips: &context.clips,
                             clip,
@@ -389,6 +396,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Context for Rendere
 
 pub struct RecordContext<'a, P: Pixel> {
     pub scale: f32,
+    pub area: LogicalRect,
     pub bounds: PhysicalRect,
     clip: u32,
     renderers: &'a mut Vec<crate::ErasedRenderer>,
@@ -534,7 +542,7 @@ impl<P: Pixel> RecordContext<'_, P> {
         F: Fn(&T, u32, &Command, &DisplayList, &mut DispatchContext<'_, P>) + 'static,
     {
         // safety: this renderer dispatches its list with DispatchContext
-        unsafe { self.list.record(bounds, clip, value, prepare) };
+        unsafe { self.list.record(self.area, bounds, clip, value, prepare) };
     }
 }
 

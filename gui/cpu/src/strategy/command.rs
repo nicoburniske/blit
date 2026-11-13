@@ -25,6 +25,9 @@ pub struct RasterCommands<P> {
     /// drawable buffer extent for this frame
     pub screen: PhysicalRect,
     pub damage_bounds: PhysicalRect,
+    /// display list command being dispatched, set by the dispatch loop in `Renderer::render`
+    /// entries pushed during that dispatch record it as their source
+    pub source: u32,
     pub metadata: Vec<Metadata>,
     pub entries: Vec<ErasedCommand<P>>,
     pub prepared: Bump,
@@ -42,6 +45,7 @@ impl<P> Default for RasterCommands<P> {
             scale: 1.0,
             screen: PhysicalRect::default(),
             damage_bounds: PhysicalRect::default(),
+            source: 0,
             metadata: Vec::new(),
             entries: Vec::new(),
             prepared: Bump::default(),
@@ -82,6 +86,7 @@ impl<P: Pixel> RasterCommands<P> {
             &mut self.prepared,
             &mut RenderContext {
                 scale: self.scale,
+                area: list.commands()[command.source as usize].area,
                 bounds: command.bounds,
                 clips,
                 clip: command.clip,
@@ -348,6 +353,7 @@ impl<P: Pixel> RasterCommands<P> {
         self.metadata.push(Metadata {
             bounds,
             clip,
+            source: self.source,
             coverage: Coverage::None,
         });
         self.metadata.last_mut().unwrap()
@@ -369,6 +375,8 @@ pub enum Payload {
 pub struct Metadata {
     pub bounds: PhysicalRect,
     pub clip: ClipId,
+    /// display list command that produced this entry
+    pub source: u32,
     pub coverage: Coverage,
 }
 

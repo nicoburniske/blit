@@ -6,7 +6,7 @@ use crate::{Instance, Pipeline, Renderer, physical_rect};
 
 impl Paint<Clear> for Renderer {
     fn paint(&mut self, bounds: LogicalRect, _: Clear) {
-        self.record_native(bounds, 0, (), |_, _, renderer, bounds, _| {
+        self.record_native(bounds, bounds, 0, (), |_, _, _, renderer, bounds| {
             let start = renderer.instances.len() as u32;
             let draw = bounds;
             renderer.instances.push(Instance {

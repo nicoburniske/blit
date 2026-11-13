@@ -34,7 +34,7 @@ blit::builder! {
 impl<C, F: Handler<Action = Edit>> Widget<C> for TextInput<'_, F>
 where
     C: Context + blit_widgets::Context,
-    C: Paint<rectangle::Stored> + Paint<text::Stored>,
+    C: Paint<rectangle::RectangleAtom> + Paint<text::TextAtom>,
 {
     type Response = TextInputResponse;
 
@@ -160,7 +160,7 @@ struct InputAtom {
 
 impl<C: Context> Atom<C> for InputAtom
 where
-    C: Paint<rectangle::Stored> + Paint<text::Stored>,
+    C: Paint<rectangle::RectangleAtom> + Paint<text::TextAtom>,
 {
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         let size = cx.context_mut().text().measure(&TextLayoutRequest {

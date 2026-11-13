@@ -1,6 +1,6 @@
 use std::{any::TypeId, hash::Hash, panic::AssertUnwindSafe, ptr::NonNull, rc::Rc};
 
-use blit::{PhysicalRect, internal::bump::Offset};
+use blit::{LogicalRect, PhysicalRect, internal::bump::Offset};
 use blit_gui::{
     damage::{DamageTracker, command::CommandDiff, tile::TileDamage},
     display_list::{DisplayList, Ops},
@@ -31,7 +31,15 @@ fn damage_tracking_and_backend_dispatch_share_a_display_list() {
         let mut list = DisplayList::default();
         for (value, changed) in [("same", true), ("same", false), ("changed", true)] {
             // safety: the table describes the owned String and its comparison semantics
-            unsafe { list.push(bounds, 0, String::from(value), ops) };
+            unsafe {
+                list.push(
+                    LogicalRect::new(0.0, 0.0, 8.0, 8.0),
+                    bounds,
+                    0,
+                    String::from(value),
+                    ops,
+                )
+            };
             damage.update(&list, bounds, 1.0, 1);
             assert_eq!(damage.is_empty(), !changed);
             assert_eq!(damage.intersects(bounds, 0), changed);
@@ -59,7 +67,15 @@ fn values_and_slices_survive_growth_and_release_resources() {
     let resource: Rc<str> = Rc::from("retained for the frame");
     let mut list = DisplayList::default();
     // safety: the table describes Rc<str> and does not access backend state
-    unsafe { list.push(PhysicalRect::default(), 0, resource.clone(), ops::<Rc<str>>()) };
+    unsafe {
+        list.push(
+            LogicalRect::default(),
+            PhysicalRect::default(),
+            0,
+            resource.clone(),
+            ops::<Rc<str>>(),
+        )
+    };
     let mut points = list.store_mut().slice(10_000);
     points.extend((0..10_000).map(|index| [index, index + 1]));
     let points = points.finish();
@@ -112,7 +128,15 @@ fn panicking_destructors_invalidate_slices_before_dropping_values() {
     slice.push(1u8);
     let slice = slice.finish();
     // safety: the table describes Resource and does not access backend state
-    unsafe { list.push(PhysicalRect::default(), 0, Resource, ops::<Resource>()) };
+    unsafe {
+        list.push(
+            LogicalRect::default(),
+            PhysicalRect::default(),
+            0,
+            Resource,
+            ops::<Resource>(),
+        )
+    };
     assert!(std::panic::catch_unwind(AssertUnwindSafe(|| list.clear())).is_err());
     assert!(std::panic::catch_unwind(AssertUnwindSafe(|| list.store().view(slice))).is_err());
     list.clear();

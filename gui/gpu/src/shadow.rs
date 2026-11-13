@@ -1,22 +1,18 @@
-use std::hash::Hash;
-
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
-use blit_gui::{display_list::DisplayList, shadow::Shadow, style::BorderRadius};
+use blit_gui::{shadow::Shadow, style::BorderRadius};
 use bytemuck::Zeroable;
 
-use crate::{
-    INSET_SHADOW, Instance, OUTSET_SHADOW, Pipeline, Renderer, physical_radii, physical_rect, premultiplied,
-    render::hash_area,
-};
+use crate::{INSET_SHADOW, Instance, OUTSET_SHADOW, Pipeline, Renderer, physical_radii, physical_rect, premultiplied};
 
 impl Paint<Shadow> for Renderer {
     fn paint(&mut self, area: LogicalRect, shadow: Shadow) {
         self.record_native(
+            area,
             shadow.bounds(area),
             self.paint_clip,
-            StoredShadow { area, shadow },
-            |value, _, renderer, bounds, clip| {
-                let shadow = value.shadow;
+            shadow,
+            |&shadow, command, _, renderer, bounds| {
+                let clip = command.clip;
 
                 let scale = renderer.scale;
                 let start = renderer.instances.len() as u32;
@@ -24,7 +20,7 @@ impl Paint<Shadow> for Renderer {
                     return;
                 }
                 if shadow.inset {
-                    let shape = value.area.to_physical(Scale2::uniform(scale));
+                    let shape = command.area.to_physical(Scale2::uniform(scale));
                     if shape.width <= 0 || shape.height <= 0 {
                         return;
                     }
@@ -46,10 +42,10 @@ impl Paint<Shadow> for Renderer {
                     });
                 } else {
                     let area = LogicalRect {
-                        x: value.area.x + shadow.offset_x - shadow.spread,
-                        y: value.area.y + shadow.offset_y - shadow.spread,
-                        width: value.area.width + shadow.spread * 2.0,
-                        height: value.area.height + shadow.spread * 2.0,
+                        x: command.area.x + shadow.offset_x - shadow.spread,
+                        y: command.area.y + shadow.offset_y - shadow.spread,
+                        width: command.area.width + shadow.spread * 2.0,
+                        height: command.area.height + shadow.spread * 2.0,
                     };
                     if area.width <= 0.0 || area.height <= 0.0 {
                         return;
@@ -100,20 +96,5 @@ impl Paint<Shadow> for Renderer {
                 renderer.push_instances(start, Pipeline::Content(None));
             },
         );
-    }
-}
-
-struct StoredShadow {
-    area: LogicalRect,
-    shadow: Shadow,
-}
-
-impl blit_gui::display_list::Compare for StoredShadow {
-    fn equal(a: &Self, _: &DisplayList, b: &Self, _: &DisplayList) -> bool {
-        a.area == b.area && a.shadow == b.shadow
-    }
-    fn hash(value: &Self, _: &DisplayList, state: &mut impl std::hash::Hasher) {
-        hash_area(value.area, state);
-        value.shadow.hash(state);
     }
 }

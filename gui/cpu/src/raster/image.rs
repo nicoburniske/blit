@@ -21,13 +21,12 @@ where
         recording.record_input(
             recording.bounds,
             recording.clip,
-            blit_gui::image::Stored { area, image: request },
-            |input, offset, record, _, context| {
-                let request = &input.image;
+            request,
+            |request, offset, record, _, context| {
                 let scale = context.commands.scale;
                 let target = &mut *context.commands;
                 if let Some(texture) = context.images.get(request.image.id().into()) {
-                    request.for_each_patch(input.area, scale, |patch| {
+                    request.for_each_patch(record.area, scale, |patch| {
                         if let Some(bounds) = patch.bounds.intersection(record.bounds) {
                             let value = target.prepared.push((offset, patch)).byte();
                             target
@@ -35,13 +34,11 @@ where
                                     // safety: recording stores the image input offset and patch together
                                     let (offset, patch) =
                                         *unsafe { prepared.get(Offset::<(u32, ImagePatch)>::new(offset)) };
-                                    // safety: recording stores this offset as placed image data
-                                    let input =
-                                        unsafe { cx.list.data().get(Offset::<blit_gui::image::Stored>::new(offset)) };
-                                    let value =
-                                        crate::raster::image_patch::Prepared::new(&input.image, patch, cx.scale)
-                                            .map(Payload::Image)
-                                            .unwrap_or(Payload::Empty);
+                                    // safety: recording stores this offset as image data
+                                    let image = unsafe { cx.list.data().get(Offset::<Image>::new(offset)) };
+                                    let value = crate::raster::image_patch::Prepared::new(image, patch, cx.scale)
+                                        .map(Payload::Image)
+                                        .unwrap_or(Payload::Empty);
                                     prepared.push(value).byte()
                                 })
                                 .coverage = texture.coverage(request, patch);

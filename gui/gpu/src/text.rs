@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
-use blit_gui::text::system::{GlyphImageId, ResolvedTextLayout, TextSystem};
+use blit_gui::text::{
+    TextAtom,
+    system::{GlyphImageId, ResolvedTextLayout, TextSystem},
+};
 use blit_text::{GlyphImage, GlyphMetrics};
 
 use crate::{
@@ -10,68 +13,76 @@ use crate::{
     physical_rect, push_draw,
 };
 
-impl Paint<blit_gui::text::Stored> for Renderer {
-    fn paint(&mut self, area: LogicalRect, value: blit_gui::text::Stored) {
-        self.record_native(area, self.paint_clip, value, |value, list, renderer, bounds, clip| {
-            let request = value.view(list);
+impl Paint<TextAtom> for Renderer {
+    fn paint(&mut self, area: LogicalRect, value: TextAtom) {
+        self.record_native(
+            area,
+            area,
+            self.paint_clip,
+            value,
+            |value, command, list, renderer, bounds| {
+                let clip = command.clip;
+                let request = value.view(list);
 
-            let scale = renderer.scale;
-            let area = value.area.to_physical(Scale2::uniform(scale));
-            let Some(visible_area) = area.intersection(bounds) else {
-                return;
-            };
-            let mut resolved = renderer.text.paint_layout(value.area, &request);
-            let layout = resolved.layout;
-            for run in &layout.runs {
-                let offset = resolved.line_offset(run.line as usize);
-                let color = request.span_color(run.span);
-                if color.alpha == 0 {
-                    continue;
-                }
-                let color = u32::from_le_bytes([color.red, color.green, color.blue, color.alpha]);
-                for glyph in &layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
-                    let prepared = resolved.prepare_glyph(blit_text::GlyphRequest {
-                        font: run.font,
-                        glyph: glyph.id,
-                        scale,
-                        origin: blit::Point::new(
-                            (value.area.x + glyph.position.x + offset.x - request.offset_x) * scale,
-                            (value.area.y + glyph.position.y + offset.y) * scale,
-                        ),
-                    });
-                    let cached = renderer
-                        .glyphs
-                        .glyph(&renderer.device, &renderer.queue, &mut resolved, prepared.key);
-                    if cached.metrics.width == 0 || cached.metrics.height == 0 {
+                let scale = renderer.scale;
+                let area = command.area.to_physical(Scale2::uniform(scale));
+                let Some(visible_area) = area.intersection(bounds) else {
+                    return;
+                };
+                let mut resolved = renderer.text.paint_layout(command.area, &request);
+                let layout = resolved.layout;
+                for run in &layout.runs {
+                    let offset = resolved.line_offset(run.line as usize);
+                    let color = request.span_color(run.span);
+                    if color.alpha == 0 {
                         continue;
                     }
-                    let width = i32::from(cached.metrics.width);
-                    let height = i32::from(cached.metrics.height);
-                    let x = prepared.origin.x.saturating_add(i32::from(cached.metrics.left));
-                    let y = prepared.origin.y.saturating_add(i32::from(cached.metrics.top));
-                    let shape = PhysicalRect { x, y, width, height };
-                    let Some(draw) = shape.intersection(visible_area) else {
-                        continue;
-                    };
-                    let index = renderer.glyph_instances.len() as u32;
-                    renderer.glyph_instances.push(GlyphInstance {
-                        draw: physical_rect(draw),
-                        atlas: [
-                            cached.atlas[0] + u32::try_from(draw.x - shape.x).unwrap(),
-                            cached.atlas[1] + u32::try_from(draw.y - shape.y).unwrap(),
-                        ],
-                        color,
-                        clip: clip | if cached.color { 1 << 31 } else { 0 },
-                    });
-                    push_draw(
-                        &mut renderer.draws,
-                        &mut renderer.batches,
-                        Pipeline::Content(Some(cached.page)),
-                        DRAW_TEXT | index,
-                    );
+                    let color = u32::from_le_bytes([color.red, color.green, color.blue, color.alpha]);
+                    for glyph in &layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
+                        let prepared = resolved.prepare_glyph(blit_text::GlyphRequest {
+                            font: run.font,
+                            glyph: glyph.id,
+                            scale,
+                            origin: blit::Point::new(
+                                (command.area.x + glyph.position.x + offset.x - request.offset_x) * scale,
+                                (command.area.y + glyph.position.y + offset.y) * scale,
+                            ),
+                        });
+                        let cached =
+                            renderer
+                                .glyphs
+                                .glyph(&renderer.device, &renderer.queue, &mut resolved, prepared.key);
+                        if cached.metrics.width == 0 || cached.metrics.height == 0 {
+                            continue;
+                        }
+                        let width = i32::from(cached.metrics.width);
+                        let height = i32::from(cached.metrics.height);
+                        let x = prepared.origin.x.saturating_add(i32::from(cached.metrics.left));
+                        let y = prepared.origin.y.saturating_add(i32::from(cached.metrics.top));
+                        let shape = PhysicalRect { x, y, width, height };
+                        let Some(draw) = shape.intersection(visible_area) else {
+                            continue;
+                        };
+                        let index = renderer.glyph_instances.len() as u32;
+                        renderer.glyph_instances.push(GlyphInstance {
+                            draw: physical_rect(draw),
+                            atlas: [
+                                cached.atlas[0] + u32::try_from(draw.x - shape.x).unwrap(),
+                                cached.atlas[1] + u32::try_from(draw.y - shape.y).unwrap(),
+                            ],
+                            color,
+                            clip: clip | if cached.color { 1 << 31 } else { 0 },
+                        });
+                        push_draw(
+                            &mut renderer.draws,
+                            &mut renderer.batches,
+                            Pipeline::Content(Some(cached.page)),
+                            DRAW_TEXT | index,
+                        );
+                    }
                 }
-            }
-        });
+            },
+        );
     }
 }
 

@@ -3,7 +3,7 @@ use std::ops::Range;
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2, internal::bump::Offset};
 use blit_gui::{
     damage::DamageTracker,
-    rectangle::Rectangle,
+    rectangle::{Rectangle, RectangleAtom},
     style::{ConicGradient, Fill, LinearGradient},
 };
 
@@ -16,13 +16,13 @@ use crate::{
     strategy::command::{Coverage, Payload},
 };
 
-impl<B, S, D> Paint<blit_gui::rectangle::Stored> for Renderer<B, S, D>
+impl<B, S, D> Paint<RectangleAtom> for Renderer<B, S, D>
 where
     B: PixelBuffer,
     S: RenderStrategy<B>,
     D: DamageTracker,
 {
-    fn paint(&mut self, area: LogicalRect, value: blit_gui::rectangle::Stored) {
+    fn paint(&mut self, area: LogicalRect, value: RectangleAtom) {
         let mut recording = self.record(area);
         recording.record_input(
             recording.bounds,
@@ -32,7 +32,7 @@ where
                 let scale = context.commands.scale;
                 let target = &mut *context.commands;
                 let rectangle = input.view(list);
-                let Some(bounds) = input
+                let Some(bounds) = record
                     .area
                     .to_physical(Scale2::uniform(scale))
                     .intersection(record.bounds)
@@ -70,10 +70,10 @@ where
                 }
                 target
                     .record(bounds, record.clip, offset, |_, offset, prepared, cx| {
-                        // safety: recording stores this offset as blit_gui::rectangle::Stored
-                        let input = unsafe { cx.list.data().get(Offset::<blit_gui::rectangle::Stored>::new(offset)) };
+                        // safety: recording stores this offset as RectangleAtom
+                        let input = unsafe { cx.list.data().get(Offset::<RectangleAtom>::new(offset)) };
                         let value = crate::raster::rectangle::Prepared::new(
-                            input.area,
+                            cx.area,
                             &input.view(cx.list),
                             cx.scale,
                             cx.gradients,

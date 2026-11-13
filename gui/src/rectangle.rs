@@ -22,7 +22,7 @@ blit::builder! {
 
 impl<C> Widget<C, state::Node> for Rectangle<'_>
 where
-    C: HasFrameStore + Paint<Stored, Scalar = f32>,
+    C: HasFrameStore + Paint<RectangleAtom, Scalar = f32>,
 {
     type Response = ();
 
@@ -41,16 +41,15 @@ where
 
 impl Rectangle<'_> {
     /// stores borrowed fills in the context and paints the result
-    pub fn paint<C: HasFrameStore + Paint<Stored, Scalar = f32>>(self, area: LogicalRect, context: &mut C) {
-        let stored = Stored {
-            area,
+    pub fn paint<C: HasFrameStore + Paint<RectangleAtom, Scalar = f32>>(self, area: LogicalRect, context: &mut C) {
+        let rectangle = RectangleAtom {
             background: FrameFill::new(self.background, context),
             border_fill: FrameFill::new(self.border.fill, context),
             border_width: self.border.width,
             radius: self.radius,
             opacity: self.opacity,
         };
-        context.paint(area, stored);
+        context.paint(area, rectangle);
     }
 }
 
@@ -71,23 +70,15 @@ blit::builder! {
 
 impl<C> Atom<C> for RectangleAtom
 where
-    C: Paint<Stored, Scalar = f32>,
+    C: Paint<Self, Scalar = f32>,
 {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         constraints.constrain(Size::ZERO)
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        let rectangle = Stored {
-            area,
-            background: self.background,
-            border_fill: self.border_fill,
-            border_width: self.border_width,
-            radius: self.radius,
-            opacity: self.opacity,
-        };
-        if rectangle.background != FrameFill::Solid(Color::TRANSPARENT) || rectangle.border_width > 0.0 {
-            cx.context_mut().paint(area, rectangle);
+        if self.background != FrameFill::Solid(Color::TRANSPARENT) || self.border_width > 0.0 {
+            cx.context_mut().paint(area, *self);
         }
     }
 }
@@ -115,16 +106,7 @@ impl Hash for Rectangle<'_> {
     }
 }
 
-pub struct Stored {
-    pub area: LogicalRect,
-    pub background: FrameFill,
-    pub border_fill: FrameFill,
-    pub border_width: f32,
-    pub radius: BorderRadius,
-    pub opacity: f32,
-}
-
-impl Stored {
+impl RectangleAtom {
     #[inline]
     pub fn view<'a>(&self, list: &'a DisplayList) -> Rectangle<'a> {
         Rectangle {
@@ -139,16 +121,13 @@ impl Stored {
     }
 }
 
-impl Compare for Stored {
+impl Compare for RectangleAtom {
     #[inline]
     fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
-        a.area == b.area && a.view(left) == b.view(right)
+        a.view(left) == b.view(right)
     }
 
     fn hash(value: &Self, list: &DisplayList, state: &mut impl Hasher) {
-        [value.area.x, value.area.y, value.area.width, value.area.height]
-            .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
-            .hash(state);
         value.view(list).hash(state);
     }
 }

@@ -1,4 +1,4 @@
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
@@ -46,42 +46,27 @@ impl Default for Renderer {
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Shadow> for crate::Renderer<B, S, D> {
     fn paint(&mut self, area: LogicalRect, shadow: Shadow) {
-        let mut cx = self.record(shadow.bounds(area));
-        cx.push::<Renderer>(Input { area, shadow }, None);
-    }
-}
-
-#[derive(PartialEq)]
-pub struct Input {
-    pub area: LogicalRect,
-    pub shadow: Shadow,
-}
-
-impl Hash for Input {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        [self.area.x, self.area.y, self.area.width, self.area.height]
-            .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
-            .hash(state);
-        self.shadow.hash(state);
+        let mut cx = self.record(area);
+        cx.bounds = shadow.bounds(area).to_physical(Scale2::uniform(cx.scale));
+        cx.push::<Renderer>(shadow, None);
     }
 }
 
 impl<P: Pixel> crate::Render<P> for Renderer {
-    type Input = Input;
+    type Input = Shadow;
     type Prepared = Option<Prepared>;
 
     fn finish_frame(&mut self) {
         self.entries.trim_to_weight();
     }
 
-    fn prepare(&mut self, input: &Input, cx: &mut crate::RenderContext<'_, P>) -> Self::Prepared {
-        let shadow = &input.shadow;
+    fn prepare(&mut self, shadow: &Shadow, cx: &mut crate::RenderContext<'_, P>) -> Self::Prepared {
         let scale_factor = cx.scale;
         if shadow.color.alpha == 0 {
             return None;
         }
         let (key, bounds) = if shadow.inset {
-            let shape = input.area.to_physical(Scale2::uniform(scale_factor));
+            let shape = cx.area.to_physical(Scale2::uniform(scale_factor));
             if shape.width <= 0 || shape.height <= 0 {
                 return None;
             }
@@ -102,10 +87,10 @@ impl<P: Pixel> crate::Render<P> for Renderer {
             )
         } else {
             let area = LogicalRect {
-                x: input.area.x + shadow.offset_x - shadow.spread,
-                y: input.area.y + shadow.offset_y - shadow.spread,
-                width: input.area.width + shadow.spread * 2.0,
-                height: input.area.height + shadow.spread * 2.0,
+                x: cx.area.x + shadow.offset_x - shadow.spread,
+                y: cx.area.y + shadow.offset_y - shadow.spread,
+                width: cx.area.width + shadow.spread * 2.0,
+                height: cx.area.height + shadow.spread * 2.0,
             };
             if area.width <= 0.0 || area.height <= 0.0 {
                 return None;
