@@ -35,21 +35,6 @@ impl<'a, C: Context> AtomCx<'a, C> {
 }
 
 pub fn insert<C: Context, A: Atom<C>>(frame: &mut Frame<C>, node: NodeId, atom: A) {
-    let type_id = TypeId::of::<A>();
-    let kind = frame
-        .atom_kinds
-        .iter()
-        .position(|kind| kind.type_id == type_id)
-        .unwrap_or_else(|| {
-            frame.atom_kinds.push(AtomKind {
-                type_id,
-                measure: measure::<C, A>,
-                paint_bounds: |bump, id, area| bump.load::<A>(id).paint_bounds(area),
-                paint: paint::<C, A>,
-                inset: |bump, id| bump.load::<A>(id).inset(),
-            });
-            frame.atom_kinds.len() - 1
-        });
     let inset = atom.inset();
     if inset != Sides::all(C::Scalar::ZERO) {
         assert!(
@@ -68,7 +53,7 @@ pub fn insert<C: Context, A: Atom<C>>(frame: &mut Frame<C>, node: NodeId, atom: 
     }
     let id = StoredAtomId::new(frame.atoms.len());
     frame.atoms.push(StoredAtom {
-        kind: u16::try_from(kind).expect("too many atom types"),
+        kind: A::KIND,
         bump_id: frame.bump.store(atom),
         next: StoredAtomId::NONE,
     });
@@ -79,6 +64,20 @@ pub fn insert<C: Context, A: Atom<C>>(frame: &mut Frame<C>, node: NodeId, atom: 
         node.first_atom = id;
     }
     node.last_atom = id;
+}
+
+/// one static table per atom type
+trait Kind<C: Context> {
+    const KIND: *const AtomKind<C>;
+}
+
+impl<C: Context, A: Atom<C>> Kind<C> for A {
+    const KIND: *const AtomKind<C> = &AtomKind {
+        measure: measure::<C, A>,
+        paint_bounds: |bump, id, area| bump.load::<A>(id).paint_bounds(area),
+        paint: paint::<C, A>,
+        inset: |bump, id| bump.load::<A>(id).inset(),
+    };
 }
 
 pub fn measure<C: Context, A: Atom<C>>(

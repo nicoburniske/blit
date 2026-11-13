@@ -160,7 +160,7 @@ fn paint_node<C: Context>(frame: &mut Frame<C>, bump: &BumpArena, context: &mut 
     let mut atom = frame.nodes[node].first_atom;
     while let Some(atom_index) = atom.index() {
         let stored = frame.atoms[atom_index];
-        let kind = &frame.atom_kinds[stored.kind as usize];
+        let kind = stored.kind();
         let (paint, atom_inset) = (kind.paint, kind.inset);
         if (kind.paint_bounds)(bump, stored.bump_id, area)
             .intersection(clip_bounds)

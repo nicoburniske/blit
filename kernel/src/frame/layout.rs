@@ -159,7 +159,7 @@ impl<'a, C: Context> LayoutCx<'a, C> {
         let Some(inset) = stored.inset.index() else {
             while let Some(index) = atom.index() {
                 let stored = self.frame.atoms[index];
-                let measure = self.frame.atom_kinds[stored.kind as usize].measure;
+                let measure = stored.kind().measure;
                 size = size.max(measure(self.bump, stored.bump_id, self.context, constraints));
                 atom = stored.next;
             }
@@ -168,7 +168,7 @@ impl<'a, C: Context> LayoutCx<'a, C> {
         let mut remaining = self.frame.insets[inset].size();
         while let Some(index) = atom.index() {
             let stored = self.frame.atoms[index];
-            let kind = &self.frame.atom_kinds[stored.kind as usize];
+            let kind = stored.kind();
             let (measure, atom_inset) = (kind.measure, kind.inset);
             let grow = |size: Size<C::Scalar>| {
                 Size::new(

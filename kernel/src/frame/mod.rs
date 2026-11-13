@@ -29,13 +29,12 @@ use crate::{
 pub struct Frame<C: Context> {
     nodes: Vec<StoredNode>,
     placements: Vec<Placement<C::Scalar>>,
-    atoms: Vec<StoredAtom>,
+    atoms: Vec<StoredAtom<C>>,
     clips: Vec<StoredClip>,
     limits: Vec<Constraints<C::Scalar>>,
     insets: Vec<Sides<C::Scalar>>,
     places: Vec<StoredPlace<C>>,
     bounds: Vec<Bounds<C::Scalar>>,
-    atom_kinds: Vec<AtomKind<C>>,
     layout_kinds: Vec<LayoutKind<C>>,
     clip_kinds: Vec<ClipKind<C>>,
     bump: BumpArena,
@@ -73,7 +72,6 @@ impl<C: Context> Default for Frame<C> {
             insets: Vec::new(),
             places: Vec::new(),
             bounds: Vec::new(),
-            atom_kinds: Vec::new(),
             layout_kinds: Vec::new(),
             clip_kinds: Vec::new(),
             bump: BumpArena::default(),
@@ -483,11 +481,26 @@ pub struct ResolvedClip<T> {
     shape: ClipShape<T>,
 }
 
-#[derive(Clone, Copy)]
-struct StoredAtom {
-    kind: u16,
+struct StoredAtom<C: Context> {
+    kind: *const AtomKind<C>,
     bump_id: BumpId,
     next: StoredAtomId,
+}
+
+impl<C: Context> Clone for StoredAtom<C> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<C: Context> Copy for StoredAtom<C> {}
+
+impl<C: Context> StoredAtom<C> {
+    #[inline]
+    fn kind(&self) -> &AtomKind<C> {
+        // safety: kind points to the static table of an atom type
+        unsafe { &*self.kind }
+    }
 }
 
 struct StoredPlace<C: Context> {
@@ -524,7 +537,7 @@ impl<T> Index<T> {
     }
 }
 
-type StoredAtomId = Index<StoredAtom>;
+type StoredAtomId = Index<StoredAtom<()>>;
 type StoredClipId = Index<StoredClip>;
 type LimitsId = Index<Constraints<()>>;
 type InsetId = Index<Sides<()>>;
@@ -533,7 +546,6 @@ type BoundsId = Index<Bounds<()>>;
 type ResolvedClipId = Index<ResolvedClip<()>>;
 
 struct AtomKind<C: Context> {
-    type_id: TypeId,
     measure: fn(&BumpArena, BumpId, &mut C, Constraints<C::Scalar>) -> Size<C::Scalar>,
     paint_bounds: fn(&BumpArena, BumpId, Rect<C::Scalar>) -> Rect<C::Scalar>,
     paint: fn(&BumpArena, BumpId, &mut C, Rect<C::Scalar>),
