@@ -4,7 +4,8 @@ use blit::{LogicalRect, Paint, PhysicalRect, Point, Scale2, internal::bump::Offs
 use blit_gui::{
     color::Color,
     damage::DamageTracker,
-    text::{TextAtom, TextRequest, system::TextSystem},
+    display_list::DisplayList,
+    text::{TextAtom, system::TextSystem},
 };
 use blit_text::GlyphRequest;
 
@@ -33,7 +34,7 @@ where
                     target.record(bounds, record.clip, offset, |_, offset, prepared, cx| {
                         // safety: recording stores this offset as TextAtom
                         let input = unsafe { cx.list.data().get(Offset::<TextAtom>::new(offset)) };
-                        let (text, bounds) = cx.text.prepare(cx.area, &input.view(cx.list), cx.scale);
+                        let (text, bounds) = cx.text.prepare(cx.area, input, cx.list, cx.scale);
                         prepared.push(Payload::Text(text, bounds)).byte()
                     });
                 }
@@ -64,17 +65,19 @@ impl TextRenderer {
     pub fn prepare(
         &mut self,
         placement: LogicalRect,
-        request: &TextRequest<'_>,
+        text: &TextAtom,
+        list: &DisplayList,
         scale_factor: f32,
     ) -> (PreparedText, PhysicalRect) {
+        let request = text.request();
         let area = placement.to_physical(Scale2::uniform(scale_factor));
-        let mut resolved = self.system.paint_layout(placement, request);
+        let mut resolved = self.system.paint_layout(placement, &request);
         let layout = resolved.layout;
         let glyph_start = self.prepared.len() as u32;
         let run_start = self.runs.len() as u32;
         let mut bounds = None::<PhysicalRect>;
         for run in &layout.runs {
-            let color = request.span_color(run.span);
+            let color = text.span_color(list, run.span);
             if color.alpha == 0 {
                 continue;
             }

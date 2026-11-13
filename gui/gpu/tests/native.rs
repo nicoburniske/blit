@@ -2,7 +2,7 @@
 
 use std::{sync::mpsc, time::Duration};
 
-use blit::{Clip, LogicalRect, Paint, Rect, Size};
+use blit::{Clip, HasFrameStore, LogicalRect, Paint, Rect, Size};
 use blit_gpu::{Renderer, RendererConfig};
 use blit_gui::{
     Context,
@@ -14,7 +14,7 @@ use blit_gui::{
     shadow::Shadow,
     style::{Border, BorderRadius, ConicGradient, GradientStop, LinearGradient},
     text::{
-        FontId, TextOptions, TextRequest, TextStyle,
+        FontId, TextAtom, TextStyle,
         system::{FontStack, TextConfig, TextSystem},
     },
 };
@@ -153,13 +153,10 @@ fn renders_primitives_and_rebuilds_frames() {
     let shadow = Shadow::new(Color::rgb(255, 0, 0)).blur(1.0);
     renderer.paint(LogicalRect::new(14.0, 9.0, 1.0, 1.0), shadow);
     let text = renderer.text().text_run("M", TextStyle::new());
-    TextRequest {
-        text,
-        colors: &[Color::rgb(255, 0, 0)],
-        offset_x: 0.0,
-        options: TextOptions::default(),
-    }
-    .paint(LogicalRect::new(1.0, 20.0, 12.0, 20.0), &mut renderer);
+    let mut colors = renderer.store_mut().slice(1);
+    colors.push(Color::rgb(255, 0, 0));
+    let colors = colors.finish();
+    renderer.paint(LogicalRect::new(1.0, 20.0, 12.0, 20.0), TextAtom::new(text, colors));
     Rectangle::new()
         .background(Color::rgb(0, 255, 0))
         .radius(BorderRadius {
@@ -370,13 +367,10 @@ fn renders_primitives_and_rebuilds_frames() {
     }
     .paint(bounds, &mut renderer);
     renderer.paint(bounds, Image::new(&image));
-    TextRequest {
-        text,
-        colors: &[Color::WHITE],
-        offset_x: 0.0,
-        options: TextOptions::default(),
-    }
-    .paint(bounds, &mut renderer);
+    let mut colors = renderer.store_mut().slice(1);
+    colors.push(Color::WHITE);
+    let colors = colors.finish();
+    renderer.paint(bounds, TextAtom::new(text, colors));
     renderer.pop_clip();
     renderer.render(&target);
     assert_eq!(renderer.batch_count(), 0);

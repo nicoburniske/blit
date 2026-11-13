@@ -22,7 +22,7 @@ impl Paint<TextAtom> for Renderer {
             value,
             |value, command, list, renderer, bounds| {
                 let clip = command.clip;
-                let request = value.view(list);
+                let request = value.request();
 
                 let scale = renderer.scale;
                 let area = command.area.to_physical(Scale2::uniform(scale));
@@ -33,7 +33,7 @@ impl Paint<TextAtom> for Renderer {
                 let layout = resolved.layout;
                 for run in &layout.runs {
                     let offset = resolved.line_offset(run.line as usize);
-                    let color = request.span_color(run.span);
+                    let color = value.span_color(list, run.span);
                     if color.alpha == 0 {
                         continue;
                     }
@@ -428,7 +428,6 @@ mod tests {
         let area = blit::LogicalRect::new(0.0, 0.0, 100.0, 100.0);
         let mut request = TextRequest {
             text: run,
-            colors: &[],
             offset_x: 0.0,
             options: TextOptions::new(),
         };

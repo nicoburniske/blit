@@ -3,7 +3,7 @@ use std::{
     ops::Range,
 };
 
-use blit::{LogicalPoint, LogicalRect, Paint, PhysicalRect, Scale2};
+use blit::{HasFrameStore, LogicalPoint, LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_gui::{
     clear::Clear,
     color::Color,
@@ -15,8 +15,8 @@ use blit_gui::{
     shadow::Shadow,
     style::{Border, BorderRadius, ConicGradient, Fill, GradientStop, LinearGradient},
     text::{
-        FontId, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextRequest, TextStyle, TextWrap,
-        VerticalAlign,
+        FontId, HorizontalAlign, Span, SpanStyle, TextAtom, TextLayoutRequest, TextOptions, TextRequest, TextStyle,
+        TextWrap, VerticalAlign,
         system::{FontStack, TextConfig, TextSystem},
     },
 };
@@ -966,24 +966,16 @@ fn renderer_supports_custom_pixel_layouts() {
         (0.0, [Color::WHITE, Color::rgb(255, 0, 0)]),
         (32.0, [Color::rgb(255, 0, 0), Color::WHITE]),
     ] {
-        let request_area = LogicalRect::new(x, 0.0, 32.0, 24.0);
-        let request = TextRequest {
-            text,
-            colors: &colors,
-            offset_x: 0.0,
-            options: TextOptions::default(),
-        };
-        request.paint(request_area, &mut renderer);
+        let mut stored = renderer.store_mut().slice(colors.len());
+        stored.extend(colors);
+        let stored = stored.finish();
+        renderer.paint(LogicalRect::new(x, 0.0, 32.0, 24.0), TextAtom::new(text, stored));
         colors.fill(Color::TRANSPARENT);
     }
-    let request_area = LogicalRect::new(64.0, 0.0, 32.0, 24.0);
-    let request = TextRequest {
-        text,
-        colors: &[Color::WHITE],
-        offset_x: 0.0,
-        options: TextOptions::default(),
-    };
-    request.paint(request_area, &mut renderer);
+    let mut stored = renderer.store_mut().slice(1);
+    stored.push(Color::WHITE);
+    let stored = stored.finish();
+    renderer.paint(LogicalRect::new(64.0, 0.0, 32.0, 24.0), TextAtom::new(text, stored));
     renderer.render(0);
 
     let pixels = renderer.buffer().pixels();
@@ -1236,13 +1228,12 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
                             .background(ConicGradient::new(&stops).angle(if frame == 0 { 0.0 } else { 90.0 }))
                             .paint(area, &mut renderer);
                     }
-                    "text" => TextRequest {
-                        text,
-                        colors: &[color],
-                        offset_x: 0.0,
-                        options: TextOptions::default(),
+                    "text" => {
+                        let mut colors = renderer.store_mut().slice(1);
+                        colors.push(color);
+                        let colors = colors.finish();
+                        renderer.paint(area, TextAtom::new(text, colors));
                     }
-                    .paint(area, &mut renderer),
                     "image" => renderer.paint(area, Image::new(&image).opacity(if frame == 0 { 0.5 } else { 1.0 })),
                     "shadow" => renderer.paint(area, Shadow::new(color).blur(2.0).inset(true)),
                     "mesh" => Mesh {
@@ -1281,16 +1272,15 @@ fn text_placement_tracks_physical_clip_size() {
                 renderer
                     .text()
                     .rich_text("MM", &[Span::new(0..1), Span::new(1..2)], TextStyle::new().size(20.0));
-            let request_area = LogicalRect::new(x, y, 8.0, 8.0);
-            let request = TextRequest {
-                text,
-                colors: &[Color::rgb(255, 0, 0), Color::WHITE],
-                offset_x: 12.0,
-                options: TextOptions::default(),
-            };
             let screen = renderer.screen();
             renderer.paint(screen.to_logical(SCALE), Clear);
-            request.paint(request_area, renderer);
+            let mut colors = renderer.store_mut().slice(2);
+            colors.extend([Color::rgb(255, 0, 0), Color::WHITE]);
+            let colors = colors.finish();
+            renderer.paint(
+                LogicalRect::new(x, y, 8.0, 8.0),
+                TextAtom::new(text, colors).offset_x(12.0),
+            );
             renderer.render(0);
         }
         assert_eq!(renderer.buffer().pixels(), fresh.buffer().pixels());
@@ -1331,7 +1321,6 @@ fn text_cache_stages_are_independent() {
         let mut paint_area = LogicalRect::new(0.0, 0.0, 1.0, 1.0);
         let mut paint = TextRequest {
             text: request.text,
-            colors: &[Color::BLACK],
             offset_x: 0.0,
             options: TextOptions::default(),
         };
@@ -1496,7 +1485,6 @@ fn text_measurement_and_carets_follow_layout() {
     let mut paint_area = LogicalRect::new(10.0, 20.0, 120.0, 48.0);
     let mut paint = TextRequest {
         text: request.text,
-        colors: &[Color::BLACK],
         offset_x: 0.0,
         options: TextOptions::default(),
     };
@@ -2091,12 +2079,9 @@ fn rounded_clips_match_between_strategies() {
         };
         let red = Rectangle::new().background(Color::rgb(255, 0, 0));
         let image = Image::new(&image);
-        let text = TextRequest {
-            text: string,
-            colors: &[Color::WHITE],
-            offset_x: 0.0,
-            options: TextOptions::default(),
-        };
+        let mut colors = renderer.store_mut().slice(1);
+        colors.push(Color::WHITE);
+        let text = TextAtom::new(string, colors.finish());
 
         renderer.push_clip(
             area,
@@ -2117,7 +2102,7 @@ fn rounded_clips_match_between_strategies() {
             BorderRadius::default(),
         );
         renderer.paint(screen.to_logical(SCALE), image);
-        text.paint(screen.to_logical(SCALE), &mut renderer);
+        renderer.paint(screen.to_logical(SCALE), text);
         renderer.pop_clip();
         renderer.pop_clip();
         Rectangle::new()

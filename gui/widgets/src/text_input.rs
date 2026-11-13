@@ -10,7 +10,7 @@ use blit_gui::{
     Context,
     color::Color,
     rectangle::{self, Rectangle},
-    text::{self, TextLayoutRequest, TextOptions, TextRequest, TextRun, TextStyle, TextWrap},
+    text::{self, TextAtom, TextLayoutRequest, TextOptions, TextRequest, TextRun, TextStyle, TextWrap},
 };
 
 blit::builder! {
@@ -105,7 +105,6 @@ where
             let area = area.inset(padding);
             let request = TextRequest {
                 text,
-                colors: &[style.color],
                 offset_x: state.offset_x,
                 options,
             };
@@ -180,7 +179,6 @@ where
         }
         let request = TextRequest {
             text: self.text,
-            colors: std::slice::from_ref(&self.color),
             offset_x: self.state.offset_x,
             options: self.options,
         };
@@ -207,10 +205,11 @@ where
                 .background(self.cursor_background)
                 .paint(cursor, context);
         }
-        let request = TextRequest {
-            text: self.display,
-            ..request
-        };
-        request.paint(area, context);
+        let mut colors = context.store_mut().slice(1);
+        colors.push(self.color);
+        let text = TextAtom::new(self.display, colors.finish())
+            .offset_x(self.state.offset_x)
+            .options(self.options);
+        context.paint(area, text);
     }
 }

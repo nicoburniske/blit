@@ -152,7 +152,7 @@ impl TextSystem {
         TextRun(self.sources.get_index(source_index).id)
     }
 
-    pub fn paint_layout(&mut self, area: LogicalRect, request: &TextRequest<'_>) -> ResolvedTextLayout<'_> {
+    pub fn paint_layout(&mut self, area: LogicalRect, request: &TextRequest) -> ResolvedTextLayout<'_> {
         let (layout_request, placement) = paint_request(area, request);
         let (index, shape) = self.layout(request.text, layout_request);
         let cached = self.layouts.get_index(index);
@@ -191,12 +191,7 @@ impl TextSystem {
         self.layouts.get_index(index).layout.size
     }
 
-    pub fn offset_at_position(
-        &mut self,
-        area: LogicalRect,
-        request: &TextRequest<'_>,
-        position: LogicalPoint,
-    ) -> usize {
+    pub fn offset_at_position(&mut self, area: LogicalRect, request: &TextRequest, position: LogicalPoint) -> usize {
         let (layout_request, placement) = paint_request(area, request);
         let (layout_index, shape_index) = self.layout(request.text, layout_request);
         let position = LogicalPoint {
@@ -247,7 +242,7 @@ impl TextSystem {
     pub fn cursor_rect(
         &mut self,
         area: LogicalRect,
-        request: &TextRequest<'_>,
+        request: &TextRequest,
         byte_offset: usize,
         width: f32,
     ) -> LogicalRect {
@@ -758,7 +753,7 @@ impl Scale<LayoutKey, CachedLayout> for LayoutScale {
     }
 }
 
-fn paint_request(area: LogicalRect, request: &TextRequest<'_>) -> (LayoutRequest, Placement) {
+fn paint_request(area: LogicalRect, request: &TextRequest) -> (LayoutRequest, Placement) {
     let TextOptions {
         wrap,
         overflow,
