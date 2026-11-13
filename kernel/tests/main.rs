@@ -219,9 +219,10 @@ impl Layout<TestContext> for Fixed {
 struct At(fn(Size<f32>) -> Point<f32>);
 
 impl Place<TestContext> for At {
-    fn place(&self, cx: &mut PlaceCx<'_, TestContext>) -> Point<f32> {
+    fn place(&self, cx: &mut PlaceCx<'_, TestContext>, target: Rect<f32>) -> Point<f32> {
         cx.resolve(Constraints::loose(Size::uniform(f32::INFINITY)));
-        (self.0)(cx.target().size())
+        let offset = (self.0)(target.size());
+        Point::new(target.x + offset.x, target.y + offset.y)
     }
 }
 
@@ -229,9 +230,10 @@ impl Place<TestContext> for At {
 struct Full(fn(Size<f32>) -> Point<f32>);
 
 impl Place<TestContext> for Full {
-    fn place(&self, cx: &mut PlaceCx<'_, TestContext>) -> Point<f32> {
+    fn place(&self, cx: &mut PlaceCx<'_, TestContext>, target: Rect<f32>) -> Point<f32> {
         cx.resolve(Constraints::tight(cx.parent()));
-        (self.0)(cx.target().size())
+        let offset = (self.0)(target.size());
+        Point::new(target.x + offset.x, target.y + offset.y)
     }
 }
 

@@ -334,7 +334,7 @@ impl<C: Context> Frame<C> {
             place: PlaceId::NONE,
             clip: StoredClipId::NONE,
             item: BumpId::NONE,
-            relative: parent.unwrap_or(id),
+            target: parent.unwrap_or(id),
             interactive: false,
             bounds: BoundsId::NONE,
             resolved_clip: ResolvedClipId::NONE,
@@ -446,7 +446,7 @@ pub struct StoredNode {
     place: PlaceId,
     clip: StoredClipId,
     item: BumpId,
-    relative: NodeId,
+    target: NodeId,
     interactive: bool,
     bounds: BoundsId,
     resolved_clip: ResolvedClipId,
@@ -512,7 +512,7 @@ struct Edges<T> {
 
 struct StoredPlace<C: Context> {
     bump_id: BumpId,
-    run: for<'a> fn(&mut layout::PlaceCx<'a, C>, BumpId) -> Point<C::Scalar>,
+    run: for<'a> fn(&mut layout::PlaceCx<'a, C>, BumpId, Rect<C::Scalar>) -> Point<C::Scalar>,
 }
 
 impl<C: Context> Clone for StoredPlace<C> {

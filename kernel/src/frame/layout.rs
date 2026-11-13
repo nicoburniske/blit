@@ -156,7 +156,8 @@ impl<'a, C: Context> LayoutCx<'a, C> {
         let stored = &self.frame.nodes[node.index()];
         let mut atom = stored.first_atom;
         let mut size = Size::ZERO;
-        let Some(edges) = stored.edges.index() else {
+        let inset = stored.edges.index().map(|index| self.frame.edges[index].inset);
+        let Some(inset) = inset.filter(|inset| *inset != Sides::all(C::Scalar::ZERO)) else {
             while let Some(index) = atom.index() {
                 let stored = self.frame.atoms[index];
                 let measure = stored.kind().measure;
@@ -165,7 +166,7 @@ impl<'a, C: Context> LayoutCx<'a, C> {
             }
             return constraints.constrain(size);
         };
-        let mut remaining = self.frame.edges[edges].inset.size();
+        let mut remaining = inset.size();
         while let Some(index) = atom.index() {
             let stored = self.frame.atoms[index];
             let kind = stored.kind();
@@ -208,7 +209,11 @@ impl<'a, C: Context> LayoutCx<'a, C> {
         }
         let stored = &self.frame.nodes[node.index()];
         let outer = bounds;
-        let inset = stored.edges.index().map(|index| self.frame.edges[index].inset);
+        let inset = stored
+            .edges
+            .index()
+            .map(|index| self.frame.edges[index].inset)
+            .filter(|inset| *inset != Sides::all(C::Scalar::ZERO));
         let (leading, bounds) = match inset {
             Some(inset) => (
                 Point::new(inset.left.min(bounds.max.width), inset.top.min(bounds.max.height)),
@@ -263,7 +268,6 @@ pub struct PlaceCx<'a, C: Context> {
     layout: LayoutCx<'a, C>,
     node: NodeId,
     parent: Size<C::Scalar>,
-    target: Rect<C::Scalar>,
 }
 
 impl<C: Context> PlaceCx<'_, C> {
@@ -274,11 +278,6 @@ impl<C: Context> PlaceCx<'_, C> {
     /// the visual parent's size
     pub fn parent(&self) -> Size<C::Scalar> {
         self.parent
-    }
-
-    /// the target's area in frame coordinates
-    pub fn target(&self) -> Rect<C::Scalar> {
-        self.target
     }
 
     pub fn screen(&self) -> Rect<C::Scalar> {
@@ -445,12 +444,12 @@ pub fn resolve<C: Context>(
     size
 }
 
-/// offsets each area by its relative reference
+/// offsets each area by its target
 pub fn position<C: Context>(frame: &mut Frame<C>) {
     let count = frame.nodes.len();
     let placements = &mut frame.placements[..count];
     for index in 1..count {
-        let reference = frame.nodes[index].relative;
+        let reference = frame.nodes[index].target;
         let reference = placements[reference.index()].area;
         let area = &mut placements[index].area;
         area.x += reference.x;
@@ -458,9 +457,13 @@ pub fn position<C: Context>(frame: &mut Frame<C>) {
     }
 }
 
-pub fn place<C: Context, P: Place<C>>(cx: &mut PlaceCx<'_, C>, id: BumpId) -> Point<C::Scalar> {
+pub fn place<C: Context, P: Place<C>>(
+    cx: &mut PlaceCx<'_, C>,
+    id: BumpId,
+    target: Rect<C::Scalar>,
+) -> Point<C::Scalar> {
     let bump = cx.layout.bump;
-    bump.load::<P>(id).place(cx)
+    bump.load::<P>(id).place(cx, target)
 }
 
 pub fn run<'a, C: Context, L: Layout<C>>(
@@ -501,19 +504,19 @@ fn arrange<C: Context>(
                 continue;
             };
             let place = cx.frame.places[place];
-            // earlier areas are final and relative to their references
-            let mut reference = stored.relative;
+            // earlier areas are final and relative to their targets
+            let mut reference = stored.target;
             let mut origin = Point::ZERO;
             loop {
                 let area = cx.placements[reference.index()].area;
                 origin = Point::new(origin.x + area.x, origin.y + area.y);
-                let next = cx.frame.nodes[reference.index()].relative;
+                let next = cx.frame.nodes[reference.index()].target;
                 if next == reference {
                     break;
                 }
                 reference = next;
             }
-            let size = cx.placements[stored.relative.index()].area.size();
+            let size = cx.placements[stored.target.index()].area.size();
             let parent = cx.placements[stored.visual_parent.index()].area.size();
             let mut place_cx = PlaceCx {
                 layout: LayoutCx {
@@ -524,12 +527,12 @@ fn arrange<C: Context>(
                 },
                 node: NodeId::new(index),
                 parent,
-                target: Rect::new(origin.x, origin.y, size.width, size.height),
             };
-            let position = (place.run)(&mut place_cx, place.bump_id);
+            let target = Rect::new(origin.x, origin.y, size.width, size.height);
+            let position = (place.run)(&mut place_cx, place.bump_id, target);
             let area = &mut cx.placements[index].area;
-            area.x = position.x;
-            area.y = position.y;
+            area.x = position.x - origin.x;
+            area.y = position.y - origin.y;
         }
     }
     frame.placements = placements;

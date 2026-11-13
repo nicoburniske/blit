@@ -1,6 +1,6 @@
 use crate::{
     Context, Scalar,
-    geometry::{Constraints, Point, Size},
+    geometry::{Constraints, Point, Rect, Size},
 };
 pub use crate::{
     Scratch,
@@ -17,20 +17,6 @@ pub trait Layout<C: Context>: 'static {
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<C::Scalar>) -> Size<C::Scalar>;
 }
 
-/// sizes and positions an out of flow node in place of a parent layout
-pub trait Place<C: Context>: 'static {
-    /// resolves this node through `cx` and returns its position relative to the target
-    fn place(&self, cx: &mut PlaceCx<'_, C>) -> Point<C::Scalar>;
-}
-
-/// places at the target's origin under unbounded constraints
-impl<C: Context> Place<C> for () {
-    fn place(&self, cx: &mut PlaceCx<'_, C>) -> Point<C::Scalar> {
-        cx.resolve(Constraints::loose(Size::uniform(C::Scalar::UNBOUNDED)));
-        Point::ZERO
-    }
-}
-
 /// forwards constraints to overlapping children and measures this node's atoms
 impl<C: Context> Layout<C> for () {
     type Item = ();
@@ -42,6 +28,21 @@ impl<C: Context> Layout<C> for () {
             cx.set_child_position(child, Point::ZERO);
         }
         bounds.constrain(size)
+    }
+}
+
+/// sizes and positions an out of flow node in place of a parent layout
+pub trait Place<C: Context>: 'static {
+    /// resolves this node through `cx` and returns its position in frame coordinates
+    /// `target` is the frame area of the node it is placed against, before position motion applies
+    fn place(&self, cx: &mut PlaceCx<'_, C>, target: Rect<C::Scalar>) -> Point<C::Scalar>;
+}
+
+/// places at the target's origin under unbounded constraints
+impl<C: Context> Place<C> for () {
+    fn place(&self, cx: &mut PlaceCx<'_, C>, target: Rect<C::Scalar>) -> Point<C::Scalar> {
+        cx.resolve(Constraints::loose(Size::uniform(C::Scalar::UNBOUNDED)));
+        Point::new(target.x, target.y)
     }
 }
 

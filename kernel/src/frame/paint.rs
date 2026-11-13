@@ -160,12 +160,13 @@ fn paint_node<C: Context>(frame: &mut Frame<C>, bump: &BumpArena, context: &mut 
         return;
     }
     set(frame, bump, context, resolved_clip);
+    let inset = edges.is_some_and(|edges| edges.inset != Sides::all(C::Scalar::ZERO));
     let mut atom = frame.nodes[node].first_atom;
     while let Some(atom_index) = atom.index() {
         let stored = frame.atoms[atom_index];
         let kind = stored.kind();
         (kind.paint)(bump, stored.bump_id, context, area);
-        if edges.is_some() {
+        if inset {
             area = area.inset((kind.inset)(bump, stored.bump_id));
         }
         atom = stored.next;

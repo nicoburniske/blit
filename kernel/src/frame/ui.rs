@@ -66,7 +66,7 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
             run: layout::place::<C, P>,
         });
         let node = &mut frame.nodes[self.inner.node.index()];
-        node.relative = reference;
+        node.target = reference;
         node.place = id;
         self
     }

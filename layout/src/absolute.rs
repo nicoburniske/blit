@@ -1,4 +1,4 @@
-use blit::{Axis, Constraints, Context, PlaceCx, Point, Scalar, Size};
+use blit::{Axis, Constraints, Context, PlaceCx, Point, Rect, Scalar, Size};
 
 use super::sizing_range;
 
@@ -68,7 +68,7 @@ pub enum Anchor {
 }
 
 impl<C: Context<Scalar = T>, T: Scalar> blit::Place<C> for Place<T> {
-    fn place(&self, cx: &mut PlaceCx<'_, C>) -> Point<T> {
+    fn place(&self, cx: &mut PlaceCx<'_, C>, target: Rect<T>) -> Point<T> {
         let range = |sizing, available| {
             let sizing = match sizing {
                 Sizing::Fit { min, max } => crate::Sizing::Fit { min, max },
@@ -98,9 +98,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Place<C> for Place<T> {
         let target_anchor = anchor(self.target_anchor);
         let child_anchor = anchor(self.child_anchor);
         let settled = cx.target_size();
-        let target = cx.target();
         let screen = cx.screen();
-        // offsets are relative to the target while overflow tests use frame coordinates
         let axis = |axis: Axis, offset: T, target_anchor: f32, child_anchor: f32| {
             let (start, screen_start) = match axis {
                 Axis::Horizontal => (target.x, screen.x),
@@ -113,12 +111,12 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Place<C> for Place<T> {
                     - if child_anchor == 1.0 { size } else { T::ZERO };
                 let to = if target_anchor == 0.0 { T::ZERO } else { extent }
                     - if child_anchor == 0.0 { T::ZERO } else { size };
-                from.lerp(to, 0.5) + offset
+                start + from.lerp(to, 0.5) + offset
             };
             // flipping tests the settled size so size motion does not switch sides midway
             let settled = axis.extent(settled);
             let overflows = |target_anchor, child_anchor, offset| {
-                let position = start + position(settled, target_anchor, child_anchor, offset);
+                let position = position(settled, target_anchor, child_anchor, offset);
                 position < screen_start || position.endpoint(settled) > screen_end
             };
             let size = axis.extent(size);
@@ -130,7 +128,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Place<C> for Place<T> {
                 result = position(size, 1.0 - target_anchor, 1.0 - child_anchor, T::ZERO - offset);
             }
             if self.clamp {
-                result = (start + result).min(screen_end - size).max(screen_start) - start;
+                result = result.min(screen_end - size).max(screen_start);
             }
             result
         };

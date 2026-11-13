@@ -37,12 +37,6 @@ impl<'a, C: Context> AtomCx<'a, C> {
 pub fn insert<C: Context, A: Atom<C>>(frame: &mut Frame<C>, node: NodeId, atom: A) {
     let (inset, outset) = (atom.inset(), atom.outset());
     if inset != Sides::all(C::Scalar::ZERO) || outset != Sides::all(C::Scalar::ZERO) {
-        assert!(
-            [inset.left, inset.right, inset.top, inset.bottom]
-                .into_iter()
-                .all(|side| side.is_finite() && side >= C::Scalar::ZERO),
-            "inset must be finite and nonnegative"
-        );
         let stored = &mut frame.nodes[node.index()];
         let index = stored.edges.index().unwrap_or_else(|| {
             stored.edges = EdgesId::new(frame.edges.len());
