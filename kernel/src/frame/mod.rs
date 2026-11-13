@@ -290,6 +290,9 @@ impl<C: Context> Frame<C> {
 
     fn store_clip<X: Clip<C>>(&mut self, clip: X) -> StoredClipId {
         let type_id = TypeId::of::<X>();
+        if type_id == TypeId::of::<()>() {
+            return StoredClipId::NONE;
+        }
         let kind = self
             .clip_kinds
             .iter()

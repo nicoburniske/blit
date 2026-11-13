@@ -73,7 +73,7 @@ pub fn resolve_clips<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
             .index()
             .map_or(frame.screen, |clip| frame.interaction.clips[clip].bounds);
         let bounds = match shape {
-            ClipShape::Unbounded => continue,
+            ClipShape::Unbounded => parent_bounds,
             ClipShape::Rect(rect) | ClipShape::RoundedRect { rect, .. } => {
                 parent_bounds.intersection(rect).unwrap_or_default()
             }

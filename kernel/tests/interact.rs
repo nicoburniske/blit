@@ -441,8 +441,12 @@ fn clip_shapes() {
         fn shape(&self, _: Rect<f32>) -> ClipShape<f32> {
             self.0
         }
-        fn push(&self, _: &mut TestContext, _: Rect<f32>) {}
-        fn pop(&self, _: &mut TestContext) {}
+        fn push(&self, context: &mut TestContext, area: Rect<f32>) {
+            context.commands.extend([PushClip(area), PushClip(area)]);
+        }
+        fn pop(&self, context: &mut TestContext) {
+            context.commands.extend([PopClip, PopClip]);
+        }
     }
 
     let (mut frame, mut context) = frame(Size::uniform(4.0));
@@ -463,7 +467,19 @@ fn clip_shapes() {
             child.interact(WATCH)[0].is_some()
         };
         render(&mut frame, &mut context, &build);
-        assert!(context.commands.contains(&Paint('C', Rect::new(3.0, 3.0, 1.0, 1.0))));
+        let child = Rect::new(3.0, 3.0, 1.0, 1.0);
+        assert_eq!(
+            context.commands,
+            [
+                PushClip(rect),
+                PushClip(rect),
+                PushClip(child),
+                Paint('C', child),
+                PopClip,
+                PopClip,
+                PopClip
+            ]
+        );
         for (position, inside) in [([3.1, 3.1], true), ([3.9, 3.9], shape == ClipShape::Unbounded)] {
             let seen = render_inputs(
                 &mut frame,

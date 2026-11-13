@@ -1,19 +1,23 @@
 use crate::{Context, Point, Rect, Scalar};
 
-/// declares clip geometry and applies the matching backend clip
+/// declares interaction geometry and applies backend clipping
 pub trait Clip<C: Context>: 'static {
-    /// returns geometry for culling and hit testing
+    /// returns geometry for hit testing and conservative visual culling
+    ///
+    /// this may approximate backend clipping but must enclose everything it can draw
     fn shape(&self, area: Rect<C::Scalar>) -> ClipShape<C::Scalar>;
 
+    /// applies backend clipping until the matching pop
     fn push(&self, context: &mut C, area: Rect<C::Scalar>);
 
+    /// restores the backend state from the matching push
     fn pop(&self, context: &mut C);
 }
 
 /// resolved clip geometry in frame coordinates
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ClipShape<T> {
-    /// inherits ancestor clips without invoking backend callbacks
+    /// inherits ancestor geometry while retaining backend callbacks
     Unbounded,
     Rect(Rect<T>),
     /// radius is clamped to half the shorter side
