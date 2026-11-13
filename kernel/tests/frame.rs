@@ -17,10 +17,10 @@ fn local_bounds_apply_to_atoms_and_layouts() {
             })
             .1
         });
-        assert_eq!(measured, Size::new(5.0, 2.0));
+        assert_eq!(measured, Size::new(7.0, 2.0));
         assert_eq!(
             context.commands[0],
-            Paint(if with_layout { 'L' } else { 'A' }, Rect::new(0.0, 0.0, 8.0, 6.0))
+            Paint(if with_layout { 'L' } else { 'A' }, Rect::new(0.0, 0.0, 7.0, 2.0))
         );
     }
 }

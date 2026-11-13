@@ -338,11 +338,10 @@ impl<T: Scalar> Layout<T> {
         item: &Item<T>,
         axis: Axis,
     ) -> Sizing<T> {
-        let sizing = item.sizing(axis).unwrap_or_else(|| {
-            cx.child_declared_extent(child, axis)
-                .map_or_else(Sizing::fit, Sizing::fixed)
-        });
-        super::resolve_sizing(cx, child, axis, sizing)
+        cx.fixed_extent(child, axis)
+            .map(Sizing::Fixed)
+            .or(item.sizing(axis))
+            .unwrap_or_else(Sizing::fit)
     }
 
     #[inline(always)]

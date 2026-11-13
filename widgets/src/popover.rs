@@ -317,7 +317,7 @@ mod tests {
             );
             frame.layout(&mut context);
             if let Input::MouseUp { .. } = input {
-                assert_eq!(frame.area(Id::new("named content")), content_area);
+                assert_eq!(frame.area(Id::new("named content")), Some(Rect::new(0.0, 1.0, 4.0, 3.0)));
                 assert_eq!(
                     frame.area(Id::new("named trigger")),
                     Some(Rect::new(0.0, 0.0, 2.0, 1.0)),

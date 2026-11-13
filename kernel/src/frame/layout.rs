@@ -25,11 +25,6 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         self.placements[child.index()].area.size()
     }
 
-    pub fn measure_atoms(&mut self, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
-        let node = self.node;
-        self.cast::<()>().measure(node, constraints)
-    }
-
     #[inline]
     pub fn children(&self) -> Children<'a> {
         Children {
@@ -51,18 +46,14 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         self.cast::<()>().resolve(child, bounds)
     }
 
-    /// queries a child's exact local dimension without running its layout
-    pub fn child_declared_extent(&self, child: NodeId, axis: Axis) -> Option<C::Scalar> {
+    /// the extent a child resolves to regardless of bounds from motion or exact limits
+    pub fn fixed_extent(&self, child: NodeId, axis: Axis) -> Option<C::Scalar> {
         let stored = self.assert_child(child);
-        if let Some(index) = stored.limits.index() {
-            let limits = self.frame.limits[index];
+        axis.extent(self.size_overrides(child)).or_else(|| {
+            let limits = self.frame.limits[stored.limits.index()?];
             let min = axis.extent(limits.min);
-            let max = axis.extent(limits.max);
-            if min == max {
-                return Some(min);
-            }
-        }
-        None
+            (min == axis.extent(limits.max)).then_some(min)
+        })
     }
 
     pub fn set_child_position(&mut self, child: NodeId, position: Point<C::Scalar>) {
@@ -93,21 +84,6 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         #[cfg(debug_assertions)]
         self.assert_child(child);
         self.placements[child.index()].z_index = z_index;
-    }
-
-    pub fn size_overrides(&self, child: NodeId) -> (Option<C::Scalar>, Option<C::Scalar>) {
-        let Some(&animated) = child
-            .index()
-            .checked_sub(self.animated_start)
-            .and_then(|index| self.frame.animated_sizes.get(index))
-        else {
-            return (None, None);
-        };
-        let current = self.placements[child.index()].area.size();
-        (
-            animated.intersects(MotionProps::WIDTH).then_some(current.width),
-            animated.intersects(MotionProps::HEIGHT).then_some(current.height),
-        )
     }
 }
 
@@ -192,6 +168,21 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         // safety: repr(C) changes only the item marker and preserves this borrow and lifetime
         unsafe { &mut *std::ptr::from_mut(self).cast::<LayoutCx<'a, C, J>>() }
     }
+
+    fn size_overrides(&self, node: NodeId) -> Size<Option<C::Scalar>> {
+        let Some(&animated) = node
+            .index()
+            .checked_sub(self.animated_start)
+            .and_then(|index| self.frame.animated_sizes.get(index))
+        else {
+            return Size::new(None, None);
+        };
+        let current = self.placements[node.index()].area.size();
+        Size::new(
+            animated.intersects(MotionProps::WIDTH).then_some(current.width),
+            animated.intersects(MotionProps::HEIGHT).then_some(current.height),
+        )
+    }
 }
 
 impl<'a, C: Context> LayoutCx<'a, C> {
@@ -241,12 +232,13 @@ impl<'a, C: Context> LayoutCx<'a, C> {
     fn resolve(&mut self, node: NodeId, mut bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
         if let Some(index) = self.frame.nodes[node.index()].limits.index() {
             let limits = self.frame.limits[index];
+            // a node's own limits win over its parent's bounds
             bounds = Constraints {
-                min: bounds.constrain(limits.min),
-                max: bounds.constrain(limits.max),
+                min: limits.constrain(bounds.min),
+                max: limits.constrain(bounds.max),
             };
         }
-        let (width, height) = self.size_overrides(node);
+        let Size { width, height } = self.size_overrides(node);
         if let Some(width) = width {
             bounds.min.width = width;
             bounds.max.width = width;
@@ -269,7 +261,9 @@ impl<'a, C: Context> LayoutCx<'a, C> {
             ),
             None => (Point::ZERO, bounds),
         };
-        let size = if stored.layout.offset().is_some() {
+        // atoms size every node so layouts only account for children
+        let mut size = self.measure(node, bounds);
+        if stored.layout.offset().is_some() {
             let kind = &self.frame.layout_kinds[stored.layout_kind as usize];
             let mut cx = LayoutCx {
                 frame: self.frame,
@@ -288,10 +282,8 @@ impl<'a, C: Context> LayoutCx<'a, C> {
                 area.x = leading.x;
                 area.y = leading.y;
             }
-            (kind.run)(&mut cx, stored.layout, bounds)
-        } else {
-            self.measure(node, bounds)
-        };
+            size = size.max((kind.run)(&mut cx, stored.layout, bounds));
+        }
         debug_assert_eq!(
             size,
             bounds.constrain(size),

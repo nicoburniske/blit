@@ -199,7 +199,7 @@ fn parent_items_allocate_and_component_bounds_constrain_each_axis() {
             },
         );
         assert_eq!(frame.area(inherited).unwrap().size(), Size::new(70.0, 6.0));
-        assert_eq!(frame.area(fixed).unwrap().size(), Size::new(20.0, 9.0));
+        assert_eq!(frame.area(fixed).unwrap().size(), Size::new(20.0, 6.0));
         assert_eq!(frame.area(fit).unwrap().size(), Size::new(10.0, 6.0));
     }
 }

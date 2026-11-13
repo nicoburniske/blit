@@ -231,9 +231,8 @@ fn resolve_sizing<C: Context>(
     child: blit::NodeId,
     axis: Axis,
 ) -> Sizing<C::Scalar> {
-    let sizing = cx.item(child).sizing(axis).unwrap_or_else(|| {
-        cx.child_declared_extent(child, axis)
-            .map_or_else(Sizing::fit, Sizing::fixed)
-    });
-    super::resolve_sizing(cx, child, axis, sizing)
+    cx.fixed_extent(child, axis)
+        .map(Sizing::Fixed)
+        .or(cx.item(child).sizing(axis))
+        .unwrap_or_else(Sizing::fit)
 }

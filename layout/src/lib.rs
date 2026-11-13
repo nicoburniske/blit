@@ -6,7 +6,7 @@ pub use pad::Pad;
 pub mod rect;
 pub mod wrap;
 
-use blit::{Axis, Constraints, Context, LayoutCx, NodeId, Scalar, Size};
+use blit::{Axis, Constraints, Scalar, Size};
 
 /// allocation requested from a parent layout on one axis
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -67,22 +67,6 @@ pub enum Justify {
     SpaceBetween,
     SpaceAround,
     SpaceEvenly,
-}
-
-/// resolves sizing before allocation including animated overrides
-#[inline]
-pub fn resolve_sizing<C: Context, I: 'static>(
-    cx: &LayoutCx<'_, C, I>,
-    child: NodeId,
-    axis: Axis,
-    sizing: Sizing<C::Scalar>,
-) -> Sizing<C::Scalar> {
-    let (width, height) = cx.size_overrides(child);
-    let extent = match axis {
-        Axis::Horizontal => width,
-        Axis::Vertical => height,
-    };
-    extent.map_or(sizing, Sizing::Fixed)
 }
 
 fn flow_size<T>(main: T, cross: T, axis: Axis) -> Size<T> {

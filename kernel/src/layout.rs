@@ -17,15 +17,14 @@ pub trait Layout<C: Context>: 'static {
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, bounds: Constraints<C::Scalar>) -> Size<C::Scalar>;
 }
 
-/// forwards constraints to overlapping children and measures this node's atoms
+/// overlaps children at the content origin
 impl<C: Context> Layout<C> for () {
     type Item = ();
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, ()>, bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
-        let mut size = cx.measure_atoms(bounds);
+        let mut size = Size::ZERO;
         for child in cx.children() {
             size = size.max(cx.layout_child(child, bounds));
-            cx.set_child_position(child, Point::ZERO);
         }
         bounds.constrain(size)
     }
