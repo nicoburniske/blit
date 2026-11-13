@@ -111,6 +111,71 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     }
 }
 
+/// resolves an out of flow node after all flow layout
+pub struct PlaceCx<'a, C: Context> {
+    layout: LayoutCx<'a, C>,
+    node: NodeId,
+    parent: Size<C::Scalar>,
+}
+
+impl<C: Context> PlaceCx<'_, C> {
+    pub fn node(&self) -> NodeId {
+        self.node
+    }
+
+    /// the visual parent's size
+    pub fn parent(&self) -> Size<C::Scalar> {
+        self.parent
+    }
+
+    pub fn screen(&self) -> Rect<C::Scalar> {
+        self.layout.frame.screen
+    }
+
+    /// lays out this node and returns its current size
+    pub fn resolve(&mut self, bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
+        self.layout.resolve(self.node, bounds)
+    }
+
+    pub fn request_frame(&mut self) {
+        self.layout.request_frame();
+    }
+
+    pub fn context(&self) -> &C {
+        self.layout.context
+    }
+
+    pub fn context_mut(&mut self) -> &mut C {
+        self.layout.context
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct Children<'a> {
+    nodes: &'a [StoredNode],
+    next: NodeId,
+}
+
+impl Iterator for Children<'_> {
+    type Item = NodeId;
+
+    #[inline]
+    fn next(&mut self) -> Option<NodeId> {
+        while (self.next.value as usize) < self.nodes.len() {
+            let node = self.next;
+            let stored = &self.nodes[node.index()];
+            self.next.value = stored.subtree_end + 1;
+            if stored.place.index().is_none() {
+                return Some(node);
+            }
+        }
+        None
+    }
+}
+
+//
+// internals
+//
 impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     #[track_caller]
     fn assert_child(&self, child: NodeId) -> &'a StoredNode {
@@ -243,68 +308,6 @@ impl<'a, C: Context> LayoutCx<'a, C> {
         area.width = size.width;
         area.height = size.height;
         size
-    }
-}
-
-/// resolves an out of flow node after all flow layout
-pub struct PlaceCx<'a, C: Context> {
-    layout: LayoutCx<'a, C>,
-    node: NodeId,
-    parent: Size<C::Scalar>,
-}
-
-impl<C: Context> PlaceCx<'_, C> {
-    pub fn node(&self) -> NodeId {
-        self.node
-    }
-
-    /// the visual parent's size
-    pub fn parent(&self) -> Size<C::Scalar> {
-        self.parent
-    }
-
-    pub fn screen(&self) -> Rect<C::Scalar> {
-        self.layout.frame.screen
-    }
-
-    /// lays out this node and returns its current size
-    pub fn resolve(&mut self, bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
-        self.layout.resolve(self.node, bounds)
-    }
-
-    pub fn request_frame(&mut self) {
-        self.layout.request_frame();
-    }
-
-    pub fn context(&self) -> &C {
-        self.layout.context
-    }
-
-    pub fn context_mut(&mut self) -> &mut C {
-        self.layout.context
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct Children<'a> {
-    nodes: &'a [StoredNode],
-    next: NodeId,
-}
-
-impl Iterator for Children<'_> {
-    type Item = NodeId;
-
-    #[inline]
-    fn next(&mut self) -> Option<NodeId> {
-        while (self.next.value as usize) < self.nodes.len() {
-            let node = self.next;
-            let stored = &self.nodes[node.index()];
-            self.next.value = stored.subtree_end + 1;
-            if stored.place.index().is_none() {
-                return Some(node);
-            }
-        }
-        None
     }
 }
 
