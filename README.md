@@ -2,7 +2,7 @@
 
 blit is an experimental immediate-mode ui toolkit for rust.
 
-in ~4k LOC, blit's kernel provides a fast, composable api for layout,
+in ~4.5k LOC, blit's kernel provides a fast, composable api for layout,
 interaction, animation and motion.
 
 the same kernel can drive terminal cells or a pixel framebuffer.
@@ -56,7 +56,7 @@ fn main() -> std::io::Result<()> {
     blit_tui::run(|ui| {
         // layout arranges the root's children in a column
         let mut root = ui.layout(flex::column().gap(1));
-        // atoms inserted after a pad are inset, and children always are
+        // pad insets children and later atoms
         root.insert(Pad::new(1));
 
         let quit = root
@@ -68,7 +68,6 @@ fn main() -> std::io::Result<()> {
 
                 // insert draws content directly on the node
                 header.insert(Block::new().border(Border::new(Color::BLUE)));
-                // the border stays on the outer box while the children sit inside the pad
                 header.insert(Pad::new(1));
 
                 // title
@@ -78,13 +77,10 @@ fn main() -> std::io::Result<()> {
 
                 header
                     .child()
-                     // 8 columns wide and 1 row tall
                     .item(flex::item().fixed(8, 1))
                     .build(|mut ui: Ui<'_>| {
-                        // interaction uses this node's bounds
                         let press = ui.interact(interact::press());
 
-                        // the background and text share the same node
                         ui.insert(Block::new().background(Color::BLUE));
                         ui.insert(
                             Text::new("quit")

@@ -130,8 +130,7 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
 }
 
 impl<'a, C: Context> LayoutCx<'a, C> {
-    /// measures atoms against the node's inner box
-    /// atoms before an inset see the box grown by the insets still to come
+    /// measures atoms against the inner box
     #[inline]
     fn measure(&mut self, node: NodeId, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
         if constraints.min == constraints.max {
@@ -312,7 +311,7 @@ impl Iterator for Children<'_> {
 /// resolves layout motion against a subtree's target layout
 ///
 /// - layout first establishes final areas
-/// - size animation updates placements and replays layout with the animated sizes
+/// - size animation updates placements and replays layout
 /// - position animation applies after layout without replay
 pub fn resolve<C: Context>(
     frame: &mut Frame<C>,

@@ -105,7 +105,7 @@ fn absolute_flips_then_clamps_into_the_screen() {
                 ui.insert(BoxAtom(Size::new(6, 2)));
                 ui.node_id()
             });
-            // below overflows so it flips above, and x overflows either way so it clamps
+            // flips above and clamps x
             root.child().id(popup).place(
                 button,
                 absolute::place()

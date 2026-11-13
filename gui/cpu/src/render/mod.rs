@@ -21,6 +21,9 @@ use crate::{
 
 /// prepares recorded inputs lazily and renders their visible output
 ///
+/// skips unchanged or hidden pixels
+/// external changes require [`crate::Renderer::invalidate_all`]
+///
 /// ```
 /// use blit::{LogicalRect, Paint};
 /// use blit_gui::damage::DamageTracker;

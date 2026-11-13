@@ -1,6 +1,6 @@
 use blit::{Atom, AtomCx, Constraints, Context, Rect, Sides, Size};
 
-/// insets everything inserted after it on its node
+/// insets children and atoms inserted after it
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pad<T>(pub Sides<T>);
 

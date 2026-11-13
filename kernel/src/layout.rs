@@ -31,10 +31,9 @@ impl<C: Context> Layout<C> for () {
     }
 }
 
-/// sizes and positions an out of flow node in place of a parent layout
+/// positions a node outside its parent's flow
 pub trait Place<C: Context>: 'static {
-    /// resolves this node through `cx` and returns its position in frame coordinates
-    /// `target` is the frame area of the node it is placed against, before position motion applies
+    /// returns this node's frame position
     fn place(&self, cx: &mut PlaceCx<'_, C>, target: Rect<C::Scalar>) -> Point<C::Scalar>;
 }
 

@@ -214,9 +214,14 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             let mut start = 0;
             for (stage, node) in plan.passes.iter().enumerate() {
                 context.raster.range = start..node.index;
-                context
-                    .raster
-                    .cull(&context.list, &context.clips, &damage, screen, self.tile_shift, &mut plan.ranges);
+                context.raster.cull(
+                    &context.list,
+                    &context.clips,
+                    &damage,
+                    screen,
+                    self.tile_shift,
+                    &mut plan.ranges,
+                );
                 self.strategy.render(context, &damage);
                 start = node.index + 1;
                 damage.region = Some(&plan.stages[stage + 1]);
@@ -269,9 +274,14 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                 }
             }
             context.raster.range = start..end;
-            context
-                .raster
-                .cull(&context.list, &context.clips, &damage, screen, self.tile_shift, &mut plan.ranges);
+            context.raster.cull(
+                &context.list,
+                &context.clips,
+                &damage,
+                screen,
+                self.tile_shift,
+                &mut plan.ranges,
+            );
             self.strategy.render(context, &damage);
             if !plan.passes.is_empty() {
                 let mut offset = 0;
@@ -297,7 +307,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         self.reset_frame();
     }
 
-    /// releases pending drawing inputs before recording a fresh frame
+    /// clears pending inputs before a new frame
     pub fn reset_frame(&mut self) {
         let context = &mut self.context;
         context.list.clear();
@@ -321,9 +331,12 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
     pub fn buffer(&self) -> &B {
         &self.context.buffer
     }
+
     pub fn buffer_mut(&mut self) -> &mut B {
         &mut self.context.buffer
     }
+
+    /// forces a full redraw on the next render
     pub fn invalidate_all(&mut self) {
         self.damage.invalidate();
     }

@@ -7,7 +7,7 @@ pub fn place<T: Scalar>() -> Place<T> {
 }
 
 blit::builder! {
-    /// sizes against the visual parent and positions with x and y offsets from anchors on the target
+    /// positions with x and y offsets from anchors on the target
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Place<T: Scalar> {
         new(),
@@ -17,7 +17,7 @@ blit::builder! {
         y: T = T::ZERO,
         width: Sizing<T> = Sizing::fit(),
         height: Sizing<T> = Sizing::fit(),
-        /// mirrors anchors and offset on an axis that overflows the screen when the mirror fits
+        /// mirrors an axis that overflows the screen
         flip: bool = false,
         /// shifts into the screen after flipping
         clamp: bool = false,

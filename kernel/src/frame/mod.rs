@@ -48,7 +48,7 @@ pub struct Frame<C: Context> {
     areas_previous: Vec<(Id, Rect<C::Scalar>)>,
     animations: Vec<AnimationState>,
     motions: Vec<MotionState<C::Scalar>>,
-    /// size channels animated in the subtree being resolved, indexed from its root
+    /// animated sizes in the subtree being resolved
     animated_sizes: Vec<MotionProps>,
     timers: Vec<TimerState>,
     input: Input<C::Scalar>,

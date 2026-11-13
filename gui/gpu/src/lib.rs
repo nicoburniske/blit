@@ -748,7 +748,7 @@ impl Renderer {
         self.batches.len()
     }
 
-    /// releases pending drawing inputs before recording a fresh frame
+    /// clears pending inputs before a new frame
     pub fn reset_frame(&mut self) {
         self.list.clear();
         self.calls.clear();

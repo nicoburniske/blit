@@ -55,8 +55,7 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
         self
     }
 
-    /// takes this node out of its parent's flow
-    /// `place` sizes it and positions it against `target` after flow layout
+    /// places this node against `target` outside its parent's flow
     pub fn place<P: Place<C>>(self, target: impl Into<NodeTarget>, place: P) -> Self {
         let frame = &mut *self.inner.frame;
         let reference = frame.resolve_target(self.inner.node, target.into());
@@ -255,8 +254,7 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
 
 impl<C: Context, S> Ui<'_, C, S> {
     /// returns the area from the previous layout and tracks this id for the next one
-    ///
-    /// this node's own area is inset by the atoms inserted so far
+    /// inset by atoms inserted so far
     pub fn area(&mut self, id: Id) -> Option<Rect<C::Scalar>> {
         let frame = &mut *self.inner.frame;
         frame.areas_requested.push(id);
