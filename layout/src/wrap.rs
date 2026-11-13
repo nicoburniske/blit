@@ -86,10 +86,9 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
         let main_max = self.axis.extent(bounds.max);
         let cross_max = cross_axis.extent(bounds.max);
         let mut percentages = 0.0;
-        let mut target_differs = false;
         for child in cx.children() {
             let main = resolve_sizing(cx, child, self.axis);
-            let size = cx.layout_child(
+            cx.layout_child(
                 child,
                 flow_constraints(
                     self.axis,
@@ -97,7 +96,6 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
                     sizing_range(resolve_sizing(cx, child, cross_axis), cross_max),
                 ),
             );
-            target_differs |= self.axis.extent(size) != self.axis.extent(cx.target_size(child));
         }
         let longest = longest_run(
             cx.children().map(|child| self.axis.extent(cx.size(child))),
@@ -105,26 +103,16 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
             item_gap,
         );
         let available = longest.clamp(main_min, main_max);
-        let target_available = if target_differs {
-            longest_run(
-                cx.children().map(|child| self.axis.extent(cx.target_size(child))),
-                main_max,
-                item_gap,
-            )
-            .clamp(main_min, main_max)
-        } else {
-            available
-        };
-        let mut targets = cx.children().peekable();
+        let mut pending = cx.children().peekable();
         let mut children = cx.children();
         let mut occupied_cross = T::ZERO;
         let mut cross_cursor = T::ZERO;
         let mut runs = 0;
-        while targets.peek().is_some() {
+        while pending.peek().is_some() {
             let (count, _) = next_run(
-                &mut targets,
-                |child| self.axis.extent(cx.target_size(*child)),
-                target_available,
+                &mut pending,
+                |child| self.axis.extent(cx.size(*child)),
+                available,
                 item_gap,
             );
             let gaps = item_gap.repeat(count.saturating_sub(1));

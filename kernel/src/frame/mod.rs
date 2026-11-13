@@ -48,7 +48,8 @@ pub struct Frame<C: Context> {
     areas_previous: Vec<(Id, Rect<C::Scalar>)>,
     animations: Vec<AnimationState>,
     motions: Vec<MotionState<C::Scalar>>,
-    target_sizes: Vec<TargetSize<C::Scalar>>,
+    /// size channels animated in the subtree being resolved, indexed from its root
+    animated_sizes: Vec<MotionProps>,
     timers: Vec<TimerState>,
     input: Input<C::Scalar>,
     time: Duration,
@@ -83,7 +84,7 @@ impl<C: Context> Default for Frame<C> {
             areas_requested: Vec::new(),
             animations: Vec::new(),
             motions: Vec::new(),
-            target_sizes: Vec::new(),
+            animated_sizes: Vec::new(),
             timers: Vec::new(),
             input: Input::None,
             time: Duration::ZERO,
@@ -456,12 +457,6 @@ pub struct StoredNode {
 struct Placement<T> {
     area: Rect<T>,
     z_index: i16,
-}
-
-#[derive(Clone, Copy)]
-struct TargetSize<T> {
-    size: Size<T>,
-    properties: MotionProps,
 }
 
 #[derive(Clone, Copy)]

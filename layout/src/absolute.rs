@@ -97,7 +97,6 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Place<C> for Place<T> {
         };
         let target_anchor = anchor(self.target_anchor);
         let child_anchor = anchor(self.child_anchor);
-        let settled = cx.target_size();
         let screen = cx.screen();
         let axis = |axis: Axis, offset: T, target_anchor: f32, child_anchor: f32| {
             let (start, screen_start) = match axis {
@@ -113,13 +112,11 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Place<C> for Place<T> {
                     - if child_anchor == 0.0 { T::ZERO } else { size };
                 start + from.lerp(to, 0.5) + offset
             };
-            // flipping tests the settled size so size motion does not switch sides midway
-            let settled = axis.extent(settled);
-            let overflows = |target_anchor, child_anchor, offset| {
-                let position = position(settled, target_anchor, child_anchor, offset);
-                position < screen_start || position.endpoint(settled) > screen_end
-            };
             let size = axis.extent(size);
+            let overflows = |target_anchor, child_anchor, offset| {
+                let position = position(size, target_anchor, child_anchor, offset);
+                position < screen_start || position.endpoint(size) > screen_end
+            };
             let mut result = position(size, target_anchor, child_anchor, offset);
             if self.flip
                 && overflows(target_anchor, child_anchor, offset)

@@ -7,7 +7,7 @@ pub struct LayoutCx<'a, C: Context, I = ()> {
     placements: &'a mut [Placement<C::Scalar>],
     context: &'a mut C,
     frame_requested: &'a mut bool,
-    target_start: usize,
+    animated_start: usize,
     node: NodeId,
     content_origin: Point<C::Scalar>,
     default_item: BumpId,
@@ -65,16 +65,6 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         None
     }
 
-    pub fn target_size(&self, child: NodeId) -> Size<C::Scalar> {
-        #[cfg(debug_assertions)]
-        self.assert_child(child);
-        child
-            .index()
-            .checked_sub(self.target_start)
-            .and_then(|index| self.frame.target_sizes.get(index))
-            .map_or_else(|| self.placements[child.index()].area.size(), |target| target.size)
-    }
-
     pub fn set_child_position(&mut self, child: NodeId, position: Point<C::Scalar>) {
         #[cfg(debug_assertions)]
         self.assert_child(child);
@@ -106,23 +96,17 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     }
 
     pub fn size_overrides(&self, child: NodeId) -> (Option<C::Scalar>, Option<C::Scalar>) {
-        let Some(target) = child
+        let Some(&animated) = child
             .index()
-            .checked_sub(self.target_start)
-            .and_then(|index| self.frame.target_sizes.get(index))
+            .checked_sub(self.animated_start)
+            .and_then(|index| self.frame.animated_sizes.get(index))
         else {
             return (None, None);
         };
         let current = self.placements[child.index()].area.size();
         (
-            target
-                .properties
-                .intersects(MotionProps::WIDTH)
-                .then_some(current.width),
-            target
-                .properties
-                .intersects(MotionProps::HEIGHT)
-                .then_some(current.height),
+            animated.intersects(MotionProps::WIDTH).then_some(current.width),
+            animated.intersects(MotionProps::HEIGHT).then_some(current.height),
         )
     }
 }
@@ -229,7 +213,7 @@ impl<'a, C: Context> LayoutCx<'a, C> {
                 placements: self.placements,
                 context: self.context,
                 frame_requested: self.frame_requested,
-                target_start: self.target_start,
+                animated_start: self.animated_start,
                 node,
                 content_origin: leading,
                 default_item: kind.default_item,
@@ -289,20 +273,6 @@ impl<C: Context> PlaceCx<'_, C> {
         self.layout.resolve(self.node, bounds)
     }
 
-    /// this node's size once size motion settles
-    /// use it for structural decisions such as flipping
-    pub fn target_size(&self) -> Size<C::Scalar> {
-        let layout = &self.layout;
-        self.node
-            .index()
-            .checked_sub(layout.target_start)
-            .and_then(|index| layout.frame.target_sizes.get(index))
-            .map_or_else(
-                || layout.placements[self.node.index()].area.size(),
-                |target| target.size,
-            )
-    }
-
     pub fn request_frame(&mut self) {
         self.layout.request_frame();
     }
@@ -341,9 +311,8 @@ impl Iterator for Children<'_> {
 
 /// resolves layout motion against a subtree's target layout
 ///
-/// - layout first establishes target areas
-/// - size animation updates placements and replays layout
-/// - target sizes remain available for structural decisions such as wrapping
+/// - layout first establishes final areas
+/// - size animation updates placements and replays layout with the animated sizes
 /// - position animation applies after layout without replay
 pub fn resolve<C: Context>(
     frame: &mut Frame<C>,
@@ -403,12 +372,8 @@ pub fn resolve<C: Context>(
         }
         let properties = animated.intersection(MotionProps::SIZE);
         if !properties.is_empty() {
-            if frame.target_sizes.is_empty() {
-                let placements = &frame.placements[start..end];
-                frame.target_sizes.extend(placements.iter().map(|node| TargetSize {
-                    size: node.area.size(),
-                    properties: MotionProps::NONE,
-                }));
+            if frame.animated_sizes.is_empty() {
+                frame.animated_sizes.resize(end - start, MotionProps::NONE);
             }
             let area = &mut frame.placements[node.index()].area;
             if properties.intersects(MotionProps::WIDTH) {
@@ -417,7 +382,7 @@ pub fn resolve<C: Context>(
             if properties.intersects(MotionProps::HEIGHT) {
                 area.height = values[3];
             }
-            frame.target_sizes[node.index() - start].properties = properties;
+            frame.animated_sizes[node.index() - start] = properties;
         }
         if let Err(index) = found
             && commit
@@ -425,9 +390,9 @@ pub fn resolve<C: Context>(
             frame.motions.insert(index, initial);
         }
     }
-    if !frame.target_sizes.is_empty() {
+    if !frame.animated_sizes.is_empty() {
         size = arrange(frame, bump, context, root, bounds);
-        frame.target_sizes.clear();
+        frame.animated_sizes.clear();
     }
     // settled position channels still override reflow from animated sizes
     if commit {
@@ -490,7 +455,7 @@ fn arrange<C: Context>(
         placements: &mut placements,
         context,
         frame_requested: &mut requested,
-        target_start: node.index(),
+        animated_start: node.index(),
         node,
         content_origin: Point::ZERO,
         default_item: BumpId::NONE,
@@ -504,7 +469,7 @@ fn arrange<C: Context>(
                 continue;
             };
             let place = cx.frame.places[place];
-            // earlier areas are final and relative to their targets
+            // earlier areas are resolved and relative to their targets
             let mut reference = stored.target;
             let mut origin = Point::ZERO;
             loop {
