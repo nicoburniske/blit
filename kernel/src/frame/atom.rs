@@ -60,11 +60,7 @@ pub fn insert<C: Context, A: Atom<C>>(frame: &mut Frame<C>, node: NodeId, atom: 
         );
         let stored = &mut frame.nodes[node.index()];
         if let Some(index) = stored.inset.index() {
-            let total = &mut frame.insets[index];
-            total.left = total.left.endpoint(inset.left);
-            total.right = total.right.endpoint(inset.right);
-            total.top = total.top.endpoint(inset.top);
-            total.bottom = total.bottom.endpoint(inset.bottom);
+            frame.insets[index] = frame.insets[index] + inset;
         } else {
             stored.inset = InsetId::new(frame.insets.len());
             frame.insets.push(inset);

@@ -436,6 +436,20 @@ impl<T: Scalar> From<T> for Sides<T> {
     }
 }
 
+impl<T: Add<Output = T>> Add for Sides<T> {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, other: Self) -> Self {
+        Self {
+            top: self.top + other.top,
+            right: self.right + other.right,
+            bottom: self.bottom + other.bottom,
+            left: self.left + other.left,
+        }
+    }
+}
+
 impl<T: Add<Output = T>> Sides<T> {
     #[inline]
     pub fn size(self) -> Size<T> {

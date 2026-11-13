@@ -154,10 +154,18 @@ impl<'a, C: Context> LayoutCx<'a, C> {
             return constraints.min;
         }
         let stored = &self.frame.nodes[node.index()];
-        let inset = stored.inset.index();
-        let mut remaining = inset.map_or(Size::ZERO, |index| self.frame.insets[index].size());
         let mut atom = stored.first_atom;
         let mut size = Size::ZERO;
+        let Some(inset) = stored.inset.index() else {
+            while let Some(index) = atom.index() {
+                let stored = self.frame.atoms[index];
+                let measure = self.frame.atom_kinds[stored.kind as usize].measure;
+                size = size.max(measure(self.bump, stored.bump_id, self.context, constraints));
+                atom = stored.next;
+            }
+            return constraints.constrain(size);
+        };
+        let mut remaining = self.frame.insets[inset].size();
         while let Some(index) = atom.index() {
             let stored = self.frame.atoms[index];
             let kind = &self.frame.atom_kinds[stored.kind as usize];
@@ -174,9 +182,7 @@ impl<'a, C: Context> LayoutCx<'a, C> {
             };
             let measured = measure(self.bump, stored.bump_id, self.context, bounds);
             size = size.max((measured - remaining).max(Size::ZERO));
-            if inset.is_some() {
-                remaining = remaining - atom_inset(self.bump, stored.bump_id).size();
-            }
+            remaining = remaining - atom_inset(self.bump, stored.bump_id).size();
             atom = stored.next;
         }
         constraints.constrain(size)
@@ -202,13 +208,14 @@ impl<'a, C: Context> LayoutCx<'a, C> {
         }
         let stored = &self.frame.nodes[node.index()];
         let outer = bounds;
-        let inset = stored
-            .inset
-            .index()
-            .map_or(Sides::all(C::Scalar::ZERO), |index| self.frame.insets[index]);
-        let leading = Point::new(inset.left.min(bounds.max.width), inset.top.min(bounds.max.height));
-        let inset = inset.size();
-        let bounds = bounds.shrink(inset);
+        let inset = stored.inset.index().map(|index| self.frame.insets[index]);
+        let (leading, bounds) = match inset {
+            Some(inset) => (
+                Point::new(inset.left.min(bounds.max.width), inset.top.min(bounds.max.height)),
+                bounds.shrink(inset.size()),
+            ),
+            None => (Point::ZERO, bounds),
+        };
         let size = if stored.layout.offset().is_some() {
             let kind = &self.frame.layout_kinds[stored.layout_kind as usize];
             let mut cx = LayoutCx {
@@ -237,10 +244,13 @@ impl<'a, C: Context> LayoutCx<'a, C> {
             bounds.constrain(size),
             "layout returned a size outside its constraints"
         );
-        let size = outer.constrain(Size::new(
-            size.width.endpoint(inset.width),
-            size.height.endpoint(inset.height),
-        ));
+        let size = inset.map_or(size, |inset| {
+            let inset = inset.size();
+            outer.constrain(Size::new(
+                size.width.endpoint(inset.width),
+                size.height.endpoint(inset.height),
+            ))
+        });
         let area = &mut self.placements[node.index()].area;
         area.width = size.width;
         area.height = size.height;
