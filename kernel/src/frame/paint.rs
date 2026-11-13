@@ -153,27 +153,20 @@ fn paint_node<C: Context>(frame: &mut Frame<C>, bump: &BumpArena, context: &mut 
         return;
     }
     let mut area = frame.placements[node].area;
-    let inset = frame.nodes[node].inset.index().is_some();
+    let edges = frame.nodes[node].edges.index().map(|index| frame.edges[index]);
     let resolved_clip = frame.nodes[node].resolved_clip;
-    let clip_bounds = frame.clip_bounds(resolved_clip);
-    let mut clip_set = false;
+    let bounds = edges.map_or(area, |edges| area.outset(edges.outset));
+    if bounds.intersection(frame.clip_bounds(resolved_clip)).is_none() {
+        return;
+    }
+    set(frame, bump, context, resolved_clip);
     let mut atom = frame.nodes[node].first_atom;
     while let Some(atom_index) = atom.index() {
         let stored = frame.atoms[atom_index];
         let kind = stored.kind();
-        let (paint, atom_inset) = (kind.paint, kind.inset);
-        if (kind.paint_bounds)(bump, stored.bump_id, area)
-            .intersection(clip_bounds)
-            .is_some()
-        {
-            if !clip_set {
-                set(frame, bump, context, resolved_clip);
-                clip_set = true;
-            }
-            paint(bump, stored.bump_id, context, area);
-        }
-        if inset {
-            area = area.inset(atom_inset(bump, stored.bump_id));
+        (kind.paint)(bump, stored.bump_id, context, area);
+        if edges.is_some() {
+            area = area.inset((kind.inset)(bump, stored.bump_id));
         }
         atom = stored.next;
     }

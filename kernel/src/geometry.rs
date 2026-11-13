@@ -284,6 +284,15 @@ impl<T: Scalar> Rect<T> {
             && point.y < self.y.endpoint(self.height)
     }
 
+    pub fn outset(self, sides: Sides<T>) -> Self {
+        Self::new(
+            self.x - sides.left,
+            self.y - sides.top,
+            self.width + sides.left + sides.right,
+            self.height + sides.top + sides.bottom,
+        )
+    }
+
     pub fn inset(self, padding: Sides<T>) -> Self {
         Self::new(
             self.x + padding.left,

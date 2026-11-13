@@ -39,10 +39,6 @@ impl<C: Context<Scalar = T>, T: Scalar> Atom<C> for BoxAtom<T> {
     }
 
     fn paint(&self, _: &mut AtomCx<'_, C>, _: Rect<T>) {}
-
-    fn paint_bounds(&self, _: Rect<T>) -> Rect<T> {
-        Rect::default()
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -61,10 +57,6 @@ impl<C: Context> Atom<C> for ResponsiveAtom {
     }
 
     fn paint(&self, _: &mut AtomCx<'_, C>, _: Rect<C::Scalar>) {}
-
-    fn paint_bounds(&self, _: Rect<C::Scalar>) -> Rect<C::Scalar> {
-        Rect::default()
-    }
 }
 
 #[test]

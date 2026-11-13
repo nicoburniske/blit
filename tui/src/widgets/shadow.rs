@@ -1,4 +1,4 @@
-use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
+use blit::{Atom, AtomCx, Constraints, PhysicalRect, Sides, Size};
 
 use crate::{
     Context,
@@ -57,11 +57,12 @@ where
         }
     }
 
-    fn paint_bounds(&self, area: PhysicalRect) -> PhysicalRect {
-        PhysicalRect {
-            x: area.x + self.offset_x,
-            y: area.y + self.offset_y,
-            ..area
+    fn outset(&self) -> Sides<i32> {
+        Sides {
+            top: -self.offset_y,
+            right: self.offset_x,
+            bottom: self.offset_y,
+            left: -self.offset_x,
         }
     }
 }

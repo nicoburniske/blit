@@ -291,8 +291,13 @@ impl Atom<TestContext> for Probe {
         self.result.set(result);
         Fill('P', Size::ZERO).paint(cx, area);
     }
-    fn paint_bounds(&self, area: Rect<f32>) -> Rect<f32> {
-        Rect::new(area.x + self.offset.x, area.y + self.offset.y, area.width, area.height)
+    fn outset(&self) -> Sides<f32> {
+        Sides {
+            top: -self.offset.y,
+            right: self.offset.x,
+            bottom: self.offset.y,
+            left: -self.offset.x,
+        }
     }
 }
 

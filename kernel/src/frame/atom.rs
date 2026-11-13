@@ -35,8 +35,8 @@ impl<'a, C: Context> AtomCx<'a, C> {
 }
 
 pub fn insert<C: Context, A: Atom<C>>(frame: &mut Frame<C>, node: NodeId, atom: A) {
-    let inset = atom.inset();
-    if inset != Sides::all(C::Scalar::ZERO) {
+    let (inset, outset) = (atom.inset(), atom.outset());
+    if inset != Sides::all(C::Scalar::ZERO) || outset != Sides::all(C::Scalar::ZERO) {
         assert!(
             [inset.left, inset.right, inset.top, inset.bottom]
                 .into_iter()
@@ -44,12 +44,19 @@ pub fn insert<C: Context, A: Atom<C>>(frame: &mut Frame<C>, node: NodeId, atom: 
             "inset must be finite and nonnegative"
         );
         let stored = &mut frame.nodes[node.index()];
-        if let Some(index) = stored.inset.index() {
-            frame.insets[index] = frame.insets[index] + inset;
-        } else {
-            stored.inset = InsetId::new(frame.insets.len());
-            frame.insets.push(inset);
-        }
+        let index = stored.edges.index().unwrap_or_else(|| {
+            stored.edges = EdgesId::new(frame.edges.len());
+            frame.edges.push(Edges::default());
+            frame.edges.len() - 1
+        });
+        let edges = &mut frame.edges[index];
+        edges.inset = edges.inset + inset;
+        edges.outset = Sides {
+            top: edges.outset.top.max(outset.top),
+            right: edges.outset.right.max(outset.right),
+            bottom: edges.outset.bottom.max(outset.bottom),
+            left: edges.outset.left.max(outset.left),
+        };
     }
     let id = StoredAtomId::new(frame.atoms.len());
     frame.atoms.push(StoredAtom {
@@ -74,7 +81,6 @@ trait Kind<C: Context> {
 impl<C: Context, A: Atom<C>> Kind<C> for A {
     const KIND: *const AtomKind<C> = &AtomKind {
         measure: measure::<C, A>,
-        paint_bounds: |bump, id, area| bump.load::<A>(id).paint_bounds(area),
         paint: paint::<C, A>,
         inset: |bump, id| bump.load::<A>(id).inset(),
     };

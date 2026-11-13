@@ -156,7 +156,7 @@ impl<'a, C: Context> LayoutCx<'a, C> {
         let stored = &self.frame.nodes[node.index()];
         let mut atom = stored.first_atom;
         let mut size = Size::ZERO;
-        let Some(inset) = stored.inset.index() else {
+        let Some(edges) = stored.edges.index() else {
             while let Some(index) = atom.index() {
                 let stored = self.frame.atoms[index];
                 let measure = stored.kind().measure;
@@ -165,7 +165,7 @@ impl<'a, C: Context> LayoutCx<'a, C> {
             }
             return constraints.constrain(size);
         };
-        let mut remaining = self.frame.insets[inset].size();
+        let mut remaining = self.frame.edges[edges].inset.size();
         while let Some(index) = atom.index() {
             let stored = self.frame.atoms[index];
             let kind = stored.kind();
@@ -208,7 +208,7 @@ impl<'a, C: Context> LayoutCx<'a, C> {
         }
         let stored = &self.frame.nodes[node.index()];
         let outer = bounds;
-        let inset = stored.inset.index().map(|index| self.frame.insets[index]);
+        let inset = stored.edges.index().map(|index| self.frame.edges[index].inset);
         let (leading, bounds) = match inset {
             Some(inset) => (
                 Point::new(inset.left.min(bounds.max.width), inset.top.min(bounds.max.height)),

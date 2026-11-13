@@ -138,7 +138,7 @@ fn scratch_rejects_size_overflow() {
 }
 
 #[test]
-fn owned_values_and_paint_bounds() {
+fn owned_values_and_outsets() {
     let result = Rc::new(Cell::new(ProbeResult::default()));
     let (mut frame, mut context) = frame(Size::new(3.0, 2.0));
     render(&mut frame, &mut context, |ui: Ui<'_>| {

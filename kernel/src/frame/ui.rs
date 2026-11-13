@@ -262,9 +262,9 @@ impl<C: Context, S> Ui<'_, C, S> {
         frame.areas_requested.push(id);
         let node = &frame.nodes[self.inner.node.index()];
         let inset = (node.widget_id == id)
-            .then(|| node.inset.index())
+            .then(|| node.edges.index())
             .flatten()
-            .map_or(Sides::all(C::Scalar::ZERO), |index| frame.insets[index]);
+            .map_or(Sides::all(C::Scalar::ZERO), |index| frame.edges[index].inset);
         let areas = &frame.areas_previous;
         areas
             .binary_search_by_key(&id, |(candidate, _)| *candidate)

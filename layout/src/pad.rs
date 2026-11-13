@@ -17,10 +17,6 @@ impl<C: Context> Atom<C> for Pad<C::Scalar> {
 
     fn paint(&self, _: &mut AtomCx<'_, C>, _: Rect<C::Scalar>) {}
 
-    fn paint_bounds(&self, _: Rect<C::Scalar>) -> Rect<C::Scalar> {
-        Rect::default()
-    }
-
     fn inset(&self) -> Sides<C::Scalar> {
         self.0
     }

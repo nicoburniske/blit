@@ -142,11 +142,9 @@ pub trait Atom<C: Context>: 'static {
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: Rect<C::Scalar>);
 
-    /// conservative bounds containing everything this atom may paint
-    ///
-    /// override when painting extends beyond the layout `area`
-    fn paint_bounds(&self, area: Rect<C::Scalar>) -> Rect<C::Scalar> {
-        area
+    /// how far painting may extend past the layout `area`
+    fn outset(&self) -> Sides<C::Scalar> {
+        Sides::all(C::Scalar::ZERO)
     }
 
     /// shrinks the box seen by later atoms, children and the node's own area reads
@@ -232,10 +230,6 @@ impl<C: Context> Atom<C> for () {
     }
 
     fn paint(&self, _: &mut AtomCx<'_, C>, _: Rect<C::Scalar>) {}
-
-    fn paint_bounds(&self, _: Rect<C::Scalar>) -> Rect<C::Scalar> {
-        Rect::default()
-    }
 }
 
 #[cfg(doctest)]
