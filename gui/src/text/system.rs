@@ -309,6 +309,12 @@ impl TextSystem {
 
     fn layout(&mut self, text: TextRun, request: LayoutRequest) -> (usize, usize) {
         let id = text.0;
+        if id == 0 {
+            let (_, layout) = self
+                .layouts
+                .get_or_insert(LayoutKey::default(), |key| (key, CachedLayout::default()));
+            return (layout, 0);
+        }
         let index = (id as u32).checked_sub(1).expect("invalid text") as usize;
         let unshaped = self.sources.update_index(index, |cached| {
             assert_eq!(cached.id, id, "expired text source");
@@ -597,7 +603,7 @@ impl Hash for SourceKey {
     }
 }
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, Hash, PartialEq, Eq)]
 struct LayoutKey {
     text: u64,
     max_width: Option<u32>,
@@ -607,6 +613,7 @@ struct LayoutKey {
     overflow: blit_text::TextOverflow,
 }
 
+#[derive(Default)]
 struct CachedLayout {
     layout: TextLayout,
     carets: Vec<LineCarets>,
