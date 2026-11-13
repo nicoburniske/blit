@@ -2,6 +2,7 @@ pub mod absolute;
 pub mod flex;
 pub mod grid;
 mod pad;
+pub use pad::Pad;
 pub mod rect;
 pub mod wrap;
 
@@ -150,6 +151,7 @@ macro_rules! export {
     ($coord:ty) => {
         pub use $crate::{Align, Justify, rect};
         pub type Sizing = $crate::Sizing<$coord>;
+        pub type Pad = $crate::Pad<$coord>;
 
         pub mod absolute {
             pub use $crate::absolute::Anchor;

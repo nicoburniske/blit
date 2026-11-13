@@ -7,7 +7,7 @@ use blit_gui::{
 };
 use blit_gui_widgets::{
     Text, interact,
-    layout::{Justify, absolute, absolute::Anchor, flex},
+    layout::{Justify, Pad, absolute, absolute::Anchor, flex},
 };
 
 use super::{Button, DesktopContext, Ui, colors, sz};
@@ -94,10 +94,11 @@ impl View {
                         .width(absolute::Sizing::fixed(220.0))
                         .height(absolute::Sizing::fixed(96.0)),
                 )
-                .layout(flex::column().justify(Justify::End).pad(sz::LG))
+                .layout(flex::column().justify(Justify::End))
                 .clip(BoundsClip);
             panel.insert(blit_gui::blur::BackdropBlur::new(5.0));
             panel.insert(Rectangle::new().border(Border::solid(1.0, colors::TEXT_DIM)));
+            panel.insert(Pad::new(sz::LG));
             panel
                 .child()
                 .insert(Text::new("5px blur").style(TextStyle::new().size(sz::SM).color(colors::TEXT)));

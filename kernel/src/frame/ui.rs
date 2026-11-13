@@ -255,13 +255,21 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
 
 impl<C: Context, S> Ui<'_, C, S> {
     /// returns the area from the previous layout and tracks this id for the next one
+    ///
+    /// this node's own area is inset by the atoms inserted so far
     pub fn area(&mut self, id: Id) -> Option<Rect<C::Scalar>> {
-        self.inner.frame.areas_requested.push(id);
-        let areas = &self.inner.frame.areas_previous;
+        let frame = &mut *self.inner.frame;
+        frame.areas_requested.push(id);
+        let node = &frame.nodes[self.inner.node.index()];
+        let inset = (node.widget_id == id)
+            .then(|| node.inset.index())
+            .flatten()
+            .map_or(Sides::all(C::Scalar::ZERO), |index| frame.insets[index]);
+        let areas = &frame.areas_previous;
         areas
             .binary_search_by_key(&id, |(candidate, _)| *candidate)
             .ok()
-            .map(|index| areas[index].1)
+            .map(|index| areas[index].1.inset(inset))
     }
 
     /// adds `interaction` to this widget and returns its latest response

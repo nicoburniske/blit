@@ -6,7 +6,7 @@ use blit_widgets::{interact, performance::FrameProfiler};
 use crate::{
     Block, Border, BorderStyle, Context, Popover, PopoverClose, PopoverState, Text,
     color::Color,
-    layout::{Align, Justify, Sizing, absolute::Anchor, flex, grid},
+    layout::{Align, Justify, Pad, Sizing, absolute::Anchor, flex, grid},
     text::TextAttributes,
 };
 
@@ -72,7 +72,7 @@ where
                 .y(self.popover_y)
                 .close(PopoverClose::Manual)
                 .trigger(|ui: blit::Ui<'_, C>, press: interact::press::Response, open| {
-                    let mut badge = ui.layout(flex::row().gap(self.gap).align(Align::Center).pad(self.badge_padding));
+                    let mut badge = ui.layout(flex::row().gap(self.gap).align(Align::Center));
                     badge.insert(
                         Block::new()
                             .background(if press.hovered || open {
@@ -82,6 +82,7 @@ where
                             })
                             .border(border),
                     );
+                    badge.insert(Pad::new(self.badge_padding));
                     badge
                         .child()
                         .item(flex::item().fixed(1, 1))
@@ -98,8 +99,9 @@ where
                         *value = millis;
                     }
                     let scale = graph_values.iter().copied().fold(0.001_f32, f32::max);
-                    let mut panel = ui.layout(flex::column().pad(self.padding));
+                    let mut panel = ui.layout(flex::column());
                     panel.insert(Block::new().background(self.background).border(border));
+                    panel.insert(Pad::new(self.padding));
                     {
                         let mut table = panel
                             .child()

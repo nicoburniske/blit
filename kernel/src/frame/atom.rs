@@ -46,9 +46,30 @@ pub fn insert<C: Context, A: Atom<C>>(frame: &mut Frame<C>, node: NodeId, atom: 
                 measure: measure::<C, A>,
                 paint_bounds: |bump, id, area| bump.load::<A>(id).paint_bounds(area),
                 paint: paint::<C, A>,
+                inset: |bump, id| bump.load::<A>(id).inset(),
             });
             frame.atom_kinds.len() - 1
         });
+    let inset = atom.inset();
+    if inset != Sides::all(C::Scalar::ZERO) {
+        assert!(
+            [inset.left, inset.right, inset.top, inset.bottom]
+                .into_iter()
+                .all(|side| side.is_finite() && side >= C::Scalar::ZERO),
+            "inset must be finite and nonnegative"
+        );
+        let stored = &mut frame.nodes[node.index()];
+        if let Some(index) = stored.inset.index() {
+            let total = &mut frame.insets[index];
+            total.left = total.left.endpoint(inset.left);
+            total.right = total.right.endpoint(inset.right);
+            total.top = total.top.endpoint(inset.top);
+            total.bottom = total.bottom.endpoint(inset.bottom);
+        } else {
+            stored.inset = InsetId::new(frame.insets.len());
+            frame.insets.push(inset);
+        }
+    }
     let id = StoredAtomId::new(frame.atoms.len());
     frame.atoms.push(StoredAtom {
         kind: u16::try_from(kind).expect("too many atom types"),

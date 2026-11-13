@@ -434,3 +434,35 @@ fn bindings_and_geometry() {
         retained_b = count != 0 && query;
     }
 }
+
+#[test]
+fn insets_apply_to_later_atoms_children_and_own_area_reads() {
+    let (mut frame, mut context) = frame(Size::new(7.0, 5.0));
+    let node = Id::new("padded");
+    let mut build = |ui: Ui<'_>| {
+        let mut root = ui.layout(Overlay);
+        root.child().id(node).build(|mut ui: Ui<'_>| {
+            ui.insert(Fill('B', Size::ZERO));
+            let outer = ui.area(node);
+            ui.insert(Inset(2.0));
+            let inner = ui.area(node);
+            let mut ui = ui.layout(());
+            ui.insert(Fill('T', Size::new(3.0, 1.0)));
+            ui.child().insert(Fill('C', Size::uniform(1.0)));
+            (outer, inner)
+        })
+    };
+    render(&mut frame, &mut context, &mut build);
+    let (outer, inner) = render(&mut frame, &mut context, &mut build);
+    assert_eq!(outer, Some(Rect::new(0.0, 0.0, 7.0, 5.0)));
+    assert_eq!(inner, Some(Rect::new(2.0, 2.0, 3.0, 1.0)));
+    assert_eq!(frame.area(node), outer);
+    assert_eq!(
+        context.commands,
+        [
+            Paint('B', Rect::new(0.0, 0.0, 7.0, 5.0)),
+            Paint('T', Rect::new(2.0, 2.0, 3.0, 1.0)),
+            Paint('C', Rect::new(2.0, 2.0, 1.0, 1.0)),
+        ]
+    );
+}

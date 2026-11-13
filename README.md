@@ -47,7 +47,7 @@ use blit_tui::{
     Border,
     interact,
     color::Color,
-    layout::{Align, Justify, flex},
+    layout::{Align, Justify, Pad, flex},
     text::{HorizontalAlign, TextAttributes, TextOptions},
     Block, Text,
 };
@@ -55,22 +55,21 @@ use blit_tui::{
 fn main() -> std::io::Result<()> {
     blit_tui::run(|ui| {
         // layout arranges the root's children in a column
-        let mut root = ui.layout(flex::column().gap(1).pad(1));
+        let mut root = ui.layout(flex::column().gap(1));
+        // atoms inserted after a pad are inset, and children always are
+        root.insert(Pad::new(1));
 
         let quit = root
             // the header sizes itself to its contents
             .child()
             // the header returns whether its button was clicked
             .build(|ui: Ui<'_>| {
-                let mut header = ui.layout(
-                    flex::row()
-                        .align(Align::Start)
-                        .justify(Justify::SpaceBetween)
-                        .pad(1),
-                );
+                let mut header = ui.layout(flex::row().align(Align::Start).justify(Justify::SpaceBetween));
 
                 // insert draws content directly on the node
                 header.insert(Block::new().border(Border::new(Color::BLUE)));
+                // the border stays on the outer box while the children sit inside the pad
+                header.insert(Pad::new(1));
 
                 // title
                 header

@@ -39,7 +39,7 @@ impl Dock {
                     .child_anchor(Anchor::Bottom)
                     .y(-sz::LG),
             )
-            .layout(flex::row().gap(sz::SM).align(Align::Center).pad(sz::XS))
+            .layout(flex::row().gap(sz::SM).align(Align::Center))
             .motion(Motion::new(Tween::new(Duration::from_millis(220), Easing::EASE_IN_OUT)).size());
         toolbar.interact(interact::press());
         toolbar.insert(
@@ -54,6 +54,7 @@ impl Dock {
                 .border(Border::gradient(1.0, LinearGradient::new(&colors::RIM).angle(90.0)))
                 .radius(BorderRadius::uniform(16.0)),
         );
+        toolbar.insert(Pad::new(sz::XS));
         toolbar
             .child()
             .item(flex::item().fixed(40.0, 40.0))

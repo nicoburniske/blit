@@ -148,6 +148,11 @@ pub trait Atom<C: Context>: 'static {
     fn paint_bounds(&self, area: Rect<C::Scalar>) -> Rect<C::Scalar> {
         area
     }
+
+    /// shrinks the box seen by later atoms, children and the node's own area reads
+    fn inset(&self) -> Sides<C::Scalar> {
+        Sides::all(C::Scalar::ZERO)
+    }
 }
 
 /// stable identity for widgets, animations and timers

@@ -32,6 +32,7 @@ pub struct Frame<C: Context> {
     atoms: Vec<StoredAtom>,
     clips: Vec<StoredClip>,
     limits: Vec<Constraints<C::Scalar>>,
+    insets: Vec<Sides<C::Scalar>>,
     places: Vec<StoredPlace<C>>,
     bounds: Vec<Bounds<C::Scalar>>,
     atom_kinds: Vec<AtomKind<C>>,
@@ -69,6 +70,7 @@ impl<C: Context> Default for Frame<C> {
             atoms: Vec::new(),
             clips: Vec::new(),
             limits: Vec::new(),
+            insets: Vec::new(),
             places: Vec::new(),
             bounds: Vec::new(),
             atom_kinds: Vec::new(),
@@ -129,6 +131,7 @@ impl<C: Context> Frame<C> {
         self.atoms.clear();
         self.clips.clear();
         self.limits.clear();
+        self.insets.clear();
         self.places.clear();
         self.bounds.clear();
         self.areas_requested.clear();
@@ -329,6 +332,7 @@ impl<C: Context> Frame<C> {
             layout: BumpId::NONE,
             layout_kind: 0,
             limits: LimitsId::NONE,
+            inset: InsetId::NONE,
             place: PlaceId::NONE,
             clip: StoredClipId::NONE,
             item: BumpId::NONE,
@@ -440,6 +444,7 @@ pub struct StoredNode {
     layout: BumpId,
     layout_kind: u16,
     limits: LimitsId,
+    inset: InsetId,
     place: PlaceId,
     clip: StoredClipId,
     item: BumpId,
@@ -522,6 +527,7 @@ impl<T> Index<T> {
 type StoredAtomId = Index<StoredAtom>;
 type StoredClipId = Index<StoredClip>;
 type LimitsId = Index<Constraints<()>>;
+type InsetId = Index<Sides<()>>;
 type PlaceId = Index<StoredPlace<()>>;
 type BoundsId = Index<Bounds<()>>;
 type ResolvedClipId = Index<ResolvedClip<()>>;
@@ -531,6 +537,7 @@ struct AtomKind<C: Context> {
     measure: fn(&BumpArena, BumpId, &mut C, Constraints<C::Scalar>) -> Size<C::Scalar>,
     paint_bounds: fn(&BumpArena, BumpId, Rect<C::Scalar>) -> Rect<C::Scalar>,
     paint: fn(&BumpArena, BumpId, &mut C, Rect<C::Scalar>),
+    inset: fn(&BumpArena, BumpId) -> Sides<C::Scalar>,
 }
 
 struct LayoutKind<C: Context> {

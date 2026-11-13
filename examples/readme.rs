@@ -3,18 +3,19 @@ use blit_tui::{
     Block, Border, Text, Ui,
     color::Color,
     interact,
-    layout::{Justify, flex},
+    layout::{Justify, Pad, flex},
     text::{HorizontalAlign, TextAttributes, TextOptions},
 };
 
 fn main() -> std::io::Result<()> {
     blit_tui::run(|ui| {
-        let mut root = ui.layout(flex::column().gap(1).pad(1));
+        let mut root = ui.layout(flex::column().gap(1));
+        root.insert(Pad::new(1));
 
         let quit = root.child().build(|ui: Ui<'_>| {
-            let mut header = ui.layout(flex::row().justify(Justify::SpaceBetween).pad(1));
-
+            let mut header = ui.layout(flex::row().justify(Justify::SpaceBetween));
             header.insert(Block::new().border(Border::new(Color::BLUE)));
+            header.insert(Pad::new(1));
             header.child().build(|mut ui: Ui<'_>| {
                 ui.insert(Text::new("hello from blit!").attributes(TextAttributes::BOLD));
             });

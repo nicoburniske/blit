@@ -30,25 +30,6 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
         self.cast::<()>().measure(node, constraints)
     }
 
-    /// offsets current flow children and subsequent child position writes
-    pub fn offset(&mut self, offset: Point<C::Scalar>) -> LayoutCx<'_, C, I> {
-        for child in self.children() {
-            let area = &mut self.placements[child.index()].area;
-            area.x = area.x.endpoint(offset.x);
-            area.y = area.y.endpoint(offset.y);
-        }
-        LayoutCx {
-            placements: &mut *self.placements,
-            context: &mut *self.context,
-            frame_requested: &mut *self.frame_requested,
-            content_origin: Point::new(
-                self.content_origin.x.endpoint(offset.x),
-                self.content_origin.y.endpoint(offset.y),
-            ),
-            ..*self
-        }
-    }
-
     #[inline]
     pub fn children(&self) -> Children<'a> {
         Children {
@@ -165,17 +146,37 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
 }
 
 impl<'a, C: Context> LayoutCx<'a, C> {
+    /// measures atoms against the node's inner box
+    /// atoms before an inset see the box grown by the insets still to come
     #[inline]
     fn measure(&mut self, node: NodeId, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
         if constraints.min == constraints.max {
             return constraints.min;
         }
-        let mut atom = self.frame.nodes[node.index()].first_atom;
+        let stored = &self.frame.nodes[node.index()];
+        let inset = stored.inset.index();
+        let mut remaining = inset.map_or(Size::ZERO, |index| self.frame.insets[index].size());
+        let mut atom = stored.first_atom;
         let mut size = Size::ZERO;
         while let Some(index) = atom.index() {
             let stored = self.frame.atoms[index];
-            let measure = self.frame.atom_kinds[stored.kind as usize].measure;
-            size = size.max(measure(self.bump, stored.bump_id, self.context, constraints));
+            let kind = &self.frame.atom_kinds[stored.kind as usize];
+            let (measure, atom_inset) = (kind.measure, kind.inset);
+            let grow = |size: Size<C::Scalar>| {
+                Size::new(
+                    size.width.endpoint(remaining.width),
+                    size.height.endpoint(remaining.height),
+                )
+            };
+            let bounds = Constraints {
+                min: grow(constraints.min),
+                max: grow(constraints.max),
+            };
+            let measured = measure(self.bump, stored.bump_id, self.context, bounds);
+            size = size.max((measured - remaining).max(Size::ZERO));
+            if inset.is_some() {
+                remaining = remaining - atom_inset(self.bump, stored.bump_id).size();
+            }
             atom = stored.next;
         }
         constraints.constrain(size)
@@ -200,6 +201,14 @@ impl<'a, C: Context> LayoutCx<'a, C> {
             bounds.max.height = height;
         }
         let stored = &self.frame.nodes[node.index()];
+        let outer = bounds;
+        let inset = stored
+            .inset
+            .index()
+            .map_or(Sides::all(C::Scalar::ZERO), |index| self.frame.insets[index]);
+        let leading = Point::new(inset.left.min(bounds.max.width), inset.top.min(bounds.max.height));
+        let inset = inset.size();
+        let bounds = bounds.shrink(inset);
         let size = if stored.layout.offset().is_some() {
             let kind = &self.frame.layout_kinds[stored.layout_kind as usize];
             let mut cx = LayoutCx {
@@ -210,14 +219,14 @@ impl<'a, C: Context> LayoutCx<'a, C> {
                 frame_requested: self.frame_requested,
                 target_start: self.target_start,
                 node,
-                content_origin: Point::ZERO,
+                content_origin: leading,
                 default_item: kind.default_item,
                 item: PhantomData,
             };
             for child in cx.children() {
                 let area = &mut cx.placements[child.index()].area;
-                area.x = C::Scalar::ZERO;
-                area.y = C::Scalar::ZERO;
+                area.x = leading.x;
+                area.y = leading.y;
             }
             (kind.run)(&mut cx, stored.layout, bounds)
         } else {
@@ -228,6 +237,10 @@ impl<'a, C: Context> LayoutCx<'a, C> {
             bounds.constrain(size),
             "layout returned a size outside its constraints"
         );
+        let size = outer.constrain(Size::new(
+            size.width.endpoint(inset.width),
+            size.height.endpoint(inset.height),
+        ));
         let area = &mut self.placements[node.index()].area;
         area.width = size.width;
         area.height = size.height;

@@ -10,7 +10,7 @@ use blit::{
     Context, Easing, Frame, FrameInfo, Id, Input, Interact, InteractCx, Layout, LayoutCx, Modifiers, Motion,
     MouseButton, NodeTarget,
     Phase::{Cancelled, Ended, Held, Started},
-    Place, PlaceCx, Point, Rect, ScrollPhase, Size, Spring, TouchPhase,
+    Place, PlaceCx, Point, Rect, ScrollPhase, Sides, Size, Spring, TouchPhase,
     TouchPhase::{Cancel, Down, Move, Up},
     Tween, Widget,
 };
@@ -126,6 +126,20 @@ impl Atom<TestContext> for Fill {
 
     fn paint(&self, cx: &mut AtomCx<'_, TestContext>, area: Rect<f32>) {
         cx.context_mut().commands.push(Command::Paint(self.0, area));
+    }
+}
+
+struct Inset(f32);
+
+impl Atom<TestContext> for Inset {
+    fn measure(&self, _: &mut AtomCx<'_, TestContext>, bounds: Constraints<f32>) -> Size<f32> {
+        bounds.constrain(Size::ZERO)
+    }
+
+    fn paint(&self, _: &mut AtomCx<'_, TestContext>, _: Rect<f32>) {}
+
+    fn inset(&self) -> Sides<f32> {
+        Sides::all(self.0)
     }
 }
 

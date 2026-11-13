@@ -152,7 +152,8 @@ fn paint_node<C: Context>(frame: &mut Frame<C>, bump: &BumpArena, context: &mut 
     if frame.nodes[node].first_atom.index().is_none() {
         return;
     }
-    let area = frame.placements[node].area;
+    let mut area = frame.placements[node].area;
+    let inset = frame.nodes[node].inset.index().is_some();
     let resolved_clip = frame.nodes[node].resolved_clip;
     let clip_bounds = frame.clip_bounds(resolved_clip);
     let mut clip_set = false;
@@ -160,19 +161,20 @@ fn paint_node<C: Context>(frame: &mut Frame<C>, bump: &BumpArena, context: &mut 
     while let Some(atom_index) = atom.index() {
         let stored = frame.atoms[atom_index];
         let kind = &frame.atom_kinds[stored.kind as usize];
+        let (paint, atom_inset) = (kind.paint, kind.inset);
         if (kind.paint_bounds)(bump, stored.bump_id, area)
             .intersection(clip_bounds)
-            .is_none()
+            .is_some()
         {
-            atom = stored.next;
-            continue;
+            if !clip_set {
+                set(frame, bump, context, resolved_clip);
+                clip_set = true;
+            }
+            paint(bump, stored.bump_id, context, area);
         }
-        let paint = kind.paint;
-        if !clip_set {
-            set(frame, bump, context, resolved_clip);
-            clip_set = true;
+        if inset {
+            area = area.inset(atom_inset(bump, stored.bump_id));
         }
-        paint(bump, stored.bump_id, context, area);
         atom = stored.next;
     }
 }
