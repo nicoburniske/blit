@@ -287,19 +287,26 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             }
         }
         context.raster.clear();
-        context.reads_framebuffer = false;
-        context.clips.clear();
         // taken so a panicking tracker cannot leave a swapped in list behind
         let mut list = std::mem::take(&mut context.list);
         self.damage.finish_frame(&mut list);
-        list.clear();
         context.list = list;
-        context.text.finish_frame();
         for renderer in &mut self.renderers {
             (renderer.finish)(renderer);
         }
+        self.reset_frame();
+    }
+
+    /// releases pending drawing inputs before recording a fresh frame
+    pub fn reset_frame(&mut self) {
+        let context = &mut self.context;
+        context.list.clear();
+        context.reads_framebuffer = false;
+        context.clips.clear();
+        context.text.finish_frame();
         context.images.retain(|image| !image.handle.is_uniquely_owned());
         self.paint_clip = 0;
+        self.paint_clips.clear();
     }
 
     pub fn screen(&self) -> PhysicalRect {

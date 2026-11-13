@@ -43,6 +43,9 @@ pub trait GraphicsBackend: blit_gui::Context + 'static {
 
     fn set_scale(&mut self, scale: f32);
 
+    /// resets pending drawing inputs before building a fresh frame
+    fn reset_frame(&mut self);
+
     /// returns whether a frame was presented
     ///
     /// request a redraw before returning false to retry without new input

@@ -102,6 +102,10 @@ impl GraphicsBackend for Backend {
         self.renderer.set_scale(scale);
     }
 
+    fn reset_frame(&mut self) {
+        self.renderer.reset_frame();
+    }
+
     fn render(&mut self) -> Result<bool, GraphicsError> {
         let Some(active) = &mut self.active else {
             return Ok(false);

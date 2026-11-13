@@ -211,6 +211,7 @@ impl<A: Application> Runner<A> {
         let info = FrameInfo::new(Size::new(size.width as f32 / scale, size.height as f32 / scale));
         let no_input = self.inputs.is_empty().then_some(Input::None);
         active.context.profiler.begin_frame(time);
+        active.context.graphics.reset_frame();
         for input in self.inputs.drain(..).chain(no_input) {
             active
                 .frame

@@ -81,7 +81,7 @@ fn renders_primitives_and_rebuilds_frames() {
     Rectangle::new()
         .background(Color::rgb(255, 255, 255))
         .paint(bounds, &mut renderer);
-    renderer.discard_frame();
+    renderer.reset_frame();
     renderer.set_scale(2.0);
     Rectangle::new()
         .background(Color::rgb(255, 255, 255))

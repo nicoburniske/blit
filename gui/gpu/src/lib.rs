@@ -734,8 +734,10 @@ impl Renderer {
             self.glyphs.end_frame(&mut self.text);
             self.list = display_list;
         }));
-        self.discard_frame();
-        self.images.retain(|image| !image.handle.is_uniquely_owned());
+        for renderer in &self.renderers {
+            (renderer.finish)(renderer.value);
+        }
+        self.reset_frame();
         if let Err(error) = result {
             std::panic::resume_unwind(error);
         }
@@ -746,16 +748,14 @@ impl Renderer {
         self.batches.len()
     }
 
-    /// releases recorded inputs when a frame is presented or skipped
-    pub fn discard_frame(&mut self) {
+    /// releases pending drawing inputs before recording a fresh frame
+    pub fn reset_frame(&mut self) {
         self.list.clear();
         self.calls.clear();
-        for renderer in &self.renderers {
-            (renderer.finish)(renderer.value);
-        }
         self.paint_clip = 0;
         self.paint_clips.clear();
         self.text.finish_frame();
+        self.images.retain(|image| !image.handle.is_uniquely_owned());
     }
 }
 

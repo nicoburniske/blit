@@ -161,9 +161,6 @@ impl GraphicsBackend for Backend {
 
     fn suspend(&mut self) {
         self.active = None;
-        if let Some(gpu) = &mut self.gpu {
-            gpu.renderer.discard_frame();
-        }
     }
 
     fn resize(&mut self, size: PhysicalSize<u32>) -> Result<(), GraphicsError> {
@@ -187,6 +184,12 @@ impl GraphicsBackend for Backend {
             .set_scale(scale);
     }
 
+    fn reset_frame(&mut self) {
+        if let Some(gpu) = &mut self.gpu {
+            gpu.renderer.reset_frame();
+        }
+    }
+
     fn render(&mut self) -> Result<bool, GraphicsError> {
         let (Some(active), Some(gpu)) = (&mut self.active, &mut self.gpu) else {
             return Ok(false);
@@ -197,12 +200,10 @@ impl GraphicsBackend for Backend {
                 CurrentSurfaceTexture::Success(frame) => break (frame, false),
                 CurrentSurfaceTexture::Suboptimal(frame) => break (frame, true),
                 CurrentSurfaceTexture::Timeout => {
-                    gpu.renderer.discard_frame();
                     active.window.request_redraw();
                     return Ok(false);
                 }
                 CurrentSurfaceTexture::Occluded => {
-                    gpu.renderer.discard_frame();
                     return Ok(false);
                 }
                 status @ (CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost) if !retried => {
@@ -218,7 +219,6 @@ impl GraphicsBackend for Backend {
                     }
                 }
                 CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost => {
-                    gpu.renderer.discard_frame();
                     active.window.request_redraw();
                     return Ok(false);
                 }
