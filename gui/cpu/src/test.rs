@@ -2312,6 +2312,58 @@ fn paths_antialias_edges_and_follow_fill_rules() {
 }
 
 #[test]
+fn dirty_paths_match_full_redraws() {
+    fn check<S: RenderStrategy<VecBuffer<BgrPixel>> + Default>() {
+        let mut dirty = new_renderer(VecBuffer::new(96, 64), renderer_config())
+            .strategy(S::default())
+            .damage_tracker(blit_gui::damage::command::CommandDiff::default());
+        let mut full = new_renderer(VecBuffer::new(96, 64), renderer_config())
+            .strategy(S::default())
+            .damage_tracker(blit_gui::damage::command::CommandDiff::default());
+        let mut builder = PathBuilder::new();
+        builder
+            .move_to(-5.0, 4.25)
+            .line_to(100.0, 1.5)
+            .line_to(86.5, 69.0)
+            .line_to(3.25, 62.0)
+            .close();
+        builder.rect(LogicalRect::new(28.5, 20.25, 30.0, 24.0));
+        let stops = [
+            GradientStop::new(0.0, Color::rgb(210, 30, 80)),
+            GradientStop::new(1.0, Color::rgb(20, 160, 220)),
+        ];
+        for rule in [FillRule::NonZero, FillRule::EvenOdd] {
+            for frame in 0..4 {
+                for renderer in [&mut dirty, &mut full] {
+                    Rectangle::new()
+                        .background(Color::BLACK)
+                        .paint(LogicalRect::new(0.0, 0.0, 96.0, 64.0), renderer);
+                    builder
+                        .path()
+                        .fill(LinearGradient::new(&stops).angle(35.0))
+                        .rule(rule)
+                        .paint(renderer);
+                    for area in [
+                        LogicalRect::new(17.0, 11.0, 14.0, 9.0),
+                        LogicalRect::new(65.0, 38.0, 10.0, 12.0),
+                    ] {
+                        Rectangle::new()
+                            .background(Color::rgba(80 + frame * 30, 90, 90, 128))
+                            .radius(BorderRadius::uniform(3.0))
+                            .paint(area, renderer);
+                    }
+                }
+                dirty.render(if frame == 0 { 0 } else { 1 });
+                full.render(0);
+                assert_eq!(dirty.buffer().pixels(), full.buffer().pixels());
+            }
+        }
+    }
+    check::<Direct>();
+    check::<Scanline>();
+}
+
+#[test]
 fn path_strokes_match_rectangles_and_keep_gradient_coordinates() {
     fn check<S: RenderStrategy<VecBuffer<BgrPixel>> + Default>() {
         let stops = [

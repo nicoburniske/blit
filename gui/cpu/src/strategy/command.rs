@@ -24,6 +24,7 @@ pub struct RasterCommands<P> {
     pub scale: f32,
     /// drawable buffer extent for this frame
     pub screen: PhysicalRect,
+    pub damage_bounds: PhysicalRect,
     pub metadata: Vec<Metadata>,
     pub entries: Vec<ErasedCommand<P>>,
     pub prepared: Bump,
@@ -40,6 +41,7 @@ impl<P> Default for RasterCommands<P> {
         Self {
             scale: 1.0,
             screen: PhysicalRect::default(),
+            damage_bounds: PhysicalRect::default(),
             metadata: Vec::new(),
             entries: Vec::new(),
             prepared: Bump::default(),
@@ -84,6 +86,7 @@ impl<P: Pixel> RasterCommands<P> {
                 clips,
                 clip: command.clip,
                 screen: self.screen,
+                damage_bounds: self.damage_bounds,
                 list,
                 text,
                 gradients: &mut self.gradients,
@@ -203,7 +206,19 @@ impl<P: Pixel> RasterCommands<P> {
         damage: &impl DamageTracker,
         screen: PhysicalRect,
         shift: u32,
+        ranges: &mut Vec<Range<usize>>,
     ) {
+        let mut damage_bounds: Option<PhysicalRect> = None;
+        let mut line = screen.y;
+        while line < screen.y + screen.height {
+            let end = damage.line_ranges(line, screen, ranges);
+            for range in ranges.iter() {
+                let bounds = PhysicalRect::new(range.start as i32, line, range.len() as i32, end - line);
+                damage_bounds = Some(damage_bounds.map_or(bounds, |previous| previous.union(bounds)));
+            }
+            line = end;
+        }
+        self.damage_bounds = damage_bounds.unwrap_or_default();
         self.opaque.reset(screen, shift);
         let size = 1usize << shift;
         for id in self.range.clone().rev() {

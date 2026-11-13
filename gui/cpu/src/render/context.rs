@@ -20,6 +20,7 @@ pub struct RenderContext<'a, P> {
     pub(crate) clips: &'a ClipStack,
     pub(crate) clip: ClipId,
     pub(crate) screen: PhysicalRect,
+    pub(crate) damage_bounds: PhysicalRect,
     pub(crate) list: &'a DisplayList,
     pub(crate) text: &'a mut TextRenderer,
     pub(crate) gradients: &'a mut raster::fill::Gradients,

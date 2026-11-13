@@ -43,6 +43,7 @@ pub fn draw_line<P: Pixel>(
                     clips,
                     clip,
                     screen: commands.screen,
+                    damage_bounds: commands.damage_bounds,
                     list,
                     text,
                     gradients: &mut commands.gradients,

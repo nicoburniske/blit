@@ -12,7 +12,7 @@ pub struct PassDamage {
     pub stages: Vec<Region>,
     pub present: Region,
     pub preserve: Region,
-    ranges: Vec<std::ops::Range<usize>>,
+    pub ranges: Vec<std::ops::Range<usize>>,
 }
 
 #[derive(Default)]

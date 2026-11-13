@@ -183,7 +183,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         }
         self.pass_damage
             .update(&self.context, &self.damage, screen, self.tile_shift);
-        let plan = &self.pass_damage;
+        let plan = &mut self.pass_damage;
         let mut damage = StageDamage {
             tracker: &mut self.damage,
             region: plan.stages.first(),
@@ -216,7 +216,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                 context.raster.range = start..node.index;
                 context
                     .raster
-                    .cull(&context.list, &context.clips, &damage, screen, self.tile_shift);
+                    .cull(&context.list, &context.clips, &damage, screen, self.tile_shift, &mut plan.ranges);
                 self.strategy.render(context, &damage);
                 start = node.index + 1;
                 damage.region = Some(&plan.stages[stage + 1]);
@@ -253,6 +253,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                             clips: &context.clips,
                             clip,
                             screen: context.raster.screen,
+                            damage_bounds: node.bounds,
                             list: &context.list,
                             text: &mut context.text,
                             gradients: &mut context.raster.gradients,
@@ -270,7 +271,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
             context.raster.range = start..end;
             context
                 .raster
-                .cull(&context.list, &context.clips, &damage, screen, self.tile_shift);
+                .cull(&context.list, &context.clips, &damage, screen, self.tile_shift, &mut plan.ranges);
             self.strategy.render(context, &damage);
             if !plan.passes.is_empty() {
                 let mut offset = 0;

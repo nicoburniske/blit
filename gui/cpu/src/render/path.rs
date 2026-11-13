@@ -64,7 +64,7 @@ impl<P: Pixel> crate::Render<P> for Renderer {
             return None;
         }
         let gradient = !matches!(fill, Fill::Solid(_));
-        let bounds = cx.visible()?;
+        let bounds = cx.visible()?.intersection(cx.damage_bounds)?;
         let scale = f64::from(cx.scale);
         let origin = [f64::from(bounds.x), f64::from(bounds.y)];
         let mut points = path.points;
