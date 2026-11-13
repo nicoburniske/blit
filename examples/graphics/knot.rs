@@ -111,6 +111,6 @@ impl Atom<DesktopContext> for Knot {
         let mut indices = context.store_mut().slice(order.len() * 3);
         indices.extend((0..order.len() * 3).map(|index| triangle(order[index / 3].0)[index % 3] as u32));
         let indices = indices.finish();
-        context.paint(area, mesh::Stored { vertices, indices });
+        context.paint(area, mesh::FrameMesh { vertices, indices });
     }
 }

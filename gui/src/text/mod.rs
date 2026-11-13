@@ -31,14 +31,18 @@ blit::builder! {
 
 impl<C> Widget<C, state::Node> for Text<'_>
 where
-    C: Context + Paint<TextAtom>,
+    C: Context + Paint<FrameText>,
 {
     type Response = ();
 
     fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
         let run = ui.context_mut().text().text_run(self.text, self.style);
         let colors = ui.store_mut().slice_from(&[self.style.color]);
-        ui.insert(TextAtom::new(run, colors).offset_x(self.offset_x).options(self.options));
+        ui.insert(
+            FrameText::new(run, colors)
+                .offset_x(self.offset_x)
+                .options(self.options),
+        );
     }
 }
 
@@ -55,7 +59,7 @@ blit::builder! {
 
 impl<C> Widget<C, state::Node> for RichText<'_>
 where
-    C: Context + Paint<TextAtom>,
+    C: Context + Paint<FrameText>,
 {
     type Response = ();
 
@@ -73,7 +77,11 @@ where
             )
         }
         let colors = colors.finish();
-        ui.insert(TextAtom::new(run, colors).offset_x(self.offset_x).options(self.options));
+        ui.insert(
+            FrameText::new(run, colors)
+                .offset_x(self.offset_x)
+                .options(self.options),
+        );
     }
 }
 
@@ -84,7 +92,7 @@ where
 blit::builder! {
     /// resolved text with span colors stored in the frame
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct TextAtom {
+    pub struct FrameText {
         // one color per span
         new(text: TextRun, colors: FrameSlice<Color>),
         offset_x: f32 = 0.0,
@@ -92,7 +100,7 @@ blit::builder! {
     }
 }
 
-impl<C> Atom<C> for TextAtom
+impl<C> Atom<C> for FrameText
 where
     C: Context + Paint<Self>,
 {
@@ -112,7 +120,7 @@ where
     }
 }
 
-impl TextAtom {
+impl FrameText {
     /// placement used for text system queries
     #[inline]
     pub fn request(&self) -> TextRequest {
@@ -134,7 +142,7 @@ impl TextAtom {
     }
 }
 
-impl Compare for TextAtom {
+impl Compare for FrameText {
     #[inline]
     fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
         a.request() == b.request() && left.store().view(a.colors) == right.store().view(b.colors)

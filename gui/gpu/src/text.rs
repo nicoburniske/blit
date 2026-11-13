@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_gui::text::{
-    TextAtom,
+    FrameText,
     system::{GlyphImageId, ResolvedTextLayout, TextSystem},
 };
 use blit_text::{GlyphImage, GlyphMetrics};
@@ -13,8 +13,8 @@ use crate::{
     physical_rect, push_draw,
 };
 
-impl Paint<TextAtom> for Renderer {
-    fn paint(&mut self, area: LogicalRect, value: TextAtom) {
+impl Paint<FrameText> for Renderer {
+    fn paint(&mut self, area: LogicalRect, value: FrameText) {
         self.record_native(
             area,
             area,

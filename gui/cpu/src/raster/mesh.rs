@@ -10,13 +10,13 @@ use crate::{
     Pixel, PixelBuffer, PixelSpan, RenderStrategy, Renderer, render::ErasedCommand, strategy::command::Payload,
 };
 
-impl<B, S, D> Paint<mesh::Stored> for Renderer<B, S, D>
+impl<B, S, D> Paint<mesh::FrameMesh> for Renderer<B, S, D>
 where
     B: PixelBuffer,
     S: RenderStrategy<B>,
     D: DamageTracker,
 {
-    fn paint(&mut self, bounds: LogicalRect, value: mesh::Stored) {
+    fn paint(&mut self, bounds: LogicalRect, value: mesh::FrameMesh) {
         let mut recording = self.record(bounds);
         recording.record_input(
             recording.bounds,
@@ -52,7 +52,7 @@ where
 }
 
 pub struct Prepared {
-    pub source: Offset<mesh::Stored>,
+    pub source: Offset<mesh::FrameMesh>,
     pub triangles: Vec<(PhysicalRect, Triangle)>,
     pub starts: Vec<u32>,
     active: Vec<u32>,
@@ -61,7 +61,7 @@ pub struct Prepared {
 }
 
 impl Prepared {
-    pub fn new(source: Offset<mesh::Stored>) -> Self {
+    pub fn new(source: Offset<mesh::FrameMesh>) -> Self {
         Self {
             source,
             triangles: Vec::new(),
@@ -100,7 +100,7 @@ impl Prepared {
             }
             self.line = line;
         }
-        // safety: mesh recording stores an offset to blit_gui::mesh::Stored in this list
+        // safety: mesh recording stores an offset to blit_gui::mesh::FrameMesh in this list
         let source = unsafe { list.data().get(self.source) };
         let mesh = source.view(list);
         for &id in &self.active {

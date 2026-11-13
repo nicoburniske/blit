@@ -1,6 +1,6 @@
 use blit::{LogicalRect, Paint, Scale2};
 use blit_gui::{
-    rectangle::RectangleAtom,
+    rectangle::FrameRectangle,
     style::{BorderRadius, Fill},
 };
 
@@ -8,8 +8,8 @@ use crate::{GradientStop, Instance, MeshData, Pipeline, Renderer, physical_radii
 
 const CONIC_FILL: u32 = 1 << 2;
 
-impl Paint<RectangleAtom> for Renderer {
-    fn paint(&mut self, area: LogicalRect, value: RectangleAtom) {
+impl Paint<FrameRectangle> for Renderer {
+    fn paint(&mut self, area: LogicalRect, value: FrameRectangle) {
         self.record_native(
             area,
             area,

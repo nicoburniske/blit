@@ -80,6 +80,6 @@ impl Atom<DesktopContext> for Tiles {
             block * 12 + face * 4 + [0, 1, 2, 0, 2, 3][index as usize % 6]
         }));
         let indices = indices.finish();
-        context.paint(area, mesh::Stored { vertices, indices });
+        context.paint(area, mesh::FrameMesh { vertices, indices });
     }
 }

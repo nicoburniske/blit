@@ -14,7 +14,7 @@ use blit_gui::{
     shadow::Shadow,
     style::{Border, BorderRadius, ConicGradient, GradientStop, LinearGradient},
     text::{
-        FontId, TextAtom, TextStyle,
+        FontId, FrameText, TextStyle,
         system::{FontStack, TextConfig, TextSystem},
     },
 };
@@ -154,7 +154,7 @@ fn renders_primitives_and_rebuilds_frames() {
     renderer.paint(LogicalRect::new(14.0, 9.0, 1.0, 1.0), shadow);
     let text = renderer.text().text_run("M", TextStyle::new());
     let colors = renderer.store_mut().slice_from(&[Color::rgb(255, 0, 0)]);
-    renderer.paint(LogicalRect::new(1.0, 20.0, 12.0, 20.0), TextAtom::new(text, colors));
+    renderer.paint(LogicalRect::new(1.0, 20.0, 12.0, 20.0), FrameText::new(text, colors));
     Rectangle::new()
         .background(Color::rgb(0, 255, 0))
         .radius(BorderRadius {
@@ -366,7 +366,7 @@ fn renders_primitives_and_rebuilds_frames() {
     .paint(bounds, &mut renderer);
     renderer.paint(bounds, Image::new(&image));
     let colors = renderer.store_mut().slice_from(&[Color::WHITE]);
-    renderer.paint(bounds, TextAtom::new(text, colors));
+    renderer.paint(bounds, FrameText::new(text, colors));
     renderer.pop_clip();
     renderer.render(&target);
     assert_eq!(renderer.batch_count(), 0);

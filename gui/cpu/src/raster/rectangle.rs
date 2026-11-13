@@ -3,7 +3,7 @@ use std::ops::Range;
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2, internal::bump::Offset};
 use blit_gui::{
     damage::DamageTracker,
-    rectangle::{Rectangle, RectangleAtom},
+    rectangle::{FrameRectangle, Rectangle},
     style::{ConicGradient, Fill, LinearGradient},
 };
 
@@ -16,13 +16,13 @@ use crate::{
     strategy::command::{Coverage, Payload},
 };
 
-impl<B, S, D> Paint<RectangleAtom> for Renderer<B, S, D>
+impl<B, S, D> Paint<FrameRectangle> for Renderer<B, S, D>
 where
     B: PixelBuffer,
     S: RenderStrategy<B>,
     D: DamageTracker,
 {
-    fn paint(&mut self, area: LogicalRect, value: RectangleAtom) {
+    fn paint(&mut self, area: LogicalRect, value: FrameRectangle) {
         let mut recording = self.record(area);
         recording.record_input(
             recording.bounds,
@@ -70,8 +70,8 @@ where
                 }
                 target
                     .record(bounds, record.clip, offset, |_, offset, prepared, cx| {
-                        // safety: recording stores this offset as RectangleAtom
-                        let input = unsafe { cx.list.data().get(Offset::<RectangleAtom>::new(offset)) };
+                        // safety: recording stores this offset as FrameRectangle
+                        let input = unsafe { cx.list.data().get(Offset::<FrameRectangle>::new(offset)) };
                         let value = crate::raster::rectangle::Prepared::new(
                             cx.area,
                             &input.view(cx.list),

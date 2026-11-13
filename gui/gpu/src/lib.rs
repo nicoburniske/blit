@@ -1,7 +1,7 @@
 mod atlas;
 mod clear;
 mod image;
-// todo: blit_gui::path::Stored needs antialiased coverage rather than tessellated meshes
+// todo: blit_gui::path::FramePath needs antialiased coverage rather than tessellated meshes
 mod mesh;
 mod pipeline;
 mod rectangle;

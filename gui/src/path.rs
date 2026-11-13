@@ -33,7 +33,7 @@ blit::builder! {
 
 impl Path<'_> {
     /// stores borrowed geometry in the context and paints the result
-    pub fn paint<C: HasFrameStore + Paint<Stored, Scalar = f32>>(self, context: &mut C) {
+    pub fn paint<C: HasFrameStore + Paint<FramePath, Scalar = f32>>(self, context: &mut C) {
         if self.fill == Fill::Solid(Color::TRANSPARENT) || self.opacity <= 0.0 {
             return;
         }
@@ -42,7 +42,7 @@ impl Path<'_> {
         };
         let verbs = context.store_mut().slice_from(self.verbs);
         let points = context.store_mut().slice_from(self.points);
-        let stored = Stored {
+        let stored = FramePath {
             verbs,
             points,
             fill: FrameFill::new(self.fill, context),
@@ -251,7 +251,7 @@ impl Hash for Path<'_> {
 }
 
 /// path slices stored in a rendering context
-pub struct Stored {
+pub struct FramePath {
     pub verbs: FrameSlice<Verb>,
     pub points: FrameSlice<LogicalPoint>,
     pub fill: FrameFill,
@@ -260,7 +260,7 @@ pub struct Stored {
     pub opacity: f32,
 }
 
-impl Stored {
+impl FramePath {
     pub fn view<'a>(&self, list: &'a DisplayList) -> Path<'a> {
         Path {
             verbs: list.store().view(self.verbs),
@@ -273,7 +273,7 @@ impl Stored {
     }
 }
 
-impl Compare for Stored {
+impl Compare for FramePath {
     fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
         a.view(left) == b.view(right)
     }

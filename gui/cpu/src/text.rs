@@ -5,7 +5,7 @@ use blit_gui::{
     color::Color,
     damage::DamageTracker,
     display_list::DisplayList,
-    text::{TextAtom, system::TextSystem},
+    text::{FrameText, system::TextSystem},
 };
 use blit_text::GlyphRequest;
 
@@ -14,13 +14,13 @@ use crate::{
     strategy::command::Payload,
 };
 
-impl<B, S, D> Paint<TextAtom> for Renderer<B, S, D>
+impl<B, S, D> Paint<FrameText> for Renderer<B, S, D>
 where
     B: PixelBuffer,
     S: RenderStrategy<B>,
     D: DamageTracker,
 {
-    fn paint(&mut self, area: LogicalRect, value: TextAtom) {
+    fn paint(&mut self, area: LogicalRect, value: FrameText) {
         let mut recording = self.record(area);
         recording.record_input(
             recording.bounds,
@@ -32,8 +32,8 @@ where
                 let area = record.area.to_physical(Scale2::uniform(scale));
                 if let Some(bounds) = area.intersection(record.bounds) {
                     target.record(bounds, record.clip, offset, |_, offset, prepared, cx| {
-                        // safety: recording stores this offset as TextAtom
-                        let input = unsafe { cx.list.data().get(Offset::<TextAtom>::new(offset)) };
+                        // safety: recording stores this offset as FrameText
+                        let input = unsafe { cx.list.data().get(Offset::<FrameText>::new(offset)) };
                         let (text, bounds) = cx.text.prepare(cx.area, input, cx.list, cx.scale);
                         prepared.push(Payload::Text(text, bounds)).byte()
                     });
@@ -65,7 +65,7 @@ impl TextRenderer {
     pub fn prepare(
         &mut self,
         placement: LogicalRect,
-        text: &TextAtom,
+        text: &FrameText,
         list: &DisplayList,
         scale_factor: f32,
     ) -> (PreparedText, PhysicalRect) {

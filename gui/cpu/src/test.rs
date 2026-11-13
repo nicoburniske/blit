@@ -15,7 +15,7 @@ use blit_gui::{
     shadow::Shadow,
     style::{Border, BorderRadius, ConicGradient, Fill, GradientStop, LinearGradient},
     text::{
-        FontId, HorizontalAlign, Span, SpanStyle, TextAtom, TextLayoutRequest, TextOptions, TextRequest, TextStyle,
+        FontId, FrameText, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextRequest, TextStyle,
         TextWrap, VerticalAlign,
         system::{FontStack, TextConfig, TextSystem},
     },
@@ -965,11 +965,11 @@ fn renderer_supports_custom_pixel_layouts() {
         (32.0, [Color::rgb(255, 0, 0), Color::WHITE]),
     ] {
         let stored = renderer.store_mut().slice_from(&colors);
-        renderer.paint(LogicalRect::new(x, 0.0, 32.0, 24.0), TextAtom::new(text, stored));
+        renderer.paint(LogicalRect::new(x, 0.0, 32.0, 24.0), FrameText::new(text, stored));
         colors.fill(Color::TRANSPARENT);
     }
     let stored = renderer.store_mut().slice_from(&[Color::WHITE]);
-    renderer.paint(LogicalRect::new(64.0, 0.0, 32.0, 24.0), TextAtom::new(text, stored));
+    renderer.paint(LogicalRect::new(64.0, 0.0, 32.0, 24.0), FrameText::new(text, stored));
     renderer.render(0);
 
     let pixels = renderer.buffer().pixels();
@@ -1224,7 +1224,7 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
                     }
                     "text" => {
                         let colors = renderer.store_mut().slice_from(&[color]);
-                        renderer.paint(area, TextAtom::new(text, colors));
+                        renderer.paint(area, FrameText::new(text, colors));
                     }
                     "image" => renderer.paint(area, Image::new(&image).opacity(if frame == 0 { 0.5 } else { 1.0 })),
                     "shadow" => renderer.paint(area, Shadow::new(color).blur(2.0).inset(true)),
@@ -1269,7 +1269,7 @@ fn text_placement_tracks_physical_clip_size() {
             let colors = renderer.store_mut().slice_from(&[Color::rgb(255, 0, 0), Color::WHITE]);
             renderer.paint(
                 LogicalRect::new(x, y, 8.0, 8.0),
-                TextAtom::new(text, colors).offset_x(12.0),
+                FrameText::new(text, colors).offset_x(12.0),
             );
             renderer.render(0);
         }
@@ -2070,7 +2070,7 @@ fn rounded_clips_match_between_strategies() {
         let red = Rectangle::new().background(Color::rgb(255, 0, 0));
         let image = Image::new(&image);
         let colors = renderer.store_mut().slice_from(&[Color::WHITE]);
-        let text = TextAtom::new(string, colors);
+        let text = FrameText::new(string, colors);
 
         renderer.push_clip(
             area,

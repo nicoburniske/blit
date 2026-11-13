@@ -25,8 +25,8 @@ pub struct Renderer {
     rows: Vec<u32>,
 }
 
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<path::Stored> for crate::Renderer<B, S, D> {
-    fn paint(&mut self, bounds: LogicalRect, value: path::Stored) {
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<path::FramePath> for crate::Renderer<B, S, D> {
+    fn paint(&mut self, bounds: LogicalRect, value: path::FramePath) {
         self.record(bounds).push::<Renderer>(value, None);
     }
 }
@@ -52,10 +52,10 @@ struct Span {
 }
 
 impl<P: Pixel> crate::Render<P> for Renderer {
-    type Input = path::Stored;
+    type Input = path::FramePath;
     type Prepared = Option<Prepared>;
 
-    fn prepare(&mut self, input: &path::Stored, cx: &mut RenderContext<'_, P>) -> Option<Prepared> {
+    fn prepare(&mut self, input: &path::FramePath, cx: &mut RenderContext<'_, P>) -> Option<Prepared> {
         let path = input.view(cx.list);
         let fill = path.fill.normalized();
         if let Fill::Solid(color) = fill

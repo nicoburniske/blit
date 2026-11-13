@@ -285,7 +285,7 @@ impl<P: Pixel> RasterCommands<P> {
             let index = *index as usize;
             let clip = self.metadata[id as usize].clip;
             let mesh = &mut self.meshes[index];
-            // safety: mesh recording stores an offset to blit_gui::mesh::Stored in this list
+            // safety: mesh recording stores an offset to blit_gui::mesh::FrameMesh in this list
             let source = unsafe { list.data().get(mesh.source) };
             let view = source.view(list);
             for (triangle_index, indices) in view.indices.as_chunks::<3>().0.iter().enumerate() {

@@ -10,7 +10,7 @@ use blit_gui::{
     Context,
     color::Color,
     rectangle::{self, Rectangle},
-    text::{self, TextAtom, TextLayoutRequest, TextOptions, TextRequest, TextRun, TextStyle, TextWrap},
+    text::{self, FrameText, TextLayoutRequest, TextOptions, TextRequest, TextRun, TextStyle, TextWrap},
 };
 
 blit::builder! {
@@ -34,7 +34,7 @@ blit::builder! {
 impl<C, F: Handler<Action = Edit>> Widget<C> for TextInput<'_, F>
 where
     C: Context + blit_widgets::Context,
-    C: Paint<rectangle::RectangleAtom> + Paint<text::TextAtom>,
+    C: Paint<rectangle::FrameRectangle> + Paint<text::FrameText>,
 {
     type Response = TextInputResponse;
 
@@ -159,7 +159,7 @@ struct InputAtom {
 
 impl<C: Context> Atom<C> for InputAtom
 where
-    C: Paint<rectangle::RectangleAtom> + Paint<text::TextAtom>,
+    C: Paint<rectangle::FrameRectangle> + Paint<text::FrameText>,
 {
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
         let size = cx.context_mut().text().measure(&TextLayoutRequest {
@@ -206,7 +206,7 @@ where
                 .paint(cursor, context);
         }
         let colors = context.store_mut().slice_from(&[self.color]);
-        let text = TextAtom::new(self.display, colors)
+        let text = FrameText::new(self.display, colors)
             .offset_x(self.state.offset_x)
             .options(self.options);
         context.paint(area, text);

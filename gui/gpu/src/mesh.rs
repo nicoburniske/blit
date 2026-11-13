@@ -3,8 +3,8 @@ use blit_gui::mesh::{self};
 
 use crate::{MeshData, Renderer};
 
-impl Paint<mesh::Stored> for Renderer {
-    fn paint(&mut self, bounds: LogicalRect, value: mesh::Stored) {
+impl Paint<mesh::FrameMesh> for Renderer {
+    fn paint(&mut self, bounds: LogicalRect, value: mesh::FrameMesh) {
         self.record_native(
             bounds,
             bounds,

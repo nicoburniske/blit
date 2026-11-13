@@ -22,14 +22,14 @@ blit::builder! {
 
 impl<C> Widget<C, state::Node> for Rectangle<'_>
 where
-    C: HasFrameStore + Paint<RectangleAtom, Scalar = f32>,
+    C: HasFrameStore + Paint<FrameRectangle, Scalar = f32>,
 {
     type Response = ();
 
     fn build(self, mut ui: Ui<'_, C, state::Node>) {
         let background = FrameFill::new(self.background, ui.context_mut());
         let border_fill = FrameFill::new(self.border.fill, ui.context_mut());
-        ui.insert(RectangleAtom {
+        ui.insert(FrameRectangle {
             background,
             border_fill,
             border_width: self.border.width,
@@ -41,8 +41,8 @@ where
 
 impl Rectangle<'_> {
     /// stores borrowed fills in the context and paints the result
-    pub fn paint<C: HasFrameStore + Paint<RectangleAtom, Scalar = f32>>(self, area: LogicalRect, context: &mut C) {
-        let rectangle = RectangleAtom {
+    pub fn paint<C: HasFrameStore + Paint<FrameRectangle, Scalar = f32>>(self, area: LogicalRect, context: &mut C) {
+        let rectangle = FrameRectangle {
             background: FrameFill::new(self.background, context),
             border_fill: FrameFill::new(self.border.fill, context),
             border_width: self.border.width,
@@ -56,7 +56,7 @@ impl Rectangle<'_> {
 blit::builder! {
     /// rectangle appearance retained in the frame
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct RectangleAtom {
+    pub struct FrameRectangle {
         new(),
         #[into]
         background: FrameFill = FrameFill::Solid(Color::TRANSPARENT),
@@ -68,7 +68,7 @@ blit::builder! {
     }
 }
 
-impl<C> Atom<C> for RectangleAtom
+impl<C> Atom<C> for FrameRectangle
 where
     C: Paint<Self, Scalar = f32>,
 {
@@ -106,7 +106,7 @@ impl Hash for Rectangle<'_> {
     }
 }
 
-impl RectangleAtom {
+impl FrameRectangle {
     #[inline]
     pub fn view<'a>(&self, list: &'a DisplayList) -> Rectangle<'a> {
         Rectangle {
@@ -121,7 +121,7 @@ impl RectangleAtom {
     }
 }
 
-impl Compare for RectangleAtom {
+impl Compare for FrameRectangle {
     #[inline]
     fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
         a.view(left) == b.view(right)

@@ -15,11 +15,11 @@ pub struct Mesh<'a> {
 
 impl Mesh<'_> {
     /// stores borrowed geometry in the context and paints the result
-    pub fn paint<C: HasFrameStore + Paint<Stored, Scalar = f32>>(self, bounds: LogicalRect, context: &mut C) {
+    pub fn paint<C: HasFrameStore + Paint<FrameMesh, Scalar = f32>>(self, bounds: LogicalRect, context: &mut C) {
         if self.indices.is_empty() || !self.is_valid() {
             return;
         }
-        let stored = Stored {
+        let stored = FrameMesh {
             vertices: context.store_mut().slice_from(self.vertices),
             indices: context.store_mut().slice_from(self.indices),
         };
@@ -44,12 +44,12 @@ impl Hash for Mesh<'_> {
 }
 
 /// mesh slices stored in a rendering context
-pub struct Stored {
+pub struct FrameMesh {
     pub vertices: FrameSlice<MeshVertex>,
     pub indices: FrameSlice<u32>,
 }
 
-impl Stored {
+impl FrameMesh {
     pub fn view<'a>(&self, list: &'a DisplayList) -> Mesh<'a> {
         Mesh {
             vertices: list.store().view(self.vertices),
@@ -58,7 +58,7 @@ impl Stored {
     }
 }
 
-impl Compare for Stored {
+impl Compare for FrameMesh {
     fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
         a.view(left) == b.view(right)
     }
