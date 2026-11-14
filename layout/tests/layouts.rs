@@ -4,7 +4,7 @@ use blit::{
     Atom, AtomCx, Constraints, Context, Easing, Frame, FrameInfo, Id, Input, Motion, Rect, Scalar, Sides, Size, Tween,
     Ui, Widget,
 };
-use blit_layout::{Align, Justify, Pad, Sizing, absolute, absolute::Anchor, flex, grid, wrap};
+use blit_layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, wrap};
 
 #[derive(Default)]
 struct TestContext;
@@ -68,13 +68,12 @@ fn absolute_positions_use_the_target_and_sizes_use_the_parent() {
         &mut TestContext,
         FrameInfo::new(Size::new(10.0, 4.0)),
         |ui: Ui<'_, TestContext>| {
-            let mut root = ui.layout(());
-            root.insert(Pad::new(Sides {
+            let mut root = ui.layout(()).pad(Sides {
                 left: 2.0,
                 right: 2.0,
                 top: 1.0,
                 bottom: 1.0,
-            }));
+            });
             let target = root.child().build(|mut ui: Ui<'_, TestContext>| {
                 ui.insert(BoxAtom(Size::new(6.0, 2.0)));
                 ui.node_id()
@@ -307,8 +306,10 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
                 FrameInfo::new(screen),
                 |ui: Ui<'_, CountContext>| {
                     let mut outer = ui.layout(flex::column().align(Align::Start));
-                    let mut root = outer.child().layout(CountedFlex(flex::layout(axis).gap(4.0), 0));
-                    root.insert(Pad::new(2.0));
+                    let mut root = outer
+                        .child()
+                        .layout(CountedFlex(flex::layout(axis).gap(4.0), 0))
+                        .pad(2.0);
                     let grow_item = match (axis, cross_fixed) {
                         (_, true) => flex::item().grow(),
                         (Axis::Horizontal, false) => flex::item().width(Sizing::grow()),
@@ -319,13 +320,16 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
                             .child()
                             .item(grow_item)
                             .id(branch_id)
-                            .layout(CountedFlex(flex::layout(axis), 1));
-                        branch.insert(Pad::new(1.0));
-                        let mut nested = branch.child().item(grow_item).layout(CountedFlex(
-                            flex::layout(axis).align(if cross_fixed { Align::Stretch } else { Align::Start }),
-                            2,
-                        ));
-                        nested.insert(Pad::new(1.0));
+                            .layout(CountedFlex(flex::layout(axis), 1))
+                            .pad(1.0);
+                        let mut nested = branch
+                            .child()
+                            .item(grow_item)
+                            .layout(CountedFlex(
+                                flex::layout(axis).align(if cross_fixed { Align::Stretch } else { Align::Start }),
+                                2,
+                            ))
+                            .pad(1.0);
                         nested.child().id(leaf).insert(BoxAtom(Size::uniform(10.0)));
                     }
                     let cross = if cross_fixed {
@@ -401,8 +405,7 @@ fn flex_unbounded_cross_uses_content_or_zero_for_fill_children() {
                         FrameInfo::new(Size::new(100.0, 80.0)),
                         |ui: Ui<'_, TestContext>| {
                             let mut outer = ui.layout(UnboundedCross(axis, minimum));
-                            let mut flex = outer.child().layout(flex::layout(axis));
-                            flex.insert(Pad::new(2.0));
+                            let mut flex = outer.child().layout(flex::layout(axis)).pad(2.0);
                             for (id, main, sizing) in [
                                 (grow, main, Sizing::grow_range(0.0, 8.0)),
                                 (fit, Sizing::fixed(10.0), Sizing::fit_range(3.0, 12.0)),
@@ -528,12 +531,9 @@ fn empty_layouts_keep_padding() {
         |ui: Ui<'_, Cells>| {
             let mut root = ui.layout(flex::row().align(Align::Start));
             let padding = Sides::all(2);
-            root.child().id(ids[0]).layout(flex::row()).insert(Pad::new(padding));
-            root.child()
-                .id(ids[1])
-                .layout(wrap::horizontal())
-                .insert(Pad::new(padding));
-            root.child().id(ids[2]).layout(grid::new(2)).insert(Pad::new(padding));
+            root.child().id(ids[0]).layout(flex::row()).pad(padding);
+            root.child().id(ids[1]).layout(wrap::horizontal()).pad(padding);
+            root.child().id(ids[2]).layout(grid::new(2)).pad(padding);
         },
     );
     assert_eq!(ids.map(|id| frame.area(id).unwrap().size()), [Size::uniform(4); 3]);
@@ -605,8 +605,7 @@ fn wrap_keeps_target_runs_during_size_motions() {
             time,
             Input::None,
             |ui: Ui<'_, Cells>| {
-                let mut wrap = ui.layout(wrap::horizontal().gap(1));
-                wrap.insert(Pad::new(1));
+                let mut wrap = ui.layout(wrap::horizontal().gap(1)).pad(1);
                 for id in ids {
                     wrap.child()
                         .item(wrap::item().width(Sizing::grow_range(2, i32::MAX)))
@@ -712,8 +711,8 @@ fn parent_percentages_apply_once_before_padding() {
                 .child()
                 .id(container)
                 .item(flex::item().width(Sizing::percent(0.5)).height(Sizing::percent(0.5)))
-                .layout(());
-            fit.insert(Pad::new(1.0));
+                .layout(())
+                .pad(1.0);
             fit.child().id(percent).insert(BoxAtom(Size::new(4.0, 2.0)));
         },
     );

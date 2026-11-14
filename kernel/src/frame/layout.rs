@@ -186,43 +186,18 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
 }
 
 impl<'a, C: Context> LayoutCx<'a, C> {
-    /// measures atoms against the inner box
+    /// measures atoms against the full box
     #[inline]
     fn measure(&mut self, node: NodeId, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
         if constraints.min == constraints.max {
             return constraints.min;
         }
-        let stored = &self.frame.nodes[node.index()];
-        let mut atom = stored.first_atom;
+        let mut atom = self.frame.nodes[node.index()].first_atom;
         let mut size = Size::ZERO;
-        let inset = stored.edges.index().map(|index| self.frame.edges[index].inset);
-        let Some(inset) = inset.filter(|inset| *inset != Sides::all(C::Scalar::ZERO)) else {
-            while let Some(index) = atom.index() {
-                let stored = self.frame.atoms[index];
-                let measure = stored.kind().measure;
-                size = size.max(measure(self.bump, stored.bump_id, self.context, constraints));
-                atom = stored.next;
-            }
-            return constraints.constrain(size);
-        };
-        let mut remaining = inset.size();
         while let Some(index) = atom.index() {
             let stored = self.frame.atoms[index];
-            let kind = stored.kind();
-            let (measure, atom_inset) = (kind.measure, kind.inset);
-            let grow = |size: Size<C::Scalar>| {
-                Size::new(
-                    size.width.endpoint(remaining.width),
-                    size.height.endpoint(remaining.height),
-                )
-            };
-            let bounds = Constraints {
-                min: grow(constraints.min),
-                max: grow(constraints.max),
-            };
-            let measured = measure(self.bump, stored.bump_id, self.context, bounds);
-            size = size.max((measured - remaining).max(Size::ZERO));
-            remaining = remaining - atom_inset(self.bump, stored.bump_id).size();
+            let measure = stored.kind().measure;
+            size = size.max(measure(self.bump, stored.bump_id, self.context, constraints));
             atom = stored.next;
         }
         constraints.constrain(size)
@@ -248,22 +223,15 @@ impl<'a, C: Context> LayoutCx<'a, C> {
             bounds.max.height = height;
         }
         let stored = &self.frame.nodes[node.index()];
-        let outer = bounds;
-        let inset = stored
-            .edges
-            .index()
-            .map(|index| self.frame.edges[index].inset)
-            .filter(|inset| *inset != Sides::all(C::Scalar::ZERO));
-        let (leading, bounds) = match inset {
-            Some(inset) => (
-                Point::new(inset.left.min(bounds.max.width), inset.top.min(bounds.max.height)),
-                bounds.shrink(inset.size()),
-            ),
-            None => (Point::ZERO, bounds),
-        };
         // atoms size every node so layouts only account for children
         let mut size = self.measure(node, bounds);
         if stored.layout.offset().is_some() {
+            let padding = stored
+                .edges
+                .index()
+                .map_or(Sides::all(C::Scalar::ZERO), |index| self.frame.edges[index].padding);
+            let leading = Point::new(padding.left.min(bounds.max.width), padding.top.min(bounds.max.height));
+            let inner = bounds.shrink(padding.size());
             let kind = &self.frame.layout_kinds[stored.layout_kind as usize];
             let mut cx = LayoutCx {
                 frame: self.frame,
@@ -282,20 +250,18 @@ impl<'a, C: Context> LayoutCx<'a, C> {
                 area.x = leading.x;
                 area.y = leading.y;
             }
-            size = size.max((kind.run)(&mut cx, stored.layout, bounds));
+            let content = (kind.run)(&mut cx, stored.layout, inner);
+            debug_assert_eq!(
+                content,
+                inner.constrain(content),
+                "layout returned a size outside its constraints"
+            );
+            let padding = padding.size();
+            size = size.max(bounds.constrain(Size::new(
+                content.width.endpoint(padding.width),
+                content.height.endpoint(padding.height),
+            )));
         }
-        debug_assert_eq!(
-            size,
-            bounds.constrain(size),
-            "layout returned a size outside its constraints"
-        );
-        let size = inset.map_or(size, |inset| {
-            let inset = inset.size();
-            outer.constrain(Size::new(
-                size.width.endpoint(inset.width),
-                size.height.endpoint(inset.height),
-            ))
-        });
         let area = &mut self.placements[node.index()].area;
         area.width = size.width;
         area.height = size.height;

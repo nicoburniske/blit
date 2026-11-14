@@ -35,16 +35,9 @@ impl<'a, C: Context> AtomCx<'a, C> {
 }
 
 pub fn insert<C: Context, A: Atom<C>>(frame: &mut Frame<C>, node: NodeId, atom: A) {
-    let (inset, outset) = (atom.inset(), atom.outset());
-    if inset != Sides::all(C::Scalar::ZERO) || outset != Sides::all(C::Scalar::ZERO) {
-        let stored = &mut frame.nodes[node.index()];
-        let index = stored.edges.index().unwrap_or_else(|| {
-            stored.edges = EdgesId::new(frame.edges.len());
-            frame.edges.push(Edges::default());
-            frame.edges.len() - 1
-        });
-        let edges = &mut frame.edges[index];
-        edges.inset = edges.inset + inset;
+    let outset = atom.outset();
+    if outset != Sides::all(C::Scalar::ZERO) {
+        let edges = frame.edges_mut(node);
         edges.outset = Sides {
             top: edges.outset.top.max(outset.top),
             right: edges.outset.right.max(outset.right),
@@ -76,7 +69,6 @@ impl<C: Context, A: Atom<C>> Kind<C> for A {
     const KIND: *const AtomKind<C> = &AtomKind {
         measure: measure::<C, A>,
         paint: paint::<C, A>,
-        inset: |bump, id| bump.load::<A>(id).inset(),
     };
 }
 

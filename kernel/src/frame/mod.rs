@@ -269,6 +269,16 @@ impl NodeId {
 }
 
 impl<C: Context> Frame<C> {
+    fn edges_mut(&mut self, node: NodeId) -> &mut Edges<C::Scalar> {
+        let stored = &mut self.nodes[node.index()];
+        let index = stored.edges.index().unwrap_or_else(|| {
+            stored.edges = EdgesId::new(self.edges.len());
+            self.edges.push(Edges::default());
+            self.edges.len() - 1
+        });
+        &mut self.edges[index]
+    }
+
     fn store_layout<L: Layout<C>>(&mut self, node: NodeId, value: L) {
         let type_id = TypeId::of::<L>();
         let kind = self
@@ -498,10 +508,10 @@ impl<C: Context> StoredAtom<C> {
     }
 }
 
-/// a node's summed atom insets and its largest atom outset
+/// a node's padding and its largest atom outset
 #[derive(Clone, Copy, Default)]
 struct Edges<T> {
-    inset: Sides<T>,
+    padding: Sides<T>,
     outset: Sides<T>,
 }
 
@@ -550,7 +560,6 @@ type ResolvedClipId = Index<ResolvedClip<()>>;
 struct AtomKind<C: Context> {
     measure: fn(&BumpArena, BumpId, &mut C, Constraints<C::Scalar>) -> Size<C::Scalar>,
     paint: fn(&BumpArena, BumpId, &mut C, Rect<C::Scalar>),
-    inset: fn(&BumpArena, BumpId) -> Sides<C::Scalar>,
 }
 
 struct LayoutKind<C: Context> {

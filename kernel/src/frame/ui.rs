@@ -29,7 +29,7 @@ pub struct Ui<'ui, C: Context, S = state::Build> {
 
 impl<'ui, C: Context, S> Ui<'ui, C, S> {
     /// adds local bounds inside previously supplied bounds
-    /// local bounds are clamped to the bounds supplied by the parent
+    /// local bounds win over the bounds supplied by the parent
     pub fn constrain(self, limits: Constraints<C::Scalar>) -> Self {
         assert!(
             limits.min.width >= C::Scalar::ZERO
@@ -52,6 +52,19 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
             node.limits = LimitsId::new(frame.limits.len());
             frame.limits.push(limits);
         }
+        self
+    }
+
+    /// insets this node's children while atoms keep the full box
+    pub fn pad(self, padding: impl Into<Sides<C::Scalar>>) -> Self {
+        let padding = padding.into();
+        assert!(
+            [padding.top, padding.right, padding.bottom, padding.left]
+                .iter()
+                .all(|side| *side >= C::Scalar::ZERO && side.is_finite()),
+            "invalid padding"
+        );
+        self.inner.frame.edges_mut(self.inner.node).padding = padding;
         self
     }
 
@@ -254,20 +267,14 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
 
 impl<C: Context, S> Ui<'_, C, S> {
     /// returns the area from the previous layout and tracks this id for the next one
-    /// inset by atoms inserted so far
     pub fn area(&mut self, id: Id) -> Option<Rect<C::Scalar>> {
         let frame = &mut *self.inner.frame;
         frame.areas_requested.push(id);
-        let node = &frame.nodes[self.inner.node.index()];
-        let inset = (node.widget_id == id)
-            .then(|| node.edges.index())
-            .flatten()
-            .map_or(Sides::all(C::Scalar::ZERO), |index| frame.edges[index].inset);
         let areas = &frame.areas_previous;
         areas
             .binary_search_by_key(&id, |(candidate, _)| *candidate)
             .ok()
-            .map(|index| areas[index].1.inset(inset))
+            .map(|index| areas[index].1)
     }
 
     /// adds `interaction` to this widget and returns its latest response

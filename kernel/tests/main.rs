@@ -129,20 +129,6 @@ impl Atom<TestContext> for Fill {
     }
 }
 
-struct Inset(f32);
-
-impl Atom<TestContext> for Inset {
-    fn measure(&self, _: &mut AtomCx<'_, TestContext>, bounds: Constraints<f32>) -> Size<f32> {
-        bounds.constrain(Size::ZERO)
-    }
-
-    fn paint(&self, _: &mut AtomCx<'_, TestContext>, _: Rect<f32>) {}
-
-    fn inset(&self) -> Sides<f32> {
-        Sides::all(self.0)
-    }
-}
-
 struct TestClip;
 
 impl Clip<TestContext> for TestClip {

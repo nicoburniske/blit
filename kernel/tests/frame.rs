@@ -436,33 +436,21 @@ fn bindings_and_geometry() {
 }
 
 #[test]
-fn insets_apply_to_later_atoms_children_and_own_area_reads() {
+fn padding_insets_children_while_atoms_keep_the_full_box() {
     let (mut frame, mut context) = frame(Size::new(7.0, 5.0));
     let node = Id::new("padded");
-    let mut build = |ui: Ui<'_>| {
+    render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
-        root.child().id(node).build(|mut ui: Ui<'_>| {
-            ui.insert(Fill('B', Size::ZERO));
-            let outer = ui.area(node);
-            ui.insert(Inset(2.0));
-            let inner = ui.area(node);
-            let mut ui = ui.layout(());
-            ui.insert(Fill('T', Size::new(3.0, 1.0)));
-            ui.child().insert(Fill('C', Size::uniform(1.0)));
-            (outer, inner)
-        })
-    };
-    render(&mut frame, &mut context, &mut build);
-    let (outer, inner) = render(&mut frame, &mut context, &mut build);
-    assert_eq!(outer, Some(Rect::new(0.0, 0.0, 7.0, 5.0)));
-    assert_eq!(inner, Some(Rect::new(2.0, 2.0, 3.0, 1.0)));
-    assert_eq!(frame.area(node), outer);
+        let mut padded = root.child().id(node).layout(()).pad(2.0);
+        padded.insert(Fill('B', Size::ZERO));
+        padded.child().insert(Fill('C', Size::new(3.0, 1.0)));
+    });
+    assert_eq!(frame.area(node), Some(Rect::new(0.0, 0.0, 7.0, 5.0)));
     assert_eq!(
         context.commands,
         [
             Paint('B', Rect::new(0.0, 0.0, 7.0, 5.0)),
-            Paint('T', Rect::new(2.0, 2.0, 3.0, 1.0)),
-            Paint('C', Rect::new(2.0, 2.0, 1.0, 1.0)),
+            Paint('C', Rect::new(2.0, 2.0, 3.0, 1.0)),
         ]
     );
 }

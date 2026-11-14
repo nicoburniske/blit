@@ -23,7 +23,7 @@ use blit_gui::{
 };
 use blit_gui_widgets::{
     interact,
-    layout::{Align, Justify, Pad, Sizing, absolute, absolute::Anchor, flex, grid, wrap},
+    layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, wrap},
     performance::{Performance, PerformanceState},
     popover::{Popover, PopoverClose, PopoverState},
     resize::{Resize, ResizeEdge, ResizeGrip, ResizeState},
@@ -135,9 +135,8 @@ impl Application for App {
     fn input(&mut self, _: Self::Input) {}
 
     fn build(&mut self, ui: Ui<'_>) {
-        let mut root = ui.layout(flex::column().gap(sz::SM));
+        let mut root = ui.layout(flex::column().gap(sz::SM)).pad(sz::XL);
         root.insert(Rectangle::new().background(colors::BACKGROUND));
-        root.insert(Pad::new(sz::XL));
         {
             let mut masthead = root.child().layout(flex::row().gap(3.0).align(Align::Start));
             masthead
@@ -147,19 +146,20 @@ impl Application for App {
             let backend = "CPU";
             #[cfg(feature = "gpu")]
             let backend = "GPU";
-            let mut badge = masthead.child().layout(flex::column());
-            badge.insert(Pad::new(Sides::new().top(6.0)));
+            let mut badge = masthead.child().layout(flex::column()).pad(Sides::new().top(6.0));
             badge
                 .child()
                 .insert(Text::new(backend).style(TextStyle::new().size(sz::SM).color(colors::ACCENT)));
         }
         {
-            let mut header = root.child().layout(flex::row().gap(sz::XS).align(Align::Center));
+            let mut header = root
+                .child()
+                .layout(flex::row().gap(sz::XS).align(Align::Center))
+                .pad(sz::XXS);
             header.insert(Rectangle::new().background(colors::SURFACE).border(Border::gradient(
                 sz::BORDER,
                 LinearGradient::new(&colors::RIM).angle(90.0),
             )));
-            header.insert(Pad::new(sz::XXS));
             header.child().build(select(
                 &mut self.page,
                 &[
@@ -185,14 +185,13 @@ impl Application for App {
                         draw_button(ui, "settings", open, press);
                     })
                     .content(|ui: Ui<'_>| {
-                        let mut popup = ui.layout(flex::column().gap(sz::SM));
+                        let mut popup = ui.layout(flex::column().gap(sz::SM)).pad(sz::MD);
                         popup.insert(
                             Rectangle::new()
                                 .background(colors::SURFACE)
                                 .border(Border::solid(sz::BORDER, colors::ACCENT))
                                 .radius(BorderRadius::uniform(sz::XS)),
                         );
-                        popup.insert(Pad::new(sz::MD));
                         if popup
                             .child()
                             .build(Button::new("Show performance", self.show_performance))
@@ -273,9 +272,8 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                 split_state,
                 sz::SIDEBAR,
                 |ui: Ui<'_>| {
-                    let mut sidebar = ui.layout(flex::column().gap(sz::XS)).clip(BoundsClip);
+                    let mut sidebar = ui.layout(flex::column().gap(sz::XS)).clip(BoundsClip).pad(sz::LG);
                     sidebar.insert(panel(colors::SURFACE));
-                    sidebar.insert(Pad::new(sz::LG));
                     sidebar
                         .child()
                         .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
@@ -313,9 +311,8 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                 },
                 |ui: Ui<'_>| {
                     let (show_drag, spring) = settings.get();
-                    let mut preview = ui.layout(flex::column().gap(sz::SM)).clip(BoundsClip);
+                    let mut preview = ui.layout(flex::column().gap(sz::SM)).clip(BoundsClip).pad(sz::LG);
                     preview.insert(panel(colors::SURFACE));
-                    preview.insert(Pad::new(sz::LG));
                     preview
                         .child()
                         .insert(Text::new("LIVE VIEW").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
@@ -517,9 +514,8 @@ impl Widget<DesktopContext> for &mut TextPage {
                 split_state,
                 sz::SIDEBAR,
                 |ui: Ui<'_>| {
-                    let mut controls = ui.layout(flex::column().gap(sz::LG));
+                    let mut controls = ui.layout(flex::column().gap(sz::LG)).pad(sz::LG);
                     controls.insert(panel(colors::SURFACE));
-                    controls.insert(Pad::new(sz::LG));
                     controls
                         .child()
                         .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
@@ -577,20 +573,18 @@ impl Widget<DesktopContext> for &mut TextPage {
                     });
                 },
                 |ui: Ui<'_>| {
-                    let mut preview = ui.layout(flex::column().gap(sz::SM));
+                    let mut preview = ui.layout(flex::column().gap(sz::SM)).pad(sz::LG);
                     preview.insert(panel(colors::SURFACE));
-                    preview.insert(Pad::new(sz::LG));
                     preview
                         .child()
                         .insert(Text::new("text").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
                     preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
-                        let mut viewport = ui.layout(flex::column()).clip(BoundsClip);
+                        let mut viewport = ui.layout(flex::column()).clip(BoundsClip).pad(sz::SM);
                         viewport.insert(
                             Rectangle::new()
                                 .background(colors::TRACK)
                                 .radius(BorderRadius::uniform(sz::XS)),
                         );
-                        viewport.insert(Pad::new(sz::SM));
                         viewport.child().id(Id::new("rich text preview")).build(
                             Resize::new(resize)
                                 .initial(Size::new(560.0, 360.0))
@@ -598,14 +592,13 @@ impl Widget<DesktopContext> for &mut TextPage {
                                 .maximum(screen)
                                 .grip_size(Size::uniform(sz::MD))
                                 .content(|ui: Ui<'_>| {
-                                    let mut paragraph = ui.layout(()).clip(BoundsClip);
+                                    let mut paragraph = ui.layout(()).clip(BoundsClip).pad(sz::LG);
                                     paragraph.insert(
                                         Rectangle::new()
                                             .background(colors::CANVAS)
                                             .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
                                             .radius(BorderRadius::uniform(sz::XS)),
                                     );
-                                    paragraph.insert(Pad::new(sz::LG));
                                     paragraph.child().insert(
                                         RichText::new(text, spans)
                                             .style(TextStyle {
@@ -634,9 +627,8 @@ impl Widget<DesktopContext> for &mut InputPage {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
-        let mut body = ui.layout(flex::column().gap(sz::SM));
+        let mut body = ui.layout(flex::column().gap(sz::SM)).pad(sz::LG);
         body.insert(panel(colors::SURFACE));
-        body.insert(Pad::new(sz::LG));
         body.child()
             .insert(Text::new("input").style(TextStyle::new().size(sz::MD).color(colors::TEXT_MUTED)));
         body.child().build(|ui: Ui<'_>| {
@@ -709,9 +701,8 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                 split_state,
                 sz::SIDEBAR,
                 |ui: Ui<'_>| {
-                    let mut sidebar = ui.layout(flex::column().gap(sz::XS));
+                    let mut sidebar = ui.layout(flex::column().gap(sz::XS)).pad(sz::LG);
                     sidebar.insert(panel(colors::SURFACE));
-                    sidebar.insert(Pad::new(sz::LG));
                     sidebar
                         .child()
                         .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
@@ -821,20 +812,18 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                         }));
                 },
                 |ui: Ui<'_>| {
-                    let mut preview = ui.layout(flex::column().gap(sz::SM));
+                    let mut preview = ui.layout(flex::column().gap(sz::SM)).pad(sz::LG);
                     preview.insert(panel(colors::SURFACE));
-                    preview.insert(Pad::new(sz::LG));
                     preview
                         .child()
                         .insert(Text::new("LIVE VIEW").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
                     preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
-                        let mut viewport = ui.layout(flex::column()).clip(BoundsClip);
+                        let mut viewport = ui.layout(flex::column()).clip(BoundsClip).pad(sz::SM);
                         viewport.insert(
                             Rectangle::new()
                                 .background(colors::TRACK)
                                 .radius(BorderRadius::uniform(sz::XS)),
                         );
-                        viewport.insert(Pad::new(sz::SM));
                         let initial =
                             (screen - sz::CANVAS_INITIAL_OFFSET).max(sz::CANVAS_INITIAL_MIN) * sz::CANVAS_INITIAL_SCALE;
                         viewport.child().id(Id::new("layout canvas")).build(
@@ -878,9 +867,8 @@ impl Widget<DesktopContext> for &mut ScrollPage {
             uniform,
             measured,
         } = self;
-        let mut section = ui.layout(flex::column().gap(sz::SM));
+        let mut section = ui.layout(flex::column().gap(sz::SM)).pad(sz::LG);
         section.insert(panel(colors::SURFACE));
-        section.insert(Pad::new(sz::LG));
         {
             let mut header = section.child().layout(flex::column().gap(sz::SM));
             header
@@ -916,13 +904,12 @@ impl Widget<DesktopContext> for &mut ScrollPage {
             } else {
                 colors::SURFACE_HIGH
             };
-            let mut tile = ui.layout(layout);
+            let mut tile = ui.layout(layout).pad(padding);
             tile.insert(
                 Rectangle::new()
                     .background(background)
                     .radius(BorderRadius::uniform(sz::XXS)),
             );
-            tile.insert(Pad::new(padding));
             tile.child()
                 .insert(Text::new(format_args!("{index}")).style(TextStyle::new().color(colors::TEXT_MUTED)));
             tile.child().insert(Text::new(item.label).style(TextStyle {
@@ -1045,14 +1032,15 @@ fn draw_button(ui: Ui<'_>, label: impl AsRef<str>, selected: bool, press: intera
     } else {
         Border::gradient(sz::BORDER, LinearGradient::new(&colors::RIM).angle(90.0))
     };
-    let mut button = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
+    let mut button = ui
+        .layout(flex::row().align(Align::Center).justify(Justify::Center))
+        .pad(Sides::xy(sz::SM, sz::XS));
     button.insert(
         Rectangle::new()
             .background(LinearGradient::new(stops).angle(if press.active { 270.0 } else { 90.0 }))
             .border(border)
             .radius(BorderRadius::uniform(4.0)),
     );
-    button.insert(Pad::new(Sides::xy(sz::SM, sz::XS)));
     button.child().insert(Text::new(label.as_ref()).style(TextStyle {
         size: sz::MD,
         color: if selected { colors::BACKGROUND } else { colors::TEXT },
@@ -1099,9 +1087,9 @@ impl Widget<DesktopContext> for Canvas {
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
-                    .clip(BoundsClip);
+                    .clip(BoundsClip)
+                    .pad(self.config.padding(self.unit));
                 canvas.insert(background);
-                canvas.insert(Pad::new(self.config.padding(self.unit)));
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = self.config.item_sizing(index, self.unit);
                     canvas
@@ -1125,9 +1113,9 @@ impl Widget<DesktopContext> for Canvas {
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
-                    .clip(BoundsClip);
+                    .clip(BoundsClip)
+                    .pad(self.config.padding(self.unit));
                 canvas.insert(background);
-                canvas.insert(Pad::new(self.config.padding(self.unit)));
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = self.config.item_sizing(index, self.unit);
                     canvas
@@ -1142,9 +1130,8 @@ impl Widget<DesktopContext> for Canvas {
                 let grid = grid::new(5)
                     .column_gap(self.config.gap(Axis::Horizontal, self.unit))
                     .row_gap(self.config.gap(Axis::Vertical, self.unit));
-                let mut canvas = ui.layout(grid).clip(BoundsClip);
+                let mut canvas = ui.layout(grid).clip(BoundsClip).pad(self.config.padding(self.unit));
                 canvas.insert(background);
-                canvas.insert(Pad::new(self.config.padding(self.unit)));
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
                         .child()

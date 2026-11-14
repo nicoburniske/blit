@@ -143,11 +143,6 @@ pub trait Atom<C: Context>: 'static {
     fn outset(&self) -> Sides<C::Scalar> {
         Sides::all(C::Scalar::ZERO)
     }
-
-    /// shrinks the box for later atoms and children
-    fn inset(&self) -> Sides<C::Scalar> {
-        Sides::all(C::Scalar::ZERO)
-    }
 }
 
 /// stable identity for widgets, animations and timers

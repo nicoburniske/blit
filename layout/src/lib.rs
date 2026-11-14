@@ -1,8 +1,6 @@
 pub mod absolute;
 pub mod flex;
 pub mod grid;
-mod pad;
-pub use pad::Pad;
 pub mod rect;
 pub mod wrap;
 
