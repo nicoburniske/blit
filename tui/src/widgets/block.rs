@@ -1,12 +1,12 @@
 use std::ops::{BitOr, BitOrAssign};
 
-use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size, Widget, state};
+use blit::{Atom, AtomCx, Constraints, Paint, PhysicalRect, Size, Widget, state};
 
 use crate::{
-    Context, Shadow, TuiRenderer,
+    Context, Shadow,
     cell::{Cell, CellStyle},
     color::Color,
-    text::{TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId},
+    text::{FrameText, TextAttributes, TextLayoutRequest, TextOptions, TextRunId, TextWrap},
 };
 
 blit::builder! {
@@ -32,7 +32,7 @@ impl<'a> Block<'a> {
 
 impl<C> Widget<C, state::Node> for Block<'_>
 where
-    C: Context,
+    C: Context + Paint<FrameText>,
 {
     type Response = ();
 
@@ -151,16 +151,16 @@ struct TitleRun {
 
 impl<C> Atom<C> for BlockAtom
 where
-    C: Context,
+    C: Context + Paint<FrameText>,
 {
     fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         constraints.constrain(Size::ZERO)
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
-        let renderer = &mut cx.context_mut().as_mut().renderer;
+        let context = cx.context_mut();
         let (width, height) = {
-            let mut cells = renderer.cells(area);
+            let mut cells = context.as_mut().renderer.cells(area);
             let width = cells.columns();
             let height = cells.rows();
             if let Some(background) = self.background {
@@ -224,7 +224,7 @@ where
                 .is_some_and(|border| border.sides.contains(BorderSides::RIGHT)),
         ));
         paint_title_row(
-            renderer,
+            context,
             [self.titles[0], self.titles[1], self.titles[2]],
             area.x,
             area.y,
@@ -232,7 +232,7 @@ where
             right,
         );
         paint_title_row(
-            renderer,
+            context,
             [self.titles[3], self.titles[4], self.titles[5]],
             area.x,
             area.y + height.saturating_sub(1) as i32,
@@ -243,7 +243,7 @@ where
 }
 
 fn paint_title_row(
-    renderer: &mut TuiRenderer,
+    context: &mut (impl Context + Paint<FrameText>),
     titles: [Option<TitleRun>; 3],
     origin_x: i32,
     y: i32,
@@ -254,46 +254,51 @@ fn paint_title_row(
     if available == 0 {
         return;
     }
-    let left_width = titles[0].map_or(0, |title| {
-        renderer
-            .measure_text(&TextLayoutRequest::new(title.text).max_lines(1))
-            .width as usize
-    });
-    let right_width = titles[2].map_or(0, |title| {
-        renderer
-            .measure_text(&TextLayoutRequest::new(title.text).max_lines(1))
-            .width as usize
-    });
+    let mut measure = |title: TitleRun| {
+        let request = TextLayoutRequest {
+            text: title.text,
+            wrap: TextWrap::None,
+            max_width: None,
+            max_lines: Some(1),
+        };
+        context.as_mut().renderer.measure_text(&request).width as usize
+    };
+    let left_width = titles[0].map_or(0, &mut measure);
+    let right_width = titles[2].map_or(0, &mut measure);
+    let center_width = titles[1].map_or(0, &mut measure);
     let left_width = left_width.min(available.saturating_sub(right_width.min(available / 2)));
     let right_width = right_width.min(available - left_width);
     let right_start = right - right_width;
     if let Some(title) = titles[0] {
-        paint_title(renderer, title, origin_x, y, left, left_width);
+        paint_title(context, title, origin_x, y, left, left_width);
     }
     if let Some(title) = titles[2] {
-        paint_title(renderer, title, origin_x, y, right_start, right_width);
+        paint_title(context, title, origin_x, y, right_start, right_width);
     }
     if let Some(title) = titles[1] {
-        let width = (renderer
-            .measure_text(&TextLayoutRequest::new(title.text).max_lines(1))
-            .width as usize)
-            .min(right_start.saturating_sub(left + left_width));
+        let width = center_width.min(right_start.saturating_sub(left + left_width));
         let centered = left + (available - width) / 2;
         let start = centered.clamp(left + left_width, right_start - width);
-        paint_title(renderer, title, origin_x, y, start, width);
+        paint_title(context, title, origin_x, y, start, width);
     }
 }
 
-fn paint_title(renderer: &mut TuiRenderer, title: TitleRun, origin_x: i32, y: i32, x: usize, width: usize) {
+fn paint_title(
+    context: &mut impl Paint<FrameText, Scalar = i32>,
+    title: TitleRun,
+    origin_x: i32,
+    y: i32,
+    x: usize,
+    width: usize,
+) {
     if width == 0 {
         return;
     }
-    renderer.paint_text(
-        TextRequest::new(title.text, PhysicalRect::new(origin_x + x as i32, y, width as i32, 1))
-            .color(title.color)
-            .attributes(title.attributes)
-            .options(TextOptions::new().max_lines(1)),
-    );
+    let text = FrameText::new(title.text)
+        .color(title.color)
+        .attributes(title.attributes)
+        .options(TextOptions::new().max_lines(1));
+    context.paint(PhysicalRect::new(origin_x + x as i32, y, width as i32, 1), text);
 }
 
 fn border_edges(sides: BorderSides, x: usize, y: usize, width: usize, height: usize) -> u8 {
@@ -348,7 +353,7 @@ mod tests {
     use blit::{Constraints, Frame, FrameInfo, Input, Size};
 
     use super::*;
-    use crate::{RendererConfig, Shadow, TuiContext, layout::flex};
+    use crate::{RendererConfig, Shadow, TuiContext, TuiRenderer, layout::flex};
 
     #[test]
     fn block_and_shadow_paint_as_atoms() {

@@ -1,7 +1,7 @@
-use blit::{Clip, ClipShape, PhysicalRect};
+use blit::{Clip, ClipShape, Paint, PhysicalRect};
 use blit_widgets::performance::FrameProfiler;
 
-use crate::{RendererConfig, TuiRenderer};
+use crate::{RendererConfig, TuiRenderer, image::Image, text::FrameText};
 
 /// rendering resources independent of terminal io and event loop ownership
 pub struct TuiContext {
@@ -63,5 +63,17 @@ where
 
     fn pop(&self, context: &mut C) {
         context.as_mut().renderer.pop_clip();
+    }
+}
+
+impl Paint<Image> for TuiContext {
+    fn paint(&mut self, area: PhysicalRect, image: Image) {
+        self.renderer.paint_image(area, &image);
+    }
+}
+
+impl Paint<FrameText> for TuiContext {
+    fn paint(&mut self, area: PhysicalRect, text: FrameText) {
+        self.renderer.paint_text(area, &text);
     }
 }

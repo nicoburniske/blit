@@ -1,9 +1,10 @@
 use std::fmt::Write as _;
 
 use base64::Engine as _;
+use blit::PhysicalRect;
 
 use super::{BASE64, KittyPlacement, TuiRenderer, write_color};
-use crate::{image::ImagePlacement, text::TextAttributes};
+use crate::{image::Image, text::TextAttributes};
 
 impl TuiRenderer {
     pub fn begin_frame(&mut self) {
@@ -13,12 +14,13 @@ impl TuiRenderer {
         self.frame_cells.clear();
         self.kitty_placements.clear();
     }
-    pub fn place_image(&mut self, request: ImagePlacement) {
-        if let Some(area) = request.area.intersection(self.clip) {
+
+    pub fn paint_image(&mut self, area: PhysicalRect, image: &Image) {
+        if let Some(area) = area.intersection(self.clip) {
             let (x, y, right, bottom) = self.cell_bounds(area);
             if right > x && bottom > y {
                 self.kitty_placements.push(KittyPlacement {
-                    image: request.image.0 as u32,
+                    image: image.image.0 as u32,
                     x: x as u16,
                     y: y as u16,
                     width: (right - x) as u16,

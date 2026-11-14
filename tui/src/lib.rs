@@ -40,10 +40,12 @@ pub type VirtualListState = blit_widgets::scroll::virtual_list::VirtualListState
 
 pub use self::{
     context::{BoundsClip, TuiContext},
+    image::Image,
     renderer::{RendererConfig, TuiRenderer, cell},
+    text::{Text, TextSource},
     widgets::{
-        Bar, BarChart, Block, Border, BorderSides, BorderStyle, Gauge, Image, Performance, PerformanceState, Shadow,
-        Sparkline, Text, TextInput, TextInputResponse, TextInputState, TextSource, Tint, Title, TitlePosition,
+        Bar, BarChart, Block, Border, BorderSides, BorderStyle, Gauge, Performance, PerformanceState, Shadow,
+        Sparkline, TextInput, TextInputResponse, TextInputState, Tint, Title, TitlePosition,
     },
 };
 

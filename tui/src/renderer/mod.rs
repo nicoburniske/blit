@@ -251,9 +251,14 @@ impl TuiRenderer {
         self.text_runs.get_index(index).id
     }
 
-    pub fn text_offset_at_position(&mut self, request: &TextRequest, position: PhysicalPoint) -> usize {
+    pub fn text_offset_at_position(
+        &mut self,
+        area: PhysicalRect,
+        request: &TextRequest,
+        position: PhysicalPoint,
+    ) -> usize {
         let text = &self.text_runs.get_key_index(self.text_run_index(request.text)).text;
-        let target = (position.x as isize - request.area.x as isize + request.offset_x as isize).max(0) as usize;
+        let target = (position.x as isize - area.x as isize + request.offset_x as isize).max(0) as usize;
         let mut width = 0;
         for (offset, grapheme) in text.grapheme_indices(true) {
             let next = width + UnicodeWidthStr::width(grapheme).max(1);
@@ -274,8 +279,7 @@ impl TuiRenderer {
         }
     }
 
-    pub fn text_cursor_rect(&mut self, request: &TextRequest, byte_offset: usize) -> PhysicalRect {
-        let area = request.area;
+    pub fn text_cursor_rect(&mut self, area: PhysicalRect, request: &TextRequest, byte_offset: usize) -> PhysicalRect {
         let text = &self.text_runs.get_key_index(self.text_run_index(request.text)).text;
         let before = &text[..text.floor_char_boundary(byte_offset.min(text.len()))];
         let line = before.rsplit_once('\n').map_or(before, |(_, line)| line);
@@ -818,7 +822,7 @@ mod tests {
     use super::*;
     use crate::{
         cell::{Cell as SurfaceCell, CellStyle},
-        text::{HorizontalAlign, TextOptions, TextOverflow, VerticalAlign},
+        text::{FrameText, HorizontalAlign, TextOptions, TextOverflow, VerticalAlign},
     };
 
     fn renderer(columns: u16, rows: u16) -> TuiRenderer {
@@ -837,7 +841,7 @@ mod tests {
         for (area, clip) in [(offscreen, screen), (screen, offscreen), (screen, clip)] {
             renderer.push_clip(clip);
             renderer.cells(area).clear(SurfaceCell::new('x'));
-            renderer.paint_text(TextRequest::new(text, area));
+            renderer.paint_text(area, &FrameText::new(text));
             renderer.pop_clip();
         }
         renderer.pop_clip();
@@ -846,7 +850,7 @@ mod tests {
 
         renderer.push_clip(offscreen);
         renderer.begin_frame();
-        renderer.paint_text(TextRequest::new(text, screen));
+        renderer.paint_text(screen, &FrameText::new(text));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "abcd\n");
     }
@@ -1076,7 +1080,8 @@ mod tests {
         let area = PhysicalRect::new(0, 0, 5, 3);
         renderer.begin_frame();
         renderer.paint_text(
-            TextRequest::new(text, area)
+            area,
+            &FrameText::new(text)
                 .color(Color::WHITE)
                 .attributes(TextAttributes::ITALIC)
                 .options(
@@ -1108,13 +1113,13 @@ mod tests {
         let overflow = TextOptions::new().overflow(TextOverflow::Ellipsis);
         let text = renderer.text_run("abcdef\nx");
         renderer.begin_frame();
-        renderer.paint_text(TextRequest::new(text, screen).options(overflow));
+        renderer.paint_text(screen, &FrameText::new(text).options(overflow));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "abcd\nx\n");
 
         let text = renderer.rich_text(&[Span::new("abcdef").color(Color::RED)]);
         renderer.begin_frame();
-        renderer.paint_text(TextRequest::new(text, screen).options(overflow));
+        renderer.paint_text(screen, &FrameText::new(text).options(overflow));
         renderer.end_frame();
         assert_eq!(renderer.plain_text(), "abc…\n\n");
         assert_eq!(renderer.cells.foreground[3], Color::RED.packed());
@@ -1126,12 +1131,12 @@ mod tests {
         let area = renderer.screen();
         let text = renderer.text_run("x");
         renderer.begin_frame();
-        renderer.paint_text(TextRequest::new(text, area));
+        renderer.paint_text(area, &FrameText::new(text));
         renderer.end_frame();
 
         renderer.text_run(&"y".repeat(TEXT_RUN_CACHE_CAPACITY));
         renderer.begin_frame();
-        renderer.paint_text(TextRequest::new(text, area));
+        renderer.paint_text(area, &FrameText::new(text));
         renderer.end_frame();
 
         assert_eq!(renderer.plain_text(), "x\n");
@@ -1142,7 +1147,12 @@ mod tests {
         let mut renderer = renderer(20, 4);
         let text = renderer.text_run("hello world");
         assert_eq!(renderer.text_run("hello world"), text);
-        let request = TextLayoutRequest::new(text).wrap(TextWrap::Word).max_width(7);
+        let request = TextLayoutRequest {
+            text,
+            wrap: TextWrap::Word,
+            max_width: Some(7),
+            max_lines: None,
+        };
         let layout = renderer.layout_text(&request);
         assert_eq!(renderer.layout_text(&request), layout);
         let layout = renderer.text_layouts.get_index(layout);

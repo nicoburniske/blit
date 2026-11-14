@@ -1,6 +1,6 @@
 use blit::{
-    Atom, AtomCx, Axis, Constraints, Input, KeyboardEvent, MouseButton, PhysicalRect, Sides, Size, TouchPhase, Ui,
-    Widget,
+    Atom, AtomCx, Axis, Constraints, Input, KeyboardEvent, MouseButton, Paint, PhysicalRect, Sides, Size, TouchPhase,
+    Ui, Widget,
 };
 use blit_widgets::interact::{self, keyboard::Handler};
 pub use blit_widgets::text_input::{Edit, Response as TextInputResponse, default_keymap};
@@ -10,7 +10,7 @@ use crate::{
     Context,
     cell::{Cell, CellStyle},
     color::Color,
-    text::{TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId},
+    text::{FrameText, TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextWrap},
 };
 
 blit::builder! {
@@ -35,7 +35,7 @@ blit::builder! {
 
 impl<C, F> Widget<C> for TextInput<'_, F>
 where
-    C: Context,
+    C: Context + Paint<FrameText>,
     F: Handler<Action = Edit>,
 {
     type Response = TextInputResponse;
@@ -103,13 +103,17 @@ where
         };
         if let Some(area) = ui.area(id) {
             let area = area.inset(padding);
-            let request = TextRequest::new(text, area).offset_x(state.offset_x).options(options);
+            let request = TextRequest {
+                text,
+                offset_x: state.offset_x,
+                options,
+            };
             if let Some((position, extend)) = pointer {
                 let offset = ui
                     .context_mut()
                     .as_mut()
                     .renderer
-                    .text_offset_at_position(&request, position);
+                    .text_offset_at_position(area, &request, position);
                 state.move_to(value, offset, extend);
             }
             if area.width > 0 {
@@ -117,7 +121,7 @@ where
                     .context_mut()
                     .as_mut()
                     .renderer
-                    .text_cursor_rect(&request, state.cursor);
+                    .text_cursor_rect(area, &request, state.cursor);
                 if cursor.x < area.x {
                     state.offset_x = (state.offset_x - area.x + cursor.x).max(0);
                 } else if cursor.x + cursor.width > area.x + area.width {
@@ -167,14 +171,15 @@ struct InputAtom {
 
 impl<C> Atom<C> for InputAtom
 where
-    C: Context,
+    C: Context + Paint<FrameText>,
 {
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
-        let size = cx
-            .context_mut()
-            .as_mut()
-            .renderer
-            .measure_text(&TextLayoutRequest::new(self.display).max_lines(1));
+        let size = cx.context_mut().as_mut().renderer.measure_text(&TextLayoutRequest {
+            text: self.display,
+            wrap: TextWrap::None,
+            max_width: None,
+            max_lines: Some(1),
+        });
         constraints.constrain(size + self.padding.size())
     }
 
@@ -186,14 +191,16 @@ where
                 .cells(area)
                 .clear(Cell::default().style(CellStyle::new().background(background)));
         }
-        let request = TextRequest::new(self.text, area)
-            .offset_x(self.state.offset_x)
-            .options(self.options);
+        let request = TextRequest {
+            text: self.text,
+            offset_x: self.state.offset_x,
+            options: self.options,
+        };
         let start = self.state.cursor.min(self.state.anchor);
         let end = self.state.cursor.max(self.state.anchor);
         if start != end {
-            let start = renderer.text_cursor_rect(&request, start);
-            let end = renderer.text_cursor_rect(&request, end);
+            let start = renderer.text_cursor_rect(area, &request, start);
+            let end = renderer.text_cursor_rect(area, &request, end);
             if let Some(selection) = blit::PhysicalRect::new(start.x, start.y, end.x - start.x, 1).intersection(area) {
                 renderer
                     .cells(selection)
@@ -202,23 +209,23 @@ where
         }
         if self.focused
             && let Some(cursor) = renderer
-                .text_cursor_rect(&request, self.state.cursor)
+                .text_cursor_rect(area, &request, self.state.cursor)
                 .intersection(area)
         {
             renderer
                 .cells(cursor)
                 .clear(Cell::default().style(CellStyle::new().background(self.cursor_background)));
         }
-        renderer.paint_text(
-            TextRequest::new(self.display, area)
-                .offset_x(self.state.offset_x)
-                .color(if self.display != self.text {
-                    self.placeholder_color
-                } else {
-                    self.color
-                })
-                .attributes(self.attributes)
-                .options(self.options),
-        );
+        let color = if self.display != self.text {
+            self.placeholder_color
+        } else {
+            self.color
+        };
+        let text = FrameText::new(self.display)
+            .color(color)
+            .attributes(self.attributes)
+            .offset_x(self.state.offset_x)
+            .options(self.options);
+        cx.context_mut().paint(area, text);
     }
 }

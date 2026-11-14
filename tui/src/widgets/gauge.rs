@@ -1,10 +1,10 @@
-use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
+use blit::{Atom, AtomCx, Constraints, Paint, PhysicalRect, Size};
 
 use crate::{
     Context,
     cell::{Cell, CellStyle},
     color::Color,
-    text::{HorizontalAlign, TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId},
+    text::{FrameText, HorizontalAlign, TextAttributes, TextLayoutRequest, TextOptions, TextRunId, TextWrap},
 };
 
 pub struct Gauge {
@@ -49,7 +49,7 @@ impl Gauge {
 
 impl<C> Atom<C> for Gauge
 where
-    C: Context,
+    C: Context + Paint<FrameText>,
 {
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
         let width = self.label.map_or_else(
@@ -58,7 +58,12 @@ where
                 cx.context_mut()
                     .as_mut()
                     .renderer
-                    .measure_text(&TextLayoutRequest::new(label).max_lines(1))
+                    .measure_text(&TextLayoutRequest {
+                        text: label,
+                        wrap: TextWrap::None,
+                        max_width: None,
+                        max_lines: Some(1),
+                    })
                     .width
             },
         );
@@ -97,19 +102,16 @@ where
             }
         }
         if let Some(label) = self.label {
-            cx.context_mut().as_mut().renderer.paint_text(
-                TextRequest::new(
-                    label,
-                    PhysicalRect::new(area.x, area.y + area.height / 2, area.width, 1),
-                )
+            let text = FrameText::new(label)
                 .color(self.label_color)
                 .attributes(TextAttributes::BOLD)
                 .options(
                     TextOptions::new()
                         .max_lines(1)
                         .horizontal_align(HorizontalAlign::Center),
-                ),
-            );
+                );
+            let row = PhysicalRect::new(area.x, area.y + area.height / 2, area.width, 1);
+            cx.context_mut().paint(row, text);
         }
     }
 }

@@ -6,7 +6,7 @@ use unicode_width::UnicodeWidthChar;
 use super::{Cells, Glyph, TuiRenderer};
 use crate::{
     color::Color,
-    text::{HorizontalAlign, TextAttributes, TextLayoutRequest, TextOverflow, TextRequest, VerticalAlign},
+    text::{FrameText, HorizontalAlign, TextAttributes, TextLayoutRequest, TextOverflow, VerticalAlign},
 };
 
 blit::builder! {
@@ -55,8 +55,8 @@ impl TuiRenderer {
         CellBuffer::new(self, area, self.clip)
     }
 
-    pub fn paint_text(&mut self, request: TextRequest) {
-        self.paint_text_at(request, self.clip, None);
+    pub fn paint_text(&mut self, area: PhysicalRect, text: &FrameText) {
+        self.paint_text_at(area, text, self.clip, None);
     }
 }
 
@@ -209,7 +209,8 @@ impl CellBuffer<'_> {
         let clip = PhysicalRect::new(left as i32, top as i32, (right - left) as i32, (bottom - top) as i32);
         let text = self.renderer.text_run(text);
         self.renderer.paint_text_at(
-            TextRequest::new(text, area)
+            area,
+            &FrameText::new(text)
                 .color(style.foreground)
                 .attributes(style.attributes),
             clip,
@@ -219,8 +220,13 @@ impl CellBuffer<'_> {
 }
 
 impl TuiRenderer {
-    fn paint_text_at(&mut self, request: TextRequest, clip: PhysicalRect, background: Option<Color>) {
-        let area = request.area;
+    fn paint_text_at(
+        &mut self,
+        area: PhysicalRect,
+        request: &FrameText,
+        clip: PhysicalRect,
+        background: Option<Color>,
+    ) {
         let (area_left, area_top, area_right, area_bottom) = (
             area.x,
             area.y,

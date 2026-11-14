@@ -1,8 +1,168 @@
-use std::ops::{BitOr, BitOrAssign};
+use std::{
+    fmt,
+    ops::{BitOr, BitOrAssign},
+};
 
-use blit::PhysicalRect;
+use blit::{Atom, AtomCx, Constraints, Paint, PhysicalRect, Size, Widget, state};
 
-use crate::color::Color;
+use crate::{Context, color::Color};
+
+//
+// widgets
+//
+
+blit::builder! {
+    /// text from borrowed strings or formatting arguments
+    #[derive(Clone, Copy, Debug)]
+    pub struct Text<'a> {
+        new(#[into] text: TextSource<'a>),
+        color: Color = Color::Reset,
+        attributes: TextAttributes = TextAttributes::NONE,
+        options: TextOptions = TextOptions::new(),
+        #[into]
+        spans: Option<&'a [Span<'a>]> = None,
+    }
+}
+
+impl<'a> Text<'a> {
+    pub fn rich(spans: &'a [Span<'a>]) -> Self {
+        Self::new("").spans(spans)
+    }
+}
+
+impl<C> Widget<C, state::Node> for Text<'_>
+where
+    C: Context + Paint<FrameText>,
+{
+    type Response = ();
+
+    fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
+        let run = if let Some(spans) = self.spans {
+            ui.context_mut().as_mut().renderer.rich_text(spans)
+        } else {
+            let renderer = &mut ui.context_mut().as_mut().renderer;
+            match self.text {
+                TextSource::Borrowed(text) => renderer.text_run(text),
+                TextSource::Formatted(arguments) => renderer.text_run_fmt(arguments),
+            }
+        };
+        ui.insert(
+            FrameText::new(run)
+                .color(self.color)
+                .attributes(self.attributes)
+                .options(self.options),
+        );
+    }
+}
+
+//
+// painting
+//
+
+blit::builder! {
+    /// resolved text painted into terminal cells
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct FrameText {
+        new(text: TextRunId),
+        color: Color = Color::Reset,
+        attributes: TextAttributes = TextAttributes::NONE,
+        offset_x: i32 = 0,
+        options: TextOptions = TextOptions::new(),
+    }
+}
+
+impl<C> Atom<C> for FrameText
+where
+    C: Context + Paint<Self>,
+{
+    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
+        let measured = cx.context_mut().as_mut().renderer.measure_text(&TextLayoutRequest {
+            text: self.text,
+            wrap: self.options.wrap,
+            max_width: (self.options.wrap != TextWrap::None && constraints.max.width != i32::MAX)
+                .then_some(constraints.max.width),
+            max_lines: self.options.max_lines,
+        });
+        constraints.constrain(measured)
+    }
+
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
+        cx.context_mut().paint(area, *self);
+    }
+}
+
+impl FrameText {
+    /// placement used for text queries
+    pub fn request(&self) -> TextRequest {
+        TextRequest {
+            text: self.text,
+            offset_x: self.offset_x,
+            options: self.options,
+        }
+    }
+}
+
+//
+// text system
+//
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct TextRunId(pub u64);
+
+/// text from borrowed strings or formatting arguments
+#[derive(Clone, Copy, Debug)]
+pub enum TextSource<'a> {
+    Borrowed(&'a str),
+    Formatted(fmt::Arguments<'a>),
+}
+
+impl<'a, T> From<&'a T> for TextSource<'a>
+where
+    T: AsRef<str> + ?Sized,
+{
+    fn from(text: &'a T) -> Self {
+        Self::Borrowed(T::as_ref(text))
+    }
+}
+
+impl<'a, T> From<&'a mut T> for TextSource<'a>
+where
+    T: AsRef<str> + ?Sized,
+{
+    fn from(text: &'a mut T) -> Self {
+        Self::Borrowed(T::as_ref(text))
+    }
+}
+
+impl<'a> From<fmt::Arguments<'a>> for TextSource<'a> {
+    fn from(arguments: fmt::Arguments<'a>) -> Self {
+        match arguments.as_str() {
+            Some(text) => Self::Borrowed(text),
+            None => Self::Formatted(arguments),
+        }
+    }
+}
+
+/// placed text for queries such as cursor and hit testing
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextRequest {
+    pub text: TextRunId,
+    pub offset_x: i32,
+    pub options: TextOptions,
+}
+
+/// unplaced text for measuring
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextLayoutRequest {
+    pub text: TextRunId,
+    pub wrap: TextWrap,
+    pub max_width: Option<i32>,
+    pub max_lines: Option<u16>,
+}
+
+//
+// style
+//
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -61,28 +221,9 @@ impl BitOrAssign for TextAttributes {
     }
 }
 
-blit::builder! {
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct TextRequest {
-        new(text: TextRunId, area: PhysicalRect),
-        color: Color = Color::Reset,
-        offset_x: i32 = 0,
-        attributes: TextAttributes = TextAttributes::NONE,
-        options: TextOptions = TextOptions::new(),
-    }
-}
-
-blit::builder! {
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct TextLayoutRequest {
-        new(text: TextRunId),
-        #[into]
-        max_width: Option<i32> = None,
-        #[into]
-        max_lines: Option<u16> = None,
-        wrap: TextWrap = TextWrap::None,
-    }
-}
+//
+// options
+//
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -98,18 +239,18 @@ blit::builder! {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum TextOverflow {
+    #[default]
+    Clip,
+    Ellipsis,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum TextWrap {
     #[default]
     None,
     Word,
     Character,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum TextOverflow {
-    #[default]
-    Clip,
-    Ellipsis,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -127,6 +268,3 @@ pub enum VerticalAlign {
     Center,
     Bottom,
 }
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct TextRunId(pub u64);

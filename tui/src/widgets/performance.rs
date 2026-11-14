@@ -1,13 +1,13 @@
 use std::fmt::Write as _;
 
-use blit::{Sides, Widget};
+use blit::{Paint, Sides, Widget};
 use blit_widgets::{interact, performance::FrameProfiler};
 
 use crate::{
     Block, Border, BorderStyle, Context, Popover, PopoverClose, PopoverState, Text,
     color::Color,
     layout::{Align, Justify, Pad, Sizing, absolute::Anchor, flex, grid},
-    text::TextAttributes,
+    text::{FrameText, TextAttributes},
 };
 
 blit::builder! {
@@ -40,7 +40,7 @@ blit::builder! {
 
 impl<C> Widget<C> for Performance<'_>
 where
-    C: Context + AsRef<FrameProfiler>,
+    C: Context + AsRef<FrameProfiler> + Paint<FrameText>,
 {
     type Response = ();
 

@@ -1,6 +1,29 @@
 use std::rc::Rc;
 
-use blit::{PhysicalRect, PhysicalSize};
+use blit::{Atom, AtomCx, Constraints, Paint, PhysicalRect, PhysicalSize, Size};
+
+use crate::Context;
+
+blit::builder! {
+    /// Kitty image placed in a cell area
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Image {
+        new(image: ImageId, intrinsic: Size<i32>),
+    }
+}
+
+impl<C> Atom<C> for Image
+where
+    C: Context + Paint<Self>,
+{
+    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
+        constraints.constrain(self.intrinsic)
+    }
+
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
+        cx.context_mut().paint(area, *self);
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct ImageHandle(Rc<ImageInner>);
@@ -82,14 +105,6 @@ impl ImageFormat {
             Self::Rgb8 => 3,
             Self::Rgba8 => 4,
         }
-    }
-}
-
-blit::builder! {
-    /// Kitty image placement for a resolved cell area
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct ImagePlacement {
-        new(image: ImageId, area: PhysicalRect),
     }
 }
 

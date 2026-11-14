@@ -5,7 +5,7 @@ use blit_tui::{
     RendererConfig, TuiRenderer,
     cell::{Cell, CellStyle},
     color::Color,
-    text::TextRequest,
+    text::FrameText,
 };
 use divan::counter::ItemsCount;
 
@@ -96,12 +96,12 @@ fn update_one_cell_in_large_text(bencher: divan::Bencher) {
     let old = renderer.text_run(&frame);
     let new = renderer.text_run(&changed_frame);
     renderer.begin_frame();
-    renderer.paint_text(TextRequest::new(old, screen));
+    renderer.paint_text(screen, &FrameText::new(old));
     renderer.end_frame();
     let mut changed = true;
     bencher.counter(ItemsCount::new(1usize)).bench_local(|| {
         renderer.begin_frame();
-        renderer.paint_text(TextRequest::new(if changed { new } else { old }, screen));
+        renderer.paint_text(screen, &FrameText::new(if changed { new } else { old }));
         renderer.end_frame();
         black_box(renderer.output());
         changed = !changed;
