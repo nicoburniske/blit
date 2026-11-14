@@ -20,8 +20,6 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     }
 
     pub fn size(&self, child: NodeId) -> Size<C::Scalar> {
-        #[cfg(debug_assertions)]
-        self.assert_child(child);
         self.placements[child.index()].area.size()
     }
 
@@ -35,20 +33,22 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
 
     #[inline]
     pub fn item(&self, child: NodeId) -> &'a I {
-        let id = self.assert_child(child).item;
+        let stored = &self.frame.nodes[child.index()];
+        // other nodes may store items of another type
+        assert_eq!(stored.parent, self.node, "layout items belong to direct children");
+        let id = stored.item;
         self.bump
             .load(if id.offset().is_some() { id } else { self.default_item })
     }
 
     #[inline]
     pub fn layout_child(&mut self, child: NodeId, bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
-        self.assert_child(child);
         self.cast::<()>().resolve(child, bounds)
     }
 
     /// the extent a child resolves to regardless of bounds from motion or exact limits
     pub fn fixed_extent(&self, child: NodeId, axis: Axis) -> Option<C::Scalar> {
-        let stored = self.assert_child(child);
+        let stored = &self.frame.nodes[child.index()];
         axis.extent(self.size_overrides(child)).or_else(|| {
             let limits = self.frame.limits[stored.limits.index()?];
             let min = axis.extent(limits.min);
@@ -57,8 +57,6 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     }
 
     pub fn set_child_position(&mut self, child: NodeId, position: Point<C::Scalar>) {
-        #[cfg(debug_assertions)]
-        self.assert_child(child);
         let area = &mut self.placements[child.index()].area;
         area.x = position.x.endpoint(self.content_origin.x);
         area.y = position.y.endpoint(self.content_origin.y);
@@ -81,8 +79,6 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     }
 
     pub fn set_child_z_index(&mut self, child: NodeId, z_index: i16) {
-        #[cfg(debug_assertions)]
-        self.assert_child(child);
         self.placements[child.index()].z_index = z_index;
     }
 }
@@ -153,16 +149,6 @@ impl Iterator for Children<'_> {
 // internals
 //
 impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
-    #[track_caller]
-    fn assert_child(&self, child: NodeId) -> &'a StoredNode {
-        let stored = &self.frame.nodes[child.index()];
-        assert!(
-            child != self.node && stored.parent == self.node && stored.place.index().is_none(),
-            "layout can only access direct flow children"
-        );
-        stored
-    }
-
     #[inline]
     fn cast<J>(&mut self) -> &mut LayoutCx<'a, C, J> {
         // safety: repr(C) changes only the item marker and preserves this borrow and lifetime
