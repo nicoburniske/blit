@@ -63,7 +63,7 @@ blit::builder! {
     /// resolved text painted into terminal cells
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct FrameText {
-        new(text: TextRunId),
+        new(text: TextRun),
         color: Color = Color::Reset,
         attributes: TextAttributes = TextAttributes::NONE,
         offset_x: i32 = 0,
@@ -107,7 +107,7 @@ impl FrameText {
 //
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct TextRunId(pub u64);
+pub struct TextRun(pub u64);
 
 /// text from borrowed strings or formatting arguments
 #[derive(Clone, Copy, Debug)]
@@ -146,7 +146,7 @@ impl<'a> From<fmt::Arguments<'a>> for TextSource<'a> {
 /// placed text for queries such as cursor and hit testing
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextRequest {
-    pub text: TextRunId,
+    pub text: TextRun,
     pub offset_x: i32,
     pub options: TextOptions,
 }
@@ -154,7 +154,7 @@ pub struct TextRequest {
 /// unplaced text for measuring
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextLayoutRequest {
-    pub text: TextRunId,
+    pub text: TextRun,
     pub wrap: TextWrap,
     pub max_width: Option<i32>,
     pub max_lines: Option<u16>,

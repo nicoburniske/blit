@@ -46,13 +46,6 @@ where
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ImageFit {
-    #[default]
-    Fill,
-    Contain,
-}
-
 #[derive(Clone, Debug)]
 pub struct ImageHandle(Rc<ImageInner>);
 
@@ -142,6 +135,13 @@ impl ImageFormat {
             Self::Rgba8 => 4,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ImageFit {
+    #[default]
+    Fill,
+    Contain,
 }
 
 pub type ImageId = u64;

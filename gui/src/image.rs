@@ -13,6 +13,7 @@ use blit::{
 use crate::color::Color;
 
 blit::builder! {
+    /// image drawn into a layout area
     #[derive(Clone, Debug, PartialEq)]
     pub struct Image {
         new(#[into] image: ImageHandle),
@@ -25,6 +26,32 @@ blit::builder! {
         nine_slice: Option<NineSlice> = None,
         horizontal_tiling: ImageTiling = ImageTiling::None,
         vertical_tiling: ImageTiling = ImageTiling::None,
+    }
+}
+
+impl<C> Atom<C> for Image
+where
+    C: Paint<Self, Scalar = f32>,
+{
+    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
+        let pixels = self.image.size();
+        let natural = Size::new(pixels.width as f32, pixels.height as f32);
+        let mut size = self.intrinsic.unwrap_or(natural);
+        if self.fit == ImageFit::Contain
+            && self.nine_slice.is_none()
+            && self.horizontal_tiling == ImageTiling::None
+            && self.vertical_tiling == ImageTiling::None
+        {
+            size.width = size.width.min(constraints.max.width);
+            size.height = size.height.min(constraints.max.height);
+            let scale = (size.width / natural.width).min(size.height / natural.height).max(0.0);
+            size = Size::new(natural.width * scale, natural.height * scale);
+        }
+        constraints.constrain(size)
+    }
+
+    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
+        cx.context_mut().paint(area, self.clone());
     }
 }
 
@@ -173,32 +200,6 @@ impl Image {
             horizontal_tiling: self.horizontal_tiling,
             vertical_tiling: self.vertical_tiling,
         });
-    }
-}
-
-impl<C> Atom<C> for Image
-where
-    C: Paint<Self, Scalar = f32>,
-{
-    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
-        let pixels = self.image.size();
-        let natural = Size::new(pixels.width as f32, pixels.height as f32);
-        let mut size = self.intrinsic.unwrap_or(natural);
-        if self.fit == ImageFit::Contain
-            && self.nine_slice.is_none()
-            && self.horizontal_tiling == ImageTiling::None
-            && self.vertical_tiling == ImageTiling::None
-        {
-            size.width = size.width.min(constraints.max.width);
-            size.height = size.height.min(constraints.max.height);
-            let scale = (size.width / natural.width).min(size.height / natural.height).max(0.0);
-            size = Size::new(natural.width * scale, natural.height * scale);
-        }
-        constraints.constrain(size)
-    }
-
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        cx.context_mut().paint(area, self.clone());
     }
 }
 

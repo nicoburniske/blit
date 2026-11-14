@@ -23,7 +23,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::{
     color::{Color, Palette, PaletteSlot},
     image::{ImageData, ImageHandle},
-    text::{Span, TextAttributes, TextLayoutRequest, TextRequest, TextRunId, TextWrap},
+    text::{Span, TextAttributes, TextLayoutRequest, TextRequest, TextRun, TextWrap},
 };
 
 const TEXT_RUN_CACHE_CAPACITY: usize = 2 * 1024 * 1024;
@@ -213,12 +213,12 @@ impl TuiRenderer {
         handle
     }
 
-    pub fn text_run(&mut self, text: &str) -> TextRunId {
+    pub fn text_run(&mut self, text: &str) -> TextRun {
         self.rich_text(&[Span::new(text)])
     }
 
     /// formats into a reusable buffer and interns the resulting text
-    pub fn text_run_fmt(&mut self, arguments: fmt::Arguments<'_>) -> TextRunId {
+    pub fn text_run_fmt(&mut self, arguments: fmt::Arguments<'_>) -> TextRun {
         if let Some(text) = arguments.as_str() {
             return self.text_run(text);
         }
@@ -230,7 +230,7 @@ impl TuiRenderer {
         run
     }
 
-    pub fn rich_text(&mut self, spans: &[Span<'_>]) -> TextRunId {
+    pub fn rich_text(&mut self, spans: &[Span<'_>]) -> TextRun {
         let len = spans.iter().map(|span| span.text.len()).sum();
         assert!(u32::try_from(len).is_ok(), "tui text run too long");
         let (_, index) = self.text_runs.get_or_insert(RunQuery(spans), |query| {
@@ -254,7 +254,7 @@ impl TuiRenderer {
                     spans: resolved.into_boxed_slice(),
                 },
                 CachedRun {
-                    id: TextRunId(u64::from(self.next_text_run) << 32),
+                    id: TextRun(u64::from(self.next_text_run) << 32),
                     graphemes: Box::default(),
                     screen_references: 0,
                 },
@@ -453,7 +453,7 @@ impl Scale<LayoutKey, TextLayout> for LayoutScale {
 }
 
 struct CachedRun {
-    id: TextRunId,
+    id: TextRun,
     graphemes: Box<[u32]>,
     screen_references: usize,
 }
@@ -537,7 +537,7 @@ impl Hash for RunKey {
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 struct LayoutKey {
-    text: TextRunId,
+    text: TextRun,
     max_columns: Option<usize>,
     max_lines: usize,
     wrap: TextWrap,
@@ -590,7 +590,7 @@ impl TuiRenderer {
         )
     }
 
-    fn text_run_index(&self, id: TextRunId) -> usize {
+    fn text_run_index(&self, id: TextRun) -> usize {
         let index = (id.0 as u32).checked_sub(1).expect("invalid tui text run") as usize;
         assert_eq!(self.text_runs.get_index(index).id, id, "expired text run");
         index

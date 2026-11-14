@@ -10,7 +10,7 @@ use crate::{
     Context,
     cell::{Cell, CellStyle},
     color::Color,
-    text::{FrameText, TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRunId, TextWrap},
+    text::{FrameText, TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRun, TextWrap},
 };
 
 blit::builder! {
@@ -155,8 +155,8 @@ where
 }
 
 struct InputAtom {
-    text: TextRunId,
-    display: TextRunId,
+    text: TextRun,
+    display: TextRun,
     state: TextInputState,
     options: TextOptions,
     padding: Sides<i32>,

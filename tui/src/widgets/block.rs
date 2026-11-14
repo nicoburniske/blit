@@ -6,7 +6,7 @@ use crate::{
     Context, Shadow,
     cell::{Cell, CellStyle},
     color::Color,
-    text::{FrameText, TextAttributes, TextLayoutRequest, TextOptions, TextRunId, TextWrap},
+    text::{FrameText, TextAttributes, TextLayoutRequest, TextOptions, TextRun, TextWrap},
 };
 
 blit::builder! {
@@ -144,7 +144,7 @@ struct BlockAtom {
 
 #[derive(Clone, Copy)]
 struct TitleRun {
-    text: TextRunId,
+    text: TextRun,
     color: Color,
     attributes: TextAttributes,
 }

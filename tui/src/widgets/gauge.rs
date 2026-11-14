@@ -4,12 +4,12 @@ use crate::{
     Context,
     cell::{Cell, CellStyle},
     color::Color,
-    text::{FrameText, HorizontalAlign, TextAttributes, TextLayoutRequest, TextOptions, TextRunId, TextWrap},
+    text::{FrameText, HorizontalAlign, TextAttributes, TextLayoutRequest, TextOptions, TextRun, TextWrap},
 };
 
 pub struct Gauge {
     pub ratio: f64,
-    pub label: Option<TextRunId>,
+    pub label: Option<TextRun>,
     pub filled: Color,
     pub unfilled: Color,
     pub label_color: Color,
@@ -26,7 +26,7 @@ impl Gauge {
         }
     }
 
-    pub const fn label(mut self, label: TextRunId) -> Self {
+    pub const fn label(mut self, label: TextRun) -> Self {
         self.label = Some(label);
         self
     }
