@@ -1,13 +1,18 @@
 use std::fmt::Write as _;
 
 use blit::{Paint, Sides, Widget};
-use blit_widgets::{interact, performance::FrameProfiler};
+use blit_widgets::interact;
+pub use blit_widgets::performance::*;
 
 use crate::{
-    Block, Border, BorderStyle, Context, Popover, PopoverClose, PopoverState, Text,
+    Context,
     color::Color,
     layout::{Align, Justify, Pad, Sizing, absolute::Anchor, flex, grid},
-    text::{FrameText, TextAttributes},
+    text::{FrameText, Text, TextAttributes},
+    widgets::{
+        block::{Block, Border, BorderStyle},
+        popover::{Popover, PopoverClose, PopoverState},
+    },
 };
 
 blit::builder! {

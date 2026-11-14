@@ -3,10 +3,11 @@ use std::ops::{BitOr, BitOrAssign};
 use blit::{Atom, AtomCx, Constraints, Paint, PhysicalRect, Size, Widget, state};
 
 use crate::{
-    Context, Shadow,
+    Context,
     cell::{Cell, CellStyle},
     color::Color,
     text::{FrameText, TextAttributes, TextLayoutRequest, TextOptions, TextRun, TextWrap},
+    widgets::shadow::Shadow,
 };
 
 blit::builder! {
@@ -353,7 +354,7 @@ mod tests {
     use blit::{Constraints, Frame, FrameInfo, Input, Size};
 
     use super::*;
-    use crate::{RendererConfig, Shadow, TuiContext, TuiRenderer, layout::flex};
+    use crate::{RendererConfig, TuiContext, TuiRenderer, layout::flex, widgets::shadow::Shadow};
 
     #[test]
     fn block_and_shadow_paint_as_atoms() {
@@ -368,19 +369,19 @@ mod tests {
             Input::None,
             |ui: crate::Ui<'_>| {
                 let mut root = ui.layout(flex::column());
-                root.insert(crate::Text::new(
+                root.insert(crate::text::Text::new(
                     "xxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx\nxxxxxxxxxxxxxxxxxxxx",
                 ));
                 root.child().constrain(Constraints::tight(Size::new(20, 4))).insert(
-                    crate::Block::new()
+                    crate::widgets::block::Block::new()
                         .background(Color::WHITE)
                         .border(Border::new(Color::GREEN).style(BorderStyle::Double))
                         .shadow(Shadow::new(Color::BLACK))
                         .title(
-                            crate::Title::new("title").position(TitlePosition::TopCenter),
+                            crate::widgets::block::Title::new("title").position(TitlePosition::TopCenter),
                         )
                         .title(
-                            crate::Title::new("status").position(TitlePosition::BottomRight),
+                            crate::widgets::block::Title::new("status").position(TitlePosition::BottomRight),
                         ),
                 );
             },

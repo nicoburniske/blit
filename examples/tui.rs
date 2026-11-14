@@ -10,13 +10,25 @@ use blit::{
 };
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, SpringDrag, Transition, select};
 use blit_tui::{
-    Bar, BarChart, Block, Border, BorderSides, BorderStyle, BoundsClip, Gauge, Performance, PerformanceState, Popover,
-    PopoverClose, PopoverState, Resize, ResizeEdge, ResizeGrip, ResizeState, ScrollArea, ScrollState, Shadow,
-    Sparkline, Split, SplitState, Text, TextInput, TextInputState, Tint, Title, TuiContext, Ui, UniformList,
+    BoundsClip, TuiContext, Ui,
     color::Color,
     interact,
     layout::{Align, Justify, Pad, Sizing, absolute, absolute::Anchor, flex, grid, wrap},
-    text::{HorizontalAlign, Span, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign},
+    text::{HorizontalAlign, Span, Text, TextAttributes, TextOptions, TextOverflow, TextWrap, VerticalAlign},
+    widgets::{
+        bar_chart::{Bar, BarChart},
+        block::{Block, Border, BorderSides, BorderStyle, Title},
+        gauge::Gauge,
+        performance::{Performance, PerformanceState},
+        popover::{Popover, PopoverClose, PopoverState},
+        resize::{Resize, ResizeEdge, ResizeGrip, ResizeState},
+        scroll::{ScrollState, area::ScrollArea, uniform_list::UniformList},
+        shadow::Shadow,
+        sparkline::Sparkline,
+        split::{Split, SplitState},
+        text_input::{TextInput, TextInputState},
+        tint::Tint,
+    },
 };
 
 fn main() -> io::Result<()> {

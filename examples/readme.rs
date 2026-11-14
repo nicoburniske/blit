@@ -1,10 +1,11 @@
 use blit::KeyboardEvent;
 use blit_tui::{
-    Block, Border, Text, Ui,
+    Ui,
     color::Color,
     interact,
     layout::{Justify, Pad, flex},
-    text::{HorizontalAlign, TextAttributes, TextOptions},
+    text::{HorizontalAlign, Text, TextAttributes, TextOptions},
+    widgets::block::{Block, Border},
 };
 
 fn main() -> std::io::Result<()> {

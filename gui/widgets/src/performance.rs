@@ -6,13 +6,14 @@ use blit_gui::{
     color::Color,
     rectangle::Rectangle,
     style::{Border, BorderRadius},
-    text::TextStyle,
+    text::{Text, TextStyle},
 };
-use blit_widgets::{interact, performance::FrameProfiler};
+use blit_widgets::interact;
+pub use blit_widgets::performance::*;
 
 use crate::{
-    Popover, PopoverClose, PopoverState, Text,
     layout::{Align, Pad, Sizing, absolute::Anchor, flex, grid},
+    popover::{Popover, PopoverClose, PopoverState},
 };
 
 blit::builder! {

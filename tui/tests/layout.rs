@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use blit::{Constraints, Frame, FrameInfo, Id, Input, Size};
 use blit_tui::{
-    RendererConfig, Text, TuiContext, TuiRenderer, Ui,
+    RendererConfig, TuiContext, TuiRenderer, Ui,
     layout::{Sizing, flex, grid},
-    text::{TextOptions, TextWrap},
+    text::{Text, TextOptions, TextWrap},
 };
 
 #[test]

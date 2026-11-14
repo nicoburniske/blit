@@ -16,15 +16,25 @@ use blit_gui::{
     rectangle::Rectangle,
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::{
-        FontId, HorizontalAlign, Span, SpanStyle, TextOptions, TextOverflow, TextStyle, TextWrap, VerticalAlign,
+        FontId, HorizontalAlign, RichText, Span, SpanStyle, Text, TextOptions, TextOverflow, TextStyle, TextWrap,
+        VerticalAlign,
         system::{FontStack, TextConfig, TextSystem},
     },
 };
 use blit_gui_widgets::{
-    Performance, PerformanceState, Popover, PopoverClose, PopoverState, Resize, ResizeEdge, ResizeGrip, ResizeState,
-    RichText, ScrollArea, ScrollState, Split, SplitState, Text, TextInput, TextInputState, UniformList, VirtualList,
-    VirtualListState, interact,
+    interact,
     layout::{Align, Justify, Pad, Sizing, absolute, absolute::Anchor, flex, grid, wrap},
+    performance::{Performance, PerformanceState},
+    popover::{Popover, PopoverClose, PopoverState},
+    resize::{Resize, ResizeEdge, ResizeGrip, ResizeState},
+    scroll::{
+        ScrollState,
+        area::ScrollArea,
+        uniform_list::UniformList,
+        virtual_list::{VirtualList, VirtualListState},
+    },
+    split::{Split, SplitState},
+    text_input::{TextInput, TextInputState},
 };
 use blit_text::{Family, FontData, FontStyle};
 

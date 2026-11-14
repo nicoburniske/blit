@@ -20,33 +20,12 @@ mod terminal;
 pub mod text;
 pub mod widgets;
 pub use blit_layout as layout;
-
-pub use blit_widgets::{
-    interact,
-    performance::Stage,
-    popover::{Popover, PopoverClose, PopoverState},
-    resize::{Resize, ResizeEdge, ResizeGrip},
-    scroll::{
-        area::ScrollArea,
-        uniform_list::{Response as UniformListResponse, UniformList},
-        virtual_list::{Response as VirtualListResponse, VirtualList},
-    },
-    split::{Split, SplitDivider},
-};
-pub type ResizeState = blit_widgets::resize::ResizeState<i32>;
-pub type SplitState = blit_widgets::split::SplitState<i32>;
-pub type ScrollState = blit_widgets::scroll::ScrollState<i32>;
-pub type VirtualListState = blit_widgets::scroll::virtual_list::VirtualListState<i32>;
+pub use blit_widgets::interact;
 
 pub use self::{
     context::{BoundsClip, TuiContext},
     image::Image,
     renderer::{RendererConfig, TuiRenderer, cell},
-    text::{Text, TextSource},
-    widgets::{
-        Bar, BarChart, Block, Border, BorderSides, BorderStyle, Gauge, Performance, PerformanceState, Shadow,
-        Sparkline, TextInput, TextInputResponse, TextInputState, Tint, Title, TitlePosition,
-    },
 };
 
 pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TuiContext, S>;
@@ -67,6 +46,7 @@ use blit::{
     Frame, FrameInfo, PhysicalPoint, PhysicalSize,
     input::{Input, Key, KeyInput, Modifiers, MouseButton, ScrollPhase},
 };
+use blit_widgets::performance::Stage;
 use terminal::{Size, Terminal};
 
 const MAX_EVENTS_PER_FRAME: usize = 32;

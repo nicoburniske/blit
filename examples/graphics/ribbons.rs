@@ -3,10 +3,15 @@ use std::ops::Range;
 use blit::{Atom, AtomCx, Constraints, Id, LogicalRect, Paint, Size, Widget};
 use blit_cpu::{Pixel, PixelBuffer, PremultipliedRgbaColor, Render, RenderContext, RenderStrategy, Renderer};
 use blit_gui::{
-    clip::BoundsClip, color::Color, damage::DamageTracker, rectangle::Rectangle, style::Border, text::TextStyle,
+    clip::BoundsClip,
+    color::Color,
+    damage::DamageTracker,
+    rectangle::Rectangle,
+    style::Border,
+    text::{Text, TextStyle},
 };
 use blit_gui_widgets::{
-    Text, interact,
+    interact,
     layout::{Justify, Pad, absolute, absolute::Anchor, flex},
 };
 
