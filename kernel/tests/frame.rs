@@ -6,9 +6,7 @@ fn local_bounds_apply_to_atoms_and_layouts() {
     for with_layout in [false, true] {
         let measured = render(&mut frame, &mut context, |ui: Ui<'_>| {
             ui.build_measured(Constraints::loose(Size::new(5.0, 6.0)), |ui: Ui<'_>| {
-                let mut ui = ui
-                    .constrain(Constraints::loose(Size::new(7.0, 4.0)))
-                    .constrain(Constraints::tight(Size::new(10.0, 2.0)));
+                let mut ui = ui.constrain(Constraints::tight(Size::new(7.0, 2.0)));
                 if with_layout {
                     ui.layout(()).insert(Fill('L', Size::uniform(1.0)));
                 } else {

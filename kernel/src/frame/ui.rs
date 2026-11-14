@@ -1,22 +1,35 @@
 use super::*;
 
-/// typestate modes for [`crate::Ui`]
+/// typestate modes for [`Ui`]
 ///
 /// every mode can insert content and access shared frame services
 pub mod state {
     use super::PhantomData;
 
-    /// an unlaid node that may establish a layout
+    /// a node without a layout that may establish one
     pub struct Build;
 
-    /// an unlaid child with layout item `I`
+    /// a child without a layout, with layout item `I`
     pub struct Child<I>(PhantomData<I>);
 
     /// a laid-out node that may create children
     pub struct Open<L>(PhantomData<L>);
 
-    /// access to an existing node without layout or child creation
-    pub struct Node;
+    /// adds content and interactions to an existing node through [`Ui::insert`]
+    pub struct Insert;
+
+    /// modes that own their node and may set its properties
+    pub trait Owned {}
+
+    impl Owned for Build {}
+    impl<I> Owned for Child<I> {}
+    impl<L> Owned for Open<L> {}
+
+    /// modes whose node has no layout yet
+    pub trait NoLayout {}
+
+    impl NoLayout for Build {}
+    impl<I> NoLayout for Child<I> {}
 }
 
 /// scoped handle for building a frame node
@@ -28,68 +41,6 @@ pub struct Ui<'ui, C: Context, S = state::Build> {
 }
 
 impl<'ui, C: Context, S> Ui<'ui, C, S> {
-    /// adds local bounds inside previously supplied bounds
-    /// local bounds win over the bounds supplied by the parent
-    pub fn constrain(self, limits: Constraints<C::Scalar>) -> Self {
-        assert!(
-            limits.min.width >= C::Scalar::ZERO
-                && limits.min.height >= C::Scalar::ZERO
-                && limits.min.width.is_finite()
-                && limits.min.height.is_finite()
-                && limits.max.width >= limits.min.width
-                && limits.max.height >= limits.min.height,
-            "invalid local bounds"
-        );
-        let frame = &mut *self.inner.frame;
-        let node = &mut frame.nodes[self.inner.node.index()];
-        if let Some(index) = node.limits.index() {
-            let outer = frame.limits[index];
-            frame.limits[index] = Constraints {
-                min: outer.constrain(limits.min),
-                max: outer.constrain(limits.max),
-            };
-        } else {
-            node.limits = LimitsId::new(frame.limits.len());
-            frame.limits.push(limits);
-        }
-        self
-    }
-
-    /// insets this node's children while atoms keep the full box
-    pub fn pad(self, padding: impl Into<Sides<C::Scalar>>) -> Self {
-        let padding = padding.into();
-        assert!(
-            [padding.top, padding.right, padding.bottom, padding.left]
-                .iter()
-                .all(|side| *side >= C::Scalar::ZERO && side.is_finite()),
-            "invalid padding"
-        );
-        let frame = &mut *self.inner.frame;
-        let node = &mut frame.nodes[self.inner.node.index()];
-        if let Some(index) = node.padding.index() {
-            frame.paddings[index] = padding;
-        } else {
-            node.padding = PaddingId::new(frame.paddings.len());
-            frame.paddings.push(padding);
-        }
-        self
-    }
-
-    /// places this node against `target` outside its parent's flow
-    pub fn place<P: Place<C>>(self, target: impl Into<NodeTarget>, place: P) -> Self {
-        let frame = &mut *self.inner.frame;
-        let reference = frame.resolve_target(self.inner.node, target.into());
-        let id = PlaceId::new(frame.places.len());
-        frame.places.push(StoredPlace {
-            bump_id: frame.bump.store(place),
-            run: layout::place::<C, P>,
-        });
-        let node = &mut frame.nodes[self.inner.node.index()];
-        node.target = reference;
-        node.place = id;
-        self
-    }
-
     /// identifies this node for references within the current render
     pub fn node_id(&self) -> NodeId {
         self.inner.node
@@ -109,43 +60,11 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
         self.inner.context.store_mut()
     }
 
-    pub fn clip<X: Clip<C>>(self, clip: X) -> Self {
-        let clip = self.inner.frame.store_clip(clip);
-        self.inner.frame.nodes[self.inner.node.index()].clip = clip;
-        self
-    }
-
     /// returns this node's stable id
     ///
     /// without an explicit id, it derives from the parent's id and child position
     pub fn current_id(&self) -> Id {
         self.inner.frame.nodes[self.inner.node.index()].widget_id
-    }
-
-    pub fn hit(self, hit: Sides<C::Scalar>) -> Self {
-        self.inner.frame.bounds_mut(self.inner.node).hit = hit;
-        self
-    }
-
-    pub fn motion(self, motion: Motion) -> Self {
-        self.inner.frame.bounds_mut(self.inner.node).motion = Some(motion);
-        self
-    }
-
-    /// selects the parent for stacking, clipping and containing size
-    ///
-    /// named targets must already exist. positioning stays with its anchor.
-    #[inline]
-    pub fn parent(self, target: impl Into<NodeTarget>) -> Self {
-        let parent = self.inner.frame.resolve_target(self.inner.node, target.into());
-        self.inner.frame.nodes[self.inner.node.index()].visual_parent = parent;
-        self
-    }
-
-    /// sets this node's paint order among its visual siblings
-    pub fn z_index(self, z_index: i16) -> Self {
-        self.inner.frame.placements[self.inner.node.index()].z_index = z_index;
-        self
     }
 
     /// inserts content into the current node
@@ -154,7 +73,7 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     pub fn insert<T, W>(&mut self, widget: T) -> W::Response
     where
         T: IntoWidget<C, W>,
-        W: Widget<C, state::Node>,
+        W: Widget<C, state::Insert>,
     {
         widget.into_widget().build(Ui {
             inner: UiInner {
@@ -173,106 +92,7 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     pub fn scratch(&self) -> &'ui ScratchBuffer {
         self.inner.scratch
     }
-}
 
-impl<'ui, C: Context> Ui<'ui, C, state::Build> {
-    /// assigns an absolute id before this node is given children
-    pub fn id(mut self, id: Id) -> Self {
-        self.inner.set_widget_id(id);
-        self
-    }
-
-    /// builds a widget in this node
-    pub fn build<W: Widget<C>>(self, widget: W) -> W::Response {
-        widget.build(self)
-    }
-
-    /// builds a flow subtree and measures its current animated size under `bounds`
-    pub fn build_measured<W: Widget<C>>(
-        self,
-        bounds: Constraints<C::Scalar>,
-        widget: W,
-    ) -> (W::Response, Size<C::Scalar>) {
-        let mut inner = self.inner;
-        inner.owns_node = false;
-        let node = inner.node;
-        let response = widget.build(Ui::new(inner.frame, inner.context, inner.scratch, node));
-        assert!(
-            inner.frame.nodes[node.index()].place.index().is_none(),
-            "measured widgets must stay in flow"
-        );
-        let mut bump = std::mem::take(&mut inner.frame.bump);
-        bump.storage.prepare();
-        let size = layout::resolve(inner.frame, &bump, inner.context, node, bounds, false);
-        inner.frame.bump = bump;
-        (response, size)
-    }
-
-    /// establishes the current node's layout
-    pub fn layout<L: Layout<C>>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
-        let Ui { inner, .. } = self;
-        inner.frame.store_layout(inner.node, layout);
-        Ui {
-            inner,
-            marker: PhantomData,
-        }
-    }
-}
-
-impl<'ui, C: Context, I: 'static> Ui<'ui, C, state::Child<I>> {
-    /// assigns an absolute id before this node is given children
-    pub fn id(mut self, id: Id) -> Self {
-        self.inner.set_widget_id(id);
-        self
-    }
-
-    /// sets this child's layout item
-    #[inline]
-    pub fn item(self, item: I) -> Self {
-        let node = &mut self.inner.frame.nodes[self.inner.node.index()];
-        if node.item.offset().is_some() {
-            *self.inner.frame.bump.load_mut(node.item) = item;
-        } else {
-            node.item = self.inner.frame.bump.store(item);
-        }
-        self
-    }
-
-    /// builds a widget in this node
-    pub fn build<W: Widget<C>>(self, widget: W) -> W::Response {
-        widget.build(self.into())
-    }
-
-    pub fn build_measured<W: Widget<C>>(
-        self,
-        bounds: Constraints<C::Scalar>,
-        widget: W,
-    ) -> (W::Response, Size<C::Scalar>) {
-        Ui::<C>::from(self).build_measured(bounds, widget)
-    }
-
-    /// establishes the current node's layout
-    pub fn layout<L: Layout<C>>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
-        Ui::<C>::from(self).layout(layout)
-    }
-}
-
-impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
-    /// assigns an absolute id before this node is given children
-    pub fn id(mut self, id: Id) -> Self {
-        self.inner.set_widget_id(id);
-        self
-    }
-
-    /// creates a child with this layout's shared default item
-    #[inline]
-    pub fn child(&mut self) -> Ui<'_, C, state::Child<L::Item>> {
-        let node = self.inner.push_child();
-        Ui::new(self.inner.frame, self.inner.context, self.inner.scratch, node)
-    }
-}
-
-impl<C: Context, S> Ui<'_, C, S> {
     /// returns the area from the previous layout and tracks this id for the next one
     pub fn area(&mut self, id: Id) -> Option<Rect<C::Scalar>> {
         let frame = &mut *self.inner.frame;
@@ -419,19 +239,171 @@ impl<C: Context, S> Ui<'_, C, S> {
     }
 }
 
-impl<'ui, C: Context, I: 'static> From<Ui<'ui, C, state::Child<I>>> for Ui<'ui, C> {
-    fn from(ui: Ui<'ui, C, state::Child<I>>) -> Self {
-        Self {
-            inner: ui.inner,
+impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
+    /// assigns an absolute id before this node is given children
+    pub fn id(mut self, id: Id) -> Self {
+        self.inner.set_widget_id(id);
+        self
+    }
+
+    /// sets this node's size limits
+    pub fn constrain(self, limits: Constraints<C::Scalar>) -> Self {
+        assert!(
+            limits.min.width >= C::Scalar::ZERO
+                && limits.min.height >= C::Scalar::ZERO
+                && limits.min.width.is_finite()
+                && limits.min.height.is_finite()
+                && limits.max.width >= limits.min.width
+                && limits.max.height >= limits.min.height,
+            "invalid local bounds"
+        );
+        let frame = &mut *self.inner.frame;
+        let node = &mut frame.nodes[self.inner.node.index()];
+        if let Some(index) = node.limits.index() {
+            frame.limits[index] = limits;
+        } else {
+            node.limits = LimitsId::new(frame.limits.len());
+            frame.limits.push(limits);
+        }
+        self
+    }
+
+    /// places this node against `target` outside its parent's flow
+    pub fn place<P: Place<C>>(self, target: impl Into<NodeTarget>, place: P) -> Self {
+        let frame = &mut *self.inner.frame;
+        let reference = frame.resolve_target(self.inner.node, target.into());
+        let id = PlaceId::new(frame.places.len());
+        frame.places.push(StoredPlace {
+            bump_id: frame.bump.store(place),
+            run: layout::place::<C, P>,
+        });
+        let node = &mut frame.nodes[self.inner.node.index()];
+        node.target = reference;
+        node.place = id;
+        self
+    }
+
+    pub fn motion(self, motion: Motion) -> Self {
+        self.inner.frame.bounds_mut(self.inner.node).motion = Some(motion);
+        self
+    }
+
+    /// selects the parent for stacking, clipping and containing size
+    ///
+    /// named targets must already exist. positioning stays with its anchor.
+    #[inline]
+    pub fn parent(self, target: impl Into<NodeTarget>) -> Self {
+        let parent = self.inner.frame.resolve_target(self.inner.node, target.into());
+        self.inner.frame.nodes[self.inner.node.index()].visual_parent = parent;
+        self
+    }
+
+    pub fn clip<X: Clip<C>>(self, clip: X) -> Self {
+        let clip = self.inner.frame.store_clip(clip);
+        self.inner.frame.nodes[self.inner.node.index()].clip = clip;
+        self
+    }
+
+    /// sets this node's paint order among its visual siblings
+    pub fn z_index(self, z_index: i16) -> Self {
+        self.inner.frame.placements[self.inner.node.index()].z_index = z_index;
+        self
+    }
+
+    pub fn hit(self, hit: Sides<C::Scalar>) -> Self {
+        self.inner.frame.bounds_mut(self.inner.node).hit = hit;
+        self
+    }
+}
+
+impl<'ui, C: Context, S: state::NoLayout> Ui<'ui, C, S> {
+    /// builds a widget in this node
+    pub fn build<W: Widget<C>>(self, widget: W) -> W::Response {
+        widget.build(Ui {
+            inner: self.inner,
+            marker: PhantomData,
+        })
+    }
+
+    /// builds a flow subtree and measures its current animated size under `bounds`
+    pub fn build_measured<W: Widget<C>>(
+        self,
+        bounds: Constraints<C::Scalar>,
+        widget: W,
+    ) -> (W::Response, Size<C::Scalar>) {
+        let mut inner = self.inner;
+        inner.owns_node = false;
+        let node = inner.node;
+        let response = widget.build(Ui::new(inner.frame, inner.context, inner.scratch, node));
+        assert!(
+            inner.frame.nodes[node.index()].place.index().is_none(),
+            "measured widgets must stay in flow"
+        );
+        let mut bump = std::mem::take(&mut inner.frame.bump);
+        bump.storage.prepare();
+        let size = layout::resolve(inner.frame, &bump, inner.context, node, bounds, false);
+        inner.frame.bump = bump;
+        (response, size)
+    }
+
+    /// establishes the current node's layout
+    pub fn layout<L: Layout<C>>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
+        let Ui { inner, .. } = self;
+        inner.frame.store_layout(inner.node, layout);
+        Ui {
+            inner,
             marker: PhantomData,
         }
     }
 }
 
-impl<C: Context, A: Atom<C>> Widget<C, state::Node> for AtomWidget<A> {
+impl<'ui, C: Context, I: 'static> Ui<'ui, C, state::Child<I>> {
+    /// sets this child's layout item
+    #[inline]
+    pub fn item(self, item: I) -> Self {
+        let node = &mut self.inner.frame.nodes[self.inner.node.index()];
+        if node.item.offset().is_some() {
+            *self.inner.frame.bump.load_mut(node.item) = item;
+        } else {
+            node.item = self.inner.frame.bump.store(item);
+        }
+        self
+    }
+}
+
+impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
+    /// creates a child with this layout's shared default item
+    #[inline]
+    pub fn child(&mut self) -> Ui<'_, C, state::Child<L::Item>> {
+        let node = self.inner.push_child();
+        Ui::new(self.inner.frame, self.inner.context, self.inner.scratch, node)
+    }
+
+    /// insets this node's children while atoms keep the full box
+    pub fn pad(self, padding: impl Into<Sides<C::Scalar>>) -> Self {
+        let padding = padding.into();
+        assert!(
+            [padding.top, padding.right, padding.bottom, padding.left]
+                .iter()
+                .all(|side| *side >= C::Scalar::ZERO && side.is_finite()),
+            "invalid padding"
+        );
+        let frame = &mut *self.inner.frame;
+        let node = &mut frame.nodes[self.inner.node.index()];
+        if let Some(index) = node.padding.index() {
+            frame.paddings[index] = padding;
+        } else {
+            node.padding = PaddingId::new(frame.paddings.len());
+            frame.paddings.push(padding);
+        }
+        self
+    }
+}
+
+impl<C: Context, A: Atom<C>> Widget<C, state::Insert> for AtomWidget<A> {
     type Response = ();
 
-    fn build(self, ui: Ui<'_, C, state::Node>) {
+    fn build(self, ui: Ui<'_, C, state::Insert>) {
         atom::insert(ui.inner.frame, ui.inner.node, self.0);
     }
 }

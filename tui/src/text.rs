@@ -30,13 +30,13 @@ impl<'a> Text<'a> {
     }
 }
 
-impl<C> Widget<C, state::Node> for Text<'_>
+impl<C> Widget<C, state::Insert> for Text<'_>
 where
     C: Context + Paint<FrameText>,
 {
     type Response = ();
 
-    fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
+    fn build(self, mut ui: blit::Ui<'_, C, state::Insert>) {
         let run = if let Some(spans) = self.spans {
             ui.context_mut().as_mut().renderer.rich_text(spans)
         } else {

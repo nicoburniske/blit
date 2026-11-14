@@ -20,13 +20,13 @@ blit::builder! {
     }
 }
 
-impl<C> Widget<C, state::Node> for Rectangle<'_>
+impl<C> Widget<C, state::Insert> for Rectangle<'_>
 where
     C: HasFrameStore + Paint<FrameRectangle, Scalar = f32>,
 {
     type Response = ();
 
-    fn build(self, mut ui: Ui<'_, C, state::Node>) {
+    fn build(self, mut ui: Ui<'_, C, state::Insert>) {
         let background = FrameFill::new(self.background, ui.context_mut());
         let border_fill = FrameFill::new(self.border.fill, ui.context_mut());
         ui.insert(FrameRectangle {

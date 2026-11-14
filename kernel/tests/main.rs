@@ -239,9 +239,9 @@ impl Layout<TestContext> for Rects {
 
 struct Content(&'static str, Size<f32>);
 
-impl Widget<TestContext, blit::state::Node> for Content {
+impl Widget<TestContext, blit::state::Insert> for Content {
     type Response = ();
-    fn build(self, mut ui: Ui<'_, blit::state::Node>) {
+    fn build(self, mut ui: Ui<'_, blit::state::Insert>) {
         for glyph in self.0.chars() {
             ui.context_mut().prepared += 1;
             ui.insert(Fill(glyph, self.1));

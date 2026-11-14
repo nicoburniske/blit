@@ -120,7 +120,11 @@ builder! {
     }
 }
 
-/// immediate builder whose ui mode determines its available operations
+/// builds part of the ui each frame and returns a response such as whether it was clicked
+///
+/// - by default a widget owns a node it can lay out
+/// - [`state::Insert`] widgets add content like text or backgrounds to the node through [`Ui::insert`]
+///   without changing the node itself
 pub trait Widget<C: Context, S = state::Build> {
     type Response;
 
@@ -177,18 +181,18 @@ impl Id {
     }
 }
 
-/// converts atoms and node widgets for insertion
+/// converts atoms and insert widgets for insertion
 ///
-/// implemented automatically for atoms and node widgets. [`Ui::insert`] infers the output type.
+/// implemented automatically for atoms and insert widgets. [`Ui::insert`] infers the output type.
 /// types implementing both require an explicit output widget type.
 pub trait IntoWidget<C: Context, W> {
     fn into_widget(self) -> W;
 }
 
-/// adapts an atom to a node widget
+/// adapts an atom to an insert widget
 pub struct AtomWidget<A>(A);
 
-impl<C: Context, W: Widget<C, state::Node>> IntoWidget<C, W> for W {
+impl<C: Context, W: Widget<C, state::Insert>> IntoWidget<C, W> for W {
     fn into_widget(self) -> W {
         self
     }

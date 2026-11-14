@@ -29,13 +29,13 @@ blit::builder! {
     }
 }
 
-impl<C> Widget<C, state::Node> for Text<'_>
+impl<C> Widget<C, state::Insert> for Text<'_>
 where
     C: Context + Paint<FrameText>,
 {
     type Response = ();
 
-    fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
+    fn build(self, mut ui: blit::Ui<'_, C, state::Insert>) {
         let run = ui.context_mut().text().text_run(self.text, self.style);
         let colors = ui.store_mut().slice_from(&[self.style.color]);
         ui.insert(
@@ -57,13 +57,13 @@ blit::builder! {
     }
 }
 
-impl<C> Widget<C, state::Node> for RichText<'_>
+impl<C> Widget<C, state::Insert> for RichText<'_>
 where
     C: Context + Paint<FrameText>,
 {
     type Response = ();
 
-    fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
+    fn build(self, mut ui: blit::Ui<'_, C, state::Insert>) {
         let run = ui.context_mut().text().rich_text(self.text, self.spans, self.style);
         // empty spans lay out as one span in the base color
         let mut colors = ui.store_mut().slice(self.spans.len().max(1));

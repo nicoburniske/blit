@@ -31,13 +31,13 @@ impl<'a> Block<'a> {
     }
 }
 
-impl<C> Widget<C, state::Node> for Block<'_>
+impl<C> Widget<C, state::Insert> for Block<'_>
 where
     C: Context + Paint<FrameText>,
 {
     type Response = ();
 
-    fn build(self, mut ui: blit::Ui<'_, C, state::Node>) {
+    fn build(self, mut ui: blit::Ui<'_, C, state::Insert>) {
         let color = self.border.map(|border| border.color).unwrap_or(Color::Reset);
         let titles = self.titles.map(|title| {
             title.map(|title| {
