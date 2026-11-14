@@ -4,7 +4,10 @@ use base64::Engine as _;
 use blit::PhysicalRect;
 
 use super::{BASE64, KittyPlacement, TuiRenderer, write_color};
-use crate::{image::Image, text::TextAttributes};
+use crate::{
+    image::{Image, ImageFit},
+    text::TextAttributes,
+};
 
 impl TuiRenderer {
     pub fn begin_frame(&mut self) {
@@ -15,12 +18,25 @@ impl TuiRenderer {
         self.kitty_placements.clear();
     }
 
-    pub fn paint_image(&mut self, area: PhysicalRect, image: &Image) {
+    pub fn paint_image(&mut self, mut area: PhysicalRect, image: &Image) {
+        if image.fit == ImageFit::Contain && area.width > 0 && area.height > 0 {
+            let pixels = image.image.size();
+            let aspect = (f64::from(pixels.width) * f64::from(self.cell_size.height))
+                / (f64::from(pixels.height) * f64::from(self.cell_size.width));
+            let width = ((f64::from(area.height) * aspect).round() as i32).clamp(1, area.width);
+            let height = ((f64::from(area.width) / aspect).round() as i32).clamp(1, area.height);
+            area = PhysicalRect::new(
+                area.x + (area.width - width) / 2,
+                area.y + (area.height - height) / 2,
+                width,
+                height,
+            );
+        }
         if let Some(area) = area.intersection(self.clip) {
             let (x, y, right, bottom) = self.cell_bounds(area);
             if right > x && bottom > y {
                 self.kitty_placements.push(KittyPlacement {
-                    image: image.image.0 as u32,
+                    image: image.image.id() as u32,
                     x: x as u16,
                     y: y as u16,
                     width: (right - x) as u16,
@@ -140,7 +156,7 @@ impl TuiRenderer {
             let image = self
                 .images
                 .iter_mut()
-                .find(|image| image.handle.id().0 == u64::from(placement.image))
+                .find(|image| image.handle.id() == u64::from(placement.image))
                 .expect("invalid terminal image");
             if !image.transmitted {
                 let size = image.handle.size();
@@ -182,7 +198,7 @@ impl TuiRenderer {
         }
         let mut image = 0;
         while image < self.images.len() {
-            let id = self.images[image].handle.id().0 as u32;
+            let id = self.images[image].handle.id() as u32;
             if !self.images[image].handle.is_uniquely_owned()
                 || self.kitty_placements.iter().any(|placement| placement.image == id)
             {

@@ -126,6 +126,18 @@ impl Parser {
                 ("", b'I' | b'O') => emit(Event::Focus(final_byte == b'I')),
                 ("?997;1", b'n') => emit(Event::Theme(true)),
                 ("?997;2", b'n') => emit(Event::Theme(false)),
+                (_, b't') if parameters.starts_with("6;") => {
+                    let mut fields = parameters[2..].split(';');
+                    if let (Some(height), Some(width), None) = (
+                        fields.next().and_then(|value| value.parse::<u16>().ok()),
+                        fields.next().and_then(|value| value.parse::<u16>().ok()),
+                        fields.next(),
+                    ) && width != 0
+                        && height != 0
+                    {
+                        emit(Event::CellSize { width, height });
+                    }
+                }
                 (_, b'M' | b'm') if parameters.starts_with('<') => {
                     let mut fields = parameters[1..].split(';');
                     let parsed = (|| {

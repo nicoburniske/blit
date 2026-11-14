@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use blit::PhysicalSize;
 use blit_arrayvec::ArrayVec;
 use rustix::{
     event::Timespec,
@@ -36,6 +37,8 @@ pub enum Event {
 pub struct Size {
     pub cols: u16,
     pub rows: u16,
+    // ioctl can omit pixel dimensions (e.g. before Zellij receives its terminal size reply)
+    pub cell_size: Option<PhysicalSize>,
 }
 
 impl Terminal {
@@ -73,6 +76,14 @@ impl Terminal {
         Ok(Size {
             cols: size.ws_col,
             rows: size.ws_row,
+            cell_size: (size.ws_col != 0 && size.ws_row != 0 && size.ws_xpixel != 0 && size.ws_ypixel != 0).then(
+                || {
+                    PhysicalSize::new(
+                        i32::from(size.ws_xpixel / size.ws_col).max(1),
+                        i32::from(size.ws_ypixel / size.ws_row).max(1),
+                    )
+                },
+            ),
         })
     }
 

@@ -22,7 +22,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     color::{Color, Palette, PaletteSlot},
-    image::{ImageData, ImageHandle, ImageId},
+    image::{ImageData, ImageHandle},
     text::{Span, TextAttributes, TextLayoutRequest, TextRequest, TextRunId, TextWrap},
 };
 
@@ -35,6 +35,8 @@ blit::builder! {
         new(),
         columns: u16 = 80,
         rows: u16 = 24,
+        /// cell dimensions in pixels with a fallback for terminals that do not report them
+        cell_size: PhysicalSize = PhysicalSize::new(8, 16),
     }
 }
 
@@ -43,6 +45,7 @@ pub struct TuiRenderer {
     rows: usize,
     clip: PhysicalRect,
     clips: Vec<PhysicalRect>,
+    cell_size: PhysicalSize,
     palette: Palette,
     text_runs: DeferredCache<RunKey, CachedRun, RunScale>,
     text_layouts: DeferredCache<LayoutKey, TextLayout, LayoutScale>,
@@ -65,7 +68,11 @@ pub struct TuiRenderer {
 
 impl TuiRenderer {
     pub fn new(config: RendererConfig) -> Self {
-        let RendererConfig { columns, rows } = config;
+        let RendererConfig {
+            columns,
+            rows,
+            cell_size,
+        } = config;
         let columns = usize::from(columns.max(1));
         let rows = usize::from(rows.max(1));
         Self {
@@ -73,6 +80,7 @@ impl TuiRenderer {
             rows,
             clip: PhysicalRect::new(0, 0, columns as i32, rows as i32),
             clips: Vec::new(),
+            cell_size: cell_size.max(PhysicalSize::new(1, 1)),
             palette: Palette::default(),
             text_runs: DeferredCache::new(RunScale, TEXT_RUN_CACHE_CAPACITY),
             text_layouts: DeferredCache::new(LayoutScale, TEXT_LAYOUT_CACHE_CAPACITY),
@@ -110,6 +118,10 @@ impl TuiRenderer {
         self.clip = self.clips.pop().expect("no paint clip to pop");
     }
 
+    pub fn cell_size(&self) -> PhysicalSize {
+        self.cell_size
+    }
+
     /// sets the terminal colors used by cell tinting and reports whether they changed
     pub fn set_palette(&mut self, palette: Palette) -> bool {
         if self.palette == palette {
@@ -130,9 +142,14 @@ impl TuiRenderer {
     }
 
     pub fn resize(&mut self, config: RendererConfig) {
-        let RendererConfig { columns, rows } = config;
+        let RendererConfig {
+            columns,
+            rows,
+            cell_size,
+        } = config;
         let columns = usize::from(columns.max(1));
         let rows = usize::from(rows.max(1));
+        self.cell_size = cell_size.max(PhysicalSize::new(1, 1));
         if self.columns == columns && self.rows == rows {
             return;
         }
@@ -159,7 +176,7 @@ impl TuiRenderer {
     pub fn clear_kitty_graphics(&mut self, output: &mut impl io::Write) -> io::Result<()> {
         for image in &mut self.images {
             if image.transmitted {
-                write!(output, "\x1b_Ga=d,d=I,i={},q=2\x1b\\", image.handle.id().0)?;
+                write!(output, "\x1b_Ga=d,d=I,i={},q=2\x1b\\", image.handle.id())?;
                 image.transmitted = false;
             }
         }
@@ -186,7 +203,7 @@ impl TuiRenderer {
         data.validate();
         let id = self.next_image;
         self.next_image = self.next_image.checked_add(1).expect("too many terminal images");
-        let handle = ImageHandle::new(ImageId(u64::from(id)), data.size);
+        let handle = ImageHandle::new(u64::from(id), data.size);
         self.images.push(StoredImage {
             handle: handle.clone(),
             pixels: data.pixels,

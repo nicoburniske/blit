@@ -17,6 +17,7 @@ fn protocol_vectors_at_every_split() {
         text: false,
     };
     let fixtures: &[(&[u8], &[Event])] = &[
+        (b"\x1b[6;20;10t", &[Event::CellSize { width: 10, height: 20 }]),
         (b"\x1b[57414u", &[key(Enter, none, Press)]),
         (b"\x1b[57419u", &[key(Up, none, Press)]),
         (b"\x1b[57366u", &[key(Function(3), none, Press)]),
@@ -266,6 +267,10 @@ fn malformed_and_oversized_sequences_recover() {
         "\x1b[<0;1;2;3M",
         "\x1b[?1u",
         "\x1b[1;2R",
+        "\x1b[6;0;10t",
+        "\x1b[6;20;0t",
+        "\x1b[6;20;10;1t",
+        "\x1b[6;65536;10t",
         "\x1b]10;rgb:ffff/ffff/ffff/ffff\x07",
         "\x1b]4;256;rgb:f/f/f\x07",
         "\x1b]11;rgb:é/0/0\x1b\\",

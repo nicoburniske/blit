@@ -1,14 +1,17 @@
 use std::rc::Rc;
 
-use blit::{Atom, AtomCx, Constraints, Paint, PhysicalRect, PhysicalSize, Size};
+use blit::{Atom, AtomCx, Constraints, Paint, PhysicalRect, Size};
 
 use crate::Context;
 
 blit::builder! {
     /// Kitty image placed in a cell area
-    #[derive(Clone, Copy, Debug, PartialEq)]
+    #[derive(Clone, Debug, PartialEq)]
     pub struct Image {
-        new(image: ImageId, intrinsic: Size<i32>),
+        new(#[into] image: ImageHandle),
+        #[into]
+        intrinsic: Option<Size<i32>> = None,
+        fit: ImageFit = ImageFit::Fill,
     }
 }
 
@@ -16,21 +19,58 @@ impl<C> Atom<C> for Image
 where
     C: Context + Paint<Self>,
 {
-    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
-        constraints.constrain(self.intrinsic)
+    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
+        let cell = cx.context_mut().as_mut().renderer.cell_size();
+        let pixels = self.image.size();
+        let width = f64::from(pixels.width) / f64::from(cell.width);
+        let height = f64::from(pixels.height) / f64::from(cell.height);
+        let mut size = self
+            .intrinsic
+            .unwrap_or(Size::new((width.round() as i32).max(1), (height.round() as i32).max(1)));
+        if self.fit == ImageFit::Contain {
+            let scale = (f64::from(size.width.min(constraints.max.width)) / width)
+                .min(f64::from(size.height.min(constraints.max.height)) / height);
+            if scale <= 0.0 {
+                return constraints.constrain(Size::ZERO);
+            }
+            size = Size::new(
+                ((width * scale).round() as i32).max(1),
+                ((height * scale).round() as i32).max(1),
+            );
+        }
+        constraints.constrain(size)
     }
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
-        cx.context_mut().paint(area, *self);
+        cx.context_mut().paint(area, self.clone());
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ImageFit {
+    #[default]
+    Fill,
+    Contain,
 }
 
 #[derive(Clone, Debug)]
 pub struct ImageHandle(Rc<ImageInner>);
 
+impl PartialEq for ImageHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl From<&ImageHandle> for ImageHandle {
+    fn from(image: &ImageHandle) -> Self {
+        image.clone()
+    }
+}
+
 impl ImageHandle {
     #[doc(hidden)]
-    pub fn new(id: ImageId, size: PhysicalSize) -> Self {
+    pub fn new(id: ImageId, size: Size<u32>) -> Self {
         Self(Rc::new(ImageInner { id, size }))
     }
 
@@ -38,7 +78,7 @@ impl ImageHandle {
         self.0.id
     }
 
-    pub fn size(&self) -> PhysicalSize {
+    pub fn size(&self) -> Size<u32> {
         self.0.size
     }
 
@@ -51,21 +91,17 @@ impl ImageHandle {
 #[derive(Debug, PartialEq)]
 pub struct ImageData {
     pub pixels: ImagePixels,
-    pub size: PhysicalSize,
+    pub size: Size<u32>,
     pub format: ImageFormat,
 }
 
 impl ImageData {
-    pub fn new(pixels: ImagePixels, format: ImageFormat, width: usize, height: usize) -> Self {
-        let width = i32::try_from(width).expect("image width is too large");
-        let height = i32::try_from(height).expect("image height is too large");
-        let image = Self {
+    pub fn new(pixels: ImagePixels, format: ImageFormat, width: u32, height: u32) -> Self {
+        Self {
             pixels,
-            size: PhysicalSize { width, height },
+            size: Size { width, height },
             format,
-        };
-        image.validate();
-        image
+        }
     }
 
     pub fn validate(&self) {
@@ -108,11 +144,10 @@ impl ImageFormat {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ImageId(pub u64);
+pub type ImageId = u64;
 
 #[derive(Debug)]
 struct ImageInner {
     id: ImageId,
-    size: PhysicalSize,
+    size: Size<u32>,
 }

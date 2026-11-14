@@ -21,6 +21,10 @@ pub enum Event {
         slot: PaletteSlot,
         rgb: [u8; 3],
     },
+    CellSize {
+        width: u16,
+        height: u16,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,6 +96,10 @@ pub const ENTER: &[u8] =
     b"\x1b[?1049h\x1b[?25l\x1b[?1003h\x1b[?1006h\x1b[?2004h\x1b[>7u\x1b[?1004s\x1b[?2031s\x1b[?1004h\x1b[?2031h";
 pub const LEAVE: &[u8] =
     b"\x1b[?2031l\x1b[?1004l\x1b[?2031r\x1b[?1004r\x1b[<u\x1b[?2004l\x1b[?1006l\x1b[?1003l\x1b[?25h\x1b[?1049l";
+
+pub fn query_cell_size(output: &mut impl Write) -> io::Result<()> {
+    output.write_all(b"\x1b[16t")
+}
 
 pub fn query_colors(output: &mut impl Write) -> io::Result<()> {
     output.write_all(b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\")?;

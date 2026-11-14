@@ -64,7 +64,7 @@ use std::{
 };
 
 use blit::{
-    Frame, FrameInfo, PhysicalPoint,
+    Frame, FrameInfo, PhysicalPoint, PhysicalSize,
     input::{Input, Key, KeyInput, Modifiers, MouseButton, ScrollPhase},
 };
 use terminal::{Size, Terminal};
@@ -95,6 +95,7 @@ where
     frame_interval: Duration,
     active: bool,
     query_colors: bool,
+    query_cell_size: bool,
 }
 
 impl<C> Session<C>
@@ -106,7 +107,7 @@ where
         wake.set_nonblocking(true)?;
         wake_writer.set_nonblocking(true)?;
         let terminal = Terminal::new(wake)?;
-        let config = renderer_config(terminal.size()?)?;
+        let config = renderer_config(terminal.size()?, RendererConfig::new())?;
         Ok(Self {
             terminal,
             config,
@@ -119,6 +120,7 @@ where
             frame_interval: Duration::from_nanos(4_166_667),
             active: true,
             query_colors: true,
+            query_cell_size: true,
         })
     }
 
@@ -223,7 +225,7 @@ where
         if inputs.is_empty() {
             return Ok(Poll::default());
         }
-        self.update_colors()?;
+        self.query_terminal()?;
         let mut result = Poll::default();
         for _ in 0..inputs.len() {
             let Some(event) = self.terminal.read(timeout)? else {
@@ -236,7 +238,8 @@ where
                     break;
                 }
                 terminal::Event::Resize(size) => {
-                    self.config = renderer_config(size)?;
+                    self.config = renderer_config(size, self.config)?;
+                    self.query_cell_size = true;
                     context.as_mut().renderer.resize(self.config);
                     result.resized = true;
                     break;
@@ -246,9 +249,18 @@ where
             match &event {
                 protocol::Event::Focus(true) | protocol::Event::Theme(_) => {
                     self.query_colors = true;
+                    self.query_cell_size = true;
                 }
                 protocol::Event::Color { slot, rgb } => {
                     result.redraw |= context.as_mut().renderer.set_palette_color(*slot, *rgb);
+                }
+                protocol::Event::CellSize { width, height } => {
+                    let cell_size = PhysicalSize::new(i32::from(*width), i32::from(*height));
+                    if self.config.cell_size != cell_size {
+                        self.config.cell_size = cell_size;
+                        context.as_mut().renderer.resize(self.config);
+                        result.redraw = true;
+                    }
                 }
                 _ => {}
             }
@@ -353,7 +365,7 @@ where
                 }
             }
         }
-        self.update_colors()?;
+        self.query_terminal()?;
         Ok(result)
     }
 
@@ -378,13 +390,19 @@ where
         clear.and(finish)
     }
 
-    fn update_colors(&mut self) -> io::Result<()> {
+    fn query_terminal(&mut self) -> io::Result<()> {
+        if !self.query_cell_size && !self.query_colors {
+            return Ok(());
+        }
+        if self.query_cell_size {
+            protocol::query_cell_size(&mut self.terminal)?;
+            self.query_cell_size = false;
+        }
         if self.query_colors {
             protocol::query_colors(&mut self.terminal)?;
-            self.terminal.flush()?;
             self.query_colors = false;
         }
-        Ok(())
+        self.terminal.flush()
     }
 }
 
@@ -410,15 +428,20 @@ impl WakeHandle {
 pub struct Poll {
     pub input_count: usize,
     pub resized: bool,
-    /// terminal colors changed and the frame needs rebuilding
+    /// terminal colors or cell dimensions changed and the frame needs rebuilding
     pub redraw: bool,
     /// a [`WakeHandle`] interrupted the poll
     pub woken: bool,
 }
 
-fn renderer_config(size: Size) -> io::Result<RendererConfig> {
+/// keeps the previous cell size when the terminal omits pixel dimensions
+fn renderer_config(size: Size, previous: RendererConfig) -> io::Result<RendererConfig> {
     if size.cols == 0 || size.rows == 0 {
         return Err(io::Error::other("terminal reported an empty window"));
     }
-    Ok(RendererConfig::new().columns(size.cols).rows(size.rows))
+    let mut config = previous.columns(size.cols).rows(size.rows);
+    if let Some(cell_size) = size.cell_size {
+        config.cell_size = cell_size;
+    }
+    Ok(config)
 }
