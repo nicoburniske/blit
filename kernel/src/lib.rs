@@ -3,28 +3,25 @@
 //! each frame, you describe the interface as a tree of nodes. blit calculates the size and
 //! position of each node, then paints its contents
 //!
-//! # core model
+//! # traits
 //!
-//! - a node is the retained unit of geometry and composition. it may hold properties, atoms, an
-//!   optional layout, and child nodes
-//! - [`Widget`] builds through a [`Ui`] whose mode controls its available operations. the default
-//!   [`state::Build`] mode may establish a layout and build children. [`state::Node`] augments an
-//!   existing node without changing its structure
-//! - [`Atom`] is visual content retained for painting. it measures under constraints, then paints
-//!   using the node's resolved position and size
-//! - [`Layout`] is retained policy for a node's children. it measures them and resolves their
-//!   positions and sizes
+//! a node is the retained unit of geometry. it holds atoms, an optional layout, and child nodes
+//!
+//! | trait        | runs during   | does                                         |
+//! |--------------|---------------|----------------------------------------------|
+//! | [`Widget`]   | build         | describes nodes, layouts and children        |
+//! | [`Atom`]     | layout, paint | content that measures and paints in its node |
+//! | [`Layout`]   | layout        | sizes and positions a node's children        |
+//! | [`Place`]    | layout        | positions a node outside its parent's flow   |
+//! | [`Clip`]     | paint, input  | clips drawing and hit testing to a shape     |
+//! | [`Interact`] | build         | turns input into a response for a widget     |
 //!
 //! # context
 //!
-//! the [`Context`] is usually your renderer. widgets, layouts and atoms all get mutable access to
-//! it, whether to measure text, paint, or use anything else it provides
+//! everything is generic over a [`Context`], usually your renderer. it opts into capabilities
 //!
-//! - [`Paint`] is how atoms draw. each implementation accepts one kind of drawing operation in
-//!   frame coordinates, and the context decides what painting means
-//! - [`HasFrameStore`] provides access to a context's [`FrameStore`]. widgets reserve drawing inputs
-//!   with [`FrameStore::slice`], fill the builder and finish it into a [`FrameSlice`]
-//!   the context resolves this handle when rendering
+//! - [`Paint<T>`](Paint) draws command `T`. atoms paint through it
+//! - [`HasFrameStore`] stores drawing inputs in a [`FrameStore`] until the context renders
 //!
 //! # frame lifecycle
 //!
