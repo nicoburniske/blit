@@ -342,9 +342,17 @@ impl<C: Context, S> Ui<'_, C, S> {
         self.inner.frame.time
     }
 
-    pub fn animate(&mut self, id: Id, target: f32, animation: impl Into<Animation>, options: AnimationOptions) -> f32 {
+    pub fn animate(
+        &mut self,
+        id: Id,
+        target: f32,
+        animation: impl Into<Animation>,
+        mut options: AnimationOptions,
+    ) -> f32 {
         let frame = &mut *self.inner.frame;
-        let state = AnimationState::update(&mut frame.animations, id, target);
+        // cleared so stored options stay equal across frames and do not retarget
+        let initial = options.initial.take().unwrap_or(target);
+        let state = AnimationState::update(&mut frame.animations, id, initial);
         match &mut state.playback {
             Playback::Target(animator) => {
                 animator

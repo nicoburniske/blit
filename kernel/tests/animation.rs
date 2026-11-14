@@ -394,6 +394,7 @@ fn explicit_velocity_overrides_carried_velocity() {
         for restart in [false, true] {
             for velocity in [-2.0, 0.0, 2.0] {
                 let options = AnimationOptions {
+                    initial: None,
                     restart,
                     velocity: Some(velocity),
                 };

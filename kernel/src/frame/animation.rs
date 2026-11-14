@@ -80,6 +80,7 @@ impl<T: Scalar> MotionState<T> {
     ) -> ([T; 4], MotionProps) {
         let targets = [target.x, target.y, target.width, target.height];
         let options = AnimationOptions {
+            initial: None,
             restart: config.restart,
             velocity: None,
         };

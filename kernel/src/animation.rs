@@ -35,6 +35,9 @@ builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct AnimationOptions {
         new(),
+        /// starting value when first registered with `Ui::animate`
+        #[into]
+        initial: Option<f32> = None,
         /// discards carried velocity when retargeting
         restart: bool = false,
         /// initial spring speed or fading tween momentum in coordinate units per second
