@@ -153,10 +153,10 @@ fn paint_node<C: Context>(frame: &mut Frame<C>, bump: &BumpArena, context: &mut 
         return;
     }
     let area = frame.placements[node].area;
-    let edges = frame.nodes[node].edges.index().map(|index| frame.edges[index]);
     let resolved_clip = frame.nodes[node].resolved_clip;
-    let bounds = edges.map_or(area, |edges| area.outset(edges.outset));
-    if bounds.intersection(frame.clip_bounds(resolved_clip)).is_none() {
+    // atoms may paint past their area so renderers cull by what they draw
+    let bounds = frame.clip_bounds(resolved_clip);
+    if bounds.width <= C::Scalar::ZERO || bounds.height <= C::Scalar::ZERO {
         return;
     }
     set(frame, bump, context, resolved_clip);

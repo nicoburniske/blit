@@ -138,14 +138,11 @@ fn scratch_rejects_size_overflow() {
 }
 
 #[test]
-fn owned_values_and_outsets() {
+fn owned_values_and_culling() {
     let result = Rc::new(Cell::new(ProbeResult::default()));
     let (mut frame, mut context) = frame(Size::new(3.0, 2.0));
     render(&mut frame, &mut context, |ui: Ui<'_>| {
-        let probe = || Probe {
-            result: result.clone(),
-            offset: Point::ZERO,
-        };
+        let probe = || Probe { result: result.clone() };
         ui.layout(probe()).insert(probe());
     });
     assert_eq!(
@@ -158,35 +155,31 @@ fn owned_values_and_outsets() {
     );
     assert_eq!(context.commands, [Paint('P', Rect::new(0.0, 0.0, 3.0, 2.0))]);
 
-    let results = [0; 3].map(|_| Rc::new(Cell::new(ProbeResult::default())));
+    // nodes paint past the screen since atoms may draw outside their area
+    // while an empty clip hides everything under it
+    let results = [0; 2].map(|_| Rc::new(Cell::new(ProbeResult::default())));
     context.info = FrameInfo::new(Size::new(3.0, 1.0));
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
-        for (index, offset) in [Point::ZERO, Point::new(-4.0, 0.0)].into_iter().enumerate() {
-            root.child()
-                .place(NodeTarget::Parent, At(|_| Point::new(4.0, 0.0)))
-                .insert(Probe {
-                    result: results[index].clone(),
-                    offset,
-                });
-        }
         root.child()
-            .layout(Fixed(Size::uniform(1.0)))
+            .place(NodeTarget::Parent, At(|_| Point::new(4.0, 0.0)))
+            .insert(Probe {
+                result: results[0].clone(),
+            });
+        root.child()
+            .layout(Fixed(Size::ZERO))
             .clip(TestClip)
             .child()
-            .place(NodeTarget::Parent, At(|_| Point::new(1.0, 0.0)))
             .insert(Probe {
-                result: results[2].clone(),
-                offset: Point::ZERO,
+                result: results[1].clone(),
             });
     });
     assert_eq!(
         results
             .each_ref()
             .map(|result| (result.get().paints, result.get().drops)),
-        [(0, 1), (1, 1), (0, 1)]
+        [(1, 1), (0, 1)]
     );
-    assert_eq!(context.commands, [Paint('P', Rect::new(4.0, 0.0, 1.0, 1.0))]);
 }
 
 #[test]

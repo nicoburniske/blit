@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use blit::{Atom, AtomCx, Constraints, LogicalRect, Paint, Sides, Size};
+use blit::{Atom, AtomCx, Constraints, LogicalRect, Paint, Size};
 
 use crate::{color::Color, style::BorderRadius};
 
@@ -48,19 +48,6 @@ where
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
         cx.context_mut().paint(area, *self);
-    }
-
-    fn outset(&self) -> Sides<f32> {
-        if self.inset {
-            return Sides::all(0.0);
-        }
-        let outset = self.spread + self.blur.max(0.0);
-        Sides {
-            top: outset - self.offset_y,
-            right: outset + self.offset_x,
-            bottom: outset + self.offset_y,
-            left: outset - self.offset_x,
-        }
     }
 }
 

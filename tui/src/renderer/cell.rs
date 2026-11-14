@@ -238,6 +238,9 @@ impl TuiRenderer {
         let top = area_top.max(clip_top as i32);
         let right = area_right.min(clip_right as i32);
         let bottom = area_bottom.min(clip_bottom as i32);
+        if left >= right || top >= bottom {
+            return;
+        }
         let layout_request = TextLayoutRequest {
             text: request.text,
             wrap: request.options.wrap,

@@ -35,16 +35,6 @@ impl<'a, C: Context> AtomCx<'a, C> {
 }
 
 pub fn insert<C: Context, A: Atom<C>>(frame: &mut Frame<C>, node: NodeId, atom: A) {
-    let outset = atom.outset();
-    if outset != Sides::all(C::Scalar::ZERO) {
-        let edges = frame.edges_mut(node);
-        edges.outset = Sides {
-            top: edges.outset.top.max(outset.top),
-            right: edges.outset.right.max(outset.right),
-            bottom: edges.outset.bottom.max(outset.bottom),
-            left: edges.outset.left.max(outset.left),
-        };
-    }
     let id = StoredAtomId::new(frame.atoms.len());
     frame.atoms.push(StoredAtom {
         kind: A::KIND,

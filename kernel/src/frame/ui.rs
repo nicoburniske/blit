@@ -64,7 +64,14 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
                 .all(|side| *side >= C::Scalar::ZERO && side.is_finite()),
             "invalid padding"
         );
-        self.inner.frame.edges_mut(self.inner.node).padding = padding;
+        let frame = &mut *self.inner.frame;
+        let node = &mut frame.nodes[self.inner.node.index()];
+        if let Some(index) = node.padding.index() {
+            frame.paddings[index] = padding;
+        } else {
+            node.padding = PaddingId::new(frame.paddings.len());
+            frame.paddings.push(padding);
+        }
         self
     }
 

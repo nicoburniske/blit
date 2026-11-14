@@ -138,11 +138,6 @@ pub trait Atom<C: Context>: 'static {
     fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<C::Scalar>) -> Size<C::Scalar>;
 
     fn paint(&self, cx: &mut AtomCx<'_, C>, area: Rect<C::Scalar>);
-
-    /// how far painting may extend past the layout `area`
-    fn outset(&self) -> Sides<C::Scalar> {
-        Sides::all(C::Scalar::ZERO)
-    }
 }
 
 /// stable identity for widgets, animations and timers

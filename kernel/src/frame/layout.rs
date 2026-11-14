@@ -227,9 +227,9 @@ impl<'a, C: Context> LayoutCx<'a, C> {
         let mut size = self.measure(node, bounds);
         if stored.layout.offset().is_some() {
             let padding = stored
-                .edges
+                .padding
                 .index()
-                .map_or(Sides::all(C::Scalar::ZERO), |index| self.frame.edges[index].padding);
+                .map_or(Sides::all(C::Scalar::ZERO), |index| self.frame.paddings[index]);
             let leading = Point::new(padding.left.min(bounds.max.width), padding.top.min(bounds.max.height));
             let inner = bounds.shrink(padding.size());
             let kind = &self.frame.layout_kinds[stored.layout_kind as usize];

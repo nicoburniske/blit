@@ -1,4 +1,4 @@
-use blit::{Atom, AtomCx, Constraints, PhysicalRect, Sides, Size};
+use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
 
 use crate::{
     Context,
@@ -54,15 +54,6 @@ where
                 }
                 cells.set_cell(x, y, Cell::default().style(style));
             }
-        }
-    }
-
-    fn outset(&self) -> Sides<i32> {
-        Sides {
-            top: -self.offset_y,
-            right: self.offset_x,
-            bottom: self.offset_y,
-            left: -self.offset_x,
         }
     }
 }

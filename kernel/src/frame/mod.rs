@@ -32,7 +32,7 @@ pub struct Frame<C: Context> {
     atoms: Vec<StoredAtom<C>>,
     clips: Vec<StoredClip>,
     limits: Vec<Constraints<C::Scalar>>,
-    edges: Vec<Edges<C::Scalar>>,
+    paddings: Vec<Sides<C::Scalar>>,
     places: Vec<StoredPlace<C>>,
     bounds: Vec<Bounds<C::Scalar>>,
     layout_kinds: Vec<LayoutKind<C>>,
@@ -70,7 +70,7 @@ impl<C: Context> Default for Frame<C> {
             atoms: Vec::new(),
             clips: Vec::new(),
             limits: Vec::new(),
-            edges: Vec::new(),
+            paddings: Vec::new(),
             places: Vec::new(),
             bounds: Vec::new(),
             layout_kinds: Vec::new(),
@@ -130,7 +130,7 @@ impl<C: Context> Frame<C> {
         self.atoms.clear();
         self.clips.clear();
         self.limits.clear();
-        self.edges.clear();
+        self.paddings.clear();
         self.places.clear();
         self.bounds.clear();
         self.areas_requested.clear();
@@ -269,16 +269,6 @@ impl NodeId {
 }
 
 impl<C: Context> Frame<C> {
-    fn edges_mut(&mut self, node: NodeId) -> &mut Edges<C::Scalar> {
-        let stored = &mut self.nodes[node.index()];
-        let index = stored.edges.index().unwrap_or_else(|| {
-            stored.edges = EdgesId::new(self.edges.len());
-            self.edges.push(Edges::default());
-            self.edges.len() - 1
-        });
-        &mut self.edges[index]
-    }
-
     fn store_layout<L: Layout<C>>(&mut self, node: NodeId, value: L) {
         let type_id = TypeId::of::<L>();
         let kind = self
@@ -341,7 +331,7 @@ impl<C: Context> Frame<C> {
             layout: BumpId::NONE,
             layout_kind: 0,
             limits: LimitsId::NONE,
-            edges: EdgesId::NONE,
+            padding: PaddingId::NONE,
             place: PlaceId::NONE,
             clip: StoredClipId::NONE,
             item: BumpId::NONE,
@@ -453,7 +443,7 @@ pub struct StoredNode {
     layout: BumpId,
     layout_kind: u16,
     limits: LimitsId,
-    edges: EdgesId,
+    padding: PaddingId,
     place: PlaceId,
     clip: StoredClipId,
     item: BumpId,
@@ -508,13 +498,6 @@ impl<C: Context> StoredAtom<C> {
     }
 }
 
-/// a node's padding and its largest atom outset
-#[derive(Clone, Copy, Default)]
-struct Edges<T> {
-    padding: Sides<T>,
-    outset: Sides<T>,
-}
-
 struct StoredPlace<C: Context> {
     bump_id: BumpId,
     run: for<'a> fn(&mut layout::PlaceCx<'a, C>, BumpId, Rect<C::Scalar>) -> Point<C::Scalar>,
@@ -552,7 +535,7 @@ impl<T> Index<T> {
 type StoredAtomId = Index<StoredAtom<()>>;
 type StoredClipId = Index<StoredClip>;
 type LimitsId = Index<Constraints<()>>;
-type EdgesId = Index<Edges<()>>;
+type PaddingId = Index<Sides<()>>;
 type PlaceId = Index<StoredPlace<()>>;
 type BoundsId = Index<Bounds<()>>;
 type ResolvedClipId = Index<ResolvedClip<()>>;

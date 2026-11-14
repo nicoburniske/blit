@@ -10,7 +10,7 @@ use blit::{
     Context, Easing, Frame, FrameInfo, Id, Input, Interact, InteractCx, Layout, LayoutCx, Modifiers, Motion,
     MouseButton, NodeTarget,
     Phase::{Cancelled, Ended, Held, Started},
-    Place, PlaceCx, Point, Rect, ScrollPhase, Sides, Size, Spring, TouchPhase,
+    Place, PlaceCx, Point, Rect, ScrollPhase, Size, Spring, TouchPhase,
     TouchPhase::{Cancel, Down, Move, Up},
     Tween, Widget,
 };
@@ -251,7 +251,6 @@ impl Widget<TestContext, blit::state::Node> for Content {
 
 struct Probe {
     result: Rc<Cell<ProbeResult>>,
-    offset: Point<f32>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -278,14 +277,6 @@ impl Atom<TestContext> for Probe {
         result.area = area;
         self.result.set(result);
         Fill('P', Size::ZERO).paint(cx, area);
-    }
-    fn outset(&self) -> Sides<f32> {
-        Sides {
-            top: -self.offset.y,
-            right: self.offset.x,
-            bottom: self.offset.y,
-            left: -self.offset.x,
-        }
     }
 }
 

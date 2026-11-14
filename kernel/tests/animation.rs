@@ -7,10 +7,10 @@ fn motions() {
     for named in [false, true] {
         let (mut frame, mut context) = frame(Size::new(1.0, 5.0));
         for (extent, gap, millis, area, sibling, pending) in [
-            (1.0, 0.0, 0, Rect::new(0.0, 0.0, 1.0, 1.0), Some(1.0), false),
-            (3.0, 2.0, 0, Rect::new(0.0, 0.0, 1.0, 1.0), Some(3.0), true),
-            (3.0, 2.0, 500, Rect::new(0.0, 1.0, 1.0, 2.0), Some(4.0), true),
-            (3.0, 2.0, 1000, Rect::new(0.0, 2.0, 1.0, 3.0), None, false),
+            (1.0, 0.0, 0, Rect::new(0.0, 0.0, 1.0, 1.0), 1.0, false),
+            (3.0, 2.0, 0, Rect::new(0.0, 0.0, 1.0, 1.0), 3.0, true),
+            (3.0, 2.0, 500, Rect::new(0.0, 1.0, 1.0, 2.0), 4.0, true),
+            (3.0, 2.0, 1000, Rect::new(0.0, 2.0, 1.0, 3.0), 5.0, false),
         ] {
             let build = |ui: Ui<'_>| {
                 let mut column = ui.layout(Column);
@@ -36,14 +36,10 @@ fn motions() {
             };
             let time = Duration::from_millis(millis);
             render_inputs(&mut frame, &mut context, time, [], build);
-            if let Some(y) = sibling {
-                assert_eq!(
-                    context.commands,
-                    [Paint('X', area), Paint('Y', Rect::new(0.0, y, 1.0, 1.0))]
-                );
-            } else {
-                assert_eq!(context.commands, [Paint('X', area)]);
-            }
+            assert_eq!(
+                context.commands,
+                [Paint('X', area), Paint('Y', Rect::new(0.0, sibling, 1.0, 1.0))]
+            );
             // the frame after settles without changing the motion
             render_inputs(&mut frame, &mut context, time, [], build);
             assert_eq!(frame.has_pending_redraw(), pending);
