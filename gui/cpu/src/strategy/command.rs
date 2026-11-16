@@ -13,6 +13,7 @@ use crate::{
     raster::{
         fill::{Gradients, PreparedFill},
         image_patch, mesh, rectangle,
+        rounded::RoundedLine,
     },
     render::{ErasedCommand, RenderTarget},
     text::{PreparedText, TextRenderer},
@@ -171,6 +172,7 @@ impl<P: Pixel> RasterCommands<P> {
         }
     }
 
+    /// opaque range on this row and the first row of the next corner zone
     pub fn opaque_span(
         &mut self,
         id: CommandId,
@@ -179,28 +181,39 @@ impl<P: Pixel> RasterCommands<P> {
         clips: &ClipStack,
         images: &mut blit_arena::Arena<StoredImage>,
         text: &mut TextRenderer,
-    ) -> Option<Range<i32>> {
+    ) -> (Range<i32>, i32) {
         let metadata = &self.metadata[id as usize];
         if metadata.coverage == Coverage::None {
-            return None;
+            return (0..0, i32::MAX);
         }
         if let Some(bounds) = self.opaque_bounds(id, list) {
-            return (line >= bounds.y && line < bounds.y.saturating_add(bounds.height))
-                .then_some(bounds.x..bounds.x.saturating_add(bounds.width));
+            let end = bounds.y.saturating_add(bounds.height);
+            if line < bounds.y {
+                return (0..0, bounds.y);
+            }
+            return if line < end {
+                (bounds.x..bounds.x.saturating_add(bounds.width), end)
+            } else {
+                (0..0, i32::MAX)
+            };
         }
         let area = metadata.bounds;
         let bounds = self.horizontal_bounds(id);
-        let span = match self.prepare(id, list, clips, images, text) {
-            Payload::Rectangle(rectangle) => rectangle.opaque_span(line)?,
+        let (span, until) = match self.prepare(id, list, clips, images, text) {
+            Payload::Rectangle(rectangle) => (
+                rectangle.opaque_span(line),
+                RoundedLine::zone_until(rectangle.geometry, rectangle.radii, line),
+            ),
             Payload::Image(image) => {
-                let texture = images.get(image.image.into())?;
-                image.opaque_span(line, area, &texture.data, &texture.alpha_rows)?
+                let span = images
+                    .get(image.image.into())
+                    .and_then(|texture| image.opaque_span(line, area, &texture.data, &texture.alpha_rows));
+                (span, line + 1)
             }
-            _ => return None,
+            _ => return (0..0, i32::MAX),
         };
-        let start = span.start.max(bounds.start);
-        let end = span.end.min(bounds.end);
-        (start < end).then_some(start..end)
+        let span = span.map_or(0..0, |span| span.start.max(bounds.start)..span.end.min(bounds.end));
+        (span, until)
     }
 
     /// culls covered commands and schedules surviving mesh triangles within one render stage

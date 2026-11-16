@@ -35,17 +35,17 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
             while line < bounds.y + bounds.height {
                 let end = damage.line_ranges(line, bounds, &mut self.ranges);
                 for line in line..end {
+                    let clip_line = clips.line(clip, line);
                     for range in &self.ranges {
-                        let span = PhysicalRect::new(range.start as i32, line, (range.end - range.start) as i32, 1);
-                        if clip == 0 {
+                        clip_line.for_each(range.start as i32..range.end as i32, |range, coverage| {
                             raster::draw_line(
                                 commands,
                                 list,
                                 clips,
                                 offset,
                                 line,
-                                span,
-                                255,
+                                PhysicalRect::new(range.start, line, range.end - range.start, 1),
+                                coverage,
                                 images,
                                 text,
                                 PixelSpan {
@@ -53,25 +53,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Direct {
                                     pixels: buffer.line_mut(line as usize),
                                 },
                             );
-                        } else {
-                            clips.for_each(clip, line, span.x..span.x + span.width, |range, coverage| {
-                                raster::draw_line(
-                                    commands,
-                                    list,
-                                    clips,
-                                    offset,
-                                    line,
-                                    PhysicalRect::new(range.start, line, range.end - range.start, 1),
-                                    coverage,
-                                    images,
-                                    text,
-                                    PixelSpan {
-                                        x: screen.x,
-                                        pixels: buffer.line_mut(line as usize),
-                                    },
-                                );
-                            });
-                        }
+                        });
                     }
                 }
                 line = end;

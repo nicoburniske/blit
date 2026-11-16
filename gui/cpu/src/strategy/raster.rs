@@ -8,7 +8,6 @@ use super::{
 };
 use crate::{Pixel, PixelSpan, RenderContext, StoredImage, TextRenderer, render::RenderTarget};
 
-#[inline(always)]
 pub fn draw_line<P: Pixel>(
     commands: &mut RasterCommands<P>,
     list: &DisplayList,

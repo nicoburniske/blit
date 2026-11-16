@@ -20,42 +20,17 @@ pub struct ClipNode {
     radii: Radii,
 }
 
-pub struct ClipLine {
-    pub parent: ClipId,
-    pub rounded: RoundedLine,
-    pub start: i32,
-    pub end: i32,
-    pub full_start: i32,
-    pub full_end: i32,
-}
-
-pub struct ClipSpan {
-    pub start: i32,
-    pub end: i32,
-    pub full_start: i32,
-    pub full_end: i32,
-}
-
-impl ClipSpan {
-    pub fn for_each(self, mut coverage: impl FnMut(i32) -> u8, mut draw: impl FnMut(Range<i32>, u8)) {
-        let full_start = self.full_start.clamp(self.start, self.end);
-        let full_end = self.full_end.clamp(full_start, self.end);
-        for x in self.start..full_start {
-            let coverage = coverage(x);
-            if coverage != 0 {
-                draw(x..x + 1, coverage);
-            }
-        }
-        if full_start < full_end {
-            draw(full_start..full_end, 255);
-        }
-        for x in full_end..self.end {
-            let coverage = coverage(x);
-            if coverage != 0 {
-                draw(x..x + 1, coverage);
-            }
-        }
-    }
+pub struct ClipLine<'a> {
+    pub range: Range<i32>,
+    pub opaque: Range<i32>,
+    /// first row of the next corner zone
+    pub until: i32,
+    stack: &'a ClipStack,
+    id: ClipId,
+    y: i32,
+    rounded: Option<RoundedLine>,
+    // where every ancestor is opaque so edges only need this clip
+    parents: Range<i32>,
 }
 
 impl ClipStack {
@@ -89,72 +64,79 @@ impl ClipStack {
         }
     }
 
-    pub fn for_each(&self, mut id: ClipId, line: i32, range: Range<i32>, draw: impl FnMut(Range<i32>, u8)) {
-        let clip_id = id;
-        let mut span = ClipSpan {
-            start: range.start,
-            end: range.end,
-            full_start: range.start,
-            full_end: range.end,
+    pub fn line(&self, id: ClipId, y: i32) -> ClipLine<'_> {
+        let mut line = ClipLine {
+            range: i32::MIN..i32::MAX,
+            opaque: i32::MIN..i32::MAX,
+            until: i32::MAX,
+            stack: self,
+            id,
+            y,
+            rounded: None,
+            parents: i32::MIN..i32::MAX,
         };
+        let mut id = id;
         while id != 0 {
             let node = &self.nodes[id as usize - 1];
-            let Some(rounded) = RoundedLine::new(node.area, node.radii, line) else {
-                return;
+            line.until = line.until.min(RoundedLine::zone_until(node.area, node.radii, y));
+            let Some(rounded) = RoundedLine::new(node.area, node.radii, y) else {
+                line.range = 0..0;
+                break;
             };
-            span.start = span.start.max(rounded.visible_start());
-            span.end = span.end.min(rounded.visible_end());
-            span.full_start = span.full_start.max(rounded.full_start());
-            span.full_end = span.full_end.min(rounded.full_end());
-            if span.start >= span.end {
-                return;
+            if id == line.id {
+                line.rounded = Some(rounded);
+            } else {
+                line.parents.start = line.parents.start.max(rounded.full_start());
+                line.parents.end = line.parents.end.min(rounded.full_end());
+            }
+            line.range.start = line.range.start.max(rounded.visible_start());
+            line.range.end = line.range.end.min(rounded.visible_end());
+            line.opaque.start = line.opaque.start.max(rounded.full_start());
+            line.opaque.end = line.opaque.end.min(rounded.full_end());
+            if line.range.is_empty() {
+                break;
             }
             id = node.parent;
         }
-        span.for_each(
-            |x| {
-                let mut id = clip_id;
-                let mut coverage = 255u32;
-                while id != 0 {
-                    let node = &self.nodes[id as usize - 1];
-                    let Some(rounded) = RoundedLine::new(node.area, node.radii, line) else {
-                        return 0;
-                    };
-                    coverage = (coverage * rounded.coverage(x) as u32 + 127) / 255;
-                    id = node.parent;
-                }
-                coverage as u8
-            },
-            draw,
-        );
-    }
-
-    pub fn line_ranges(&self, line: i32, ranges: &mut Vec<Option<ClipLine>>) {
-        ranges.clear();
-        for node in &self.nodes {
-            let range = RoundedLine::new(node.area, node.radii, line).and_then(|rounded| {
-                let mut line = ClipLine {
-                    parent: node.parent,
-                    rounded,
-                    start: rounded.visible_start(),
-                    end: rounded.visible_end(),
-                    full_start: rounded.full_start(),
-                    full_end: rounded.full_end(),
-                };
-                if node.parent != 0 {
-                    let parent = ranges[node.parent as usize - 1].as_ref()?;
-                    line.start = line.start.max(parent.start);
-                    line.end = line.end.min(parent.end);
-                    line.full_start = line.full_start.max(parent.full_start);
-                    line.full_end = line.full_end.min(parent.full_end);
-                }
-                (line.start < line.end).then_some(line)
-            });
-            ranges.push(range);
-        }
+        line
     }
 
     pub fn clear(&mut self) {
         self.nodes.clear();
+    }
+}
+
+impl ClipLine<'_> {
+    pub fn for_each(&self, range: Range<i32>, mut draw: impl FnMut(Range<i32>, u8)) {
+        let start = range.start.max(self.range.start);
+        let end = range.end.min(self.range.end);
+        if start >= end {
+            return;
+        }
+        let full_start = self.opaque.start.clamp(start, end);
+        let full_end = self.opaque.end.clamp(full_start, end);
+        if full_start < full_end {
+            draw(full_start..full_end, 255);
+        }
+        for x in (start..full_start).chain(full_end..end) {
+            let coverage = match &self.rounded {
+                Some(rounded) if self.parents.contains(&x) => rounded.coverage(x),
+                // overlapping rounded edges resolve through every ancestor
+                _ => {
+                    let mut id = self.id;
+                    let mut coverage = 255u32;
+                    while id != 0 {
+                        let node = &self.stack.nodes[id as usize - 1];
+                        let rounded = RoundedLine::new(node.area, node.radii, self.y);
+                        coverage = (coverage * rounded.map_or(0, |rounded| rounded.coverage(x)) as u32 + 127) / 255;
+                        id = node.parent;
+                    }
+                    coverage as u8
+                }
+            };
+            if coverage != 0 {
+                draw(x..x + 1, coverage);
+            }
+        }
     }
 }

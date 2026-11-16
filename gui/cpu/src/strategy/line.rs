@@ -1,31 +1,24 @@
 use std::ops::Range;
 
 use blit::geometry::PhysicalRect;
-use blit_arena::Arena;
-use blit_gui::display_list::DisplayList;
 
 use super::{
     RenderStrategy,
-    clip::{ClipLine, ClipSpan, ClipStack},
-    command::{CommandId, Coverage, RasterCommands},
+    clip::{ClipId, ClipLine},
+    command::{CommandId, Payload},
     raster,
 };
-use crate::{DamageTracker, Pixel, PixelBuffer, PixelSpan, RenderState, StoredImage, TextRenderer};
-
-/// once a span has FEW_PIECES pieces, narrower opaque pieces are drawn through instead of split off
-const MIN_PIECE: usize = 8;
-const FEW_PIECES: usize = 8;
+use crate::{DamageTracker, Pixel, PixelBuffer, PixelSpan, PremultipliedRgbaColor, RenderState};
 
 pub struct Scanline {
     span_occlusion: bool,
     starts: Vec<CommandId>,
     active: Vec<CommandId>,
     ranges: Vec<Range<usize>>,
-    clip_ranges: Vec<Option<ClipLine>>,
-    // opaque pieces of the current span with the command they start drawing from
-    pieces: Vec<(Range<usize>, usize)>,
+    plan: Vec<Draw>,
     uncovered: Vec<Range<usize>>,
     remaining: Vec<Range<usize>>,
+    edges: Vec<i32>,
 }
 
 impl Scanline {
@@ -43,10 +36,10 @@ impl Default for Scanline {
             starts: Vec::new(),
             active: Vec::new(),
             ranges: Vec::new(),
-            clip_ranges: Vec::new(),
-            pieces: Vec::new(),
+            plan: Vec::new(),
             uncovered: Vec::new(),
             remaining: Vec::new(),
+            edges: Vec::new(),
         }
     }
 }
@@ -62,17 +55,12 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
         let images = &mut context.images;
         let text = &mut context.text;
         let buffer = &mut context.buffer;
-        let mut clipped = false;
         self.starts.extend(
             commands
                 .range
                 .clone()
                 .filter(|id| damage.intersects(commands.bounds(*id), commands.clip(*id))),
         );
-        for &id in &self.starts {
-            let metadata = &commands.metadata[id as usize];
-            clipped |= metadata.clip != 0;
-        }
         self.starts.sort_unstable_by(|left, right| {
             commands
                 .vertical_bounds(*left)
@@ -113,215 +101,170 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                 continue;
             }
 
-            if clipped {
-                clips.line_ranges(line, &mut self.clip_ranges);
+            // reuse the plan until command bounds or coverage can change
+            let mut until = ranges_valid_until;
+            if let Some(&command) = self.starts.get(next) {
+                until = until.min(commands.vertical_bounds(command).start);
             }
 
-            let clip_span = |clip: u32, mut span: Range<i32>| {
-                if clip != 0 {
-                    let clip = self.clip_ranges[clip as usize - 1].as_ref()?;
-                    span.start = span.start.max(clip.full_start);
-                    span.end = span.end.min(clip.full_end);
+            // plan front to back then replay in painter order
+            self.plan.clear();
+            self.uncovered.clear();
+            self.uncovered.extend(self.ranges.iter().cloned());
+            for &command in self.active.iter().rev() {
+                if self.uncovered.is_empty() {
+                    break;
                 }
-                (span.start < span.end).then_some(span)
-            };
-
-            for range in &self.ranges {
-                self.pieces.clear();
-                self.uncovered.clear();
-                self.uncovered.push(range.clone());
-                if self.span_occlusion {
-                    // front to back, each opaque span claims the uncovered parts it overlaps
-                    for (index, &command) in self.active.iter().enumerate().rev() {
-                        if self.uncovered.is_empty() {
-                            break;
-                        }
-                        if commands.metadata[command as usize].coverage == Coverage::None {
-                            continue;
-                        }
-                        let bounds = commands.horizontal_bounds(command);
-                        let crowded = self.pieces.len() >= FEW_PIECES;
-                        if bounds.end <= range.start as i32
-                            || bounds.start >= range.end as i32
-                            || (crowded && bounds.end - bounds.start < MIN_PIECE as i32)
-                        {
-                            continue;
-                        }
-                        let Some(span) = commands
-                            .opaque_span(command, line, list, clips, images, text)
-                            .and_then(|span| clip_span(commands.clip(command), span))
-                        else {
-                            continue;
-                        };
-                        let (start, end) = (span.start.max(0) as usize, span.end.max(0) as usize);
-                        self.remaining.clear();
-                        for gap in self.uncovered.drain(..) {
-                            let claimed = gap.start.max(start)..gap.end.min(end);
-                            if claimed.is_empty() || (crowded && claimed.len() < MIN_PIECE) {
-                                self.remaining.push(gap);
-                                continue;
-                            }
-                            if gap.start < claimed.start {
-                                self.remaining.push(gap.start..claimed.start);
-                            }
-                            if claimed.end < gap.end {
-                                self.remaining.push(claimed.end..gap.end);
-                            }
-                            self.pieces.push((claimed, index));
-                        }
-                        std::mem::swap(&mut self.uncovered, &mut self.remaining);
-                    }
-                }
-                let pixels = buffer.write_line(line as usize, range.clone());
-                let mut draw = |first: usize, start: usize, end: usize| {
-                    if start >= end {
-                        return;
-                    }
-                    let offset = start - range.start;
-                    let row = PixelSpan {
-                        x: start as i32,
-                        pixels: &mut pixels[offset..offset + end - start],
-                    };
-                    if clipped {
-                        draw_commands::<true, _>(
-                            commands,
-                            list,
-                            clips,
-                            &self.active[first..],
-                            &self.clip_ranges,
-                            images,
-                            text,
-                            row,
-                            line,
-                        );
-                    } else {
-                        draw_commands::<false, _>(
-                            commands,
-                            list,
-                            clips,
-                            &self.active[first..],
-                            &self.clip_ranges,
-                            images,
-                            text,
-                            row,
-                            line,
-                        );
-                    }
+                let id = commands.clip(command);
+                let Some(bounds) = clips.bounds(id, commands.bounds(command)) else {
+                    continue;
                 };
-                for (piece, first) in &self.pieces {
-                    draw(*first, piece.start, piece.end);
+                let bounds = bounds.x..bounds.x + bounds.width;
+                let first_gap = self.uncovered.partition_point(|gap| gap.end as i32 <= bounds.start);
+                if first_gap == self.uncovered.len() || self.uncovered[first_gap].start as i32 >= bounds.end {
+                    continue;
                 }
-                for gap in &self.uncovered {
-                    draw(0, gap.start, gap.end);
+                // corners only move one way within a zone so its first and last rows bound the opaque span
+                let clip = clips.line(id, line);
+                until = until.min(clip.until);
+                let last = clips.line(id, clip.until.saturating_sub(1).max(line));
+                let opaque = if clip.range.is_empty() || last.range.is_empty() {
+                    0..0
+                } else {
+                    clip.opaque.start.max(last.opaque.start)..clip.opaque.end.min(last.opaque.end)
+                };
+                let first = self.plan.len();
+                for gap in &self.uncovered[first_gap..] {
+                    if gap.start as i32 >= bounds.end {
+                        break;
+                    }
+                    let range = (gap.start as i32).max(bounds.start)..(gap.end as i32).min(bounds.end);
+                    // spans reaching past the opaque span resolve clip coverage per row
+                    let clip = if opaque.start <= range.start && range.end <= opaque.end { 0 } else { id };
+                    self.plan.push(Draw {
+                        command,
+                        range,
+                        row: Row::Clip(clip),
+                    });
+                }
+                if first == self.plan.len() {
+                    continue;
+                }
+                until = until.min(commands.vertical_bounds(command).end);
+                if !self.span_occlusion {
+                    continue;
+                }
+                let (span, zone) = commands.opaque_span(command, line, list, clips, images, text);
+                until = until.min(zone);
+                let (last, _) = commands.opaque_span(command, zone.saturating_sub(1).max(line), list, clips, images, text);
+                let start = span.start.max(last.start).max(opaque.start).max(0) as usize;
+                let end = span.end.min(last.end).min(opaque.end).max(0) as usize;
+                if start >= end {
+                    continue;
+                }
+                self.remaining.clear();
+                for gap in self.uncovered.drain(..) {
+                    let claimed = gap.start.max(start)..gap.end.min(end);
+                    if claimed.is_empty() {
+                        self.remaining.push(gap);
+                        continue;
+                    }
+                    if gap.start < claimed.start {
+                        self.remaining.push(gap.start..claimed.start);
+                    }
+                    if claimed.end < gap.end {
+                        self.remaining.push(claimed.end..gap.end);
+                    }
+                }
+                std::mem::swap(&mut self.uncovered, &mut self.remaining);
+            }
+
+            // resolve band wide colors in painter order since preparation fuses neighbors
+            for draw in self.plan.iter_mut().rev() {
+                if let Row::Clip(0) = draw.row
+                    && let Payload::Rectangle(rectangle) = commands.prepare(draw.command, list, clips, images, text)
+                    && let Some(color) = rectangle.uniform(line..until, draw.range.clone())
+                {
+                    draw.row = Row::Fill(color);
                 }
             }
-            line += 1;
+            // sort by x for memory locality when writing rows left to right
+            // split overlaps within the draw budget or replay whole spans in painter order
+            self.plan.sort_unstable_by_key(|draw| draw.range.start);
+            if self.plan.windows(2).any(|pair| pair[0].range.end > pair[1].range.start) {
+                self.edges.clear();
+                self.edges.extend(self.plan.iter().flat_map(|draw| [draw.range.start, draw.range.end]));
+                self.edges.sort_unstable();
+                self.edges.dedup();
+                let edges = &self.edges;
+                let cuts = |range: &Range<i32>| {
+                    let first = edges.partition_point(|edge| *edge <= range.start);
+                    let end = edges.partition_point(|edge| *edge < range.end);
+                    &edges[first..end]
+                };
+                let original = self.plan.len();
+                // each cut adds a draw, so allow at most one extra draw per original span
+                let within_budget = self.plan.iter().try_fold(original, |budget, draw| {
+                    budget.checked_sub(cuts(&draw.range).len())
+                });
+                if within_budget.is_some() {
+                    for index in 0..original {
+                        let Draw { command, ref range, row } = self.plan[index];
+                        let mut start = range.start;
+                        for &end in cuts(range) {
+                            self.plan.push(Draw { command, range: start..end, row });
+                            start = end;
+                        }
+                        self.plan[index].range.start = start;
+                    }
+                    self.plan.sort_unstable_by_key(|draw| (draw.range.start, draw.command));
+                } else {
+                    self.plan.sort_unstable_by_key(|draw| (draw.command, draw.range.start));
+                }
+            }
+            let mut draw_line = |command, line, range: Range<i32>, coverage, row: PixelSpan<'_, B::Pixel>| {
+                let span = PhysicalRect::new(range.start, line, range.end - range.start, 1);
+                raster::draw_line(commands, list, clips, command, line, span, coverage, images, text, row);
+            };
+            for line in line..until {
+                // draws sharing a clip sit next to each other so the last resolved clip row is reused
+                let mut shared: Option<(ClipId, ClipLine)> = None;
+                for draw in &self.plan {
+                    let (command, x) = (draw.command, draw.range.start);
+                    let pixels = buffer.write_line(line as usize, x as usize..draw.range.end as usize);
+                    match draw.row {
+                        Row::Fill(color) => B::Pixel::blend_slice(pixels, color),
+                        Row::Clip(0) => draw_line(command, line, draw.range.clone(), 255, PixelSpan { x, pixels }),
+                        Row::Clip(clip) => {
+                            shared.take_if(|(id, _)| *id != clip);
+                            let (_, clip) = shared.get_or_insert_with(|| (clip, clips.line(clip, line)));
+                            clip.for_each(draw.range.clone(), |range, coverage| {
+                                draw_line(command, line, range, coverage, PixelSpan { x, pixels: &mut *pixels })
+                            });
+                        }
+                    }
+                }
+            }
+            line = until;
         }
         self.starts.clear();
         self.active.clear();
         self.ranges.clear();
-        self.clip_ranges.clear();
+        self.plan.clear();
     }
 }
 
-fn draw_commands<const CLIPPED: bool, P: Pixel>(
-    commands: &mut RasterCommands<P>,
-    list: &DisplayList,
-    clips: &ClipStack,
-    active: &[CommandId],
-    clip_ranges: &[Option<ClipLine>],
-    images: &mut Arena<StoredImage>,
-    text: &mut TextRenderer,
-    row: PixelSpan<'_, P>,
-    line: i32,
-) {
-    let range = row.x as usize..row.x as usize + row.pixels.len();
-    for command in active {
-        let bounds = commands.horizontal_bounds(*command);
-        if bounds.end <= range.start as i32 || bounds.start >= range.end as i32 {
-            continue;
-        }
-        let mut start = bounds.start.max(range.start as i32);
-        let mut end = bounds.end.min(range.end as i32);
-        if CLIPPED {
-            let clip = commands.clip(*command);
-            if clip != 0 {
-                let Some(clipped) = &clip_ranges[clip as usize - 1] else {
-                    continue;
-                };
-                start = start.max(clipped.start);
-                end = end.min(clipped.end);
-                if start >= end {
-                    continue;
-                }
-                if start < clipped.full_start || end > clipped.full_end {
-                    ClipSpan {
-                        start,
-                        end,
-                        full_start: clipped.full_start,
-                        full_end: clipped.full_end,
-                    }
-                    .for_each(
-                        |x| {
-                            let mut id = clip;
-                            let mut coverage = 255u32;
-                            while id != 0 {
-                                let Some(line) = &clip_ranges[id as usize - 1] else {
-                                    return 0;
-                                };
-                                coverage = (coverage * line.rounded.coverage(x) as u32 + 127) / 255;
-                                id = line.parent;
-                            }
-                            coverage as u8
-                        },
-                        |range, coverage| {
-                            let span = PhysicalRect {
-                                x: range.start,
-                                y: line,
-                                width: range.end - range.start,
-                                height: 1,
-                            };
-                            raster::draw_line(
-                                commands,
-                                list,
-                                clips,
-                                *command,
-                                line,
-                                span,
-                                coverage,
-                                images,
-                                text,
-                                PixelSpan {
-                                    x: row.x,
-                                    pixels: row.pixels,
-                                },
-                            );
-                        },
-                    );
-                    continue;
-                }
-            }
-        }
-        let span = PhysicalRect {
-            x: start,
-            y: line,
-            width: end - start,
-            height: 1,
-        };
-        raster::draw_line(
-            commands,
-            list,
-            clips,
-            *command,
-            line,
-            span,
-            255,
-            images,
-            text,
-            PixelSpan {
-                x: row.x,
-                pixels: row.pixels,
-            },
-        );
-    }
+struct Draw {
+    command: CommandId,
+    range: Range<i32>,
+    row: Row,
+}
+
+/// how a planned span draws each row of its band
+#[derive(Clone, Copy)]
+enum Row {
+    /// one color resolved for the whole band
+    Fill(PremultipliedRgbaColor),
+    /// draws through a clip resolved per row where zero means fully inside
+    Clip(ClipId),
 }

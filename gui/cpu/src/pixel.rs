@@ -508,6 +508,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         write_ramp_scalar(tail, color, step, rounding);
     }
 
+    #[inline(always)]
     fn blend_slice(pixels: &mut [Self], color: PremultipliedRgbaColor) {
         match color.alpha {
             0 => return,

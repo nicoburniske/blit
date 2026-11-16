@@ -188,6 +188,9 @@ impl PreparedFill {
 
     #[inline]
     pub fn draw_span<P: Pixel>(&self, gradients: &Gradients, x: i32, y: i32, coverage: u8, pixels: &mut [P]) {
+        if pixels.is_empty() {
+            return;
+        }
         match *self {
             Self::Solid(color) => {
                 let color = color.coverage(coverage as u32);

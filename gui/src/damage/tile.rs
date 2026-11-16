@@ -197,16 +197,24 @@ impl DamageTracker for TileDamage {
         }
         let row = line as usize >> self.shift;
         let size = 1usize << self.shift;
-        next = next.min(((row + 1) * size).min(self.screen.height as usize) as i32);
         let left = bounds.x as usize >> self.shift;
         let right = ((bounds.x + bounds.width - 1) as usize >> self.shift) + 1;
         let stride = self.columns + 1;
-        let mut start = None;
-        for column in left..right {
+        let dirty = |row: usize, column: usize| {
             let above = row * stride + column;
             let below = above + stride;
-            let dirty = self.sums[below + 1] - self.sums[above + 1] != self.sums[below] - self.sums[above];
-            if dirty {
+            self.sums[below + 1] - self.sums[above + 1] != self.sums[below] - self.sums[above]
+        };
+        // following tile rows with the same dirty columns extend the ranges
+        let limit = next.min(self.screen.height) as usize;
+        let mut end = row + 1;
+        while end * size < limit && (left..right).all(|column| dirty(end, column) == dirty(row, column)) {
+            end += 1;
+        }
+        next = next.min((end * size).min(limit) as i32);
+        let mut start = None;
+        for column in left..right {
+            if dirty(row, column) {
                 start.get_or_insert((column * size).max(bounds.x as usize));
             } else if let Some(start) = start.take() {
                 ranges.push(start..column * size);

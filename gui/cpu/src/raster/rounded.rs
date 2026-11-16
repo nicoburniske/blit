@@ -45,6 +45,25 @@ pub struct RoundedLine {
 }
 
 impl RoundedLine {
+    /// first row where a corner starts or ends so each side only narrows or widens before it
+    pub fn zone_until(area: PhysicalRect, radii: Radii, line: i32) -> i32 {
+        let end = area.y.saturating_add(area.height);
+        let mut next = i32::MAX;
+        for row in [
+            area.y,
+            area.y.saturating_add(radii.top_left),
+            area.y.saturating_add(radii.top_right),
+            end.saturating_sub(radii.bottom_left),
+            end.saturating_sub(radii.bottom_right),
+            end,
+        ] {
+            if row > line {
+                next = next.min(row);
+            }
+        }
+        next
+    }
+
     #[inline]
     pub fn new(area: PhysicalRect, radii: Radii, line: i32) -> Option<Self> {
         if area.width <= 0 || area.height <= 0 {

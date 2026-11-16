@@ -102,8 +102,9 @@ impl<'a, P: Pixel> RenderContext<'a, P> {
             RenderTarget::Pass { target, output } => {
                 for bounds in output.rects().filter_map(|region| region.intersection(area)) {
                     for y in bounds.y..bounds.y + bounds.height {
-                        self.clips
-                            .for_each(self.clip, y, bounds.x..bounds.x + bounds.width, |range, coverage| {
+                        self.clips.line(self.clip, y).for_each(
+                            bounds.x..bounds.x + bounds.width,
+                            |range, coverage| {
                                 draw(Span {
                                     x: range.start,
                                     y,
@@ -113,7 +114,8 @@ impl<'a, P: Pixel> RenderContext<'a, P> {
                                     gradients: self.gradients,
                                     pixels: target.write_line(y as usize, range.start as usize..range.end as usize),
                                 });
-                            });
+                            },
+                        );
                     }
                 }
             }
