@@ -12,7 +12,7 @@ use std::{any::TypeId, marker::PhantomData, mem::size_of, num::NonZeroU32, panic
 use self::{
     animation::{AnimationState, MotionState, Playback},
     arena::{BumpArena, BumpId},
-    timer::TimerState,
+    timer::{Timer, TimerState},
     ui::{ROOT, Site, Target, Ui},
 };
 use crate::{

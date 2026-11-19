@@ -78,6 +78,7 @@ pub use self::{
         Frame, NodeId,
         atom::AtomCx,
         interact::{Contacts, InteractCx},
+        timer::Timer,
         ui::{Scope, Target, Ui, state},
     },
     frame_store::{FrameSlice, FrameSliceBuilder, FrameStore},

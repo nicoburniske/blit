@@ -438,12 +438,12 @@ fn call_sites_identify_children() {
         let fired = render_inputs(&mut frame, &mut context, time, [], |ui: Ui<'_>| {
             let mut root = ui.layout(Overlay);
             if extra {
-                assert!(!root.child().timer(period));
+                assert!(!root.child().timer(period).fired());
             }
             let mut fired = [false; 4];
             for pair in fired.chunks_mut(2) {
-                pair[0] = root.child().timer(period);
-                pair[1] = root.child().timer(period);
+                pair[0] = root.child().timer(period).fired();
+                pair[1] = root.child().timer(period).fired();
             }
             fired
         });
@@ -468,7 +468,7 @@ fn keyed_children_resolve_ahead_and_keep_state_across_parents() {
                 let mut parent = root.child().layout(Overlay);
                 if index == column {
                     let mut card = parent.child_in(scope, "card");
-                    fired = card.timer(Duration::from_millis(500));
+                    fired = card.timer(Duration::from_millis(500)).fired();
                     card.insert(Fill('B', Size::uniform(10.0)));
                 }
             }

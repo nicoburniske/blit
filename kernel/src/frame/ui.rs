@@ -122,21 +122,21 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
         value
     }
 
-    /// fires once, `duration` after the target first calls it from this site
+    /// fires once, `duration` after the target first calls it from this site or after a reset
     #[track_caller]
-    pub fn timer(&mut self, duration: Duration) -> bool {
+    pub fn timer(&mut self, duration: Duration) -> Timer<'_> {
         let id = self.inner.target.child(Location::caller());
         let frame = &mut *self.inner.frame;
-        TimerState::update(&mut frame.timers, id, duration, None, frame.time)
+        TimerState::update(&mut frame.timers, id, duration, false, frame.time)
     }
 
-    /// fires every `period`, counting from when the target first calls it from this site
+    /// fires every `period`, counting from when the target first calls it from this site or from a reset
     #[track_caller]
-    pub fn interval(&mut self, period: Duration) -> bool {
+    pub fn interval(&mut self, period: Duration) -> Timer<'_> {
         assert!(!period.is_zero(), "an interval must be nonzero");
         let id = self.inner.target.child(Location::caller());
         let frame = &mut *self.inner.frame;
-        TimerState::update(&mut frame.timers, id, period, Some(period), frame.time)
+        TimerState::update(&mut frame.timers, id, period, true, frame.time)
     }
 
     /// focuses the target from the next build while it requests an interaction

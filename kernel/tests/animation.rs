@@ -65,7 +65,7 @@ fn animation_and_timers() {
                         Tween::new(Duration::from_secs(1), Easing::LINEAR),
                         Default::default(),
                     ),
-                    ui.timer(Duration::from_millis(500)),
+                    ui.timer(Duration::from_millis(500)).fired(),
                 )
             },
         );
@@ -618,5 +618,35 @@ fn reparented_motion_continues_from_its_screen_position() {
             }
         });
         assert_eq!(frame.area(Scope::ROOT.key("card")), Some(Rect::new(x, 0.0, 2.0, 2.0)));
+    }
+}
+
+#[test]
+fn intervals_count_and_reset() {
+    let (mut frame, mut context) = frame(Size::uniform(1.0));
+    for (millis, edited, count, fired, wake) in [
+        (0, false, 0, false, 500),
+        (500, false, 1, true, 1000),
+        (1100, false, 2, true, 1500),
+        // resetting counts from now
+        (1200, true, 0, false, 1700),
+        (1500, false, 0, false, 1700),
+        (1700, false, 1, true, 2200),
+    ] {
+        let result = render_inputs(
+            &mut frame,
+            &mut context,
+            Duration::from_millis(millis),
+            [],
+            |mut ui: Ui<'_>| {
+                let mut blink = ui.interval(Duration::from_millis(500));
+                if edited {
+                    blink.reset();
+                }
+                (blink.count(), blink.fired())
+            },
+        );
+        assert_eq!(result, (count, fired), "{millis}ms");
+        assert_eq!(frame.next_timer_deadline(), Some(Duration::from_millis(wake)));
     }
 }
