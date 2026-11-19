@@ -52,6 +52,8 @@ pub struct MotionState<T: Scalar> {
     pub node: NodeId,
     pub initialized: bool,
     pub seen: bool,
+    // moved to another reference and still settling
+    pub flying: bool,
 }
 
 impl<T: Scalar> MotionState<T> {
@@ -63,6 +65,7 @@ impl<T: Scalar> MotionState<T> {
             node,
             initialized: false,
             seen: true,
+            flying: false,
         }
     }
 

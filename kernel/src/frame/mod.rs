@@ -200,6 +200,29 @@ impl<C: Context> Frame<C> {
             true,
         );
         layout::position(self);
+        for state in &mut self.motions {
+            state.flying &= state.is_active();
+        }
+        // a lifted node paints above everything under its lift target while it flies to a new reference
+        for index in 0..self.bounds.len() {
+            let Bounds {
+                node,
+                motion: Some(Motion { lift: Some(lift), .. }),
+                ..
+            } = self.bounds[index]
+            else {
+                continue;
+            };
+            let id = self.nodes[node.index()].widget_id;
+            let flying = self
+                .motions
+                .binary_search_by_key(&id, |state| state.id)
+                .is_ok_and(|state| self.motions[state].flying);
+            if flying {
+                self.nodes[node.index()].visual_parent = self.resolve_target(node, lift);
+                self.placements[node.index()].z_index = i16::MAX;
+            }
+        }
         paint::resolve_order(self, &bump);
         paint::resolve_clips(self, &bump);
         interact::resolve(self);

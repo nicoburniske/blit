@@ -64,7 +64,7 @@ pub fn board<'a, C: Context>(
                 // it stays lifted on the release frame and lands from there the next
                 let Some(area) = (response.active || response.released).then(|| node.area()).flatten() else {
                     node.item(item())
-                        .motion(Motion::new(spring).position())
+                        .motion(Motion::new(spring).position().lift(Target::ROOT))
                         .build(|ui: Ui<'_, C>| card(ui, Some(id), false));
                     continue;
                 };

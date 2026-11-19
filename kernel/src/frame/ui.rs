@@ -622,7 +622,7 @@ impl<C: Context> Frame<C> {
         }
     }
 
-    fn resolve_target(&self, node: NodeId, target: Target) -> NodeId {
+    pub(super) fn resolve_target(&self, node: NodeId, target: Target) -> NodeId {
         let target = match (target.base, target.key) {
             (Base::Parent, None) => self.nodes[node.index()].parent,
             (Base::Root, None) => NodeId::new(0),

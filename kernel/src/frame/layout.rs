@@ -381,6 +381,7 @@ pub fn position<C: Context>(frame: &mut Frame<C>) {
         let Ok(state) = frame.motions.binary_search_by_key(&id, |state| state.id) else {
             continue;
         };
+        frame.motions[state].flying = true;
         let animator = &mut frame.motions[state].animator;
         let start = frame.old_placements[old].area;
         if motion.properties.intersects(MotionProps::X) && area.x != start.x {

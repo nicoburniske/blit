@@ -656,3 +656,96 @@ fn intervals_count_and_reset() {
         assert_eq!(frame.next_timer_deadline(), Some(Duration::from_millis(wake)));
     }
 }
+
+#[test]
+fn lifted_motion_paints_above_while_moving() {
+    let (mut frame, mut context) = frame(Size::uniform(40.0));
+    let motion = Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR))
+        .position()
+        .lift(Target::ROOT);
+    // the card moves into the first column, under the second until lifted
+    for (millis, column, lifted) in [(0, 1, false), (0, 0, true), (1000, 0, false)] {
+        render_inputs(
+            &mut frame,
+            &mut context,
+            Duration::from_millis(millis),
+            [],
+            |ui: Ui<'_>| {
+                let mut board = ui.layout(Rects);
+                let scope = board.scope();
+                for index in 0..2 {
+                    let mut parent = board
+                        .child()
+                        .item(Rect::new(index as f32 * 20.0, 0.0, 10.0, 10.0))
+                        .layout(Fixed(Size::uniform(10.0)));
+                    if index == 1 {
+                        parent.insert(Fill('B', Size::ZERO));
+                    }
+                    if index == column {
+                        parent
+                            .child_in(scope, "card")
+                            .motion(motion)
+                            .insert(Fill('C', Size::uniform(2.0)));
+                    }
+                }
+            },
+        );
+        let order: Vec<char> = context
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                Paint(glyph, _) => Some(*glyph),
+                _ => None,
+            })
+            .collect();
+        let expected = match (column, lifted) {
+            (1, _) => ['B', 'C'],
+            (_, true) => ['B', 'C'],
+            _ => ['C', 'B'],
+        };
+        assert_eq!(order, expected, "{millis}ms column {column}");
+    }
+}
+
+#[test]
+fn motion_within_a_parent_does_not_lift() {
+    let (mut frame, mut context) = frame(Size::uniform(40.0));
+    let motion = Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR))
+        .position()
+        .lift(Target::ROOT);
+    // the card slides down its column while the next column still paints over it
+    for (millis, gap) in [(0, 0.0), (0, 5.0), (500, 5.0)] {
+        render_inputs(
+            &mut frame,
+            &mut context,
+            Duration::from_millis(millis),
+            [],
+            |ui: Ui<'_>| {
+                let mut board = ui.layout(Rects);
+                board
+                    .child()
+                    .item(Rect::new(0.0, 0.0, 10.0, 10.0))
+                    .layout(Column)
+                    .child()
+                    .item(gap)
+                    .motion(motion)
+                    .insert(Fill('C', Size::uniform(2.0)));
+                board
+                    .child()
+                    .item(Rect::new(0.0, 0.0, 10.0, 10.0))
+                    .insert(Fill('B', Size::ZERO));
+            },
+        );
+        // the slide is still running, so a lift would show
+        assert!(gap == 0.0 || frame.has_pending_redraw());
+        let order: Vec<char> = context
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                Paint(glyph, _) => Some(*glyph),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(order, ['C', 'B'], "{millis}ms gap {gap}");
+    }
+}

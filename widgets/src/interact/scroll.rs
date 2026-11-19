@@ -90,8 +90,7 @@ mod tests {
             let responses = [0, 1].map(|id| ui.at(id).interact(interact::scroll()));
             let mut root = ui.layout(rect::new());
             for id in order.get() {
-                root.child_id(id)
-                    .item(Rect::new(id as f32 * 100.0, 0.0, 100.0, 200.0));
+                root.child_id(id).item(Rect::new(id as f32 * 100.0, 0.0, 100.0, 200.0));
             }
             responses
         };

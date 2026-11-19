@@ -256,6 +256,7 @@ fn motions(bencher: divan::Bencher, count: usize, animation: Animation, size: bo
     let config = Motion {
         animation,
         restart: false,
+        lift: None,
         properties: if size {
             blit::MotionProps::SIZE
         } else {

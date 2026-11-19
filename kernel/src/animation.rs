@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use crate::builder;
+use crate::{Target, builder};
 
 /// target motion using a tween or a spring
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -89,6 +89,10 @@ builder! {
         properties: MotionProps = MotionProps::NONE,
         /// discards carried velocity when retargeting
         restart: bool = false,
+        /// while moving to a new parent or anchor, paints above everything under this target,
+        /// which must already be built
+        #[into]
+        lift: Option<Target> = None,
     }
 }
 
