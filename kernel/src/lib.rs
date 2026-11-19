@@ -78,7 +78,7 @@ pub use self::{
         Frame, NodeId,
         atom::AtomCx,
         interact::{Contacts, InteractCx},
-        ui::{NodeTarget, Ui, state},
+        ui::{Scope, Target, Ui, state},
     },
     frame_store::{FrameSlice, FrameSliceBuilder, FrameStore},
     geometry::{
@@ -178,6 +178,25 @@ impl Id {
     /// composes a stable child id without using the current ui node
     pub fn child(self, source: impl std::hash::Hash) -> Self {
         Self::new((self, source))
+    }
+}
+
+// integers widen first so one key names one id whatever its type
+macro_rules! id_from_integer {
+    ($($integer:ty),*) => {$(
+        impl From<$integer> for Id {
+            fn from(key: $integer) -> Self {
+                Self::new(key as u64)
+            }
+        }
+    )*};
+}
+
+id_from_integer!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
+
+impl From<&str> for Id {
+    fn from(key: &str) -> Self {
+        Self::new(key)
     }
 }
 

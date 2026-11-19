@@ -7,13 +7,13 @@ pub mod paint;
 pub mod timer;
 pub mod ui;
 
-use std::{any::TypeId, marker::PhantomData, mem::size_of, num::NonZeroU32, time::Duration};
+use std::{any::TypeId, marker::PhantomData, mem::size_of, num::NonZeroU32, panic::Location, time::Duration};
 
 use self::{
     animation::{AnimationState, MotionState, Playback},
     arena::{BumpArena, BumpId},
     timer::TimerState,
-    ui::{NodeTarget, Ui},
+    ui::{ROOT, Site, Target, Ui},
 };
 use crate::{
     Atom, AtomWidget, Clip, ClipShape, ContactId, ContactSource, Context, FrameInfo, FrameStore, HasFrameStore, Id,
@@ -42,7 +42,7 @@ pub struct Frame<C: Context> {
     paint_order: Vec<NodeId>,
     active_clips: Vec<ResolvedClipId>,
     interaction: interact::InteractionState<C::Scalar>,
-    /// ids passed to [`Ui::area`] during this build
+    /// ids whose areas were requested during this build
     areas_requested: Vec<Id>,
     // requested areas from the previous layout, sorted by id
     areas_previous: Vec<(Id, Rect<C::Scalar>)>,
@@ -51,6 +51,8 @@ pub struct Frame<C: Context> {
     /// animated sizes in the subtree being resolved
     animated_sizes: Vec<MotionProps>,
     timers: Vec<TimerState>,
+    // call sites of children under the open nodes
+    sites: Vec<Site>,
     input: Input<C::Scalar>,
     time: Duration,
     screen: Rect<C::Scalar>,
@@ -86,6 +88,7 @@ impl<C: Context> Default for Frame<C> {
             motions: Vec::new(),
             animated_sizes: Vec::new(),
             timers: Vec::new(),
+            sites: Vec::new(),
             input: Input::None,
             time: Duration::ZERO,
             screen: Rect::default(),
@@ -134,6 +137,7 @@ impl<C: Context> Frame<C> {
         self.places.clear();
         self.bounds.clear();
         self.areas_requested.clear();
+        self.sites.clear();
         self.bump.clear();
         for kind in &mut self.layout_kinds {
             kind.default_item = BumpId::NONE;
@@ -157,8 +161,7 @@ impl<C: Context> Frame<C> {
             timer.seen = false;
         }
 
-        let id = Id::new("blit frame root");
-        let root = self.push_node(None, id);
+        let root = self.push_node(None, ROOT);
         let mut scratch = std::mem::take(&mut self.scratch);
         scratch.prepare();
         let output = widget.build(Ui::new(self, context, &scratch, root));
@@ -227,8 +230,9 @@ impl<C: Context> Frame<C> {
         self.frame_requested = true;
     }
 
-    /// returns the area from the current frame after layout
-    pub fn area(&self, id: Id) -> Option<Rect<C::Scalar>> {
+    /// returns the area of the node `target` names from the root in the latest layout
+    pub fn area(&self, target: impl Into<Target>) -> Option<Rect<C::Scalar>> {
+        let id = self.target_id(NodeId::new(0), target.into());
         self.nodes
             .iter()
             .enumerate()
@@ -345,43 +349,6 @@ impl<C: Context> Frame<C> {
             z_index: 0,
         });
         id
-    }
-
-    fn resolve_target(&self, node: NodeId, target: NodeTarget) -> NodeId {
-        let target = match target {
-            NodeTarget::Parent => self.nodes[node.index()].parent,
-            NodeTarget::Root => NodeId::new(0),
-            NodeTarget::Node(id) => id,
-            NodeTarget::Widget(id) => {
-                let open = {
-                    // open ancestors are cheap to find on the parent chain
-                    let mut ancestor = self.nodes[node.index()].parent;
-                    loop {
-                        let stored = &self.nodes[ancestor.index()];
-                        if stored.widget_id == id {
-                            break Some(ancestor);
-                        }
-                        if stored.parent == ancestor {
-                            break None;
-                        }
-                        ancestor = stored.parent;
-                    }
-                };
-                if let Some(open) = open {
-                    open
-                } else {
-                    // search recent closed nodes first
-                    // todo: repeated lookups are n^2
-                    let index = self.nodes[..node.index()]
-                        .iter()
-                        .rposition(|stored| stored.widget_id == id)
-                        .expect("target widget id must already be assigned");
-                    NodeId::new(index)
-                }
-            }
-        };
-        assert!(target.index() < node.index(), "target must be declared before its node");
-        target
     }
 
     fn bounds_mut(&mut self, node: NodeId) -> &mut Bounds<C::Scalar> {

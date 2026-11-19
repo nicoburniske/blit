@@ -14,14 +14,16 @@ fn motions() {
         ] {
             let build = |ui: Ui<'_>| {
                 let mut column = ui.layout(Column);
-                let mut child = column.child().item(gap).motion(
+                let child = if named {
+                    column.child_id("motion")
+                } else {
+                    column.child()
+                };
+                let child = child.item(gap).motion(
                     Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR))
                         .height()
                         .y(),
                 );
-                if named {
-                    child = child.id(Id::new("motion"));
-                }
                 let (_, measured) = child.build_measured(
                     Constraints {
                         min: Size::new(1.0, 0.0),
@@ -50,8 +52,6 @@ fn motions() {
 #[test]
 fn animation_and_timers() {
     let (mut frame, mut context) = frame(Size::uniform(1.0));
-    let animation = Id::new("animation");
-    let timer = Id::new("timer");
     for (target, millis, expected, fired) in [(0.0, 0, 0.0, false), (1.0, 0, 0.0, false), (1.0, 500, 0.5, true)] {
         let result = render_inputs(
             &mut frame,
@@ -61,12 +61,11 @@ fn animation_and_timers() {
             |mut ui: Ui<'_>| {
                 (
                     ui.animate(
-                        animation,
                         target,
                         Tween::new(Duration::from_secs(1), Easing::LINEAR),
                         Default::default(),
                     ),
-                    ui.timer(timer, Duration::from_millis(500)),
+                    ui.timer(Duration::from_millis(500)),
                 )
             },
         );
@@ -78,7 +77,6 @@ fn animation_and_timers() {
 #[test]
 fn looping_switches_to_target_motion() {
     let (mut frame, mut context) = frame(Size::uniform(1.0));
-    let id = Id::new("looping animation");
     let tween = Tween::new(Duration::from_secs(1), Easing::LINEAR);
     for (millis, duration, expected, active) in [
         (0, Some(1000), 0.0, true),
@@ -98,16 +96,24 @@ fn looping_switches_to_target_motion() {
     ] {
         let now = Duration::from_millis(millis);
         for _ in 0..2 {
-            let value = render_inputs(&mut frame, &mut context, now, [], |mut ui: Ui<'_>| match duration {
-                Some(duration) => ui.animate_loop(
-                    id,
-                    Tween::new(Duration::from_millis(duration), Easing::Function(|t| (t, 1.0))),
-                ),
-                None => ui.animate(id, 1.0, tween, Default::default()),
+            let value = render_inputs(&mut frame, &mut context, now, [], |mut ui: Ui<'_>| {
+                animate(&mut ui, duration, tween)
             });
             assert_eq!(value, expected);
         }
         assert_eq!(frame.has_pending_redraw(), active);
+    }
+
+    // both calls share the caller's site, so they drive one animation
+    #[track_caller]
+    fn animate(ui: &mut Ui<'_>, duration: Option<u64>, tween: Tween) -> f32 {
+        match duration {
+            Some(duration) => ui.animate_loop(Tween::new(
+                Duration::from_millis(duration),
+                Easing::Function(|t| (t, 1.0)),
+            )),
+            None => ui.animate(1.0, tween, Default::default()),
+        }
     }
 }
 
@@ -230,8 +236,7 @@ fn retargeted_motion_measurement() {
             |ui: Ui<'_>| {
                 let mut column = ui.layout(Column);
                 let (_, size) = column
-                    .child()
-                    .id(id)
+                    .child_id(id)
                     .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).height())
                     .build_measured(Constraints::loose(Size::uniform(100.0)), |mut ui: Ui<'_>| {
                         ui.insert(Fill('X', Size::new(1.0, extent)));
@@ -500,8 +505,7 @@ fn spring_motion_measurement_and_settling() {
         let time = Duration::from_millis(millis);
         let measured = render_inputs(&mut frame, &mut context, time, [], |ui: Ui<'_>| {
             ui.layout(Column)
-                .child()
-                .id(id)
+                .child_id(id)
                 .motion(Motion::new(spring).height())
                 .build_measured(Constraints::loose(Size::uniform(100.0)), |mut ui: Ui<'_>| {
                     ui.insert(Fill('X', Size::new(1.0, extent)));
@@ -521,8 +525,7 @@ fn spring_motion_measurement_and_settling() {
     }
     render_inputs(&mut frame, &mut context, Duration::from_secs(10), [], |ui: Ui<'_>| {
         ui.layout(Column)
-            .child()
-            .id(id)
+            .child_id(id)
             .motion(Motion::new(spring).height())
             .insert(Fill('X', Size::new(1.0, 3.0)));
     });
@@ -575,8 +578,7 @@ fn spring_sizes_stay_nonnegative_and_resize_snaps() {
     let build = |extent| {
         move |ui: Ui<'_>| {
             ui.layout(Column)
-                .child()
-                .id(id)
+                .child_id(id)
                 .motion(Motion::new(Spring::new(Duration::from_millis(250), 0.4)).size())
                 .insert(Fill('X', Size::uniform(extent)));
         }

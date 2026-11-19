@@ -1,8 +1,8 @@
 use std::{hint::black_box, time::Duration};
 
 use blit::{
-    Animation, Constraints, Context, Easing, Frame, FrameInfo, Id, Input, Interact, InteractCx, Layout, LayoutCx,
-    Motion, Point, Size, Spring, Tween, Ui, state,
+    Animation, Constraints, Context, Easing, Frame, FrameInfo, Input, Interact, InteractCx, Layout, LayoutCx, Motion,
+    Point, Size, Spring, Target, Tween, Ui, state,
 };
 
 #[global_allocator]
@@ -85,9 +85,19 @@ fn build_passive(bencher: divan::Bencher, count: usize) {
 fn build_explicit_ids(bencher: divan::Bencher, count: usize) {
     let mut frame = Frame::default();
     bencher.bench_local(|| {
-        build(&mut frame, count, |ui, index| {
-            ui.id(Id::new(index)).insert(());
-        })
+        frame.build(
+            &mut (),
+            FrameInfo::new(Size::uniform(1000.0)),
+            Duration::ZERO,
+            Input::None,
+            |ui: Ui<'_, ()>| {
+                let mut root = ui.layout(Stack::default());
+                for index in 0..count {
+                    root.child_id(index).insert(());
+                }
+            },
+        );
+        black_box(&frame);
     });
 }
 
@@ -115,11 +125,22 @@ fn build_motions(bencher: divan::Bencher, count: usize) {
 #[divan::bench(args = [100, 1000])]
 fn build_named_parent(bencher: divan::Bencher, count: usize) {
     let mut frame = Frame::default();
-    let id = Id::new("bench root");
     bencher.bench_local(|| {
-        build(&mut frame, count, |ui, _| {
-            ui.parent(id).insert(());
-        })
+        frame.build(
+            &mut (),
+            FrameInfo::new(Size::uniform(1000.0)),
+            Duration::ZERO,
+            Input::None,
+            |ui: Ui<'_, ()>| {
+                let mut outer = ui.layout(Stack::default());
+                let mut root = outer.child_id("bench root").layout(Stack::default());
+                let target = Target::ROOT.at("bench root");
+                for _ in 0..count {
+                    root.child().parent(target).insert(());
+                }
+            },
+        );
+        black_box(&frame);
     });
 }
 
@@ -174,11 +195,11 @@ fn build_areas_and_layout(bencher: divan::Bencher, count: usize) {
             Input::None,
             |mut ui: Ui<'_, ()>| {
                 for index in 0..10 {
-                    black_box(ui.area(Id::new(index)));
+                    black_box(ui.at(index).area());
                 }
                 let mut root = ui.layout(Stack::default());
                 for index in 0..count {
-                    root.child().id(Id::new(index)).insert(());
+                    root.child_id(index).insert(());
                 }
             },
         );
@@ -194,7 +215,7 @@ fn build(frame: &mut Frame<()>, count: usize, mut child: impl for<'a> FnMut(Ui<'
         Duration::ZERO,
         Input::None,
         |ui: Ui<'_, ()>| {
-            let mut root = ui.id(Id::new("bench root")).layout(Stack::default());
+            let mut root = ui.layout(Stack::default());
             for index in 0..count {
                 child(root.child(), index);
             }
@@ -214,7 +235,7 @@ fn animate(bencher: divan::Bencher, count: usize, animation: Animation) {
             Input::None,
             |mut ui: Ui<'_, ()>| {
                 for index in 0..count {
-                    black_box(ui.animate(Id::new(index), target, animation, Default::default()));
+                    black_box(ui.at(index).animate(target, animation, Default::default()));
                 }
             },
         );
@@ -253,7 +274,7 @@ fn motions(bencher: divan::Bencher, count: usize, animation: Animation, size: bo
                     position: if size { Point::ZERO } else { Point::new(target, target) },
                 });
                 for index in 0..count {
-                    root.child().id(Id::new(index)).motion(config).insert(());
+                    root.child_id(index).motion(config).insert(());
                 }
             },
         );

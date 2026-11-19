@@ -88,3 +88,13 @@ fn escape(frame: &mut Frame<()>) {
     );
 }
 ```
+
+targets only query and request state
+
+```compile_fail
+use blit::*;
+
+fn insert_into_target<C: Context>(mut ui: Ui<'_, C>) {
+    ui.at(1).insert(());
+}
+```

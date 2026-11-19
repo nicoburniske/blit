@@ -8,9 +8,9 @@ use std::{
 use blit::{
     Animation, AnimationOptions, Atom, AtomCx, Clip, ClipShape, Constraints, Contact, ContactId, ContactSource,
     Context, Easing, Frame, FrameInfo, Id, Input, Interact, InteractCx, Layout, LayoutCx, Modifiers, Motion,
-    MouseButton, NodeTarget,
+    MouseButton,
     Phase::{Cancelled, Ended, Held, Started},
-    Place, PlaceCx, Point, Rect, ScrollPhase, Size, Spring, TouchPhase,
+    Place, PlaceCx, Point, Rect, Scope, ScrollPhase, Size, Spring, Target, TouchPhase,
     TouchPhase::{Cancel, Down, Move, Up},
     Tween, Widget,
 };

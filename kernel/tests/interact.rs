@@ -24,19 +24,18 @@ fn keyboard_input_bubbles_until_claimed() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
     let focused = Cell::new(None);
     let build = |mut ui: Ui<'_>| {
-        if let Some(id) = focused.get() {
-            ui.focus(id);
+        if let Some(key) = focused.get() {
+            ui.at(Target::ROOT.scoped(Id::new(key))).focus();
         } else {
             ui.clear_focus();
         }
         let mut root = ui.layout(Overlay);
         let mut branch = |parent, child| {
-            let mut branch = root.child().id(Id::new(parent));
+            let mut branch = root.child_id(Id::new(parent));
             let parent = branch.interact(Keyboard(parent, None));
             let child = branch
                 .layout(Overlay)
-                .child()
-                .id(Id::new(child))
+                .child_in(Scope::ROOT, Id::new(child))
                 .interact(Keyboard(child, Some(child)));
             [parent, child]
         };
@@ -51,7 +50,7 @@ fn keyboard_input_bubbles_until_claimed() {
     let mut next = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], build);
     assert_eq!(next(Input::Text('b')), Some('b'));
     assert_eq!(next(Input::Text('d')), Some('a'));
-    focused.set(Some(Id::new('d')));
+    focused.set(Some('d'));
     next(Input::None);
     assert_eq!(next(Input::Text('d')), Some('d'));
     assert_eq!(next(Input::Text('x')), Some('c'));
@@ -165,13 +164,12 @@ fn gesture_sees_independent_contacts() {
 #[test]
 fn deepest_gesture_captures_first() {
     let (mut frame, mut context) = frame(Size::uniform(200.0));
-    let child_id = Id::new("child");
     let build = |mut ui: Ui<'_>| {
         // requested out of preorder and before the child node exists
-        let child = ui.interact_widget(child_id, CAPTURE)[0];
+        let child = ui.at("child").interact(CAPTURE)[0];
         let parent = ui.interact(CAPTURE)[0];
         let mut root = ui.layout(Overlay);
-        root.child().id(child_id).insert(Fill('C', Size::uniform(200.0)));
+        root.child_id("child").insert(Fill('C', Size::uniform(200.0)));
         (parent, child)
     };
     render(&mut frame, &mut context, &build);
@@ -204,7 +202,7 @@ fn unmounted_owner_retires_contact() {
         let root = ui.interact(WATCH)[0];
         let mut layout = ui.layout(Overlay);
         let owned = mounted.get().then(|| {
-            let mut child = layout.child().id(Id::new("child"));
+            let mut child = layout.child_id(Id::new("child"));
             child.insert(Fill('B', Size::uniform(200.0)));
             child.interact(CAPTURE)[0]
         });
@@ -243,7 +241,7 @@ fn gesture_state_lives_while_requested() {
         let mut updates = [None; 4];
         let (start, end) = rows.get();
         for (row, updates) in updates.iter_mut().enumerate().take(end).skip(start) {
-            let mut child = root.child().id(Id::new(row));
+            let mut child = root.child_id(Id::new(row));
             child.interact(Hover);
             *updates = Some(child.interact(Count));
         }
@@ -270,16 +268,13 @@ fn named_kinds_follow_reordered_nodes() {
     let order = Cell::new([Some(0), Some(1), Some(2)]);
     let build = |mut ui: Ui<'_>| {
         let responses = [0, 1, 2].map(|id| {
-            let id = Id::new(id);
-            let pressed = ui.interact_widget(id, WATCH)[0].is_some_and(|(contact, _)| contact.phase == Started);
-            (ui.interact_widget(id, Hover), pressed)
+            let pressed = ui.at(id).interact(WATCH)[0].is_some_and(|(contact, _)| contact.phase == Started);
+            (ui.at(id).interact(Hover), pressed)
         });
         let mut root = ui.layout(Rects);
         for (index, id) in order.get().into_iter().enumerate() {
             if let Some(id) = id {
-                root.child()
-                    .id(Id::new(id))
-                    .item(Rect::new(index as f32 * 50.0, 0.0, 50.0, 100.0));
+                root.child_id(id).item(Rect::new(index as f32 * 50.0, 0.0, 50.0, 100.0));
             }
         }
         responses
@@ -352,12 +347,12 @@ fn kind_requested_twice_keeps_one_slot() {
     let build = |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
         for id in 0..64 {
-            let mut child = root.child().id(Id::new(id));
+            let mut child = root.child_id(id);
             child.interact(Count);
             child.interact(Count);
         }
         for id in 0..64 {
-            root.interact_widget(Id::new(id), Count);
+            root.at(id).interact(Count);
         }
     };
     for _ in 0..3 {
@@ -372,15 +367,14 @@ fn tapping_unregistered_background_clears_focus() {
     for id in [None, Some(1)] {
         let (mut frame, mut context) = frame(Size::uniform(200.0));
         let focus = Cell::new(true);
-        let field_id = Id::new("field");
         let build = |mut ui: Ui<'_>| {
             if focus.replace(false) {
-                ui.focus(field_id);
+                ui.at("field").focus();
             }
             let mut root = ui.layout(Rects);
-            let mut field = root.child().item(Rect::new(0.0, 0.0, 100.0, 200.0)).id(field_id);
+            let mut field = root.child_id("field").item(Rect::new(0.0, 0.0, 100.0, 200.0));
             field.interact(WATCH);
-            field.focused() == Some(field_id)
+            field.focused()
         };
         assert!(render(&mut frame, &mut context, &build));
         let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
@@ -503,10 +497,7 @@ fn input_settles_against_its_layout() {
             offset.set(100.0);
         }
         let mut root = ui.layout(Rects);
-        let mut row = root
-            .child()
-            .item(Rect::new(offset.get(), 0.0, 100.0, 200.0))
-            .id(Id::new("row"));
+        let mut row = root.child().item(Rect::new(offset.get(), 0.0, 100.0, 200.0));
         row.interact(Hover)
     };
     render(&mut frame, &mut context, &build);
@@ -537,7 +528,7 @@ fn removed_scroll_owner_keeps_its_sequence() {
     let owner = Cell::new("first");
     let build = |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
-        let mut list = root.child().id(Id::new(owner.get()));
+        let mut list = root.child_id(owner.get());
         list.insert(Fill('L', Size::uniform(200.0)));
         list.interact(Wheel)
     };
