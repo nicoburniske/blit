@@ -360,11 +360,37 @@ pub fn position<C: Context>(frame: &mut Frame<C>) {
     let count = frame.nodes.len();
     let placements = &mut frame.placements[..count];
     for index in 1..count {
-        let reference = frame.nodes[index].target;
-        let reference = placements[reference.index()].area;
+        let stored = &frame.nodes[index];
+        let reference = placements[stored.target.index()].area;
         let area = &mut placements[index].area;
         area.x += reference.x;
         area.y += reference.y;
+        let Some(motion) = stored.bounds.index().and_then(|bounds| frame.bounds[bounds].motion) else {
+            continue;
+        };
+        // a node that changes reference continues from where it was on screen and its subtree follows
+        let id = stored.widget_id;
+        let Some(old) = frame.laid_out.get(id, |index| frame.old_nodes[index].widget_id) else {
+            continue;
+        };
+        // previous nodes belong to another build, so their references are read by value
+        let old_reference = frame.old_nodes[frame.old_nodes[old].target.value as usize].widget_id;
+        if old_reference == frame.nodes[stored.target.index()].widget_id {
+            continue;
+        }
+        let Ok(state) = frame.motions.binary_search_by_key(&id, |state| state.id) else {
+            continue;
+        };
+        let animator = &mut frame.motions[state].animator;
+        let start = frame.old_placements[old].area;
+        if motion.properties.intersects(MotionProps::X) && area.x != start.x {
+            animator.displace(0, area.x.delta(start.x), frame.time);
+            area.x = start.x;
+        }
+        if motion.properties.intersects(MotionProps::Y) && area.y != start.y {
+            animator.displace(1, area.y.delta(start.y), frame.time);
+            area.y = start.y;
+        }
     }
 }
 

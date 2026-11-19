@@ -594,3 +594,29 @@ fn spring_sizes_stay_nonnegative_and_resize_snaps() {
     assert_eq!(frame.area(id).unwrap().size(), Size::uniform(3.0));
     assert!(!frame.has_pending_redraw());
 }
+
+#[test]
+fn reparented_motion_continues_from_its_screen_position() {
+    let (mut frame, mut context) = frame(Size::uniform(40.0));
+    let motion = Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).position();
+    // the card moves from the first column to the second without moving within either
+    for (millis, column, x) in [(0, 0, 0.0), (0, 1, 0.0), (500, 1, 10.0), (1000, 1, 20.0)] {
+        render_inputs(&mut frame, &mut context, Duration::from_millis(millis), [], |ui: Ui<'_>| {
+            let mut board = ui.layout(Rects);
+            let scope = board.scope();
+            for index in 0..2 {
+                let mut parent = board
+                    .child()
+                    .item(Rect::new(index as f32 * 20.0, 0.0, 10.0, 10.0))
+                    .layout(Fixed(Size::uniform(10.0)));
+                if index == column {
+                    parent
+                        .child_in(scope, "card")
+                        .motion(motion)
+                        .insert(Fill('C', Size::uniform(2.0)));
+                }
+            }
+        });
+        assert_eq!(frame.area(Scope::ROOT.key("card")), Some(Rect::new(x, 0.0, 2.0, 2.0)));
+    }
+}

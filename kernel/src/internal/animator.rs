@@ -122,6 +122,36 @@ impl<T: Scalar, const N: usize> Animator<T, N> {
         (values, active)
     }
 
+    /// moves `channel` `amount` away from its target and animates it back
+    pub fn displace(&mut self, channel: usize, amount: f32, now: Duration) {
+        let now = now.as_secs_f64();
+        // resampling a curve that starts now would read its own launch velocity
+        if let Kind::Tween { displacement, time, .. } | Kind::Spring { displacement, time, .. } = &mut self.kind
+            && *time == now
+            && self.active.iter().any(|active| *active)
+        {
+            displacement[channel] += amount;
+            self.values[channel] = self.targets[channel].offset(displacement[channel]);
+            self.active[channel] = true;
+            return;
+        }
+        let (mut displacement, mut velocity, _) = self.kind.sample(now);
+        for i in 0..N {
+            if !self.active[i] {
+                displacement[i] = 0.0;
+                velocity[i] = 0.0;
+            }
+        }
+        displacement[channel] += amount;
+        self.values[channel] = self.targets[channel].offset(displacement[channel]);
+        self.active[channel] = true;
+        let animation = match self.kind {
+            Kind::Tween { tween, .. } => Animation::Tween(tween),
+            Kind::Spring { spring, .. } => Animation::Spring(spring),
+        };
+        self.kind = Kind::new(animation, displacement, velocity, now);
+    }
+
     pub fn clamp(&mut self, channel: usize, min: T, max: T, now: Duration) -> T {
         let value = self.values[channel].clamp(min, max);
         if value != self.values[channel] {
