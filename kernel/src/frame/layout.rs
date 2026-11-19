@@ -50,7 +50,7 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     pub fn fixed_extent(&self, child: NodeId, axis: Axis) -> Option<C::Scalar> {
         let stored = &self.frame.nodes[child.index()];
         axis.extent(self.size_overrides(child)).or_else(|| {
-            let limits = self.frame.limits[stored.limits.index()?];
+            let limits = self.frame.aux[stored.aux.index()?].limits;
             let min = axis.extent(limits.min);
             (min == axis.extent(limits.max)).then_some(min)
         })
@@ -191,8 +191,8 @@ impl<'a, C: Context> LayoutCx<'a, C> {
 
     #[inline]
     fn resolve(&mut self, node: NodeId, mut bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
-        if let Some(index) = self.frame.nodes[node.index()].limits.index() {
-            let limits = self.frame.limits[index];
+        if let Some(index) = self.frame.nodes[node.index()].aux.index() {
+            let limits = self.frame.aux[index].limits;
             // a node's own limits win over its parent's bounds
             bounds = Constraints {
                 min: limits.constrain(bounds.min),
@@ -213,9 +213,9 @@ impl<'a, C: Context> LayoutCx<'a, C> {
         let mut size = self.measure(node, bounds);
         if stored.layout.offset().is_some() {
             let padding = stored
-                .padding
+                .aux
                 .index()
-                .map_or(Sides::all(C::Scalar::ZERO), |index| self.frame.paddings[index]);
+                .map_or(Sides::all(C::Scalar::ZERO), |index| self.frame.aux[index].padding);
             let leading = Point::new(padding.left.min(bounds.max.width), padding.top.min(bounds.max.height));
             let inner = bounds.shrink(padding.size());
             let kind = &self.frame.layout_kinds[stored.layout_kind as usize];
@@ -269,7 +269,7 @@ pub fn resolve<C: Context>(
     commit: bool,
 ) -> Size<C::Scalar> {
     let mut size = arrange(frame, bump, context, root, bounds);
-    if frame.bounds.is_empty() {
+    if frame.node_motions.is_empty() {
         return size;
     }
     let start = root.index();
@@ -283,15 +283,16 @@ pub fn resolve<C: Context>(
             continue;
         }
         index += 1;
-        let Some(bounds) = stored.bounds.index() else {
+        let Some(record) = stored.motion.index() else {
             continue;
         };
-        let record = frame.bounds[bounds];
-        let Some(mut config) = record.motion else { continue };
+        let NodeMotion {
+            node,
+            motion: mut config,
+        } = frame.node_motions[record];
         if !commit && !config.properties.intersects(MotionProps::SIZE) {
             continue;
         }
-        let node = record.node;
         let id = stored.widget_id;
         if stored.parent == node {
             config.properties = config
@@ -365,9 +366,10 @@ pub fn position<C: Context>(frame: &mut Frame<C>) {
         let area = &mut placements[index].area;
         area.x += reference.x;
         area.y += reference.y;
-        let Some(motion) = stored.bounds.index().and_then(|bounds| frame.bounds[bounds].motion) else {
+        let Some(record) = stored.motion.index() else {
             continue;
         };
+        let motion = frame.node_motions[record].motion;
         // a node that changes reference continues from where it was on screen and its subtree follows
         let id = stored.widget_id;
         let Some(old) = frame.laid_out.get(id, |index| frame.old_nodes[index].widget_id) else {
@@ -455,7 +457,7 @@ fn arrange<C: Context>(
                 reference = next;
             }
             let size = cx.placements[stored.target.index()].area.size();
-            let parent = cx.placements[stored.visual_parent.index()].area.size();
+            let parent = cx.placements[visual_parent(&cx.frame.aux, stored).index()].area.size();
             let mut place_cx = PlaceCx {
                 layout: LayoutCx {
                     placements: &mut *cx.placements,

@@ -30,11 +30,9 @@ pub struct Frame<C: Context> {
     nodes: Vec<StoredNode>,
     placements: Vec<Placement<C::Scalar>>,
     atoms: Vec<StoredAtom<C>>,
-    clips: Vec<StoredClip>,
-    limits: Vec<Constraints<C::Scalar>>,
-    paddings: Vec<Sides<C::Scalar>>,
+    aux: Vec<Aux<C::Scalar>>,
     places: Vec<StoredPlace<C>>,
-    bounds: Vec<Bounds<C::Scalar>>,
+    node_motions: Vec<NodeMotion>,
     layout_kinds: Vec<LayoutKind<C>>,
     clip_kinds: Vec<ClipKind<C>>,
     bump: BumpArena,
@@ -73,11 +71,9 @@ impl<C: Context> Default for Frame<C> {
             nodes: Vec::new(),
             placements: Vec::new(),
             atoms: Vec::new(),
-            clips: Vec::new(),
-            limits: Vec::new(),
-            paddings: Vec::new(),
+            aux: Vec::new(),
             places: Vec::new(),
-            bounds: Vec::new(),
+            node_motions: Vec::new(),
             layout_kinds: Vec::new(),
             clip_kinds: Vec::new(),
             bump: BumpArena::default(),
@@ -139,11 +135,9 @@ impl<C: Context> Frame<C> {
         self.placements.clear();
         self.focus = FocusRequest::Keep;
         self.atoms.clear();
-        self.clips.clear();
-        self.limits.clear();
-        self.paddings.clear();
+        self.aux.clear();
         self.places.clear();
-        self.bounds.clear();
+        self.node_motions.clear();
         self.sites.clear();
         self.bump.clear();
         for kind in &mut self.layout_kinds {
@@ -204,12 +198,11 @@ impl<C: Context> Frame<C> {
             state.flying &= state.is_active();
         }
         // a lifted node paints above everything under its lift target while it flies to a new reference
-        for index in 0..self.bounds.len() {
-            let Bounds {
+        for index in 0..self.node_motions.len() {
+            let NodeMotion {
                 node,
-                motion: Some(Motion { lift: Some(lift), .. }),
-                ..
-            } = self.bounds[index]
+                motion: Motion { lift: Some(lift), .. },
+            } = self.node_motions[index]
             else {
                 continue;
             };
@@ -219,7 +212,7 @@ impl<C: Context> Frame<C> {
                 .binary_search_by_key(&id, |state| state.id)
                 .is_ok_and(|state| self.motions[state].flying);
             if flying {
-                self.nodes[node.index()].visual_parent = self.resolve_target(node, lift);
+                self.aux_mut(node).visual_parent = self.resolve_target(node, lift);
                 self.placements[node.index()].z_index = i16::MAX;
             }
         }
@@ -328,10 +321,10 @@ impl<C: Context> Frame<C> {
         node.layout_kind = kind;
     }
 
-    fn store_clip<X: Clip<C>>(&mut self, clip: X) -> StoredClipId {
+    fn store_clip<X: Clip<C>>(&mut self, clip: X) -> StoredClip {
         let type_id = TypeId::of::<X>();
         if type_id == TypeId::of::<()>() {
-            return StoredClipId::NONE;
+            return StoredClip::NONE;
         }
         let kind = self
             .clip_kinds
@@ -346,12 +339,10 @@ impl<C: Context> Frame<C> {
                 });
                 self.clip_kinds.len() - 1
             });
-        let id = StoredClipId::new(self.clips.len());
-        self.clips.push(StoredClip {
+        StoredClip {
             kind: u16::try_from(kind).expect("too many clip types"),
             bump_id: self.bump.store(clip),
-        });
-        id
+        }
     }
 
     fn push_node(&mut self, parent: Option<NodeId>, widget_id: Id) -> NodeId {
@@ -359,20 +350,17 @@ impl<C: Context> Frame<C> {
         self.nodes.push(StoredNode {
             widget_id,
             parent: parent.unwrap_or(id),
-            visual_parent: parent.unwrap_or(id),
             subtree_end: id.value,
             first_atom: StoredAtomId::NONE,
             last_atom: StoredAtomId::NONE,
             layout: BumpId::NONE,
             layout_kind: 0,
-            limits: LimitsId::NONE,
-            padding: PaddingId::NONE,
+            aux: AuxId::NONE,
             place: PlaceId::NONE,
-            clip: StoredClipId::NONE,
             item: BumpId::NONE,
             target: parent.unwrap_or(id),
             interactive: false,
-            bounds: BoundsId::NONE,
+            motion: NodeMotionId::NONE,
             resolved_clip: ResolvedClipId::NONE,
         });
         self.placements.push(Placement {
@@ -382,20 +370,23 @@ impl<C: Context> Frame<C> {
         id
     }
 
-    fn bounds_mut(&mut self, node: NodeId) -> &mut Bounds<C::Scalar> {
-        let index = if let Some(index) = self.nodes[node.index()].bounds.index() {
-            index
-        } else {
-            let id = BoundsId::new(self.bounds.len());
-            self.nodes[node.index()].bounds = id;
-            self.bounds.push(Bounds {
-                node,
-                hit: Sides::all(C::Scalar::ZERO),
-                motion: None,
-            });
-            id.index().unwrap()
+    fn aux_mut(&mut self, node: NodeId) -> &mut Aux<C::Scalar> {
+        let stored = &mut self.nodes[node.index()];
+        let index = match stored.aux.index() {
+            Some(index) => index,
+            None => {
+                stored.aux = AuxId::new(self.aux.len());
+                self.aux.push(Aux {
+                    visual_parent: stored.parent,
+                    clip: StoredClip::NONE,
+                    limits: Constraints::loose(Size::uniform(C::Scalar::UNBOUNDED)),
+                    padding: Sides::all(C::Scalar::ZERO),
+                    hit: Sides::all(C::Scalar::ZERO),
+                });
+                self.aux.len() - 1
+            }
         };
-        &mut self.bounds[index]
+        &mut self.aux[index]
     }
 
     fn clip_bounds(&self, clip: ResolvedClipId) -> Rect<C::Scalar> {
@@ -441,21 +432,36 @@ enum FocusRequest {
 pub struct StoredNode {
     widget_id: Id,
     parent: NodeId,
-    visual_parent: NodeId,
     subtree_end: u32,
     first_atom: StoredAtomId,
     last_atom: StoredAtomId,
     layout: BumpId,
     layout_kind: u16,
-    limits: LimitsId,
-    padding: PaddingId,
+    aux: AuxId,
     place: PlaceId,
-    clip: StoredClipId,
     item: BumpId,
     target: NodeId,
     interactive: bool,
-    bounds: BoundsId,
+    motion: NodeMotionId,
     resolved_clip: ResolvedClipId,
+}
+
+// settings most nodes leave unset, kept apart so nodes stay small
+#[derive(Clone, Copy)]
+struct Aux<T> {
+    visual_parent: NodeId,
+    clip: StoredClip,
+    limits: Constraints<T>,
+    padding: Sides<T>,
+    hit: Sides<T>,
+}
+
+// the parent a node stacks, clips and contains its size within
+fn visual_parent<T>(aux: &[Aux<T>], stored: &StoredNode) -> NodeId {
+    stored
+        .aux
+        .index()
+        .map_or(stored.parent, |index| aux[index].visual_parent)
 }
 
 #[derive(Clone, Copy)]
@@ -465,17 +471,16 @@ struct Placement<T> {
 }
 
 #[derive(Clone, Copy)]
-struct Bounds<T> {
+struct NodeMotion {
     node: NodeId,
-    hit: Sides<T>,
-    motion: Option<Motion>,
+    motion: Motion,
 }
 
 #[derive(Clone, Copy)]
 pub struct ResolvedClip<T> {
     parent: ResolvedClipId,
     depth: u32,
-    clip: StoredClipId,
+    clip: StoredClip,
     area: Rect<T>,
     bounds: Rect<T>,
     shape: ClipShape<T>,
@@ -522,6 +527,13 @@ struct StoredClip {
     bump_id: BumpId,
 }
 
+impl StoredClip {
+    const NONE: Self = Self {
+        kind: 0,
+        bump_id: BumpId::NONE,
+    };
+}
+
 #[derive(Clone, Copy)]
 struct Index<T>(u32, PhantomData<fn() -> T>);
 
@@ -538,11 +550,9 @@ impl<T> Index<T> {
 }
 
 type StoredAtomId = Index<StoredAtom<()>>;
-type StoredClipId = Index<StoredClip>;
-type LimitsId = Index<Constraints<()>>;
-type PaddingId = Index<Sides<()>>;
+type AuxId = Index<Aux<()>>;
 type PlaceId = Index<StoredPlace<()>>;
-type BoundsId = Index<Bounds<()>>;
+type NodeMotionId = Index<NodeMotion>;
 type ResolvedClipId = Index<ResolvedClip<()>>;
 
 struct AtomKind<C: Context> {

@@ -292,14 +292,7 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
                 && limits.max.height >= limits.min.height,
             "invalid local bounds"
         );
-        let frame = &mut *self.inner.frame;
-        let node = &mut frame.nodes[self.inner.node.index()];
-        if let Some(index) = node.limits.index() {
-            frame.limits[index] = limits;
-        } else {
-            node.limits = LimitsId::new(frame.limits.len());
-            frame.limits.push(limits);
-        }
+        self.inner.frame.aux_mut(self.inner.node).limits = limits;
         self
     }
 
@@ -318,8 +311,20 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
         self
     }
 
+    #[inline]
     pub fn motion(self, motion: Motion) -> Self {
-        self.inner.frame.bounds_mut(self.inner.node).motion = Some(motion);
+        // kept out of line so motion inlines without moving the ui through a call
+        fn store<C: Context>(frame: &mut Frame<C>, node: NodeId, motion: Motion) {
+            let stored = &mut frame.nodes[node.index()];
+            match stored.motion.index() {
+                Some(index) => frame.node_motions[index].motion = motion,
+                None => {
+                    stored.motion = NodeMotionId::new(frame.node_motions.len());
+                    frame.node_motions.push(NodeMotion { node, motion });
+                }
+            }
+        }
+        store(self.inner.frame, self.inner.node, motion);
         self
     }
 
@@ -329,13 +334,13 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
     #[inline]
     pub fn parent(self, target: impl Into<Target>) -> Self {
         let parent = self.inner.frame.resolve_target(self.inner.node, target.into());
-        self.inner.frame.nodes[self.inner.node.index()].visual_parent = parent;
+        self.inner.frame.aux_mut(self.inner.node).visual_parent = parent;
         self
     }
 
     pub fn clip<X: Clip<C>>(self, clip: X) -> Self {
         let clip = self.inner.frame.store_clip(clip);
-        self.inner.frame.nodes[self.inner.node.index()].clip = clip;
+        self.inner.frame.aux_mut(self.inner.node).clip = clip;
         self
     }
 
@@ -346,7 +351,7 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
     }
 
     pub fn hit(self, hit: Sides<C::Scalar>) -> Self {
-        self.inner.frame.bounds_mut(self.inner.node).hit = hit;
+        self.inner.frame.aux_mut(self.inner.node).hit = hit;
         self
     }
 }
@@ -473,14 +478,7 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
                 .all(|side| *side >= C::Scalar::ZERO && side.is_finite()),
             "invalid padding"
         );
-        let frame = &mut *self.inner.frame;
-        let node = &mut frame.nodes[self.inner.node.index()];
-        if let Some(index) = node.padding.index() {
-            frame.paddings[index] = padding;
-        } else {
-            node.padding = PaddingId::new(frame.paddings.len());
-            frame.paddings.push(padding);
-        }
+        self.inner.frame.aux_mut(self.inner.node).padding = padding;
         self
     }
 }

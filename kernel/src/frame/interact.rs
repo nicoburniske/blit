@@ -624,9 +624,9 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
                     return;
                 }
                 let hit = stored
-                    .bounds
+                    .aux
                     .index()
-                    .map_or(Sides::all(C::Scalar::ZERO), |index| frame.bounds[index].hit);
+                    .map_or(Sides::all(C::Scalar::ZERO), |index| frame.aux[index].hit);
                 let area = Rect::new(
                     area.x - hit.left,
                     area.y - hit.top,

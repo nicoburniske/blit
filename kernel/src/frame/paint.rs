@@ -8,7 +8,7 @@ pub fn resolve_order<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
         .nodes
         .iter()
         .zip(placements)
-        .any(|(node, placement)| placement.z_index != 0 || node.visual_parent != node.parent)
+        .any(|(node, placement)| placement.z_index != 0 || visual_parent(&frame.aux, node) != node.parent)
     {
         return;
     }
@@ -18,7 +18,7 @@ pub fn resolve_order<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
     let links = &mut scratch[..count];
     // zero marks the end of a child list since the root has no parent
     for index in 1..count {
-        let parent = frame.nodes[index].visual_parent.index();
+        let parent = visual_parent(&frame.aux, &frame.nodes[index]).index();
         links[index].next_sibling = links[parent].first_child;
         links[parent].first_child = index as u32;
     }
@@ -56,17 +56,22 @@ pub fn resolve_clips<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
     let count = frame.nodes.len();
     let nodes = &mut frame.nodes[..count];
     let placements = &frame.placements[..count];
+    let aux = &frame.aux;
     for index in 0..count {
         let parent = if index == 0 {
             ResolvedClipId::NONE
         } else {
-            nodes[nodes[index].visual_parent.index()].resolved_clip
+            nodes[visual_parent(aux, &nodes[index]).index()].resolved_clip
         };
         nodes[index].resolved_clip = parent;
-        let Some(clip) = nodes[index].clip.index() else {
+        let Some(stored) = nodes[index]
+            .aux
+            .index()
+            .map(|index| aux[index].clip)
+            .filter(|clip| clip.bump_id.offset().is_some())
+        else {
             continue;
         };
-        let stored = frame.clips[clip];
         let area = placements[index].area;
         let shape = (frame.clip_kinds[stored.kind as usize].shape)(bump, stored.bump_id, area);
         let parent_bounds = parent
@@ -95,7 +100,7 @@ pub fn resolve_clips<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
         frame.interaction.clips.push(ResolvedClip {
             parent,
             depth,
-            clip: nodes[index].clip,
+            clip: stored,
             area,
             bounds,
             shape,
@@ -131,7 +136,7 @@ fn set<C: Context>(frame: &mut Frame<C>, bump: &BumpArena, context: &mut C, targ
     while frame.active_clips.last().map_or(u32::MAX, |clip| clip.0) != common.0 {
         let clip = frame.active_clips.pop().unwrap();
         let stored = frame.interaction.clips[clip.index().unwrap()];
-        let clip_data = frame.clips[stored.clip.index().unwrap()];
+        let clip_data = stored.clip;
         (frame.clip_kinds[clip_data.kind as usize].pop)(bump, clip_data.bump_id, context);
     }
     push(frame, bump, context, target, common.0);
@@ -142,7 +147,7 @@ fn set<C: Context>(frame: &mut Frame<C>, bump: &BumpArena, context: &mut C, targ
         }
         let stored = frame.interaction.clips[clip.index().unwrap()];
         push(frame, bump, context, stored.parent, common);
-        let clip_data = frame.clips[stored.clip.index().unwrap()];
+        let clip_data = stored.clip;
         (frame.clip_kinds[clip_data.kind as usize].push)(bump, clip_data.bump_id, context, stored.area);
         frame.active_clips.push(clip);
     }
