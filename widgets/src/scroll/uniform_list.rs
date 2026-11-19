@@ -2,14 +2,13 @@ use std::ops::Range;
 
 use blit::{Axis, Clip, Constraints, Id, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget};
 
-use super::{Request, ScrollLayout, Scrollbar, Target, animate, build_scroll, update};
+use super::{Goal, Request, ScrollLayout, Scrollbar, animate, build_scroll, update};
 use crate::{Context, scroll::ScrollState};
 
 blit::builder! {
     /// use for large lists with a known fixed item height or width
     /// builds only the visible range and a small margin
-    /// row ids default to hashed indices scoped to the list
-    /// id callbacks receive the list id and return the row's absolute id
+    /// row ids default to their indices
     pub struct UniformList<'a, T: Scalar, I>
     where I: ExactSizeIterator, I: Clone,
     {
@@ -21,8 +20,8 @@ blit::builder! {
         inertia_friction: f32 = 2.5,
         scrollbar_thickness: T = T::from_f32(1.0),
         minimum_thumb_extent: T = T::from_f32(1.0),
-        #[bounds(FnMut(Id, usize, &I::Item) -> Id)]
-        id<K = fn(Id, usize, &<I as Iterator>::Item) -> Id>: K = |parent, index, _| parent.child(index),
+        #[bounds(FnMut(usize, &I::Item) -> Id)]
+        id<K = fn(usize, &<I as Iterator>::Item) -> Id>: K = |index, _| Id::from(index),
         clip<X = ()>: X = (),
     }
 }
@@ -30,7 +29,7 @@ blit::builder! {
 impl<T: Scalar, I, K, X> UniformList<'_, T, I, K, X>
 where
     I: ExactSizeIterator + Clone,
-    K: FnMut(Id, usize, &I::Item) -> Id,
+    K: FnMut(usize, &I::Item) -> Id,
 {
     /// creates a widget without a scrollbar
     pub fn build<C: Context<Scalar = T>>(
@@ -81,18 +80,17 @@ where
         } = self;
         assert!(item_extent.is_finite() && item_extent > C::Scalar::ZERO);
         assert!(gap.is_finite() && gap >= C::Scalar::ZERO);
-        let id = ui.current_id();
         let stride = item_extent.endpoint(gap);
         let count = items.len();
         let (thumb_active, viewport_known) = update(state, &mut ui, axis, scroll_speed, inertia_friction);
         let total_extent = item_extent.repeat(count).endpoint(gap.repeat(count.saturating_sub(1)));
         state.content_extent = total_extent;
         // resolve offscreen rows by index before choosing which rows to build
-        if viewport_known && let Target::Widget(target) = state.request.target {
+        if viewport_known && let Goal::Widget(target) = state.request.target {
             match items
                 .clone()
                 .enumerate()
-                .position(|(index, value)| item_id(id, index, &value) == target)
+                .position(|(index, value)| item_id(index, &value) == target)
             {
                 Some(index) => {
                     let start = stride.repeat(index);
@@ -100,12 +98,12 @@ where
                     let minimum = (end - state.viewport_extent).min(start);
                     let maximum = start;
                     // move only as far as needed to reveal the row
-                    state.request.target = Target::Offset(state.offset.clamp(minimum, maximum));
+                    state.request.target = Goal::Offset(state.offset.clamp(minimum, maximum));
                 }
                 None => state.request = Request::default(),
             }
         }
-        animate(state, &mut ui, axis, viewport_known);
+        animate(state, &mut ui, viewport_known);
         state.offset = state.offset.clamp(C::Scalar::ZERO, state.maximum_offset());
         let viewport_extent = if viewport_known {
             state.viewport_extent
@@ -137,10 +135,9 @@ where
         let content = move |ui: Ui<'_, C>| {
             let mut list = ui.layout(layout);
             for (offset, value) in items.enumerate() {
-                let row_id = item_id(id, first + offset, &value);
-                list.child()
+                let row_id = item_id(first + offset, &value);
+                list.child_id(row_id)
                     .item(first + offset)
-                    .id(row_id)
                     .build(|ui: Ui<'_, C>| item(ui, value));
             }
         };

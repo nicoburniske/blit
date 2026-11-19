@@ -1,9 +1,9 @@
 use std::{cell::Cell, time::Duration};
 
 use blit::{
-    Animation, Atom, AtomCx, Axis, Constraints, Easing, Id, LogicalRect, Motion, NodeTarget, Sides, Size, Tween, Widget,
+    Animation, Atom, AtomCx, Axis, Constraints, Easing, LogicalRect, Motion, Sides, Size, Spring, Target, Tween, Widget,
 };
-use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, SpringDrag, Transition, select};
+use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, Transition, board, select};
 #[cfg(not(feature = "gpu"))]
 use blit_desktop::cpu;
 #[cfg(feature = "gpu")]
@@ -86,6 +86,7 @@ enum Page {
     Input,
     Scroll,
     Animation,
+    Drag,
     #[default]
     Graphics,
 }
@@ -97,6 +98,7 @@ struct App {
     input: InputPage,
     scroll: ScrollPage,
     animation: AnimationPage,
+    drag: DragPage,
     graphics: graphics::View,
     settings: PopoverState,
     performance: PerformanceState,
@@ -112,6 +114,7 @@ impl Default for App {
             input: InputPage::default(),
             scroll: ScrollPage::default(),
             animation: AnimationPage::default(),
+            drag: DragPage::default(),
             graphics: graphics::View::default(),
             settings: PopoverState::new(),
             performance: PerformanceState::default(),
@@ -169,6 +172,7 @@ impl Application for App {
                     ("04 scroll", Page::Scroll),
                     ("05 motion", Page::Animation),
                     ("06 graphics", Page::Graphics),
+                    ("07 drag", Page::Drag),
                 ],
                 flex::row().gap(sz::XS),
                 draw_button,
@@ -212,12 +216,13 @@ impl Application for App {
             Page::Scroll => root.child().item(flex::item().grow()).build(&mut self.scroll),
             Page::Animation => root.child().item(flex::item().grow()).build(&mut self.animation),
             Page::Graphics => root.child().item(flex::item().grow()).build(&mut self.graphics),
+            Page::Drag => root.child().item(flex::item().grow()).build(&mut self.drag),
         };
         root.context_mut().profiler.set_enabled(self.show_performance);
         if self.show_performance {
             root.child()
                 .place(
-                    NodeTarget::Root,
+                    Target::ROOT,
                     absolute::place()
                         .target_anchor(Anchor::BottomRight)
                         .child_anchor(Anchor::BottomRight)
@@ -240,182 +245,196 @@ impl Application for App {
     }
 }
 
-#[derive(Default)]
 struct AnimationPage {
-    drag: SpringDrag,
-    show_drag: bool,
+    spring: Spring,
     right: bool,
     scroll: ScrollState,
     split: SplitState,
 }
 
+impl Default for AnimationPage {
+    fn default() -> Self {
+        Self {
+            spring: Spring::new(Duration::from_millis(650), 0.5).rest(0.01, 0.01),
+            right: false,
+            scroll: ScrollState::default(),
+            split: SplitState::default(),
+        }
+    }
+}
+
 impl Widget<DesktopContext> for &mut AnimationPage {
     type Response = ();
 
-    fn build(self, mut ui: Ui<'_>) {
+    fn build(self, ui: Ui<'_>) {
         let AnimationPage {
-            drag,
-            show_drag,
+            spring,
             right,
             scroll: controls_scroll,
             split: split_state,
         } = self;
-        let id = Id::new("spring card");
-        let position = drag.update(&mut ui, id);
-        let active = drag.active;
-        let settings = Cell::new((*show_drag, drag.spring));
+        let settings = Cell::new(*spring);
         let mut body = ui.layout(flex::row());
-        body.child()
-            .item(flex::item().grow())
-            .id(Id::new("animation page split"))
-            .build(split(
-                split_state,
-                sz::SIDEBAR,
-                |ui: Ui<'_>| {
-                    let mut sidebar = ui.layout(flex::column().gap(sz::XS)).clip(BoundsClip).pad(sz::LG);
-                    sidebar.insert(panel(colors::SURFACE));
-                    sidebar
-                        .child()
-                        .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-                    sidebar
+        body.child().item(flex::item().grow()).build(split(
+            split_state,
+            sz::SIDEBAR,
+            |ui: Ui<'_>| {
+                let mut sidebar = ui.layout(flex::column().gap(sz::XS)).clip(BoundsClip).pad(sz::LG);
+                sidebar.insert(panel(colors::SURFACE));
+                sidebar
+                    .child()
+                    .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
+                sidebar
+                    .child()
+                    .item(flex::item().grow())
+                    .build(scroll_area(controls_scroll, |ui: Ui<'_>| {
+                        let mut controls = ui.layout(flex::column().gap(sz::LG));
+                        controls.child().build(|ui: Ui<'_>| {
+                            choices(
+                                ui,
+                                "bounce",
+                                &mut spring.bounce,
+                                &[("0", 0.0), ("0.25", 0.25), ("0.5", 0.5)],
+                            );
+                        });
+                        controls.child().build(|ui: Ui<'_>| {
+                            choices(
+                                ui,
+                                "duration",
+                                &mut spring.duration,
+                                &[
+                                    ("350ms", Duration::from_millis(350)),
+                                    ("650ms", Duration::from_millis(650)),
+                                    ("1000ms", Duration::from_millis(1000)),
+                                    ("2000ms", Duration::from_millis(2000)),
+                                ],
+                            );
+                        });
+                    }));
+                settings.set(*spring);
+            },
+            |ui: Ui<'_>| {
+                let spring = settings.get();
+                let mut preview = ui.layout(flex::column().gap(sz::SM)).clip(BoundsClip).pad(sz::LG);
+                preview.insert(panel(colors::SURFACE));
+                preview
+                    .child()
+                    .insert(Text::new("LIVE VIEW").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
+                if preview
+                    .child()
+                    .item(flex::item().width(Sizing::grow()))
+                    .layout(flex::row().justify(Justify::Center))
+                    .child()
+                    .build(Button::new(if *right { "move left" } else { "move right" }, false))
+                {
+                    *right = !*right;
+                }
+                let tween = Tween::new(spring.duration, Easing::EASE_IN_OUT);
+                for (index, (label, animation, restart)) in [
+                    ("tween / carry", Animation::Tween(tween), false),
+                    ("tween / restart", Animation::Tween(tween), true),
+                    ("spring / carry", Animation::Spring(spring), false),
+                    ("spring / restart", Animation::Spring(spring), true),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let mut row = preview
                         .child()
                         .item(flex::item().grow())
-                        .build(scroll_area(controls_scroll, |ui: Ui<'_>| {
-                            let mut controls = ui.layout(flex::column().gap(sz::LG));
-                            controls.child().build(|ui: Ui<'_>| {
-                                choices(ui, "mode", show_drag, &[("retarget", false), ("drag", true)]);
-                            });
-                            controls.child().build(|ui: Ui<'_>| {
-                                choices(
-                                    ui,
-                                    "bounce",
-                                    &mut drag.spring.bounce,
-                                    &[("0", 0.0), ("0.25", 0.25), ("0.5", 0.5)],
-                                );
-                            });
-                            controls.child().build(|ui: Ui<'_>| {
-                                choices(
-                                    ui,
-                                    "duration",
-                                    &mut drag.spring.duration,
-                                    &[
-                                        ("350ms", Duration::from_millis(350)),
-                                        ("650ms", Duration::from_millis(650)),
-                                        ("1000ms", Duration::from_millis(1000)),
-                                        ("2000ms", Duration::from_millis(2000)),
-                                    ],
-                                );
-                            });
-                        }));
-                    settings.set((*show_drag, drag.spring));
-                },
-                |ui: Ui<'_>| {
-                    let (show_drag, spring) = settings.get();
-                    let mut preview = ui.layout(flex::column().gap(sz::SM)).clip(BoundsClip).pad(sz::LG);
-                    preview.insert(panel(colors::SURFACE));
-                    preview
+                        .layout(flex::column().gap(sz::XXS));
+                    row.child()
+                        .insert(Text::new(label).style(TextStyle::new().size(sz::MD).color(colors::TEXT_MUTED)));
+                    let mut lane = row.child().item(flex::item().grow()).layout(()).clip(BoundsClip);
+                    lane.insert(panel(colors::CANVAS));
+                    let mut track = lane
                         .child()
-                        .insert(Text::new("LIVE VIEW").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-                    if !show_drag {
-                        {
-                            let mut action = preview
-                                .child()
-                                .item(flex::item().width(Sizing::grow()))
-                                .layout(flex::row().justify(Justify::Center));
-                            if action
-                                .child()
-                                .build(Button::new(if *right { "move left" } else { "move right" }, false))
-                            {
-                                *right = !*right;
-                            }
-                        }
-                        let tween = Tween::new(spring.duration, Easing::EASE_IN_OUT);
-                        for (index, (label, animation, restart)) in [
-                            ("tween / carry", Animation::Tween(tween), false),
-                            ("tween / restart", Animation::Tween(tween), true),
-                            ("spring / carry", Animation::Spring(spring), false),
-                            ("spring / restart", Animation::Spring(spring), true),
-                        ]
-                        .into_iter()
-                        .enumerate()
-                        {
-                            let mut row = preview
-                                .child()
-                                .item(flex::item().grow())
-                                .layout(flex::column().gap(sz::XXS));
-                            row.child().insert(
-                                Text::new(label).style(TextStyle::new().size(sz::MD).color(colors::TEXT_MUTED)),
-                            );
-                            let mut lane = row.child().item(flex::item().grow()).layout(()).clip(BoundsClip);
-                            lane.insert(panel(colors::CANVAS));
-                            let mut track = lane
-                                .child()
-                                .place(
-                                    NodeTarget::Parent,
-                                    absolute::place()
-                                        .target_anchor(Anchor::Center)
-                                        .child_anchor(Anchor::Center)
-                                        .width(absolute::Sizing::percent(0.65))
-                                        .height(absolute::Sizing::full()),
-                                )
-                                .layout(());
-                            let marker = absolute::place()
-                                .target_anchor(if *right { Anchor::Right } else { Anchor::Left })
+                        .place(
+                            Target::PARENT,
+                            absolute::place()
+                                .target_anchor(Anchor::Center)
                                 .child_anchor(Anchor::Center)
-                                .width(absolute::Sizing::fixed(20.0))
-                                .height(absolute::Sizing::fixed(20.0));
-                            track.child().place(NodeTarget::Parent, marker).insert(
-                                Rectangle::new()
-                                    .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
-                                    .radius(BorderRadius::uniform(sz::XXS)),
-                            );
-                            track
-                                .child()
-                                .id(Id::new(("retarget", index)))
-                                .place(NodeTarget::Parent, marker)
-                                .motion(Motion::new(animation).x().restart(restart))
-                                .insert(
-                                    Rectangle::new()
-                                        .background(colors::ACCENT)
-                                        .radius(BorderRadius::uniform(sz::XXS)),
-                                );
-                        }
-                        return;
-                    }
-                    let mut canvas = preview.child().item(flex::item().grow()).layout(()).clip(BoundsClip);
-                    canvas.insert(panel(colors::CANVAS));
-                    let content = flex::column().align(Align::Center).justify(Justify::Center);
-                    let card = absolute::place()
-                        .target_anchor(Anchor::Center)
+                                .width(absolute::Sizing::percent(0.65))
+                                .height(absolute::Sizing::full()),
+                        )
+                        .layout(());
+                    let marker = absolute::place()
+                        .target_anchor(if *right { Anchor::Right } else { Anchor::Left })
                         .child_anchor(Anchor::Center)
-                        .width(absolute::Sizing::fixed(128.0))
-                        .height(absolute::Sizing::fixed(96.0));
-                    canvas
-                        .child()
-                        .id(Id::new((id, "home")))
-                        .place(NodeTarget::Parent, card)
-                        .layout(content)
+                        .width(absolute::Sizing::fixed(20.0))
+                        .height(absolute::Sizing::fixed(20.0));
+                    track.child().place(Target::PARENT, marker).insert(
+                        Rectangle::new()
+                            .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
+                            .radius(BorderRadius::uniform(sz::XXS)),
+                    );
+                    track
+                        .child_id(index)
+                        .place(Target::PARENT, marker)
+                        .motion(Motion::new(animation).x().restart(restart))
                         .insert(
                             Rectangle::new()
-                                .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
-                                .radius(BorderRadius::uniform(sz::SM)),
+                                .background(colors::ACCENT)
+                                .radius(BorderRadius::uniform(sz::XXS)),
                         );
-                    let mut handle = canvas
-                        .child()
-                        .id(id)
-                        .place(NodeTarget::Parent, card.x(position.x).y(position.y))
-                        .motion(Motion::new(spring).position())
-                        .layout(content);
-                    handle.insert(
+                }
+            },
+        ));
+    }
+}
+
+/// cards move between columns by drag and drop
+struct DragPage {
+    columns: [(&'static str, Vec<u32>); 3],
+}
+
+impl Default for DragPage {
+    fn default() -> Self {
+        Self {
+            columns: [
+                ("todo", vec![1, 2, 3, 4]),
+                ("doing", vec![5, 6]),
+                ("done", vec![7, 8, 9]),
+            ],
+        }
+    }
+}
+
+impl Widget<DesktopContext> for &mut DragPage {
+    type Response = ();
+
+    fn build(self, ui: Ui<'_>) {
+        let mut body = ui.layout(flex::column()).pad(sz::LG);
+        body.insert(panel(colors::SURFACE));
+        body.child().item(flex::item().grow()).build(board(
+            &mut self.columns,
+            56.0,
+            sz::SM,
+            |column, _| column.insert(panel(colors::CANVAS)),
+            |mut ui: Ui<'_>, card, dragging| {
+                let Some(card) = card else {
+                    ui.insert(
                         Rectangle::new()
-                            .background(if active { colors::ACCENT_DARK } else { colors::ACCENT })
-                            .radius(BorderRadius::uniform(sz::SM)),
+                            .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
+                            .radius(BorderRadius::uniform(sz::XS)),
                     );
-                    handle
-                        .child()
-                        .insert(Text::new("drag me").style(TextStyle::new().size(sz::LG).color(colors::BACKGROUND)));
-                },
-            ));
+                    return;
+                };
+                let mut ui = ui.layout(flex::row().align(Align::Center)).pad(Sides::xy(sz::SM, 0.0));
+                ui.insert(
+                    Rectangle::new()
+                        .background(colors::ITEMS[card as usize % colors::ITEMS.len()])
+                        .border(Border::solid(
+                            sz::BORDER,
+                            if dragging { Color::WHITE } else { colors::BORDER },
+                        ))
+                        .radius(BorderRadius::uniform(sz::XS)),
+                );
+                ui.child().insert(
+                    Text::new(format_args!("card {card}")).style(TextStyle::new().size(sz::MD).color(Color::WHITE)),
+                );
+            },
+        ));
     }
 }
 
@@ -507,113 +526,110 @@ impl Widget<DesktopContext> for &mut TextPage {
         };
         let screen = ui.screen().size();
         let mut body = ui.layout(flex::row());
-        body.child()
-            .item(flex::item().grow())
-            .id(Id::new("text page split"))
-            .build(split(
-                split_state,
-                sz::SIDEBAR,
-                |ui: Ui<'_>| {
-                    let mut controls = ui.layout(flex::column().gap(sz::LG)).pad(sz::LG);
-                    controls.insert(panel(colors::SURFACE));
-                    controls
-                        .child()
-                        .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-                    controls.child().build(|ui: Ui<'_>| {
-                        choices(
-                            ui,
-                            "wrap",
-                            wrap,
-                            &[
-                                ("None", TextWrap::None),
-                                ("Word", TextWrap::Word),
-                                ("Character", TextWrap::Character),
-                            ],
-                        );
-                    });
-                    controls.child().build(|ui: Ui<'_>| {
-                        choices(
-                            ui,
-                            "overflow",
-                            overflow,
-                            &[("Clip", TextOverflow::Clip), ("Ellipsis", TextOverflow::Ellipsis)],
-                        );
-                    });
-                    controls.child().build(|ui: Ui<'_>| {
-                        choices(
-                            ui,
-                            "horizontal",
-                            horizontal,
-                            &[
-                                ("Left", HorizontalAlign::Left),
-                                ("Center", HorizontalAlign::Center),
-                                ("Right", HorizontalAlign::Right),
-                            ],
-                        );
-                    });
-                    controls.child().build(|ui: Ui<'_>| {
-                        choices(
-                            ui,
-                            "vertical",
-                            vertical,
-                            &[
-                                ("Top", VerticalAlign::Top),
-                                ("Center", VerticalAlign::Center),
-                                ("Bottom", VerticalAlign::Bottom),
-                            ],
-                        );
-                    });
-                    controls.child().build(|ui: Ui<'_>| {
-                        choices(
-                            ui,
-                            "max lines",
-                            max_lines,
-                            &[("All", None), ("3", Some(3)), ("6", Some(6))],
-                        );
-                    });
-                },
-                |ui: Ui<'_>| {
-                    let mut preview = ui.layout(flex::column().gap(sz::SM)).pad(sz::LG);
-                    preview.insert(panel(colors::SURFACE));
-                    preview
-                        .child()
-                        .insert(Text::new("text").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-                    preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
-                        let mut viewport = ui.layout(flex::column()).clip(BoundsClip).pad(sz::SM);
-                        viewport.insert(
-                            Rectangle::new()
-                                .background(colors::TRACK)
-                                .radius(BorderRadius::uniform(sz::XS)),
-                        );
-                        viewport.child().id(Id::new("rich text preview")).build(
-                            Resize::new(resize)
-                                .initial(Size::new(560.0, 360.0))
-                                .minimum(Size::new(260.0, 160.0))
-                                .maximum(screen)
-                                .grip_size(Size::uniform(sz::MD))
-                                .content(|ui: Ui<'_>| {
-                                    let mut paragraph = ui.layout(()).clip(BoundsClip).pad(sz::LG);
-                                    paragraph.insert(
-                                        Rectangle::new()
-                                            .background(colors::CANVAS)
-                                            .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
-                                            .radius(BorderRadius::uniform(sz::XS)),
-                                    );
-                                    paragraph.child().insert(
-                                        RichText::new(text, spans)
-                                            .style(TextStyle {
-                                                size: sz::LG,
-                                                color: colors::TEXT_MUTED,
-                                                ..TextStyle::default()
-                                            })
-                                            .options(options),
-                                    );
-                                })
-                                .grip(draw_grip),
-                        );
-                    });
-                },
-            ));
+        body.child().item(flex::item().grow()).build(split(
+            split_state,
+            sz::SIDEBAR,
+            |ui: Ui<'_>| {
+                let mut controls = ui.layout(flex::column().gap(sz::LG)).pad(sz::LG);
+                controls.insert(panel(colors::SURFACE));
+                controls
+                    .child()
+                    .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
+                controls.child().build(|ui: Ui<'_>| {
+                    choices(
+                        ui,
+                        "wrap",
+                        wrap,
+                        &[
+                            ("None", TextWrap::None),
+                            ("Word", TextWrap::Word),
+                            ("Character", TextWrap::Character),
+                        ],
+                    );
+                });
+                controls.child().build(|ui: Ui<'_>| {
+                    choices(
+                        ui,
+                        "overflow",
+                        overflow,
+                        &[("Clip", TextOverflow::Clip), ("Ellipsis", TextOverflow::Ellipsis)],
+                    );
+                });
+                controls.child().build(|ui: Ui<'_>| {
+                    choices(
+                        ui,
+                        "horizontal",
+                        horizontal,
+                        &[
+                            ("Left", HorizontalAlign::Left),
+                            ("Center", HorizontalAlign::Center),
+                            ("Right", HorizontalAlign::Right),
+                        ],
+                    );
+                });
+                controls.child().build(|ui: Ui<'_>| {
+                    choices(
+                        ui,
+                        "vertical",
+                        vertical,
+                        &[
+                            ("Top", VerticalAlign::Top),
+                            ("Center", VerticalAlign::Center),
+                            ("Bottom", VerticalAlign::Bottom),
+                        ],
+                    );
+                });
+                controls.child().build(|ui: Ui<'_>| {
+                    choices(
+                        ui,
+                        "max lines",
+                        max_lines,
+                        &[("All", None), ("3", Some(3)), ("6", Some(6))],
+                    );
+                });
+            },
+            |ui: Ui<'_>| {
+                let mut preview = ui.layout(flex::column().gap(sz::SM)).pad(sz::LG);
+                preview.insert(panel(colors::SURFACE));
+                preview
+                    .child()
+                    .insert(Text::new("text").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
+                preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
+                    let mut viewport = ui.layout(flex::column()).clip(BoundsClip).pad(sz::SM);
+                    viewport.insert(
+                        Rectangle::new()
+                            .background(colors::TRACK)
+                            .radius(BorderRadius::uniform(sz::XS)),
+                    );
+                    viewport.child().build(
+                        Resize::new(resize)
+                            .initial(Size::new(560.0, 360.0))
+                            .minimum(Size::new(260.0, 160.0))
+                            .maximum(screen)
+                            .grip_size(Size::uniform(sz::MD))
+                            .content(|ui: Ui<'_>| {
+                                let mut paragraph = ui.layout(()).clip(BoundsClip).pad(sz::LG);
+                                paragraph.insert(
+                                    Rectangle::new()
+                                        .background(colors::CANVAS)
+                                        .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
+                                        .radius(BorderRadius::uniform(sz::XS)),
+                                );
+                                paragraph.child().insert(
+                                    RichText::new(text, spans)
+                                        .style(TextStyle {
+                                            size: sz::LG,
+                                            color: colors::TEXT_MUTED,
+                                            ..TextStyle::default()
+                                        })
+                                        .options(options),
+                                );
+                            })
+                            .grip(draw_grip),
+                    );
+                });
+            },
+        ));
     }
 }
 
@@ -632,9 +648,7 @@ impl Widget<DesktopContext> for &mut InputPage {
         body.child()
             .insert(Text::new("input").style(TextStyle::new().size(sz::MD).color(colors::TEXT_MUTED)));
         body.child().build(|ui: Ui<'_>| {
-            let mut field = ui
-                .constrain(Constraints::tight(Size::new(420.0, 40.0)))
-                .id(Id::new("desktop text input"));
+            let mut field = ui.constrain(Constraints::tight(Size::new(420.0, 40.0)));
             let focused = field.interact(interact::focus());
             let hovered = field.interact(interact::press()).hovered;
             let border = if focused {
@@ -694,152 +708,149 @@ impl Widget<DesktopContext> for &mut LayoutPage {
         let unit = Size::uniform(sz::SM);
         let preview_config = *canvas;
         let mut body = ui.layout(flex::row());
-        body.child()
-            .item(flex::item().grow())
-            .id(Id::new("layout page split"))
-            .build(split(
-                split_state,
-                sz::SIDEBAR,
-                |ui: Ui<'_>| {
-                    let mut sidebar = ui.layout(flex::column().gap(sz::XS)).pad(sz::LG);
-                    sidebar.insert(panel(colors::SURFACE));
-                    sidebar
-                        .child()
-                        .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-                    sidebar
-                        .child()
-                        .item(flex::item().grow())
-                        .build(scroll_area(controls_scroll, |ui: Ui<'_>| {
-                            let mut controls = ui.layout(flex::column().gap(sz::LG));
+        body.child().item(flex::item().grow()).build(split(
+            split_state,
+            sz::SIDEBAR,
+            |ui: Ui<'_>| {
+                let mut sidebar = ui.layout(flex::column().gap(sz::XS)).pad(sz::LG);
+                sidebar.insert(panel(colors::SURFACE));
+                sidebar
+                    .child()
+                    .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
+                sidebar
+                    .child()
+                    .item(flex::item().grow())
+                    .build(scroll_area(controls_scroll, |ui: Ui<'_>| {
+                        let mut controls = ui.layout(flex::column().gap(sz::LG));
+                        controls.child().build(|ui: Ui<'_>| {
+                            choices(
+                                ui,
+                                "layout",
+                                &mut canvas.layout,
+                                &[
+                                    ("Flex", CanvasLayout::Flex),
+                                    ("Wrap", CanvasLayout::Wrap),
+                                    ("Grid", CanvasLayout::Grid),
+                                ],
+                            );
+                        });
+                        if matches!(canvas.layout, CanvasLayout::Flex | CanvasLayout::Wrap) {
                             controls.child().build(|ui: Ui<'_>| {
                                 choices(
                                     ui,
-                                    "layout",
-                                    &mut canvas.layout,
+                                    "axis",
+                                    &mut canvas.axis,
+                                    &[("Horizontal", Axis::Horizontal), ("Vertical", Axis::Vertical)],
+                                );
+                            });
+                            controls.child().build(|ui: Ui<'_>| {
+                                choices(
+                                    ui,
+                                    "justify",
+                                    &mut canvas.justify,
                                     &[
-                                        ("Flex", CanvasLayout::Flex),
-                                        ("Wrap", CanvasLayout::Wrap),
-                                        ("Grid", CanvasLayout::Grid),
+                                        ("Start", Justify::Start),
+                                        ("Center", Justify::Center),
+                                        ("End", Justify::End),
+                                        ("Between", Justify::SpaceBetween),
+                                        ("Around", Justify::SpaceAround),
+                                        ("Evenly", Justify::SpaceEvenly),
                                     ],
                                 );
                             });
-                            if matches!(canvas.layout, CanvasLayout::Flex | CanvasLayout::Wrap) {
-                                controls.child().build(|ui: Ui<'_>| {
-                                    choices(
-                                        ui,
-                                        "axis",
-                                        &mut canvas.axis,
-                                        &[("Horizontal", Axis::Horizontal), ("Vertical", Axis::Vertical)],
-                                    );
-                                });
-                                controls.child().build(|ui: Ui<'_>| {
-                                    choices(
-                                        ui,
-                                        "justify",
-                                        &mut canvas.justify,
-                                        &[
-                                            ("Start", Justify::Start),
-                                            ("Center", Justify::Center),
-                                            ("End", Justify::End),
-                                            ("Between", Justify::SpaceBetween),
-                                            ("Around", Justify::SpaceAround),
-                                            ("Evenly", Justify::SpaceEvenly),
-                                        ],
-                                    );
-                                });
-                                controls.child().build(|ui: Ui<'_>| {
-                                    choices(
-                                        ui,
-                                        "align",
-                                        &mut canvas.align,
-                                        &[
-                                            ("Start", Align::Start),
-                                            ("Center", Align::Center),
-                                            ("End", Align::End),
-                                            ("Stretch", Align::Stretch),
-                                        ],
-                                    );
-                                });
-                                controls.child().build(|ui: Ui<'_>| {
-                                    choices(
-                                        ui,
-                                        "sizing",
-                                        &mut canvas.sizing,
-                                        &[
-                                            ("Fixed", ItemSizing::Fixed),
-                                            ("Fit", ItemSizing::Fit),
-                                            ("Grow", ItemSizing::Grow),
-                                        ],
-                                    );
-                                });
-                            }
                             controls.child().build(|ui: Ui<'_>| {
                                 choices(
                                     ui,
-                                    "zoom",
-                                    &mut canvas.zoom,
-                                    &[("75%", 0.75), ("100%", 1.0), ("125%", 1.25)],
-                                );
-                            });
-                            controls.child().build(|ui: Ui<'_>| {
-                                choices(
-                                    ui,
-                                    "gap",
-                                    &mut canvas.gap_steps,
-                                    &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
-                                );
-                            });
-                            controls.child().build(|ui: Ui<'_>| {
-                                choices(
-                                    ui,
-                                    "padding",
-                                    &mut canvas.padding_steps,
-                                    &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
-                                );
-                            });
-                            controls.child().build(|ui: Ui<'_>| {
-                                choices(
-                                    ui,
-                                    "transition",
-                                    &mut canvas.transition,
+                                    "align",
+                                    &mut canvas.align,
                                     &[
-                                        ("Off", Transition::Off),
-                                        ("Spring", Transition::Spring),
-                                        ("Tween", Transition::Tween),
+                                        ("Start", Align::Start),
+                                        ("Center", Align::Center),
+                                        ("End", Align::End),
+                                        ("Stretch", Align::Stretch),
                                     ],
                                 );
                             });
-                        }));
-                },
-                |ui: Ui<'_>| {
-                    let mut preview = ui.layout(flex::column().gap(sz::SM)).pad(sz::LG);
-                    preview.insert(panel(colors::SURFACE));
-                    preview
-                        .child()
-                        .insert(Text::new("LIVE VIEW").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-                    preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
-                        let mut viewport = ui.layout(flex::column()).clip(BoundsClip).pad(sz::SM);
-                        viewport.insert(
-                            Rectangle::new()
-                                .background(colors::TRACK)
-                                .radius(BorderRadius::uniform(sz::XS)),
-                        );
-                        let initial =
-                            (screen - sz::CANVAS_INITIAL_OFFSET).max(sz::CANVAS_INITIAL_MIN) * sz::CANVAS_INITIAL_SCALE;
-                        viewport.child().id(Id::new("layout canvas")).build(
-                            Resize::new(resize)
-                                .initial(initial)
-                                .minimum(sz::CANVAS_MIN)
-                                .grip_size(Size::uniform(sz::MD))
-                                .content(Canvas {
-                                    config: preview_config,
-                                    unit,
-                                })
-                                .grip(draw_grip),
-                        );
-                    });
-                },
-            ));
+                            controls.child().build(|ui: Ui<'_>| {
+                                choices(
+                                    ui,
+                                    "sizing",
+                                    &mut canvas.sizing,
+                                    &[
+                                        ("Fixed", ItemSizing::Fixed),
+                                        ("Fit", ItemSizing::Fit),
+                                        ("Grow", ItemSizing::Grow),
+                                    ],
+                                );
+                            });
+                        }
+                        controls.child().build(|ui: Ui<'_>| {
+                            choices(
+                                ui,
+                                "zoom",
+                                &mut canvas.zoom,
+                                &[("75%", 0.75), ("100%", 1.0), ("125%", 1.25)],
+                            );
+                        });
+                        controls.child().build(|ui: Ui<'_>| {
+                            choices(
+                                ui,
+                                "gap",
+                                &mut canvas.gap_steps,
+                                &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
+                            );
+                        });
+                        controls.child().build(|ui: Ui<'_>| {
+                            choices(
+                                ui,
+                                "padding",
+                                &mut canvas.padding_steps,
+                                &[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
+                            );
+                        });
+                        controls.child().build(|ui: Ui<'_>| {
+                            choices(
+                                ui,
+                                "transition",
+                                &mut canvas.transition,
+                                &[
+                                    ("Off", Transition::Off),
+                                    ("Spring", Transition::Spring),
+                                    ("Tween", Transition::Tween),
+                                ],
+                            );
+                        });
+                    }));
+            },
+            |ui: Ui<'_>| {
+                let mut preview = ui.layout(flex::column().gap(sz::SM)).pad(sz::LG);
+                preview.insert(panel(colors::SURFACE));
+                preview
+                    .child()
+                    .insert(Text::new("LIVE VIEW").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
+                preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
+                    let mut viewport = ui.layout(flex::column()).clip(BoundsClip).pad(sz::SM);
+                    viewport.insert(
+                        Rectangle::new()
+                            .background(colors::TRACK)
+                            .radius(BorderRadius::uniform(sz::XS)),
+                    );
+                    let initial =
+                        (screen - sz::CANVAS_INITIAL_OFFSET).max(sz::CANVAS_INITIAL_MIN) * sz::CANVAS_INITIAL_SCALE;
+                    viewport.child().build(
+                        Resize::new(resize)
+                            .initial(initial)
+                            .minimum(sz::CANVAS_MIN)
+                            .grip_size(Size::uniform(sz::MD))
+                            .content(Canvas {
+                                config: preview_config,
+                                unit,
+                            })
+                            .grip(draw_grip),
+                    );
+                });
+            },
+        ));
     }
 }
 
@@ -1077,7 +1088,8 @@ impl Widget<DesktopContext> for Canvas {
             .background(colors::CANVAS)
             .border(Border::solid(sz::BORDER_STRONG, colors::CANVAS_BORDER))
             .radius(BorderRadius::uniform(sz::XS));
-        let ui = ui.id(Id::new("desktop canvas"));
+        let mut shell = ui.layout(());
+        let ui = shell.child_in(blit::Scope::ROOT, "canvas");
         match self.config.layout {
             CanvasLayout::Flex => {
                 let mut canvas = ui
@@ -1093,7 +1105,7 @@ impl Widget<DesktopContext> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = self.config.item_sizing(index, self.unit);
                     canvas
-                        .child()
+                        .child_id(index)
                         .item(flex::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config);
@@ -1119,7 +1131,7 @@ impl Widget<DesktopContext> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = self.config.item_sizing(index, self.unit);
                     canvas
-                        .child()
+                        .child_id(index)
                         .item(wrap::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config);
@@ -1134,7 +1146,7 @@ impl Widget<DesktopContext> for Canvas {
                 canvas.insert(background);
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
-                        .child()
+                        .child_id(index)
                         .item(
                             grid::item()
                                 .row_span(spec.rows)
@@ -1170,9 +1182,7 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
             ),
         ),
     ];
-    let mut item = ui
-        .id(Id::new(("canvas item", index)))
-        .layout(flex::column().align(Align::Center).justify(Justify::Center));
+    let mut item = ui.layout(flex::column().align(Align::Center).justify(Justify::Center));
     item.insert(
         Rectangle::new()
             .background(LinearGradient::new(&stops).angle(45.0))
@@ -1188,12 +1198,12 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     }));
     if let Some(anchor) = spec.badge {
         item.child()
-            .parent(Id::new("desktop canvas"))
+            .parent(Target::ROOT.scoped("canvas"))
             .z_index(1)
             .build(|ui: Ui<'_>| {
                 let mut badge = ui
                     .place(
-                        NodeTarget::Parent,
+                        Target::PARENT,
                         absolute::place()
                             .target_anchor(anchor)
                             .child_anchor(Anchor::Center)

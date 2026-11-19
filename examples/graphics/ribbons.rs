@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Atom, AtomCx, Constraints, Id, LogicalRect, Paint, Size, Widget};
+use blit::{Atom, AtomCx, Constraints, LogicalRect, Paint, Size, Widget};
 use blit_cpu::{Pixel, PixelBuffer, PremultipliedRgbaColor, Render, RenderContext, RenderStrategy, Renderer};
 use blit_gui::{
     clip::BoundsClip,
@@ -48,9 +48,9 @@ impl View {
         let [x, y, z] = self.axis;
         self.axis = [x, y * cosine - z * sine, y * sine + z * cosine];
         self.previous_phase = phase;
-        let mut stage = ui.id(Id::new("ribbon sculpture")).layout(());
+        let mut stage = ui.layout(());
         let drag = stage.interact(interact::drag());
-        let area = stage.area(stage.current_id());
+        let area = stage.area();
         if (drag.delta.x != 0.0 || drag.delta.y != 0.0)
             && let Some(area) = area
         {
@@ -92,7 +92,7 @@ impl View {
             let mut panel = stage
                 .child()
                 .place(
-                    blit::NodeTarget::Parent,
+                    blit::Target::PARENT,
                     absolute::place()
                         .target_anchor(Anchor::Center)
                         .child_anchor(Anchor::Center)

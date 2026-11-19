@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use blit::{
-    Frame, FrameInfo, Id, Input, Point, Size,
+    Frame, FrameInfo, Input, Point, Size,
     TouchPhase::{Down, Move, Up},
 };
 use blit_tui::{
@@ -15,7 +15,6 @@ fn selection_ignores_other_contacts() {
     let mut frame = Frame::default();
     let mut state = TextInputState::default();
     let mut value = String::from("abcdefghij");
-    let field = Id::new("field");
     let mut next = |input| {
         frame.build(
             &mut context,
@@ -23,8 +22,8 @@ fn selection_ignores_other_contacts() {
             Duration::ZERO,
             input,
             |mut ui: Ui<'_>| {
-                ui.focus(field);
-                ui.id(field).build(TextInput::new(&mut state, &mut value));
+                ui.focus();
+                ui.build(TextInput::new(&mut state, &mut value));
             },
         );
         frame.layout(&mut context);

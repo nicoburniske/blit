@@ -51,7 +51,6 @@ where
             selection_background,
             cursor_background,
         } = self;
-        let id = ui.current_id();
         let press = ui.interact(interact::press());
         let mut focused = ui.interact(interact::focus());
         let drag = ui.interact(interact::drag().axis(Axis::Horizontal));
@@ -101,7 +100,7 @@ where
         } else {
             None
         };
-        if let Some(area) = ui.area(id) {
+        if let Some(area) = ui.area() {
             let area = area.inset(padding);
             let request = TextRequest {
                 text,

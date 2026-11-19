@@ -1,4 +1,4 @@
-use blit::{Input, InteractCx, NodeTarget, Scalar, Sides, Ui, Widget};
+use blit::{Input, InteractCx, Scalar, Sides, Target, Ui, Widget};
 use blit_layout::{
     Align, absolute,
     absolute::{Anchor, Sizing},
@@ -22,7 +22,7 @@ blit::builder! {
         trigger<F = fn(Ui<'_, C>, interact::press::Response, bool)>: F = |_, _, _| (),
         content<W = fn(Ui<'_, C>)>: W = |_| (),
         #[into]
-        parent: NodeTarget = NodeTarget::Root,
+        parent: Target = Target::ROOT,
         target_anchor: Anchor = Anchor::BottomLeft,
         child_anchor: Anchor = Anchor::TopLeft,
         x: C::Scalar = C::Scalar::ZERO,
@@ -54,71 +54,56 @@ where
         let state = self.state;
         let trigger = self.trigger;
         let content = self.content;
-        let id = ui.current_id();
-        let trigger_id = id.child("popover trigger");
-        let press = ui.interact_widget(trigger_id, interact::press());
+        let (backdrop_id, trigger_id, content_id) = (0u8, 1u8, 2u8);
+        let press = ui.at(trigger_id).interact(interact::press());
         if self.open_on_hover && press.hovered {
             state.open = true;
         } else if !self.open_on_hover && press.activated {
             state.open = !state.open;
         }
-        let mut root = ui.layout(flex::column().align(Align::Start));
-        let anchor = {
-            let mut trigger_node = root.child().id(trigger_id).hit(self.hit).layout(());
-            let anchor = trigger_node.node_id();
-            trigger_node
-                .child()
-                .build(|ui: Ui<'_, C>| trigger(ui, press, state.open));
-            anchor
-        };
-        let backdrop_id = id.child("popover backdrop");
-        let content_id = id.child("popover content");
         // requested while closed too so the opening frame knows where the trigger is
-        let areas = [trigger_id, content_id].map(|id| root.area(id));
-        if !state.open {
-            return None;
+        let areas = [trigger_id, content_id].map(|id| ui.at(id).area());
+        if state.open {
+            let backdrop = ui.at(backdrop_id).interact(interact::press());
+            ui.at(backdrop_id).interact(BlockInput);
+            let content_hovered = ui.at(content_id).interact(BlockInput);
+            let pointer_inside = content_hovered
+                || ui
+                    .mouse_position()
+                    .is_some_and(|position| areas.into_iter().flatten().any(|area| area.contains(position)));
+            if match (self.close, ui.input()) {
+                (PopoverClose::Click, _) => backdrop.activated,
+                (PopoverClose::Exit, Input::MouseMove { .. } | Input::MouseLeave) => !pointer_inside,
+                _ => false,
+            } {
+                state.open = false;
+            }
         }
 
-        let backdrop = root.interact_widget(backdrop_id, interact::press());
-        let content_hovered = root.interact_widget(content_id, BlockInput);
-        let pointer_inside = content_hovered
-            || root
-                .mouse_position()
-                .is_some_and(|position| areas.into_iter().flatten().any(|area| area.contains(position)));
-        if match (self.close, root.input()) {
-            (PopoverClose::Click, _) => backdrop.activated,
-            (PopoverClose::Exit, Input::MouseMove { .. } | Input::MouseLeave) => !pointer_inside,
-            _ => false,
-        } {
-            state.open = false;
-        }
-        if !state.open {
-            return None;
-        }
-
-        let mut popup = root
-            .child()
-            .parent(self.parent)
-            .z_index(1)
-            .place(
-                self.parent,
-                absolute::place().width(Sizing::full()).height(Sizing::full()),
-            )
-            .layout(());
-        if self.close != PopoverClose::Manual {
-            popup.interact(BlockInput);
-            popup
-                .child()
-                .id(backdrop_id)
+        let mut root = ui.layout(flex::column().align(Align::Start));
+        if state.open && self.close != PopoverClose::Manual {
+            root.child_id(backdrop_id)
+                .parent(self.parent)
+                .z_index(1)
                 .place(
-                    NodeTarget::Parent,
+                    self.parent,
                     absolute::place().width(Sizing::full()).height(Sizing::full()),
                 )
                 .insert(());
         }
+        root.child_id(trigger_id)
+            .hit(self.hit)
+            .layout(())
+            .child()
+            .build(|ui: Ui<'_, C>| trigger(ui, press, state.open));
+        if !state.open {
+            return None;
+        }
+        // stacks above the backdrop as its later sibling
         Some(
-            popup
-                .child()
+            root.child_id(content_id)
+                .parent(self.parent)
+                .z_index(1)
                 .hit(
                     Sides::new()
                         .top(self.y.max(C::Scalar::ZERO))
@@ -126,9 +111,8 @@ where
                         .bottom((-self.y).max(C::Scalar::ZERO))
                         .left(self.x.max(C::Scalar::ZERO)),
                 )
-                .id(content_id)
                 .place(
-                    anchor,
+                    Target::PARENT.at(trigger_id),
                     absolute::place()
                         .target_anchor(self.target_anchor)
                         .child_anchor(self.child_anchor)
@@ -165,7 +149,7 @@ mod tests {
     use std::time::Duration;
 
     use blit::{
-        Axis, Constraints, Frame, FrameInfo, Id, Modifiers, MouseButton, Point as InputPoint, Rect, ScrollPhase, Size,
+        Axis, Constraints, Frame, FrameInfo, Modifiers, MouseButton, Point as InputPoint, Rect, ScrollPhase, Size,
     };
 
     use super::*;
@@ -214,20 +198,18 @@ mod tests {
     }
 
     fn render(ui: Ui<'_, TestContext>, popover: Popover<'_, TestContext>) {
-        ui.id(Id::new("test popover")).build(
+        ui.build(
             popover
                 .trigger(|ui, _, _| {
-                    ui.id(Id::new("named trigger"))
+                    ui.layout(())
+                        .child_in(blit::Scope::ROOT, "named trigger")
                         .constrain(Constraints::tight(Size::new(2.0, 1.0)))
-                        .layout(())
-                        .child()
                         .insert(())
                 })
                 .content(|ui: Ui<'_, TestContext>| {
-                    ui.id(Id::new("named content"))
+                    ui.layout(())
+                        .child_in(blit::Scope::ROOT, "named content")
                         .constrain(Constraints::tight(Size::new(4.0, 3.0)))
-                        .layout(())
-                        .child()
                         .insert(())
                 }),
         );
@@ -239,7 +221,6 @@ mod tests {
         let mut context = TestContext;
         let info = FrameInfo::new(Size::uniform(10.0));
         let mut state = PopoverState::new();
-        let content_id = Id::new("test popover").child("popover content");
 
         frame.build(
             &mut context,
@@ -304,7 +285,7 @@ mod tests {
                 input,
                 |mut ui: Ui<'_, TestContext>| {
                     if let Input::MouseUp { .. } = input {
-                        content_area = ui.area(content_id);
+                        content_area = ui.at(2u8).area();
                     }
                     render(
                         ui,
@@ -318,11 +299,11 @@ mod tests {
             frame.layout(&mut context);
             if let Input::MouseUp { .. } = input {
                 assert_eq!(
-                    frame.area(Id::new("named content")),
+                    frame.area(Target::ROOT.scoped("named content")),
                     Some(Rect::new(0.0, 1.0, 4.0, 3.0))
                 );
                 assert_eq!(
-                    frame.area(Id::new("named trigger")),
+                    frame.area(Target::ROOT.scoped("named trigger")),
                     Some(Rect::new(0.0, 0.0, 2.0, 1.0)),
                 );
             }

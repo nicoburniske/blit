@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use blit::{
     Animation, AnimationOptions, Axis, Clip, Constraints, Id, Layout, LayoutCx, NodeId, Point, Scalar, Size, Ui,
-    Widget, internal::animator::Animator,
+    Widget, internal::animator::Animator, state::Local,
 };
 
 use crate::{Context, interact};
@@ -49,15 +49,16 @@ impl<T: Scalar> ScrollState<T> {
     /// zero duration jumps immediately and retargeting carries existing request velocity
     pub fn scroll_to(&mut self, offset: T, animation: impl Into<Animation>, options: AnimationOptions) {
         self.inertia.stop();
-        self.request.target = Target::Offset(offset);
+        self.request.target = Goal::Offset(offset);
         self.request.animation = animation.into();
         self.request.options = options;
     }
 
-    /// queues a child or list row to reveal within the viewport
-    pub fn scroll_to_widget(&mut self, id: Id, animation: impl Into<Animation>, options: AnimationOptions) {
+    /// queues a direct child of the scroll content or a list row to reveal within the viewport
+    pub fn scroll_to_widget(&mut self, id: impl Into<Id>, animation: impl Into<Animation>, options: AnimationOptions) {
         self.inertia.stop();
-        self.request.target = Target::Widget(id);
+        self.request.target = Goal::Widget(id.into());
+        self.request.missed = false;
         self.request.animation = animation.into();
         self.request.options = options;
     }
@@ -69,8 +70,8 @@ impl<T: Scalar> ScrollState<T> {
 
     pub fn is_moving(&self) -> bool {
         match self.request.target {
-            Target::None => self.inertia.velocity != 0.0,
-            Target::Offset(_) | Target::Widget(_) => true,
+            Goal::None => self.inertia.velocity != 0.0,
+            Goal::Offset(_) | Goal::Widget(_) => true,
         }
     }
 }
@@ -94,14 +95,16 @@ impl Inertia {
 
 #[derive(Debug, Default)]
 struct Request<T> {
-    target: Target<T>,
+    target: Goal<T>,
     animation: Animation,
     options: AnimationOptions,
     animator: Option<Animator<T, 1>>,
+    // the widget target was missing from the previous build, which may have added it
+    missed: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-enum Target<T> {
+enum Goal<T> {
     #[default]
     None,
     Offset(T),
@@ -260,7 +263,7 @@ impl<T: Scalar> Scrollbar<T> {
 }
 
 /// updates scroll input and motion returning thumb activity and viewport availability
-/// uses children named `content` and `scroll thumb` for geometry when present
+/// uses the content and thumb children for geometry when present
 fn update<C: Context>(
     state: &mut ScrollState<C::Scalar>,
     ui: &mut Ui<'_, C>,
@@ -268,15 +271,13 @@ fn update<C: Context>(
     scroll_speed: f32,
     inertia_friction: f32,
 ) -> (bool, bool) {
-    let id = ui.current_id();
-    let content_id = id.child("content");
-    let viewport_known = if let Some(area) = ui.area(id) {
+    let viewport_known = if let Some(area) = ui.area() {
         state.viewport_extent = axis.extent(area.size());
         true
     } else {
         false
     };
-    if let Some(area) = ui.area(content_id) {
+    if let Some(area) = ui.at(CONTENT).area() {
         state.content_extent = axis.extent(area.size());
     }
 
@@ -315,15 +316,12 @@ fn scrollbar_input<C: Context>(
     axis: Axis,
     viewport_extent: C::Scalar,
 ) -> (bool, Option<ScrollbarInput>) {
-    let id = ui.current_id();
-    let thumb_id = id.child("scroll thumb");
-    let track_id = id.child("scroll track");
-    let thumb_area = ui.area(thumb_id);
-    let track_area = ui.area(track_id);
-    let thumb = ui.interact_widget(thumb_id, interact::press());
-    let track = ui.interact_widget(track_id, interact::press());
-    let thumb_drag = ui.interact_widget(thumb_id, interact::drag());
-    let track_drag = ui.interact_widget(track_id, interact::drag());
+    let thumb_area = ui.at(THUMB).area();
+    let track_area = ui.at(TRACK).area();
+    let thumb = ui.at(THUMB).interact(interact::press());
+    let track = ui.at(TRACK).interact(interact::press());
+    let thumb_drag = ui.at(THUMB).interact(interact::drag());
+    let track_drag = ui.at(TRACK).interact(interact::drag());
     let active = thumb.active || track.active || thumb_drag.active || track_drag.active;
     // cancelled drags leave the offset alone
     let thumb_moved = thumb_drag.active || thumb_drag.released;
@@ -400,7 +398,7 @@ fn content_motion<C: Context>(
     let previous = state.last_frame.replace(now);
     let elapsed = previous.map_or(0.0, |previous| now.saturating_sub(previous).as_secs_f32());
     if matches!(ui.input(), blit::Input::Touch { phase: blit::TouchPhase::Down, position, .. }
-        if ui.area(ui.current_id()).is_some_and(|area| area.contains(position)))
+        if ui.area().is_some_and(|area| area.contains(position)))
     {
         state.stop();
         state.sample_time = Some(now);
@@ -471,29 +469,18 @@ fn content_motion<C: Context>(
     direct_delta
 }
 
-fn animate<C: Context, S>(state: &mut ScrollState<C::Scalar>, ui: &mut Ui<'_, C, S>, axis: Axis, viewport_known: bool) {
+fn animate<C: Context, S: Local>(state: &mut ScrollState<C::Scalar>, ui: &mut Ui<'_, C, S>, viewport_known: bool) {
     let request = &mut state.request;
     let target = match request.target {
-        Target::None => return,
+        // the widget that holds the content turns a widget goal into an offset first
+        Goal::None | Goal::Widget(_) => return,
         _ if !viewport_known => {
             ui.request_frame();
             return;
         }
-        Target::Offset(offset) => offset,
-        Target::Widget(id) => {
-            let Some((widget, content)) = ui.area(id).zip(ui.area(ui.current_id().child("content"))) else {
-                ui.request_frame();
-                return;
-            };
-            let start = match axis {
-                Axis::Horizontal => widget.x - content.x,
-                Axis::Vertical => widget.y - content.y,
-            };
-            let end = start.endpoint(axis.extent(widget.size()));
-            state.offset.clamp((end - state.viewport_extent).min(start), start)
-        }
+        Goal::Offset(offset) => offset,
     };
-    request.target = Target::Offset(target);
+    request.target = Goal::Offset(target);
     // bounds here describe the previous frame, so clamping a destination now would
     // stop at the old end when content is appended and scrolled to in the same frame
     // bound the moving position, then pass the original destination to layout when motion ends
@@ -548,28 +535,24 @@ where
     T: FnOnce(Ui<'_, C>),
     H: FnOnce(Ui<'_, C>, bool),
 {
-    let id = ui.current_id();
-    let content_id = id.child("content");
-    let thumb_id = id.child("scroll thumb");
     let mut viewport = ui.layout(layout).clip(clip);
-    viewport.child().item(ScrollItem::Content).id(content_id).build(content);
+    viewport.child_id(CONTENT).item(ScrollItem::Content).build(content);
     if let Some(track) = track {
-        viewport
-            .child()
-            .item(ScrollItem::Track)
-            .id(id.child("scroll track"))
-            .build(track);
+        viewport.child_id(TRACK).item(ScrollItem::Track).build(track);
     }
     if let Some(thumb) = thumb {
         viewport
-            .child()
+            .child_id(THUMB)
             .item(ScrollItem::Thumb)
-            .id(thumb_id)
             .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
     }
     viewport
 }
 
+// children of a scroll node, so they only need to differ from each other
+const CONTENT: u8 = 0;
+const TRACK: u8 = 1;
+const THUMB: u8 = 2;
 const MIN_SCROLL_VELOCITY: f32 = 5.0;
 const MAX_SCROLL_VELOCITY: f32 = 12_000.0;
 
@@ -668,6 +651,42 @@ mod tests {
     }
 
     #[test]
+    fn widget_requests_reveal_content() {
+        use blit::{Atom, AtomCx, Rect};
+
+        struct Row;
+        impl Atom<TestContext> for Row {
+            fn measure(&self, _: &mut AtomCx<'_, TestContext>, bounds: Constraints<f32>) -> Size<f32> {
+                bounds.constrain(Size::new(200.0, 100.0))
+            }
+            fn paint(&self, _: &mut AtomCx<'_, TestContext>, _: Rect<f32>) {}
+        }
+        let mut frame = Frame::default();
+        let mut state = ScrollState::<f32>::new();
+        let mut step = |state: &mut ScrollState<f32>| {
+            for _ in 0..3 {
+                crate::test::step(&mut frame, Input::None, |ui: Ui<'_, TestContext>| {
+                    ui.build(ScrollArea::new(state).build_scrollbar(
+                        |ui: Ui<'_, TestContext>| {
+                            let mut rows = ui.layout(blit_layout::flex::column());
+                            for index in 10..20u8 {
+                                rows.child_id(index).insert(Row);
+                            }
+                        },
+                        |_: Ui<'_, TestContext>| {},
+                        |_: Ui<'_, TestContext>, _| {},
+                    ))
+                });
+            }
+            state.offset
+        };
+        step(&mut state);
+        state.scroll_to_widget(17u8, Animation::default(), AnimationOptions::default());
+        assert_eq!(step(&mut state), 600.0);
+        assert!(!state.is_moving());
+    }
+
+    #[test]
     fn animated_requests_retarget_bound_and_settle() {
         let mut frame = Frame::default();
         let mut state = ScrollState {
@@ -682,7 +701,7 @@ mod tests {
                 FrameInfo::new(Size::uniform(100.0)),
                 Duration::from_millis(millis),
                 Input::None,
-                |mut ui: Ui<'_, TestContext>| animate(state, &mut ui, Axis::Vertical, true),
+                |mut ui: Ui<'_, TestContext>| animate(state, &mut ui, true),
             );
             frame.layout(&mut TestContext);
         };

@@ -46,14 +46,10 @@ where
         let state = self.state;
         let content = self.content;
         let mut grip = self.grip;
-        let id = ui.current_id();
-        let right_id = id.child("right grip");
-        let bottom_id = id.child("bottom grip");
-        let corner_id = id.child("corner grip");
-        let previous = ui.area(id);
-        let mut grip_input = |id, edge| {
-            let press = ui.interact_widget(id, interact::press());
-            let drag = ui.interact_widget(id, interact::drag());
+        let previous = ui.area();
+        let mut grip_input = |key: u8, edge| {
+            let press = ui.at(key).interact(interact::press());
+            let drag = ui.at(key).interact(interact::drag());
             let grip = ResizeGrip {
                 edge,
                 hovered: press.hovered,
@@ -61,9 +57,9 @@ where
             };
             (grip, drag.delta)
         };
-        let (right, right_delta) = grip_input(right_id, ResizeEdge::Right);
-        let (bottom, bottom_delta) = grip_input(bottom_id, ResizeEdge::Bottom);
-        let (corner, corner_delta) = grip_input(corner_id, ResizeEdge::Corner);
+        let (right, right_delta) = grip_input(1, ResizeEdge::Right);
+        let (bottom, bottom_delta) = grip_input(2, ResizeEdge::Bottom);
+        let (corner, corner_delta) = grip_input(3, ResizeEdge::Corner);
         let delta = Size::new(right_delta.x + corner_delta.x, bottom_delta.y + corner_delta.y);
         if delta != Size::ZERO {
             let size = state
@@ -86,14 +82,13 @@ where
         });
         shell.child().item(Item::Content).build(content);
         for (item, grip_id, handle) in [
-            (Item::Right, right_id, right),
-            (Item::Bottom, bottom_id, bottom),
-            (Item::Corner, corner_id, corner),
+            (Item::Right, 1, right),
+            (Item::Bottom, 2, bottom),
+            (Item::Corner, 3, corner),
         ] {
             shell
-                .child()
+                .child_id(grip_id)
                 .item(item)
-                .id(grip_id)
                 .build(|ui: Ui<'_, C>| grip(ui, handle));
         }
     }

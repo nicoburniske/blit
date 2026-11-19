@@ -24,16 +24,12 @@ impl Dock {
         controls: impl FnOnce(usize) -> Option<W>,
     ) {
         if self.running {
-            self.phase = ui.animate_loop(
-                Id::new("graphics laboratory"),
-                Tween::new(Duration::from_secs(24), Easing::LINEAR),
-            );
+            self.phase = ui.animate_loop(Tween::new(Duration::from_secs(24), Easing::LINEAR));
         }
         let mut toolbar = ui
-            .id(Id::new("graphics dock"))
             .z_index(1)
             .place(
-                blit::NodeTarget::Parent,
+                blit::Target::PARENT,
                 absolute::place()
                     .target_anchor(Anchor::Bottom)
                     .child_anchor(Anchor::Bottom)

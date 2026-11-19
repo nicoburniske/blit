@@ -54,7 +54,6 @@ where
             cursor_background,
             attributes,
         } = self;
-        let id = ui.current_id();
         let press = ui.interact(interact::press());
         let drag = ui.interact(interact::drag().axis(Axis::Horizontal));
         let input = ui.input();
@@ -101,7 +100,7 @@ where
         } else {
             None
         };
-        if let Some(area) = ui.area(id) {
+        if let Some(area) = ui.area() {
             let area = area.inset(padding);
             let request = TextRequest {
                 text,

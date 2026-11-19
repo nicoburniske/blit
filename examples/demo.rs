@@ -1,8 +1,10 @@
 use std::time::Duration;
 
-use blit::{Animation, Axis, Easing, Id, Layout, Motion, Point, Scalar, Sides, Size, Spring, Tween, Ui, Widget};
+use blit::{
+    Animation, Axis, Easing, Layout, Motion, Scalar, Sides, Size, Spring, Target, Tween, Ui, Widget, state::Open,
+};
 pub use blit_layout::{Align, Justify};
-use blit_layout::{Sizing, absolute::Anchor};
+use blit_layout::{Sizing, absolute, absolute::Anchor, flex};
 use blit_widgets::{Context, interact};
 
 /// applies selection changes before building any option's visuals
@@ -13,10 +15,9 @@ pub fn select<'a, C: Context, T: Copy + PartialEq, D>(
     mut render: impl FnMut(Ui<'_, C>, &'a D, bool, interact::press::Response),
 ) -> impl Widget<C, Response = bool> {
     move |mut ui: Ui<'_, C>| {
-        let id = ui.current_id();
         let mut clicked = false;
         for (index, (_, value)) in options.iter().enumerate() {
-            let press = ui.interact_widget(id.child(index), interact::press());
+            let press = ui.at(index).interact(interact::press());
             if press.clicked {
                 *selected = *value;
                 clicked = true;
@@ -24,7 +25,7 @@ pub fn select<'a, C: Context, T: Copy + PartialEq, D>(
         }
         let mut group = ui.layout(layout);
         for (index, (data, value)) in options.iter().enumerate() {
-            group.child().id(id.child(index)).build(|mut ui: Ui<'_, C>| {
+            group.child_id(index).build(|mut ui: Ui<'_, C>| {
                 let press = ui.interact(interact::press());
                 render(ui, data, *selected == *value, press);
             });
@@ -33,43 +34,79 @@ pub fn select<'a, C: Context, T: Copy + PartialEq, D>(
     }
 }
 
-pub struct SpringDrag {
-    pub spring: Spring,
-    pub active: bool,
-    position: [f32; 2],
-}
-
-impl Default for SpringDrag {
-    fn default() -> Self {
-        Self {
-            spring: Spring::new(Duration::from_millis(650), 0.5).rest(0.01, 0.01),
-            active: false,
-            position: [0.0; 2],
+/// named columns of cards that move by drag and drop
+pub fn board<'a, C: Context>(
+    columns: &'a mut [(&'static str, Vec<u32>)],
+    height: C::Scalar,
+    gap: C::Scalar,
+    mut decorate: impl FnMut(&mut Ui<'_, C, Open<flex::Layout<C::Scalar>>>, &str) + 'a,
+    mut card: impl FnMut(Ui<'_, C>, Option<u32>, bool) + 'a,
+) -> impl Widget<C> + 'a {
+    move |ui: Ui<'_, C>| {
+        let spring = Spring::new(Duration::from_millis(350), 0.15);
+        let item = || flex::item().height(Sizing::fixed(height));
+        let mut board = ui.layout(flex::row().gap(gap).align(Align::Stretch));
+        let scope = board.scope();
+        let mut dragged = None;
+        for (name, cards) in columns.iter() {
+            let mut column = board
+                .child_id(*name)
+                .item(flex::item().grow())
+                .layout(flex::column().gap(gap).align(Align::Stretch))
+                .pad(gap);
+            decorate(&mut column, name);
+            for &id in cards {
+                let mut node = column.child_in(scope, id);
+                let response = node.interact(interact::drag());
+                if response.active {
+                    dragged = Some((id, response.position));
+                }
+                // it stays lifted on the release frame and lands from there the next
+                let Some(area) = (response.active || response.released).then(|| node.area()).flatten() else {
+                    node.item(item())
+                        .motion(Motion::new(spring).position())
+                        .build(|ui: Ui<'_, C>| card(ui, Some(id), false));
+                    continue;
+                };
+                node.place(
+                    Target::ROOT,
+                    absolute::place()
+                        .x(area.x + response.delta.x)
+                        .y(area.y + response.delta.y)
+                        .width(absolute::Sizing::fixed(area.width))
+                        .height(absolute::Sizing::fixed(area.height)),
+                )
+                .parent(Target::ROOT)
+                .z_index(1)
+                // no properties so it follows the pointer exactly and keeps its motion state
+                .motion(Motion::new(spring))
+                .build(|ui: Ui<'_, C>| card(ui, Some(id), true));
+                // the gap where it lands
+                column.child().item(item()).build(|ui: Ui<'_, C>| card(ui, None, false));
+            }
         }
-    }
-}
-
-impl SpringDrag {
-    pub fn update<C: Context, S>(&mut self, ui: &mut Ui<'_, C, S>, id: Id) -> Point<C::Scalar> {
-        let drag = ui.interact_widget(id, interact::drag());
-        let card = ui.area(id);
-        let home = ui.area(Id::new((id, "home")));
-        self.active = drag.active;
-        if drag.activated
-            && let (Some(card), Some(home)) = (card, home)
+        // the dragged card moves to the column under the pointer after the other cards above the pointer
+        if let Some((id, pointer)) = dragged
+            && let Some(column) = columns
+                .iter()
+                .position(|(name, _)| board.at(*name).area().is_some_and(|area| area.contains(pointer)))
         {
-            self.position = [(card.x - home.x).to_f32(), (card.y - home.y).to_f32()];
+            let row = columns[column]
+                .1
+                .iter()
+                .filter(|&&other| other != id)
+                .filter(|&&other| {
+                    board
+                        .at(Target::THIS.scoped(other))
+                        .area()
+                        .is_some_and(|area| area.y.lerp(area.y + area.height, 0.5) < pointer.y)
+                })
+                .count();
+            for (_, cards) in columns.iter_mut() {
+                cards.retain(|&other| other != id);
+            }
+            columns[column].1.insert(row, id);
         }
-        if drag.active {
-            self.position[0] += drag.delta.x.to_f32();
-            self.position[1] += drag.delta.y.to_f32();
-        } else {
-            self.position = [0.0; 2];
-        }
-        Point::new(
-            C::Scalar::from_f32(self.position[0]),
-            C::Scalar::from_f32(self.position[1]),
-        )
     }
 }
 

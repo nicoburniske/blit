@@ -106,7 +106,7 @@ mod tests {
     use std::cell::Cell;
 
     use blit::{
-        Frame, Id, Input,
+        Frame, Input,
         TouchPhase::{Down, Move, Up},
         Ui,
     };
@@ -189,10 +189,9 @@ mod tests {
         let mut frame = Frame::<TestContext>::default();
         let mounted = Cell::new(true);
         let build = |mut ui: Ui<'_, TestContext>| {
-            let handle = Id::new("handle");
-            let drag = ui.interact_widget(handle, interact::drag());
+            let drag = ui.at("handle").interact(interact::drag());
             if mounted.get() {
-                ui.layout(()).child().id(handle).build(|_: Ui<'_, TestContext>| {});
+                ui.layout(()).child_id("handle").build(|_: Ui<'_, TestContext>| {});
             }
             drag
         };

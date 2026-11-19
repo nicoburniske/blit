@@ -60,14 +60,11 @@ where
         let leading = self.leading;
         let trailing = self.trailing;
         let divider = self.divider;
-        let id = ui.current_id();
         let axis = self.axis;
-        let leading_id = id.child("leading pane");
-        let divider_id = id.child("divider");
-        let trailing_id = id.child("trailing pane");
-        let press = ui.interact_widget(divider_id, interact::press());
-        let measured = ui.area(leading_id).map(|area| axis.extent(area.size()));
-        let drag = ui.interact_widget(divider_id, interact::drag());
+        let (leading_id, divider_id) = (0u8, 1u8);
+        let press = ui.at(divider_id).interact(interact::press());
+        let measured = ui.at(leading_id).area().map(|area| axis.extent(area.size()));
+        let drag = ui.at(divider_id).interact(interact::drag());
         let delta = match axis {
             Axis::Horizontal => drag.delta.x,
             Axis::Vertical => drag.delta.y,
@@ -90,8 +87,8 @@ where
             minimum_leading: self.minimum_leading,
             minimum_trailing: self.minimum_trailing,
         });
-        panes.child().id(leading_id).build(leading);
-        panes.child().id(divider_id).build(|ui: Ui<'_, C>| {
+        panes.child_id(leading_id).build(leading);
+        panes.child_id(divider_id).build(|ui: Ui<'_, C>| {
             divider(
                 ui,
                 SplitDivider {
@@ -101,7 +98,7 @@ where
                 },
             )
         });
-        panes.child().id(trailing_id).build(trailing);
+        panes.child().build(trailing);
     }
 }
 

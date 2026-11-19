@@ -2,7 +2,9 @@ use std::ops::Range;
 
 use blit::{Axis, Clip, Constraints, Id, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget};
 
-use super::{Scrollbar, ScrollbarInput, ThumbProgress, content_input, content_motion, scrollbar_input};
+use super::{
+    CONTENT, Scrollbar, ScrollbarInput, THUMB, TRACK, ThumbProgress, content_input, content_motion, scrollbar_input,
+};
 use crate::Context;
 
 blit::builder! {
@@ -10,8 +12,7 @@ blit::builder! {
     /// measures a bounded viewport window and estimates remaining heights
     /// rows must have positive finite heights
     /// callbacks identify and build rows by index
-    /// row ids default to hashed indices scoped to the list
-    /// id callbacks receive the list id and return the row's absolute id
+    /// row ids default to their indices
     /// an absent count scrolls indefinitely with a thumb covering the explored range
     pub struct VirtualList<'a, T: Scalar> {
         new(state: &'a mut VirtualListState<T>),
@@ -21,15 +22,15 @@ blit::builder! {
         inertia_friction: f32 = 2.5,
         scrollbar_thickness: T = T::from_f32(1.0),
         minimum_thumb_extent: T = T::from_f32(1.0),
-        #[bounds(FnMut(Id, usize) -> Id)]
-        id<K = fn(Id, usize) -> Id>: K = |parent, index| parent.child(index),
+        #[bounds(FnMut(usize) -> Id)]
+        id<K = fn(usize) -> Id>: K = Id::from,
         clip<X = ()>: X = (),
     }
 }
 
 impl<T: Scalar, K, X> VirtualList<'_, T, K, X>
 where
-    K: FnMut(Id, usize) -> Id,
+    K: FnMut(usize) -> Id,
 {
     /// creates a widget without a scrollbar
     pub fn build<C: Context<Scalar = T>>(
@@ -77,8 +78,7 @@ where
             id: mut item_id,
             clip,
         } = self;
-        let id = ui.current_id();
-        let viewport = ui.area(id);
+        let viewport = ui.area();
         let size = viewport.map_or(ui.screen().size(), |area| area.size());
         let overscan = size.height.repeat(VIEWPORTS);
         let row = state.sample.get(state.visible.start);
@@ -182,10 +182,6 @@ where
             max: Size::new(width, C::Scalar::UNBOUNDED),
         };
         let mut content = ui.clip(clip).layout(VirtualLayout {
-            anchor,
-            count,
-            size,
-            row_bounds: bounds,
             scrollbar: Scrollbar {
                 thickness: scrollbar_thickness,
                 minimum: minimum_thumb_extent,
@@ -194,6 +190,13 @@ where
         state.sample.clear();
         // measure rows while extending the window around the anchor
         let window = {
+            // rows get their own node so their ids never meet the scrollbar's
+            let mut rows = content.child_id(CONTENT).layout(RowsLayout {
+                anchor,
+                count,
+                size,
+                row_bounds: bounds,
+            });
             let mut window = Window {
                 first: anchor.index,
                 end: anchor.index,
@@ -201,11 +204,10 @@ where
                 ..Window::default()
             };
             let mut read_row = |index, window: &mut Window<C::Scalar>| {
-                let row_id = item_id(id, index);
-                let (_, size) = content
-                    .child()
-                    .item(Item::Row(index))
-                    .id(row_id)
+                let row_id = item_id(index);
+                let (_, size) = rows
+                    .child_id(row_id)
+                    .item(index)
                     .build_measured(bounds, |ui: Ui<'_, C>| item(ui, index));
                 assert!(size.height.is_finite() && size.height > C::Scalar::ZERO);
                 state.sample.push(Row {
@@ -307,17 +309,12 @@ where
             None
         };
         if let Some(track) = track {
-            content
-                .child()
-                .item(Item::Track(progress))
-                .id(id.child("scroll track"))
-                .build(track);
+            content.child_id(TRACK).item(Item::Track(progress)).build(track);
         }
         if let Some(thumb) = thumb {
             content
-                .child()
+                .child_id(THUMB)
                 .item(Item::Thumb(progress))
-                .id(id.child("scroll thumb"))
                 .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
         }
         let visible_range = first + state.visible.start..first + state.visible.end;
@@ -467,29 +464,53 @@ struct ScrollbarState {
     explored: f64,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 enum Item {
-    Row(usize),
+    #[default]
+    Rows,
     Track(ThumbProgress),
     Thumb(ThumbProgress),
 }
 
-impl Default for Item {
-    fn default() -> Self {
-        Self::Row(0)
-    }
-}
-
 struct VirtualLayout<T> {
-    anchor: Anchor<T>,
-    count: Option<usize>,
-    size: Size<T>,
-    row_bounds: Constraints<T>,
     scrollbar: Scrollbar<T>,
 }
 
 impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for VirtualLayout<T> {
     type Item = Item;
+
+    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints<T>) -> Size<T> {
+        // rows are built first and size the viewport the scrollbar spans
+        let mut size = Size::ZERO;
+        for child in cx.children() {
+            match *cx.item(child) {
+                Item::Rows => {
+                    size = cx.layout_child(child, constraints);
+                    cx.set_child_position(child, Point::ZERO);
+                }
+                Item::Track(progress) => {
+                    self.scrollbar
+                        .layout(cx, Axis::Vertical, size, progress, Some(child), None);
+                }
+                Item::Thumb(progress) => {
+                    self.scrollbar
+                        .layout(cx, Axis::Vertical, size, progress, None, Some(child));
+                }
+            }
+        }
+        size
+    }
+}
+
+struct RowsLayout<T> {
+    anchor: Anchor<T>,
+    count: Option<usize>,
+    size: Size<T>,
+    row_bounds: Constraints<T>,
+}
+
+impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for RowsLayout<T> {
+    type Item = usize;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints<T>) -> Size<T> {
         let width = if constraints.max.width.is_finite() {
@@ -505,10 +526,9 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for VirtualLayout<T> {
                 ..Window::default()
             };
             for child in cx.children() {
-                if let Item::Row(index) = *cx.item(child) {
-                    let height = cx.layout_child(child, self.row_bounds).height;
-                    window.push(self.anchor, index, height);
-                }
+                let index = *cx.item(child);
+                let height = cx.layout_child(child, self.row_bounds).height;
+                window.push(self.anchor, index, height);
             }
             window
         };
@@ -523,23 +543,11 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for VirtualLayout<T> {
         {
             let mut positions = Window::default();
             for child in cx.children() {
-                match *cx.item(child) {
-                    Item::Row(index) => {
-                        let height = cx.size(child).height;
-                        let top = positions.push(self.anchor, index, height);
-                        let top = top.endpoint(window.before_anchor);
-                        let y = top - offset;
-                        cx.set_child_position(child, Point::new(T::ZERO, y));
-                    }
-                    Item::Track(progress) => {
-                        self.scrollbar
-                            .layout(cx, Axis::Vertical, size, progress, Some(child), None);
-                    }
-                    Item::Thumb(progress) => {
-                        self.scrollbar
-                            .layout(cx, Axis::Vertical, size, progress, None, Some(child));
-                    }
-                }
+                let index = *cx.item(child);
+                let height = cx.size(child).height;
+                let top = positions.push(self.anchor, index, height);
+                let top = top.endpoint(window.before_anchor);
+                cx.set_child_position(child, Point::new(T::ZERO, top - offset));
             }
         }
         if size != self.size
@@ -576,7 +584,7 @@ fn metrics<T: Scalar>(state: &VirtualListState<T>, count: Option<usize>, height:
 mod tests {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, Input, Rect, TouchPhase};
+    use blit::{Frame, FrameInfo, Input, Rect, Scope, Target, TouchPhase};
 
     use super::*;
     use crate::test::{TestContext, pointer};
@@ -593,7 +601,7 @@ mod tests {
             settle_frame(&mut frame, &mut state, count, |index| (Id::new(index), 1.0));
             assert!(state.sample.len() <= 101);
             assert_eq!(state.position().0, 1);
-            assert_eq!(frame.area(Id::new(1usize)).unwrap().y, 0.0);
+            assert_eq!(frame.area(Target::ROOT.scoped(Id::new(1usize))).unwrap().y, 0.0);
         }
     }
 
@@ -664,7 +672,7 @@ mod tests {
                     });
                 }
                 if let Some(count) = count {
-                    let area = frame.area(Id::new(count - 1)).unwrap();
+                    let area = frame.area(Target::ROOT.scoped(Id::new(count - 1))).unwrap();
                     assert_eq!(area.y + area.height, heights.iter().sum::<f32>().min(50.0));
                 } else {
                     assert_eq!(state.position().0, 5);
@@ -708,15 +716,15 @@ mod tests {
                 state.scroll_to(20, 0.0);
                 settle_frame(&mut frame, &mut state, count, row);
                 let key = Id::new(20usize);
-                let y = frame.area(key).unwrap().y;
+                let y = frame.area(Target::ROOT.scoped(key)).unwrap().y;
                 state.scroll_by(-20.0);
                 render_frame(&mut frame, &mut state, count, Input::None, row);
-                assert_eq!(frame.area(key).unwrap().y, y + 20.0);
+                assert_eq!(frame.area(Target::ROOT.scoped(key)).unwrap().y, y + 20.0);
                 settle_frame(&mut frame, &mut state, count, row);
-                assert_eq!(frame.area(key).unwrap().y, y + 20.0);
+                assert_eq!(frame.area(Target::ROOT.scoped(key)).unwrap().y, y + 20.0);
                 state.scroll_by(40.0);
                 render_frame(&mut frame, &mut state, count, Input::None, row);
-                assert_eq!(frame.area(key).unwrap().y, y - 20.0);
+                assert_eq!(frame.area(Target::ROOT.scoped(key)).unwrap().y, y - 20.0);
             }
         }
     }
@@ -743,34 +751,37 @@ mod tests {
         input: Input<f32>,
         row: impl Fn(usize) -> (Id, f32),
     ) -> (Option<Rect<f32>>, Rect<f32>) {
-        let thumb_id = frame.build(
+        frame.build(
             &mut TestContext,
             FrameInfo::new(Size::new(80.0, 50.0)),
             Duration::ZERO,
             input,
             |ui: Ui<'_, TestContext>| {
-                let ui = ui.id(Id::new("test virtual list"));
-                let thumb_id = ui.current_id().child("scroll thumb");
                 ui.build(
                     VirtualList::new(state)
                         .count(count)
-                        .id(|_, index| row(index).0)
+                        .id(|index| row(index).0)
                         .build_scrollbar(
                             |ui: Ui<'_, TestContext>, index| {
+                                // a marker in the root scope covers the row so the frame can find it
                                 ui.constrain(Constraints::tight(Size::new(79.0, row(index).1)))
-                                    .layout(());
+                                    .layout(())
+                                    .child_in(Scope::ROOT, row(index).0)
+                                    .insert(());
                             },
                             |_| {},
                             |_, _| {},
                         ),
                 );
-                thumb_id
             },
         );
         frame.layout(&mut TestContext);
         (
-            state.sample.get(state.visible.start).and_then(|row| frame.area(row.id)),
-            frame.area(thumb_id).unwrap(),
+            state
+                .sample
+                .get(state.visible.start)
+                .and_then(|row| frame.area(Target::ROOT.scoped(row.id))),
+            frame.area(THUMB).unwrap(),
         )
     }
 }

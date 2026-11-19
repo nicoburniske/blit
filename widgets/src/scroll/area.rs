@@ -1,6 +1,6 @@
-use blit::{Axis, Clip, Scalar, Ui, Widget};
+use blit::{Axis, Clip, Scalar, Target, Ui, Widget};
 
-use super::{Request, ScrollLayout, ScrollState, Scrollbar, Target, animate, build_scroll, update};
+use super::{Goal, Request, ScrollLayout, ScrollState, Scrollbar, animate, build_scroll, update};
 use crate::Context;
 
 blit::builder! {
@@ -59,13 +59,21 @@ impl<T: Scalar, X> ScrollArea<'_, T, X> {
         } = self;
         let (thumb_active, viewport_known) = update(state, &mut ui, axis, scroll_speed, inertia_friction);
         let reveal = match state.request.target {
-            Target::Widget(id) => Some(id),
+            Goal::Widget(id) => Some(id),
             _ => {
-                animate(state, &mut ui, axis, viewport_known);
+                animate(state, &mut ui, viewport_known);
                 None
             }
         };
         let offset = state.offset;
+        // searched from the content so the scrollbar can never match
+        let mut revealed = None;
+        let content = |mut ui: Ui<'_, C>| {
+            if let Some(id) = reveal {
+                revealed = ui.area().zip(ui.at(Target::THIS.at(id)).area());
+            }
+            content(ui)
+        };
         let mut viewport = build_scroll(
             ui,
             ScrollLayout {
@@ -83,15 +91,23 @@ impl<T: Scalar, X> ScrollArea<'_, T, X> {
             thumb,
             thumb_active,
         );
-        match reveal {
-            Some(id) if !viewport.contains_widget(id) => state.request = Request::default(),
-            Some(_) => {
-                animate(state, &mut viewport, axis, viewport_known);
+        match (reveal, revealed) {
+            (Some(_), Some((content, widget))) => {
+                let start = match axis {
+                    Axis::Horizontal => widget.x - content.x,
+                    Axis::Vertical => widget.y - content.y,
+                };
+                let end = start.endpoint(axis.extent(widget.size()));
+                state.request.target =
+                    Goal::Offset(state.offset.clamp((end - state.viewport_extent).min(start), start));
+                animate(state, &mut viewport, viewport_known);
                 if state.offset != offset {
                     viewport.request_frame();
                 }
             }
-            None => {}
+            (Some(_), None) if std::mem::replace(&mut state.request.missed, true) => state.request = Request::default(),
+            (Some(_), None) => viewport.request_frame(),
+            (None, _) => {}
         }
     }
 }

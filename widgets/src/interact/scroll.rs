@@ -73,7 +73,7 @@ impl<C: Context> blit::Interact<C> for Interact {
 mod tests {
     use std::cell::Cell;
 
-    use blit::{Frame, Id, Input, Modifiers, Rect, ScrollPhase, Ui};
+    use blit::{Frame, Input, Modifiers, Rect, ScrollPhase, Ui};
     use blit_layout::rect;
 
     use super::*;
@@ -87,11 +87,10 @@ mod tests {
         let mut frame = Frame::<TestContext>::default();
         let order = Cell::new([0, 1]);
         let build = |mut ui: Ui<'_, TestContext>| {
-            let responses = [0, 1].map(|id| ui.interact_widget(Id::new(id), interact::scroll()));
+            let responses = [0, 1].map(|id| ui.at(id).interact(interact::scroll()));
             let mut root = ui.layout(rect::new());
             for id in order.get() {
-                root.child()
-                    .id(Id::new(id))
+                root.child_id(id)
                     .item(Rect::new(id as f32 * 100.0, 0.0, 100.0, 200.0));
             }
             responses
@@ -129,11 +128,10 @@ mod tests {
             let mut frame = Frame::<TestContext>::default();
             let mounted = Cell::new(true);
             let build = |mut ui: Ui<'_, TestContext>| {
-                let id = Id::new("owner");
-                let response = ui.interact_widget(id, interact::scroll());
+                let response = ui.at("owner").interact(interact::scroll());
                 let mut root = ui.layout(());
                 if mounted.get() {
-                    root.child().id(id).build(|_: Ui<'_, TestContext>| {});
+                    root.child_id("owner").build(|_: Ui<'_, TestContext>| {});
                 }
                 response
             };
