@@ -576,23 +576,12 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
     }
     let retained = &*retained;
     let nodes = &frame.nodes;
-    let hits = &frame.interaction.hits;
     let node = |id| {
         let slot = &retained.slots[retained.find(id, None).ok()?];
         (slot.node != UNRESOLVED).then_some(slot.node as usize)
     };
-    let rebind = |Target { id, node: previous }| {
-        let (id, index) = if let Some(index) = node(id) {
-            (id, index)
-        } else {
-            hits.iter()
-                .filter(|hit| hit.node <= previous && previous <= hit.end)
-                .filter_map(|hit| node(hit.id).map(|index| (hit, index)))
-                .max_by_key(|(hit, _)| hit.node)
-                .map(|(hit, index)| (hit.id, index))?
-        };
-        Some(Target { id, node: index as u32 })
-    };
+    // a target that disappears retires its contacts rather than passing them on
+    let rebind = |Target { id, .. }| node(id).map(|index| Target { id, node: index as u32 });
     for tracked in &mut frame.interaction.contacts {
         tracked.route = match tracked.route {
             Route::Pending {
@@ -655,7 +644,6 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
                     area: area.intersection(clip_bounds).unwrap_or_default(),
                     clip: stored.resolved_clip,
                     node: index as u32,
-                    end: stored.subtree_end,
                 });
             }
         };
@@ -735,7 +723,6 @@ struct HitItem<T> {
     area: Rect<T>,
     clip: ResolvedClipId,
     node: u32,
-    end: u32,
 }
 
 /// retained interaction kinds and their state

@@ -53,7 +53,10 @@ impl TimerState {
         timer.seen = true;
         // a changed period or kind starts over
         if timer.period != period || timer.repeat != repeat {
-            *timer = Self { seen: true, ..Self::new(id, period, repeat, now) };
+            *timer = Self {
+                seen: true,
+                ..Self::new(id, period, repeat, now)
+            };
         }
         let elapsed = now.saturating_sub(timer.start).as_nanos();
         let count = match period.as_nanos() {

@@ -594,3 +594,26 @@ fn focused_descendant_scrolls_into_view() {
         assert_eq!(frame.area(index), Some(Rect::new(0.0, y, 100.0, 30.0)));
     }
 }
+
+#[test]
+fn unmounted_target_cancels_pending_contact() {
+    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let mounted = Cell::new(true);
+    let build = |mut ui: Ui<'_>| {
+        let root = ui.interact(WATCH)[0];
+        let mut layout = ui.layout(Overlay);
+        if mounted.get() {
+            let mut child = layout.child();
+            child.insert(Fill('B', Size::uniform(200.0)));
+            child.interact(WATCH);
+        }
+        root
+    };
+    render(&mut frame, &mut context, &build);
+    let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
+    assert!(step(pointer(Some(1), Down, [10.0, 10.0])).is_some());
+    mounted.set(false);
+    step(Input::None);
+    // the ancestor does not inherit the contact
+    assert_eq!(step(pointer(Some(1), Move, [30.0, 10.0])), None);
+}
