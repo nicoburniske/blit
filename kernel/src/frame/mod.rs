@@ -225,8 +225,9 @@ impl<C: Context> Frame<C> {
         }
         paint::resolve_order(self, &bump);
         paint::resolve_clips(self, &bump);
-        interact::resolve(self);
+        // interactions bind against this build
         self.laid_out.rebuild(self.nodes.iter().map(|stored| stored.widget_id));
+        interact::resolve(self);
         self.animations.retain(|animation| animation.seen);
         self.motions.retain(|state| state.seen);
         self.timers.retain(|timer| timer.seen);

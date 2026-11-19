@@ -41,11 +41,12 @@ pub struct TimerState {
 
 impl TimerState {
     pub fn update(timers: &mut Vec<Self>, id: Id, period: Duration, repeat: bool, now: Duration) -> Timer<'_> {
-        let index = match timers.iter().position(|timer| timer.id == id) {
-            Some(index) => index,
-            None => {
-                timers.push(Self::new(id, period, repeat, now));
-                timers.len() - 1
+        // sorted by id so lookups stay logarithmic
+        let index = match timers.binary_search_by_key(&id, |timer| timer.id) {
+            Ok(index) => index,
+            Err(index) => {
+                timers.insert(index, Self::new(id, period, repeat, now));
+                index
             }
         };
         let timer = &mut timers[index];

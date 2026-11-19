@@ -537,12 +537,10 @@ impl<T: Scalar> InteractionState<T> {
 pub fn resolve<C: Context>(frame: &mut Frame<C>) {
     let retained = &mut frame.interaction.kinds;
     for slot in &mut retained.slots {
-        slot.node = UNRESOLVED;
-    }
-    if !retained.slots.is_empty() {
-        for (index, stored) in frame.nodes.iter().enumerate() {
-            retained.bind(stored.widget_id, index as u32);
-        }
+        slot.node = frame
+            .laid_out
+            .get(slot.id, |index| frame.nodes[index].widget_id)
+            .map_or(UNRESOLVED, |index| index as u32);
     }
     let Kinds {
         slots, kinds, state, ..
@@ -772,17 +770,6 @@ impl<T> Kinds<T> {
             self.table[bucket] = index as u32;
         }
         index
-    }
-
-    fn bind(&mut self, id: Id, node: u32) {
-        let mut bucket = self.probe(id, None);
-        while self.table[bucket] != UNRESOLVED {
-            let slot = &mut self.slots[self.table[bucket] as usize];
-            if slot.id == id {
-                slot.node = node;
-            }
-            bucket = (bucket + 1) & (self.table.len() - 1);
-        }
     }
 
     fn rebuild(&mut self) {

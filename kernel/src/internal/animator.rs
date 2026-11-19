@@ -61,6 +61,15 @@ impl<T: Scalar, const N: usize> Animator<T, N> {
             Kind::Tween { tween, .. } => Animation::Tween(*tween),
             Kind::Spring { spring, .. } => Animation::Spring(*spring),
         };
+        // at rest on unchanged targets nothing can change
+        if !self.is_active()
+            && self.targets == targets
+            && self.values == targets
+            && self.options == options
+            && previous_animation == animation
+        {
+            return (targets, [false; N]);
+        }
         let (mut displacement, mut velocity, mut active) = ([0.0; N], [0.0; N], [false; N]);
         if self.is_active() {
             (displacement, velocity, active) = self.kind.sample(now);
