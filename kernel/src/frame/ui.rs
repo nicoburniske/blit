@@ -57,16 +57,13 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
         self.inner.target
     }
 
-    /// returns the target's area from the previous layout and tracks it for the next one
-    pub fn area(&mut self) -> Option<Rect<C::Scalar>> {
-        let frame = &mut *self.inner.frame;
-        let id = self.inner.target;
-        frame.areas_requested.push(id);
-        let areas = &frame.areas_previous;
-        areas
-            .binary_search_by_key(&id, |(candidate, _)| *candidate)
-            .ok()
-            .map(|index| areas[index].1)
+    /// the target's area from the previous layout
+    pub fn area(&self) -> Option<Rect<C::Scalar>> {
+        let frame = &*self.inner.frame;
+        frame
+            .laid_out
+            .get(self.inner.target, |index| frame.old_nodes[index].widget_id)
+            .map(|index| frame.old_placements[index].area)
     }
 
     /// adds `interaction` to the target and returns its latest response
@@ -142,18 +139,19 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
         TimerState::update(&mut frame.timers, id, period, Some(period), frame.time)
     }
 
-    /// focuses the target, which lasts while it requests an interaction
+    /// focuses the target from the next build while it requests an interaction
     pub fn focus(&mut self) {
-        self.inner.frame.interaction.focused = Some(self.inner.target);
+        self.inner.frame.focus = FocusRequest::Focus(self.inner.target);
     }
 
-    /// whether the target holds focus
+    /// whether the target holds focus as this build began
     pub fn focused(&self) -> bool {
         self.inner.frame.interaction.focused == Some(self.inner.target)
     }
 
+    /// clears focus from the next build
     pub fn clear_focus(&mut self) {
-        self.inner.frame.interaction.focused = None;
+        self.inner.frame.focus = FocusRequest::Clear;
     }
 
     /// access context during frame construction
@@ -239,6 +237,17 @@ impl<'ui, C: Context, S: state::Local> Ui<'ui, C, S> {
             },
             marker: PhantomData,
         })
+    }
+
+    /// the focused node, if it is built beneath this one so far
+    pub fn focus_within(&self) -> Option<Id> {
+        let frame = &*self.inner.frame;
+        let focused = frame.interaction.focused?;
+        // every node built after an open node is inside it
+        frame.nodes[self.inner.node.index() + 1..]
+            .iter()
+            .any(|stored| stored.widget_id == focused)
+            .then_some(focused)
     }
 
     /// this node's scope, for descendants to key themselves in with [`Ui::child_in`]
@@ -487,7 +496,7 @@ impl<C: Context, A: Atom<C>> Widget<C, state::Insert> for AtomWidget<A> {
 
 /// a node addressed relative to the current one
 ///
-/// a bare key names the child of the current node with that key
+/// a bare key names the child of the current node with that key, and an [`Id`] names its node
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Target {
     base: Base,
@@ -519,9 +528,23 @@ impl Target {
     }
 }
 
-impl<K: Into<Id>> From<K> for Target {
-    fn from(key: K) -> Self {
-        Self::THIS.at(key)
+// a key names a child of the current node
+macro_rules! target_from_key {
+    ($($key:ty),*) => {$(
+        impl From<$key> for Target {
+            fn from(key: $key) -> Self {
+                Self::THIS.at(key)
+            }
+        }
+    )*};
+}
+
+target_from_key!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, &str);
+
+/// the node with this id wherever it is
+impl From<Id> for Target {
+    fn from(id: Id) -> Self {
+        Self::new(Base::Id(id))
     }
 }
 

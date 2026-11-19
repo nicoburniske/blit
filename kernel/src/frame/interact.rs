@@ -606,6 +606,13 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
             route => route,
         };
     }
+    // focus requested during the build applies once it resolves
+    match std::mem::replace(&mut frame.focus, super::FocusRequest::Keep) {
+        super::FocusRequest::Keep => {}
+        super::FocusRequest::Clear => frame.interaction.focused = None,
+        super::FocusRequest::Focus(id) => frame.interaction.focused = Some(id),
+    }
+    // focus lasts while its widget requests an interaction
     if frame.interaction.focused.is_some_and(|id| node(id).is_none()) {
         frame.interaction.focused = None;
     }
@@ -618,20 +625,14 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
             scroll.target = None;
         }
     }
-    frame.areas_previous.clear();
     frame.interaction.hits.clear();
-    frame.areas_requested.sort_unstable();
-    frame.areas_requested.dedup();
-    if !frame.areas_requested.is_empty() || !frame.interaction.kinds.slots.is_empty() {
+    if !frame.interaction.kinds.slots.is_empty() {
         let count = frame.nodes.len();
         let placements = &frame.placements[..count];
         let mut collect = {
             #[inline(always)]
             |index: usize, stored: &super::StoredNode, area: Rect<C::Scalar>| {
                 let id = stored.widget_id;
-                if frame.areas_requested.binary_search(&id).is_ok() {
-                    frame.areas_previous.push((id, area));
-                }
                 if !stored.interactive {
                     return;
                 }
@@ -668,7 +669,6 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
             }
         }
     }
-    frame.areas_previous.sort_unstable_by_key(|(id, _)| *id);
 }
 
 fn hit<T: Scalar>(hits: &[HitItem<T>], clips: &[ResolvedClip<T>], position: Point<T>) -> Option<HitItem<T>> {

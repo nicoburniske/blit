@@ -375,8 +375,8 @@ fn node_targets_reject_previous_renders() {
 fn bindings_and_geometry() {
     let (mut frame, mut context) = frame(Size::uniform(10.0));
     let (a, b) = ("a", "b");
-    let mut retained_a = false;
-    let mut retained_b = false;
+    // every area of the previous layout is available
+    let mut laid_out = false;
     for (count, query) in [
         (0, false),
         (3, false),
@@ -388,8 +388,8 @@ fn bindings_and_geometry() {
     ] {
         render(&mut frame, &mut context, |mut ui: Ui<'_>| {
             if query {
-                assert_eq!(ui.at(a).area().is_some(), retained_a);
-                assert_eq!(ui.at(b).area().is_some(), retained_b);
+                assert_eq!(ui.at(a).area().is_some(), laid_out);
+                assert_eq!(ui.at(b).area().is_some(), laid_out);
             }
             ui.at(b).interact(WATCH);
             let mut root = ui.layout(Overlay);
@@ -404,8 +404,7 @@ fn bindings_and_geometry() {
         });
         assert_eq!(frame.area(a).is_some(), count != 0);
         assert_eq!(frame.area(b).is_some(), count != 0);
-        retained_a = count != 0 && query;
-        retained_b = count != 0 && query;
+        laid_out = count != 0;
     }
 }
 

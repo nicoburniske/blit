@@ -376,6 +376,8 @@ fn tapping_unregistered_background_clears_focus() {
             field.interact(WATCH);
             field.focused()
         };
+        // programmatic focus shows from the next build
+        assert!(!render(&mut frame, &mut context, &build));
         assert!(render(&mut frame, &mut context, &build));
         let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
         // mouse clears focus on press and touch on release
@@ -550,4 +552,45 @@ fn removed_scroll_owner_keeps_its_sequence() {
     assert_eq!(scroll(ScrollPhase::Moved), None);
     assert_eq!(scroll(ScrollPhase::Moved), None);
     assert!(scroll(ScrollPhase::Started).is_some());
+}
+
+#[test]
+fn focused_descendant_scrolls_into_view() {
+    let (mut frame, mut context) = frame(Size::uniform(100.0));
+    let offset = Cell::new(0.0);
+    let request = Cell::new(None);
+    let last = Cell::new(None);
+    // a list scrolls its focused field into view once whenever focus moves to it
+    let build = |ui: Ui<'_>| {
+        let mut list = ui.layout(Rects);
+        for index in 0..10 {
+            let y = index as f32 * 30.0 - offset.get();
+            let mut field = list.child_id(index).item(Rect::new(0.0, y, 100.0, 30.0));
+            field.interact(WATCH);
+            if request.get() == Some(index) {
+                field.focus();
+            }
+        }
+        let focus = list.focus_within();
+        if focus != last.replace(focus)
+            && let Some(area) = focus.and_then(|id| list.at(id).area())
+        {
+            let below = area.y + area.height - 100.0;
+            offset.set(offset.get() + below.max(0.0) + area.y.min(0.0));
+        }
+    };
+    // the user scrolls first, which a focus that stays put must not undo
+    for (scrolled, index, expected) in [(0.0, 8, 170.0), (0.0, 1, 0.0), (200.0, 2, 60.0)] {
+        offset.set(scrolled);
+        render(&mut frame, &mut context, &build);
+        assert_eq!(offset.get(), scrolled);
+        request.set(Some(index));
+        render(&mut frame, &mut context, &build);
+        request.set(None);
+        render(&mut frame, &mut context, &build);
+        assert_eq!(offset.get(), expected);
+        render(&mut frame, &mut context, &build);
+        let y = index as f32 * 30.0 - expected;
+        assert_eq!(frame.area(index), Some(Rect::new(0.0, y, 100.0, 30.0)));
+    }
 }

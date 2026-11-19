@@ -218,7 +218,7 @@ fn tween_retargeting_carries_velocity() {
 #[test]
 fn retargeted_motion_measurement() {
     let (mut frame, mut context) = frame(Size::uniform(100.0));
-    let id = Id::new("retargeted height");
+    let id = "retargeted height";
     for (extent, millis, expected) in [
         (1.0, 0, 1.0),
         (3.0, 0, 1.0),
@@ -499,7 +499,7 @@ fn integer_springs_preserve_fractional_motion() {
 #[test]
 fn spring_motion_measurement_and_settling() {
     let (mut frame, mut context) = frame(Size::uniform(100.0));
-    let id = Id::new("spring motion");
+    let id = "spring motion";
     let spring = Spring::new(Duration::from_millis(500), 0.0);
     for (extent, millis) in [(1.0, 0), (3.0, 0), (3.0, 100), (3.0, 10_000)] {
         let time = Duration::from_millis(millis);
@@ -574,7 +574,7 @@ fn easing_curves() {
 #[test]
 fn spring_sizes_stay_nonnegative_and_resize_snaps() {
     let (mut frame, mut context) = frame(Size::uniform(100.0));
-    let id = Id::new("bounded spring");
+    let id = "bounded spring";
     let build = |extent| {
         move |ui: Ui<'_>| {
             ui.layout(Column)

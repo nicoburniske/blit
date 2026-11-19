@@ -42,10 +42,13 @@ pub struct Frame<C: Context> {
     paint_order: Vec<NodeId>,
     active_clips: Vec<ResolvedClipId>,
     interaction: interact::InteractionState<C::Scalar>,
-    /// ids whose areas were requested during this build
-    areas_requested: Vec<Id>,
-    // requested areas from the previous layout, sorted by id
-    areas_previous: Vec<(Id, Rect<C::Scalar>)>,
+    // focus requested during this build, applied once it resolves
+    focus: FocusRequest,
+    // the latest layout, which the next build reads areas from
+    old_nodes: Vec<StoredNode>,
+    old_placements: Vec<Placement<C::Scalar>>,
+    // nodes of the latest layout by id
+    laid_out: IdTable,
     animations: Vec<AnimationState>,
     motions: Vec<MotionState<C::Scalar>>,
     /// animated sizes in the subtree being resolved
@@ -82,8 +85,10 @@ impl<C: Context> Default for Frame<C> {
             paint_order: Vec::new(),
             active_clips: Vec::new(),
             interaction: interact::InteractionState::default(),
-            areas_previous: Vec::new(),
-            areas_requested: Vec::new(),
+            focus: FocusRequest::Keep,
+            old_nodes: Vec::new(),
+            old_placements: Vec::new(),
+            laid_out: IdTable::default(),
             animations: Vec::new(),
             motions: Vec::new(),
             animated_sizes: Vec::new(),
@@ -128,15 +133,17 @@ impl<C: Context> Frame<C> {
         generation::begin();
         // interactions update against the previous build's nodes
         self.interaction.begin(&input, time, &self.nodes);
+        std::mem::swap(&mut self.nodes, &mut self.old_nodes);
+        std::mem::swap(&mut self.placements, &mut self.old_placements);
         self.nodes.clear();
         self.placements.clear();
+        self.focus = FocusRequest::Keep;
         self.atoms.clear();
         self.clips.clear();
         self.limits.clear();
         self.paddings.clear();
         self.places.clear();
         self.bounds.clear();
-        self.areas_requested.clear();
         self.sites.clear();
         self.bump.clear();
         for kind in &mut self.layout_kinds {
@@ -196,6 +203,7 @@ impl<C: Context> Frame<C> {
         paint::resolve_order(self, &bump);
         paint::resolve_clips(self, &bump);
         interact::resolve(self);
+        self.laid_out.rebuild(self.nodes.iter().map(|stored| stored.widget_id));
         self.animations.retain(|animation| animation.seen);
         self.motions.retain(|state| state.seen);
         self.timers.retain(|timer| timer.seen);
@@ -233,10 +241,9 @@ impl<C: Context> Frame<C> {
     /// returns the area of the node `target` names from the root in the latest layout
     pub fn area(&self, target: impl Into<Target>) -> Option<Rect<C::Scalar>> {
         let id = self.target_id(NodeId::new(0), target.into());
-        self.nodes
-            .iter()
-            .enumerate()
-            .find_map(|(index, node)| (node.widget_id == id).then_some(self.placements[index].area))
+        self.laid_out
+            .get(id, |index| self.nodes[index].widget_id)
+            .map(|index| self.placements[index].area)
     }
 }
 
@@ -400,6 +407,13 @@ mod generation {
     }
 }
 
+#[derive(Clone, Copy)]
+enum FocusRequest {
+    Keep,
+    Clear,
+    Focus(Id),
+}
+
 pub struct StoredNode {
     widget_id: Id,
     parent: NodeId,
@@ -523,4 +537,51 @@ struct ClipKind<C: Context> {
     shape: fn(&BumpArena, BumpId, Rect<C::Scalar>) -> ClipShape<C::Scalar>,
     push: fn(&BumpArena, BumpId, &mut C, Rect<C::Scalar>),
     pop: fn(&BumpArena, BumpId, &mut C),
+}
+
+/// indices of items keyed by their id, open addressed
+///
+/// ids are hashes already, so their low bits pick a slot. only indices are stored,
+/// the caller's items hold the ids.
+#[derive(Default)]
+struct IdTable {
+    slots: Vec<u32>,
+}
+
+impl IdTable {
+    const EMPTY: u32 = u32::MAX;
+
+    /// replaces the contents with `ids` at their positions
+    fn rebuild(&mut self, ids: impl ExactSizeIterator<Item = Id>) {
+        // at most half full keeps probes short
+        let len = (ids.len() * 2).next_power_of_two();
+        self.slots.clear();
+        self.slots.resize(len, Self::EMPTY);
+        for (index, id) in ids.enumerate() {
+            let mut slot = id.0.get() as usize & (len - 1);
+            while self.slots[slot] != Self::EMPTY {
+                slot = (slot + 1) & (len - 1);
+            }
+            self.slots[slot] = u32::try_from(index).expect("too many ids");
+        }
+    }
+
+    /// the index of `id`, compared against the caller's items through `id_of`
+    fn get(&self, id: Id, id_of: impl Fn(usize) -> Id) -> Option<usize> {
+        let len = self.slots.len();
+        if len == 0 {
+            return None;
+        }
+        let mut slot = id.0.get() as usize & (len - 1);
+        loop {
+            let index = self.slots[slot];
+            if index == Self::EMPTY {
+                return None;
+            }
+            if id_of(index as usize) == id {
+                return Some(index as usize);
+            }
+            slot = (slot + 1) & (len - 1);
+        }
+    }
 }
