@@ -60,7 +60,7 @@ impl<C: Context> Atom<C> for ResponsiveAtom {
 }
 
 #[test]
-fn absolute_positions_use_the_target_and_sizes_use_the_parent() {
+fn absolute_percentages_use_the_target() {
     let mut frame = Frame::default();
     let id = "absolute";
     layout_frame(
@@ -84,7 +84,7 @@ fn absolute_positions_use_the_target_and_sizes_use_the_parent() {
             );
         },
     );
-    assert_eq!(frame.area(id), Some(Rect::new(8.0, 3.0, 5.0, 4.0)));
+    assert_eq!(frame.area(id), Some(Rect::new(8.0, 3.0, 3.0, 2.0)));
 }
 
 #[test]

@@ -69,17 +69,15 @@ pub enum Anchor {
 
 impl<C: Context<Scalar = T>, T: Scalar> blit::Place<C> for Place<T> {
     fn place(&self, cx: &mut PlaceCx<'_, C>, target: Rect<T>) -> Point<T> {
-        let range = |sizing, available| {
-            let sizing = match sizing {
-                Sizing::Fit { min, max } => crate::Sizing::Fit { min, max },
-                Sizing::Fixed(size) => crate::Sizing::Fixed(size),
-                Sizing::Percent(fraction) => crate::Sizing::Percent(fraction),
-            };
-            sizing_range(sizing, available)
+        // fit is bounded by the parent and percent is a share of the target
+        let range = |sizing, parent, target| match sizing {
+            Sizing::Fit { min, max } => sizing_range(crate::Sizing::Fit { min, max }, parent),
+            Sizing::Fixed(size) => sizing_range(crate::Sizing::Fixed(size), parent),
+            Sizing::Percent(fraction) => sizing_range(crate::Sizing::Percent(fraction), target),
         };
         let parent = cx.parent();
-        let width = range(self.width, parent.width);
-        let height = range(self.height, parent.height);
+        let width = range(self.width, parent.width, target.width);
+        let height = range(self.height, parent.height, target.height);
         let size = cx.resolve(Constraints {
             min: Size::new(width.0, height.0),
             max: Size::new(width.1, height.1),
