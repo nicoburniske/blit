@@ -239,15 +239,14 @@ impl<'ui, C: Context, S: state::Local> Ui<'ui, C, S> {
         })
     }
 
-    /// the focused node, if it is built beneath this one so far
+    /// the focused node, if it was beneath this one in the previous layout
     pub fn focus_within(&self) -> Option<Id> {
         let frame = &*self.inner.frame;
         let focused = frame.interaction.focused?;
-        // every node built after an open node is inside it
-        frame.nodes[self.inner.node.index() + 1..]
-            .iter()
-            .any(|stored| stored.widget_id == focused)
-            .then_some(focused)
+        let old_id = |index: usize| frame.old_nodes[index].widget_id;
+        let node = frame.laid_out.get(self.inner.target, old_id)?;
+        let inside = frame.laid_out.get(focused, old_id)?;
+        (node < inside && inside <= frame.old_nodes[node].subtree_end as usize).then_some(focused)
     }
 
     /// this node's scope, for descendants to key themselves in with [`Ui::child_in`]
