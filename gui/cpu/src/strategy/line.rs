@@ -140,7 +140,11 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                     }
                     let range = (gap.start as i32).max(bounds.start)..(gap.end as i32).min(bounds.end);
                     // spans reaching past the opaque span resolve clip coverage per row
-                    let clip = if opaque.start <= range.start && range.end <= opaque.end { 0 } else { id };
+                    let clip = if opaque.start <= range.start && range.end <= opaque.end {
+                        0
+                    } else {
+                        id
+                    };
                     self.plan.push(Draw {
                         command,
                         range,
@@ -156,7 +160,8 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                 }
                 let (span, zone) = commands.opaque_span(command, line, list, clips, images, text);
                 until = until.min(zone);
-                let (last, _) = commands.opaque_span(command, zone.saturating_sub(1).max(line), list, clips, images, text);
+                let (last, _) =
+                    commands.opaque_span(command, zone.saturating_sub(1).max(line), list, clips, images, text);
                 let start = span.start.max(last.start).max(opaque.start).max(0) as usize;
                 let end = span.end.min(last.end).min(opaque.end).max(0) as usize;
                 if start >= end {
@@ -193,7 +198,8 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
             self.plan.sort_unstable_by_key(|draw| draw.range.start);
             if self.plan.windows(2).any(|pair| pair[0].range.end > pair[1].range.start) {
                 self.edges.clear();
-                self.edges.extend(self.plan.iter().flat_map(|draw| [draw.range.start, draw.range.end]));
+                self.edges
+                    .extend(self.plan.iter().flat_map(|draw| [draw.range.start, draw.range.end]));
                 self.edges.sort_unstable();
                 self.edges.dedup();
                 let edges = &self.edges;
@@ -204,15 +210,24 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                 };
                 let original = self.plan.len();
                 // each cut adds a draw, so allow at most one extra draw per original span
-                let within_budget = self.plan.iter().try_fold(original, |budget, draw| {
-                    budget.checked_sub(cuts(&draw.range).len())
-                });
+                let within_budget = self
+                    .plan
+                    .iter()
+                    .try_fold(original, |budget, draw| budget.checked_sub(cuts(&draw.range).len()));
                 if within_budget.is_some() {
                     for index in 0..original {
-                        let Draw { command, ref range, row } = self.plan[index];
+                        let Draw {
+                            command,
+                            ref range,
+                            row,
+                        } = self.plan[index];
                         let mut start = range.start;
                         for &end in cuts(range) {
-                            self.plan.push(Draw { command, range: start..end, row });
+                            self.plan.push(Draw {
+                                command,
+                                range: start..end,
+                                row,
+                            });
                             start = end;
                         }
                         self.plan[index].range.start = start;
@@ -239,7 +254,16 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                             shared.take_if(|(id, _)| *id != clip);
                             let (_, clip) = shared.get_or_insert_with(|| (clip, clips.line(clip, line)));
                             clip.for_each(draw.range.clone(), |range, coverage| {
-                                draw_line(command, line, range, coverage, PixelSpan { x, pixels: &mut *pixels })
+                                draw_line(
+                                    command,
+                                    line,
+                                    range,
+                                    coverage,
+                                    PixelSpan {
+                                        x,
+                                        pixels: &mut *pixels,
+                                    },
+                                )
                             });
                         }
                     }

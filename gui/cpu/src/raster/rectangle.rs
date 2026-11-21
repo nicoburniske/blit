@@ -197,10 +197,16 @@ impl Prepared {
         let PreparedFill::Solid(color) = self.background else {
             return None;
         };
-        let top = self.inner.y.max(self.geometry.y + self.radii.top_left.max(self.radii.top_right));
+        let top = self
+            .inner
+            .y
+            .max(self.geometry.y + self.radii.top_left.max(self.radii.top_right));
         let bottom = (self.inner.y + self.inner.height)
             .min(self.geometry.y + self.geometry.height - self.radii.bottom_left.max(self.radii.bottom_right));
-        (rows.start >= top && rows.end <= bottom && range.start >= self.inner.x && range.end <= self.inner.x + self.inner.width)
+        (rows.start >= top
+            && rows.end <= bottom
+            && range.start >= self.inner.x
+            && range.end <= self.inner.x + self.inner.width)
             .then_some(color)
     }
 
