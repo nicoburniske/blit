@@ -291,7 +291,7 @@ fn visual_parent_and_hit_order() {
     }
 }
 #[test]
-fn targets_reject_invalid_references() {
+fn unbuilt_targets_keep_their_own_parent() {
     let cases: &[fn(Ui<'_>)] = &[
         |ui| {
             let id = ui.node_id();
@@ -323,13 +323,26 @@ fn targets_reject_invalid_references() {
             root.child_id("target").insert(());
             root.parent("target").insert(());
         },
-        #[cfg(debug_assertions)]
+    ];
+    for build in cases {
+        let (mut frame, mut context) = frame(Size::uniform(1.0));
+        // a previous build must not satisfy a current reference
+        render(&mut frame, &mut context, |ui: Ui<'_>| {
+            ui.layout(Overlay).child_id("target").insert(())
+        });
+        render(&mut frame, &mut context, build);
+    }
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn duplicate_keys_are_rejected() {
+    let cases: &[fn(Ui<'_>)] = &[
         |ui| {
             let mut root = ui.layout(Overlay);
             root.child_id("target").insert(());
             root.child_id("target").insert(());
         },
-        #[cfg(debug_assertions)]
         |ui| {
             let mut root = ui.layout(Overlay);
             root.child_in(Scope::ROOT, "target").insert(());
@@ -338,10 +351,6 @@ fn targets_reject_invalid_references() {
     ];
     for (case, build) in cases.iter().enumerate() {
         let (mut frame, mut context) = frame(Size::uniform(1.0));
-        // a previous build must not satisfy a current reference
-        render(&mut frame, &mut context, |ui: Ui<'_>| {
-            ui.layout(Overlay).child_id("target").insert(())
-        });
         let result = catch_unwind(AssertUnwindSafe(|| {
             render(&mut frame, &mut context, build);
         }));

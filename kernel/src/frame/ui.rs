@@ -302,18 +302,18 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
     }
 
     /// places this node against `target` outside its parent's flow
+    ///
+    /// a target not built before this node places it against its parent
     pub fn place<P: Place<C>>(self, target: impl Into<Target>, place: P) -> Self {
         let frame = &mut *self.inner.frame;
-        let reference = frame
-            .resolve_target(self.inner.node, target.into())
-            .expect("target must be built before its node");
+        let reference = frame.resolve_target(self.inner.node, target.into());
         let id = PlaceId::new(frame.places.len());
         frame.places.push(StoredPlace {
             bump_id: frame.bump.store(place),
             run: layout::place::<C, P>,
         });
         let node = &mut frame.nodes[self.inner.node.index()];
-        node.target = reference;
+        node.target = reference.unwrap_or(node.target);
         node.place = id;
         self
     }
@@ -337,15 +337,12 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
 
     /// selects the parent for stacking, clipping and containing size
     ///
-    /// the target must already exist. positioning stays with its anchor.
+    /// positioning stays with its anchor. a target not built before this node leaves its own parent
     #[inline]
     pub fn parent(self, target: impl Into<Target>) -> Self {
-        let parent = self
-            .inner
-            .frame
-            .resolve_target(self.inner.node, target.into())
-            .expect("target must be built before its node");
-        self.inner.frame.aux_mut(self.inner.node).visual_parent = parent;
+        if let Some(parent) = self.inner.frame.resolve_target(self.inner.node, target.into()) {
+            self.inner.frame.aux_mut(self.inner.node).visual_parent = parent;
+        }
         self
     }
 
