@@ -117,6 +117,33 @@ mod tests {
     }
 
     #[test]
+    fn new_sequence_ends_the_held_one() {
+        let mut frame = Frame::<TestContext>::default();
+        let build = |mut ui: Ui<'_, TestContext>| {
+            let responses = [0, 1].map(|id| ui.at(id).interact(interact::scroll()));
+            let mut root = ui.layout(rect::new());
+            for id in [0, 1] {
+                root.child_id(id).item(Rect::new(id as f32 * 100.0, 0.0, 100.0, 200.0));
+            }
+            responses
+        };
+        let mut next = |input| step(&mut frame, input, build);
+        let scroll = |x, phase| Input::Scroll {
+            position: Point::new(x, 10.0),
+            delta_x: 0.0,
+            delta_y: 5.0,
+            continuous: true,
+            phase,
+            modifiers: Modifiers::NONE,
+        };
+        next(Input::None);
+        assert!(next(scroll(10.0, ScrollPhase::Started))[0].active);
+        let [left, right] = next(scroll(110.0, ScrollPhase::Started));
+        assert!(left.deactivated && !left.released && !left.active);
+        assert!(right.activated && right.active);
+    }
+
+    #[test]
     fn removed_named_owner_is_cancelled() {
         for phase in [
             None,

@@ -651,7 +651,9 @@ mod tests {
     }
 
     #[test]
-    fn widget_requests_reveal_content() {
+    fn requests_and_focus_reveal_content() {
+        use std::cell::Cell;
+
         use blit::{Atom, AtomCx, Rect};
 
         struct Row;
@@ -663,6 +665,7 @@ mod tests {
         }
         let mut frame = Frame::default();
         let mut state = ScrollState::<f32>::new();
+        let focused = Cell::new(None);
         let mut step = |state: &mut ScrollState<f32>| {
             for _ in 0..3 {
                 crate::test::step(&mut frame, Input::None, |ui: Ui<'_, TestContext>| {
@@ -670,7 +673,12 @@ mod tests {
                         |ui: Ui<'_, TestContext>| {
                             let mut rows = ui.layout(blit_layout::flex::column());
                             for index in 10..20u8 {
-                                rows.child_id(index).insert(Row);
+                                let mut row = rows.child_id(index);
+                                row.interact(interact::focus());
+                                if focused.get() == Some(index) {
+                                    row.focus();
+                                }
+                                row.insert(Row);
                             }
                         },
                         |_: Ui<'_, TestContext>| {},
@@ -684,6 +692,13 @@ mod tests {
         state.scroll_to_widget(17u8, Animation::default(), AnimationOptions::default());
         assert_eq!(step(&mut state), 600.0);
         assert!(!state.is_moving());
+        // a focus change reveals once, so scrolling away from a row that stays focused sticks
+        state.scroll_to(0.0, Animation::default(), AnimationOptions::default());
+        step(&mut state);
+        focused.set(Some(17));
+        assert_eq!(step(&mut state), 600.0);
+        state.scroll_to(0.0, Animation::default(), AnimationOptions::default());
+        assert_eq!(step(&mut state), 0.0);
     }
 
     #[test]
