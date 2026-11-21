@@ -211,6 +211,8 @@ pub struct InteractionState<T> {
     pub clips: Vec<ResolvedClip<T>>,
     pub deadline: Option<Duration>,
     pub focused: Option<Id>,
+    // focus as the latest build saw it
+    pub focus_seen: Option<Id>,
     pub mouse_position: Option<Point<T>>,
     contacts: Vec<TrackedContact<T>>,
     next_contact: u32,
@@ -593,6 +595,7 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
             route => route,
         };
     }
+    frame.interaction.focus_seen = frame.interaction.focused;
     // focus requested during the build applies once it resolves
     match std::mem::replace(&mut frame.focus, super::FocusRequest::Keep) {
         super::FocusRequest::Keep => {}

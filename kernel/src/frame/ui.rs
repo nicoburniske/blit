@@ -149,6 +149,12 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
         self.inner.frame.interaction.focused == Some(self.inner.target)
     }
 
+    /// whether focus changed from the previous build
+    pub fn focus_moved(&self) -> bool {
+        let interaction = &self.inner.frame.interaction;
+        interaction.focused != interaction.focus_seen
+    }
+
     /// clears focus from the next build
     pub fn clear_focus(&mut self) {
         self.inner.frame.focus = FocusRequest::Clear;

@@ -555,6 +555,31 @@ fn removed_scroll_owner_keeps_its_sequence() {
 }
 
 #[test]
+fn focus_within_reads_the_previous_layout() {
+    let (mut frame, mut context) = frame(Size::uniform(100.0));
+    let focus = Cell::new(false);
+    let child = Cell::new(None);
+    let seen = Cell::new(None);
+    let build = |ui: Ui<'_>| {
+        let mut list = ui.layout(Rects);
+        // before any child is built
+        seen.set(list.focus_within());
+        let mut field = list.child_id(0).item(Rect::new(0.0, 0.0, 10.0, 10.0));
+        field.interact(WATCH);
+        child.set(Some(field.id()));
+        if focus.get() {
+            field.focus();
+        }
+    };
+    render(&mut frame, &mut context, &build);
+    focus.set(true);
+    render(&mut frame, &mut context, &build);
+    focus.set(false);
+    render(&mut frame, &mut context, &build);
+    assert!(seen.get().is_some() && seen.get() == child.get());
+}
+
+#[test]
 fn focused_descendant_scrolls_into_view() {
     let (mut frame, mut context) = frame(Size::uniform(100.0));
     let offset = Cell::new(0.0);
