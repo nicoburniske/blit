@@ -640,12 +640,18 @@ impl<C: Context> Frame<C> {
                         break ancestor;
                     }
                     if stored.parent == ancestor {
-                        // search recent closed nodes first
-                        // todo: repeated lookups are n^2
-                        let index = self.nodes[..node.index()]
-                            .iter()
-                            .rposition(|stored| stored.widget_id == id)
-                            .expect("target must already be built");
+                        // the previous layout's index usually still holds
+                        let hint = self
+                            .laid_out
+                            .get(id, |index| self.old_nodes[index].widget_id)
+                            .filter(|&index| index < node.index() && self.nodes[index].widget_id == id);
+                        // worst case after the fast paths miss, repeated lookups are n^2
+                        let index = hint.unwrap_or_else(|| {
+                            self.nodes[..node.index()]
+                                .iter()
+                                .rposition(|stored| stored.widget_id == id)
+                                .expect("target must already be built")
+                        });
                         break NodeId::new(index);
                     }
                     ancestor = stored.parent;
