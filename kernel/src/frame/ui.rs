@@ -76,7 +76,7 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
             .interact::<C, K>(self.inner.target, interaction, frame.time)
     }
 
-    /// animates toward `target`, keyed by the target and call site
+    /// animates toward `target`, keyed by the target and call site, then by call order within a frame
     #[track_caller]
     pub fn animate(&mut self, target: f32, animation: impl Into<Animation>, mut options: AnimationOptions) -> f32 {
         let id = self.inner.target.child(Location::caller());
@@ -304,7 +304,9 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
     /// places this node against `target` outside its parent's flow
     pub fn place<P: Place<C>>(self, target: impl Into<Target>, place: P) -> Self {
         let frame = &mut *self.inner.frame;
-        let reference = frame.resolve_target(self.inner.node, target.into());
+        let reference = frame
+            .resolve_target(self.inner.node, target.into())
+            .expect("target must be built before its node");
         let id = PlaceId::new(frame.places.len());
         frame.places.push(StoredPlace {
             bump_id: frame.bump.store(place),
@@ -338,7 +340,11 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
     /// the target must already exist. positioning stays with its anchor.
     #[inline]
     pub fn parent(self, target: impl Into<Target>) -> Self {
-        let parent = self.inner.frame.resolve_target(self.inner.node, target.into());
+        let parent = self
+            .inner
+            .frame
+            .resolve_target(self.inner.node, target.into())
+            .expect("target must be built before its node");
         self.inner.frame.aux_mut(self.inner.node).visual_parent = parent;
         self
     }
@@ -625,7 +631,8 @@ impl<C: Context> Frame<C> {
         }
     }
 
-    pub(super) fn resolve_target(&self, node: NodeId, target: Target) -> NodeId {
+    /// the node `target` names, if it was built before `node`
+    pub(super) fn resolve_target(&self, node: NodeId, target: Target) -> Option<NodeId> {
         let target = match (target.base, target.key) {
             (Base::Parent, None) => self.nodes[node.index()].parent,
             (Base::Root, None) => NodeId::new(0),
@@ -646,20 +653,18 @@ impl<C: Context> Frame<C> {
                             .get(id, |index| self.old_nodes[index].widget_id)
                             .filter(|&index| index < node.index() && self.nodes[index].widget_id == id);
                         // worst case after the fast paths miss, repeated lookups are n^2
-                        let index = hint.unwrap_or_else(|| {
+                        let index = hint.or_else(|| {
                             self.nodes[..node.index()]
                                 .iter()
                                 .rposition(|stored| stored.widget_id == id)
-                                .expect("target must already be built")
-                        });
+                        })?;
                         break NodeId::new(index);
                     }
                     ancestor = stored.parent;
                 }
             }
         };
-        assert!(target.index() < node.index(), "target must be declared before its node");
-        target
+        (target.index() < node.index()).then_some(target)
     }
 }
 

@@ -75,6 +75,32 @@ fn animation_and_timers() {
 }
 
 #[test]
+fn repeated_calls_from_one_site_are_keyed_by_order() {
+    let (mut frame, mut context) = frame(Size::uniform(1.0));
+    let tween = Tween::new(Duration::from_secs(1), Easing::LINEAR);
+    let mut next = |millis, targets: [f32; 2]| {
+        render_inputs(
+            &mut frame,
+            &mut context,
+            Duration::from_millis(millis),
+            [],
+            |mut ui: Ui<'_>| {
+                targets.map(|target| {
+                    (
+                        ui.animate(target, tween, Default::default()),
+                        ui.timer(Duration::ZERO).fired(),
+                    )
+                })
+            },
+        )
+    };
+    assert_eq!(next(0, [0.0, 10.0]), [(0.0, true), (10.0, true)]);
+    // only the first retargets
+    assert_eq!(next(500, [100.0, 10.0]), [(0.0, false), (10.0, false)]);
+    assert_eq!(next(1000, [100.0, 10.0]), [(50.0, false), (10.0, false)]);
+}
+
+#[test]
 fn looping_switches_to_target_motion() {
     let (mut frame, mut context) = frame(Size::uniform(1.0));
     let tween = Tween::new(Duration::from_secs(1), Easing::LINEAR);

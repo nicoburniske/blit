@@ -104,6 +104,8 @@ impl<C: Context> Default for Frame<C> {
 
 impl<C: Context> Frame<C> {
     /// rebuilds the frame graph for one input
+    ///
+    /// call [`Self::layout`] after every build, as the next build reads that layout
     pub fn build<W: Widget<C>>(
         &mut self,
         context: &mut C,
@@ -211,8 +213,9 @@ impl<C: Context> Frame<C> {
                 .motions
                 .binary_search_by_key(&id, |state| state.id)
                 .is_ok_and(|state| self.motions[state].flying);
-            if flying {
-                self.aux_mut(node).visual_parent = self.resolve_target(node, lift);
+            // a target that was not built before the node leaves it with its own parent
+            if flying && let Some(parent) = self.resolve_target(node, lift) {
+                self.aux_mut(node).visual_parent = parent;
                 self.placements[node.index()].z_index = i16::MAX;
             }
         }
@@ -256,6 +259,8 @@ impl<C: Context> Frame<C> {
     }
 
     /// returns the area of the node `target` names from the root in the latest layout
+    ///
+    /// valid after [`Self::layout`]
     pub fn area(&self, target: impl Into<Target>) -> Option<Rect<C::Scalar>> {
         let id = self.target_id(NodeId::new(0), target.into());
         self.laid_out

@@ -90,7 +90,7 @@ builder! {
         /// discards carried velocity when retargeting
         restart: bool = false,
         /// while moving to a new parent or anchor, paints above everything under this target,
-        /// which must already be built
+        /// which is ignored unless it was built before the node
         #[into]
         lift: Option<Target> = None,
     }

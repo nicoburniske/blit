@@ -40,17 +40,25 @@ pub struct TimerState {
 }
 
 impl TimerState {
-    pub fn update(timers: &mut Vec<Self>, id: Id, period: Duration, repeat: bool, now: Duration) -> Timer<'_> {
+    pub fn update(timers: &mut Vec<Self>, site: Id, period: Duration, repeat: bool, now: Duration) -> Timer<'_> {
         // sorted by id so lookups stay logarithmic
-        let index = match timers.binary_search_by_key(&id, |timer| timer.id) {
-            Ok(index) => index,
-            Err(index) => {
-                timers.insert(index, Self::new(id, period, repeat, now));
-                index
+        // calls from one site repeat within a frame, so their order is their key
+        let mut id = site;
+        let mut repeats = 0u32;
+        let index = loop {
+            match timers.binary_search_by_key(&id, |timer| timer.id) {
+                Ok(index) if timers[index].seen => {
+                    repeats += 1;
+                    id = site.child(repeats);
+                }
+                Ok(index) => break index,
+                Err(index) => {
+                    timers.insert(index, Self::new(id, period, repeat, now));
+                    break index;
+                }
             }
         };
         let timer = &mut timers[index];
-        assert!(!timer.seen, "duplicate timer Id {id:?}");
         timer.seen = true;
         // a changed period or kind starts over
         if timer.period != period || timer.repeat != repeat {

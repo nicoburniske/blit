@@ -7,27 +7,35 @@ pub struct AnimationState {
 }
 
 impl AnimationState {
-    pub fn update(animations: &mut Vec<Self>, id: Id, initial: f32) -> &mut Self {
-        let index = match animations.binary_search_by_key(&id, |animation| animation.id) {
-            Ok(index) => index,
-            Err(index) => {
-                animations.insert(
-                    index,
-                    Self {
-                        id,
-                        playback: Playback::Target(Animator::new(
-                            [initial],
-                            Animation::default(),
-                            AnimationOptions::default(),
-                        )),
-                        seen: false,
-                    },
-                );
-                index
+    pub fn update(animations: &mut Vec<Self>, site: Id, initial: f32) -> &mut Self {
+        // calls from one site repeat within a frame, so their order is their key
+        let mut id = site;
+        let mut repeats = 0u32;
+        let index = loop {
+            match animations.binary_search_by_key(&id, |animation| animation.id) {
+                Ok(index) if animations[index].seen => {
+                    repeats += 1;
+                    id = site.child(repeats);
+                }
+                Ok(index) => break index,
+                Err(index) => {
+                    animations.insert(
+                        index,
+                        Self {
+                            id,
+                            playback: Playback::Target(Animator::new(
+                                [initial],
+                                Animation::default(),
+                                AnimationOptions::default(),
+                            )),
+                            seen: false,
+                        },
+                    );
+                    break index;
+                }
             }
         };
         let animation = &mut animations[index];
-        assert!(!animation.seen, "duplicate animation Id {id:?}");
         animation.seen = true;
         animation
     }
