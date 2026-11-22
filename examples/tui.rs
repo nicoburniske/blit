@@ -41,7 +41,7 @@ struct Demo {
     layout: LayoutPage,
     text: TextPage,
     blocks: BlocksPage,
-    atoms: AtomsPage,
+    widgets: WidgetsPage,
     scroll: ScrollPage,
     animation: AnimationPage,
     drag: DragPage,
@@ -58,7 +58,7 @@ impl Default for Demo {
             layout: LayoutPage::default(),
             text: TextPage::default(),
             blocks: BlocksPage::default(),
-            atoms: AtomsPage::default(),
+            widgets: WidgetsPage::default(),
             scroll: ScrollPage::default(),
             animation: AnimationPage::default(),
             drag: DragPage::default(),
@@ -103,7 +103,7 @@ impl Demo {
                     (" layout ", Page::Layout),
                     (" text ", Page::Text),
                     (" blocks ", Page::Blocks),
-                    (" atoms ", Page::Atoms),
+                    (" widgets ", Page::Widgets),
                     (" scroll ", Page::Scroll),
                     (" animation ", Page::Animation),
                     (" drag ", Page::Drag),
@@ -152,7 +152,7 @@ impl Demo {
             Page::Layout => root.child().item(flex::item().grow()).build(&mut self.layout),
             Page::Text => root.child().item(flex::item().grow()).build(&mut self.text),
             Page::Blocks => root.child().item(flex::item().grow()).build(&mut self.blocks),
-            Page::Atoms => root.child().item(flex::item().grow()).build(&mut self.atoms),
+            Page::Widgets => root.child().item(flex::item().grow()).build(&mut self.widgets),
             Page::Scroll => root.child().item(flex::item().grow()).build(&mut self.scroll),
             Page::Animation => root.child().item(flex::item().grow()).build(&mut self.animation),
             Page::Drag => root.child().item(flex::item().grow()).build(&mut self.drag),
@@ -1004,12 +1004,12 @@ impl Widget<TuiContext> for &mut BlocksPage {
     }
 }
 
-struct AtomsPage {
+struct WidgetsPage {
     sparkline: Rc<RefCell<Vec<u64>>>,
     bars: Rc<RefCell<Vec<Bar>>>,
 }
 
-impl Default for AtomsPage {
+impl Default for WidgetsPage {
     fn default() -> Self {
         Self {
             sparkline: Rc::new(RefCell::new(vec![0; 80])),
@@ -1026,7 +1026,7 @@ impl Default for AtomsPage {
     }
 }
 
-impl Widget<TuiContext> for &mut AtomsPage {
+impl Widget<TuiContext> for &mut WidgetsPage {
     type Response = ();
 
     fn build(self, mut ui: Ui<'_>) {
@@ -1037,7 +1037,7 @@ impl Widget<TuiContext> for &mut AtomsPage {
         }
 
         let mut body = ui.layout(flex::column().gap(1)).pad(1);
-        body.insert(panel(colors::SURFACE, " atoms "));
+        body.insert(panel(colors::SURFACE, " widgets "));
         body.child()
             .item(flex::item().width(Sizing::grow()).height(Sizing::fixed(1)))
             .insert(
@@ -1149,7 +1149,7 @@ enum Page {
     Layout,
     Text,
     Blocks,
-    Atoms,
+    Widgets,
     Scroll,
     Animation,
     Drag,

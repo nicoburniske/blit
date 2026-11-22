@@ -50,7 +50,7 @@ impl Path<'_> {
             stroke: self.stroke,
             opacity: self.opacity,
         };
-        context.paint(bounds, stored);
+        context.paint(bounds, &stored);
     }
 
     /// conservative bounds of all points or none when the geometry is malformed or empty
@@ -251,6 +251,7 @@ impl Hash for Path<'_> {
 }
 
 /// path slices stored in a rendering context
+#[derive(Clone, Copy)]
 pub struct FramePath {
     pub verbs: FrameSlice<Verb>,
     pub points: FrameSlice<LogicalPoint>,

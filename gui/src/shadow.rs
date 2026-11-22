@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use blit::{Atom, AtomCx, Constraints, LogicalRect, Paint, Size};
+use blit::{LogicalRect, Paint, Ui, Widget, state};
 
 use crate::{color::Color, style::BorderRadius};
 
@@ -38,16 +38,14 @@ impl Shadow {
     }
 }
 
-impl<C> Atom<C> for Shadow
+impl<C> Widget<C, state::Insert> for Shadow
 where
     C: Paint<Self, Scalar = f32>,
 {
-    fn measure(&self, _: &mut AtomCx<'_, C>, _: Constraints<f32>) -> Size<f32> {
-        Size::ZERO
-    }
+    type Response = ();
 
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        cx.context_mut().paint(area, *self);
+    fn build(self, mut ui: Ui<'_, C, state::Insert>) {
+        ui.paint(move |cx, area| cx.context_mut().paint(area, &self));
     }
 }
 

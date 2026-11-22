@@ -601,15 +601,8 @@ mod tests {
 
     #[test]
     fn touch_motion_stops_and_survives_batched_release() {
-        use blit::{Atom, AtomCx, Rect, TouchPhase};
+        use blit::TouchPhase;
 
-        struct Content;
-        impl Atom<TestContext> for Content {
-            fn measure(&self, _: &mut AtomCx<'_, TestContext>, bounds: Constraints<f32>) -> Size<f32> {
-                bounds.constrain(Size::new(200.0, 4000.0))
-            }
-            fn paint(&self, _: &mut AtomCx<'_, TestContext>, _: Rect<f32>) {}
-        }
         for held in [false, true] {
             let mut frame = Frame::default();
             let mut state = ScrollState::<f32>::new();
@@ -625,7 +618,7 @@ mod tests {
                     }),
                     |ui: Ui<'_, TestContext>| {
                         ui.build(ScrollArea::new(&mut state).build(|mut ui: Ui<'_, TestContext>| {
-                            ui.insert(Content);
+                            ui.measure(|_, bounds| bounds.constrain(Size::new(200.0, 4000.0)));
                         }))
                     },
                 );
@@ -654,15 +647,6 @@ mod tests {
     fn requests_and_focus_reveal_content() {
         use std::cell::Cell;
 
-        use blit::{Atom, AtomCx, Rect};
-
-        struct Row;
-        impl Atom<TestContext> for Row {
-            fn measure(&self, _: &mut AtomCx<'_, TestContext>, bounds: Constraints<f32>) -> Size<f32> {
-                bounds.constrain(Size::new(200.0, 100.0))
-            }
-            fn paint(&self, _: &mut AtomCx<'_, TestContext>, _: Rect<f32>) {}
-        }
         let mut frame = Frame::default();
         let mut state = ScrollState::<f32>::new();
         let focused = Cell::new(None);
@@ -678,7 +662,7 @@ mod tests {
                                 if focused.get() == Some(index) {
                                     row.focus();
                                 }
-                                row.insert(Row);
+                                row.measure(|_, bounds| bounds.constrain(Size::new(200.0, 100.0)));
                             }
                         },
                         |_: Ui<'_, TestContext>| {},

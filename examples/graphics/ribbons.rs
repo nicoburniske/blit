@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Atom, AtomCx, Constraints, LogicalRect, Paint, Size, Widget};
+use blit::{LogicalRect, Paint, Widget};
 use blit_cpu::{Pixel, PixelBuffer, PremultipliedRgbaColor, Render, RenderContext, RenderStrategy, Renderer};
 use blit_gui::{
     clip::BoundsClip,
@@ -15,7 +15,7 @@ use blit_gui_widgets::{
     layout::{Justify, absolute, absolute::Anchor, flex},
 };
 
-use super::{Button, DesktopContext, Ui, colors, sz};
+use super::{Button, Ui, colors, sz};
 
 pub struct View {
     previous_phase: f32,
@@ -87,7 +87,8 @@ impl View {
             self.axis = self.axis.map(|value| value / length);
         }
 
-        stage.insert(Ribbons { axis: self.axis });
+        let axis = self.axis;
+        stage.paint(move |cx, area| cx.context_mut().paint(area, &Ribbons { axis }));
         if self.blur {
             let mut panel = stage
                 .child()
@@ -116,18 +117,8 @@ struct Ribbons {
     axis: [f32; 3],
 }
 
-impl Atom<DesktopContext> for Ribbons {
-    fn measure(&self, _: &mut AtomCx<'_, DesktopContext>, constraints: Constraints<f32>) -> Size<f32> {
-        constraints.constrain(Size::ZERO)
-    }
-
-    fn paint(&self, cx: &mut AtomCx<'_, DesktopContext>, area: LogicalRect) {
-        cx.context_mut().paint(area, Ribbons { axis: self.axis });
-    }
-}
-
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Ribbons> for Renderer<B, S, D> {
-    fn paint(&mut self, area: LogicalRect, sculpture: Ribbons) {
+    fn paint(&mut self, area: LogicalRect, sculpture: &Ribbons) {
         self.record(area).push::<RibbonsRenderer>(
             (
                 [area.x, area.y, area.width, area.height].map(f32::to_bits),

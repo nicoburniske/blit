@@ -23,7 +23,7 @@ impl Mesh<'_> {
             vertices: context.store_mut().slice_from(self.vertices),
             indices: context.store_mut().slice_from(self.indices),
         };
-        context.paint(bounds, stored);
+        context.paint(bounds, &stored);
     }
 
     pub fn is_valid(&self) -> bool {
@@ -44,6 +44,7 @@ impl Hash for Mesh<'_> {
 }
 
 /// mesh slices stored in a rendering context
+#[derive(Clone, Copy)]
 pub struct FrameMesh {
     pub vertices: FrameSlice<MeshVertex>,
     pub indices: FrameSlice<u32>,

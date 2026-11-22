@@ -1,7 +1,4 @@
-use blit::{
-    Atom, AtomCx, Axis, Constraints, Input, KeyboardEvent, MouseButton, Paint, PhysicalRect, Sides, Size, TouchPhase,
-    Ui, Widget,
-};
+use blit::{Axis, Input, KeyboardEvent, MouseButton, Paint, Sides, TouchPhase, Ui, Widget};
 use blit_widgets::interact::{self, keyboard::Handler};
 pub use blit_widgets::text_input::{Edit, Response as TextInputResponse, default_keymap};
 pub type TextInputState = blit_widgets::text_input::State<i32>;
@@ -10,7 +7,7 @@ use crate::{
     Context,
     cell::{Cell, CellStyle},
     color::Color,
-    text::{FrameText, TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextRun, TextWrap},
+    text::{FrameText, TextAttributes, TextLayoutRequest, TextOptions, TextRequest, TextWrap},
 };
 
 blit::builder! {
@@ -135,96 +132,59 @@ where
         } else {
             text
         };
-        ui.insert(InputAtom {
-            text,
-            display,
-            state: *state,
-            options,
-            padding,
-            focused,
-            background,
-            color,
-            placeholder_color,
-            selection_background,
-            cursor_background,
-            attributes,
+        let state = *state;
+        ui.measure(move |cx, constraints| {
+            let size = cx.as_mut().renderer.measure_text(&TextLayoutRequest {
+                text: display,
+                wrap: TextWrap::None,
+                max_width: None,
+                max_lines: Some(1),
+            });
+            constraints.constrain(size + padding.size())
+        });
+        ui.paint(move |cx, area| {
+            let renderer = &mut cx.context_mut().as_mut().renderer;
+            let area = area.inset(padding);
+            if let Some(background) = background {
+                renderer
+                    .cells(area)
+                    .clear(Cell::default().style(CellStyle::new().background(background)));
+            }
+            let request = TextRequest {
+                text,
+                offset_x: state.offset_x,
+                options,
+            };
+            let start = state.cursor.min(state.anchor);
+            let end = state.cursor.max(state.anchor);
+            if start != end {
+                let start = renderer.text_cursor_rect(area, &request, start);
+                let end = renderer.text_cursor_rect(area, &request, end);
+                if let Some(selection) =
+                    blit::PhysicalRect::new(start.x, start.y, end.x - start.x, 1).intersection(area)
+                {
+                    renderer
+                        .cells(selection)
+                        .clear(Cell::default().style(CellStyle::new().background(selection_background)));
+                }
+            }
+            if focused
+                && let Some(cursor) = renderer
+                    .text_cursor_rect(area, &request, state.cursor)
+                    .intersection(area)
+            {
+                renderer
+                    .cells(cursor)
+                    .clear(Cell::default().style(CellStyle::new().background(cursor_background)));
+            }
+            let color = if display != text { placeholder_color } else { color };
+            let text = FrameText::new(display)
+                .color(color)
+                .attributes(attributes)
+                .offset_x(state.offset_x)
+                .options(options);
+            cx.context_mut().paint(area, &text);
         });
         response
-    }
-}
-
-struct InputAtom {
-    text: TextRun,
-    display: TextRun,
-    state: TextInputState,
-    options: TextOptions,
-    padding: Sides<i32>,
-    background: Option<Color>,
-    color: Color,
-    placeholder_color: Color,
-    selection_background: Color,
-    cursor_background: Color,
-    attributes: TextAttributes,
-    focused: bool,
-}
-
-impl<C> Atom<C> for InputAtom
-where
-    C: Context + Paint<FrameText>,
-{
-    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
-        let size = cx.context_mut().as_mut().renderer.measure_text(&TextLayoutRequest {
-            text: self.display,
-            wrap: TextWrap::None,
-            max_width: None,
-            max_lines: Some(1),
-        });
-        constraints.constrain(size + self.padding.size())
-    }
-
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
-        let renderer = &mut cx.context_mut().as_mut().renderer;
-        let area = area.inset(self.padding);
-        if let Some(background) = self.background {
-            renderer
-                .cells(area)
-                .clear(Cell::default().style(CellStyle::new().background(background)));
-        }
-        let request = TextRequest {
-            text: self.text,
-            offset_x: self.state.offset_x,
-            options: self.options,
-        };
-        let start = self.state.cursor.min(self.state.anchor);
-        let end = self.state.cursor.max(self.state.anchor);
-        if start != end {
-            let start = renderer.text_cursor_rect(area, &request, start);
-            let end = renderer.text_cursor_rect(area, &request, end);
-            if let Some(selection) = blit::PhysicalRect::new(start.x, start.y, end.x - start.x, 1).intersection(area) {
-                renderer
-                    .cells(selection)
-                    .clear(Cell::default().style(CellStyle::new().background(self.selection_background)));
-            }
-        }
-        if self.focused
-            && let Some(cursor) = renderer
-                .text_cursor_rect(area, &request, self.state.cursor)
-                .intersection(area)
-        {
-            renderer
-                .cells(cursor)
-                .clear(Cell::default().style(CellStyle::new().background(self.cursor_background)));
-        }
-        let color = if self.display != self.text {
-            self.placeholder_color
-        } else {
-            self.color
-        };
-        let text = FrameText::new(self.display)
-            .color(color)
-            .attributes(self.attributes)
-            .offset_x(self.state.offset_x)
-            .options(self.options);
-        cx.context_mut().paint(area, text);
     }
 }

@@ -223,15 +223,9 @@ impl<'ui, C: Context, S: state::Local> Ui<'ui, C, S> {
     }
 
     /// inserts content into the current node
-    ///
-    /// layouts choose whether their atoms contribute to sizing
     #[inline]
-    pub fn insert<T, W>(&mut self, widget: T) -> W::Response
-    where
-        T: IntoWidget<C, W>,
-        W: Widget<C, state::Insert>,
-    {
-        widget.into_widget().build(Ui {
+    pub fn insert<W: Widget<C, state::Insert>>(&mut self, widget: W) -> W::Response {
+        widget.build(Ui {
             inner: UiInner {
                 frame: self.inner.frame,
                 context: self.inner.context,
@@ -243,6 +237,27 @@ impl<'ui, C: Context, S: state::Local> Ui<'ui, C, S> {
             },
             marker: PhantomData,
         })
+    }
+
+    /// schedules a deferred paint closure on the current node
+    #[inline]
+    pub fn paint<F>(&mut self, paint: F)
+    where
+        F: Fn(&mut paint::PaintCx<'_, C>, Rect<C::Scalar>) + 'static,
+    {
+        paint::insert_paint(self.inner.frame, self.inner.node, paint);
+    }
+
+    /// registers a deferred measurement closure on the current node
+    ///
+    /// measurement may be skipped under tight constraints. painting must not
+    /// depend on prior measurement.
+    #[inline]
+    pub fn measure<F>(&mut self, measure: F)
+    where
+        F: Fn(&mut C, Constraints<C::Scalar>) -> Size<C::Scalar> + 'static,
+    {
+        paint::insert_measure(self.inner.frame, self.inner.node, measure);
     }
 
     /// the focused node, if it was beneath this one in the previous layout
@@ -477,7 +492,7 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
         Ui::new(self.inner.frame, self.inner.context, self.inner.scratch, node)
     }
 
-    /// insets this node's children while atoms keep the full box
+    /// insets this node's children while painted content keeps the full box
     pub fn pad(self, padding: impl Into<Sides<C::Scalar>>) -> Self {
         let padding = padding.into();
         assert!(
@@ -488,15 +503,6 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
         );
         self.inner.frame.aux_mut(self.inner.node).padding = padding;
         self
-    }
-}
-
-impl<C: Context, A: Atom<C>> Widget<C, state::Insert> for AtomWidget<A> {
-    type Response = ();
-
-    #[inline]
-    fn build(self, ui: Ui<'_, C, state::Insert>) {
-        atom::insert(ui.inner.frame, ui.inner.node, self.0);
     }
 }
 

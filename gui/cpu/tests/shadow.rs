@@ -89,7 +89,7 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
                         .blur(if index % 3 == 0 { 0.0 } else { 3.25 })
                         .spread(if index == 6 { -20.0 } else { index as f32 - 2.0 })
                         .inset(index % 2 != 0);
-                        renderer.paint(area, shadow);
+                        renderer.paint(area, &shadow);
                     }
                     renderer.pop_clip();
                     renderer.pop_clip();

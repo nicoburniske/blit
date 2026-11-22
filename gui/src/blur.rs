@@ -1,4 +1,4 @@
-use blit::{Atom, AtomCx, Constraints, LogicalRect, Paint, Size};
+use blit::{Paint, Ui, Widget, state};
 
 blit::builder! {
     /// blurs previously painted content behind the drawing area
@@ -8,15 +8,13 @@ blit::builder! {
     }
 }
 
-impl<C> Atom<C> for BackdropBlur
+impl<C> Widget<C, state::Insert> for BackdropBlur
 where
     C: Paint<Self, Scalar = f32>,
 {
-    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
-        constraints.constrain(Size::ZERO)
-    }
+    type Response = ();
 
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        cx.context_mut().paint(area, *self);
+    fn build(self, mut ui: Ui<'_, C, state::Insert>) {
+        ui.paint(move |cx, area| cx.context_mut().paint(area, &self));
     }
 }

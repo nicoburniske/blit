@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use blit::{Atom, AtomCx, Constraints, FrameSlice, HasFrameStore, LogicalRect, Paint, Size, Ui, Widget, state};
+use blit::{FrameSlice, HasFrameStore, LogicalRect, Paint, Ui, Widget, state};
 
 use crate::{
     color::Color,
@@ -27,15 +27,19 @@ where
     type Response = ();
 
     fn build(self, mut ui: Ui<'_, C, state::Insert>) {
+        if self.background == Fill::Solid(Color::TRANSPARENT) && self.border.width <= 0.0 {
+            return;
+        }
         let background = FrameFill::new(self.background, ui.context_mut());
         let border_fill = FrameFill::new(self.border.fill, ui.context_mut());
-        ui.insert(FrameRectangle {
+        let rectangle = FrameRectangle {
             background,
             border_fill,
             border_width: self.border.width,
             radius: self.radius,
             opacity: self.opacity,
-        });
+        };
+        ui.paint(move |cx, area| cx.context_mut().paint(area, &rectangle));
     }
 }
 
@@ -49,7 +53,7 @@ impl Rectangle<'_> {
             radius: self.radius,
             opacity: self.opacity,
         };
-        context.paint(area, rectangle);
+        context.paint(area, &rectangle);
     }
 }
 
@@ -65,21 +69,6 @@ blit::builder! {
         border_width: f32 = 0.0,
         radius: BorderRadius = BorderRadius::new(),
         opacity: f32 = 1.0,
-    }
-}
-
-impl<C> Atom<C> for FrameRectangle
-where
-    C: Paint<Self, Scalar = f32>,
-{
-    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
-        constraints.constrain(Size::ZERO)
-    }
-
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        if self.background != FrameFill::Solid(Color::TRANSPARENT) || self.border_width > 0.0 {
-            cx.context_mut().paint(area, *self);
-        }
     }
 }
 

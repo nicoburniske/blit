@@ -22,12 +22,12 @@ where
     S: RenderStrategy<B>,
     D: DamageTracker,
 {
-    fn paint(&mut self, area: LogicalRect, value: FrameRectangle) {
+    fn paint(&mut self, area: LogicalRect, value: &FrameRectangle) {
         let mut recording = self.record(area);
         recording.record_input(
             recording.bounds,
             recording.clip,
-            value,
+            *value,
             |input, offset, record, list, context| {
                 let scale = context.commands.scale;
                 let target = &mut *context.commands;

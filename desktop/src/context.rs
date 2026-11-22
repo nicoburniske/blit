@@ -45,7 +45,7 @@ impl<G: GraphicsBackend> blit_widgets::Context for DesktopContext<G> {
 }
 
 impl<G: GraphicsBackend + Paint<T>, T> Paint<T> for DesktopContext<G> {
-    fn paint(&mut self, bounds: LogicalRect, command: T) {
+    fn paint(&mut self, bounds: LogicalRect, command: &T) {
         self.graphics.paint(bounds, command);
     }
 }

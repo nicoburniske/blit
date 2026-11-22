@@ -1,5 +1,82 @@
 use super::*;
 
+/// context resources and temporary storage for painting
+pub struct PaintCx<'a, C: Context> {
+    bump: &'a BumpArena,
+    context: &'a mut C,
+}
+
+impl<'a, C: Context> PaintCx<'a, C> {
+    pub fn context(&self) -> &C {
+        self.context
+    }
+
+    pub fn context_mut(&mut self) -> &mut C {
+        self.context
+    }
+
+    pub fn scratch(&self) -> &'a ScratchBuffer {
+        &self.bump.storage
+    }
+}
+
+pub fn insert_measure<C: Context, F>(frame: &mut Frame<C>, node: NodeId, measure: F)
+where
+    F: Fn(&mut C, Constraints<C::Scalar>) -> Size<C::Scalar> + 'static,
+{
+    fn run<C: Context, F>(
+        bump: &BumpArena,
+        id: BumpId,
+        context: &mut C,
+        bounds: Constraints<C::Scalar>,
+    ) -> Size<C::Scalar>
+    where
+        F: Fn(&mut C, Constraints<C::Scalar>) -> Size<C::Scalar> + 'static,
+    {
+        (bump.load::<F>(id))(context, bounds)
+    }
+
+    let id = StoredMeasureId::new(frame.measures.len());
+    let node = &mut frame.nodes[node.index()];
+    // prepended because measurement combines sizes with max
+    frame.measures.push(StoredMeasure {
+        run: run::<C, F>,
+        bump_id: frame.bump.store(measure),
+        next: node.first_measure,
+    });
+    node.first_measure = id;
+}
+
+pub fn insert_paint<C: Context, F>(frame: &mut Frame<C>, node: NodeId, paint: F)
+where
+    F: Fn(&mut PaintCx<'_, C>, Rect<C::Scalar>) + 'static,
+{
+    fn run<C: Context, F>(bump: &BumpArena, id: BumpId, context: &mut C, area: Rect<C::Scalar>)
+    where
+        F: Fn(&mut PaintCx<'_, C>, Rect<C::Scalar>) + 'static,
+    {
+        (bump.load::<F>(id))(&mut PaintCx { bump, context }, area);
+    }
+
+    let id = StoredPaintId::new(frame.paints.len());
+    let bump_id = frame.bump.store(paint);
+    let node = &mut frame.nodes[node.index()];
+    // circular list where last_paint.next points to the first paint
+    let next = if let Some(last) = node.last_paint.index() {
+        let first = frame.paints[last].next;
+        frame.paints[last].next = id;
+        first
+    } else {
+        id
+    };
+    frame.paints.push(StoredPaint {
+        run: run::<C, F>,
+        bump_id,
+        next,
+    });
+    node.last_paint = id;
+}
+
 pub fn resolve_order<C: Context>(frame: &mut Frame<C>, bump: &BumpArena) {
     frame.paint_order.clear();
     let count = frame.nodes.len();
@@ -154,22 +231,25 @@ fn set<C: Context>(frame: &mut Frame<C>, bump: &BumpArena, context: &mut C, targ
 }
 
 fn paint_node<C: Context>(frame: &mut Frame<C>, bump: &BumpArena, context: &mut C, node: usize) {
-    if frame.nodes[node].first_atom.index().is_none() {
+    let Some(last) = frame.nodes[node].last_paint.index() else {
         return;
-    }
+    };
     let area = frame.placements[node].area;
     let resolved_clip = frame.nodes[node].resolved_clip;
-    // atoms may paint past their area so renderers cull by what they draw
+    // painters may draw past their area so renderers cull by what they draw
     let bounds = frame.clip_bounds(resolved_clip);
     if bounds.width <= C::Scalar::ZERO || bounds.height <= C::Scalar::ZERO {
         return;
     }
     set(frame, bump, context, resolved_clip);
-    let mut atom = frame.nodes[node].first_atom;
-    while let Some(atom_index) = atom.index() {
-        let stored = frame.atoms[atom_index];
-        (stored.kind().paint)(bump, stored.bump_id, context, area);
-        atom = stored.next;
+    let mut index = frame.paints[last].next.0 as usize;
+    loop {
+        let stored = frame.paints[index];
+        (stored.run)(bump, stored.bump_id, context, area);
+        if index == last {
+            break;
+        }
+        index = stored.next.0 as usize;
     }
 }
 

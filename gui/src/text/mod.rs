@@ -4,7 +4,7 @@ use std::{
     ops::Range,
 };
 
-use blit::{Atom, AtomCx, Constraints, FrameSlice, LogicalRect, Paint, Size, Widget, state};
+use blit::{FrameSlice, Paint, Widget, state};
 use blit_text::{FontSettings, FontStyle};
 
 use crate::{
@@ -100,23 +100,27 @@ blit::builder! {
     }
 }
 
-impl<C> Atom<C> for FrameText
+impl<C> Widget<C, state::Insert> for FrameText
 where
     C: Context + Paint<Self>,
 {
-    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
-        let measured = cx.context_mut().text().measure(&TextLayoutRequest {
-            text: self.text,
-            wrap: self.options.wrap,
-            max_width: (self.options.wrap != TextWrap::None && constraints.max.width.is_finite())
-                .then_some(constraints.max.width),
-            max_lines: self.options.max_lines,
-        });
-        constraints.constrain(measured)
-    }
+    type Response = ();
 
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        cx.context_mut().paint(area, *self);
+    fn build(self, mut ui: blit::Ui<'_, C, state::Insert>) {
+        let text = self.text;
+        let wrap = self.options.wrap;
+        let max_lines = self.options.max_lines;
+        ui.measure(move |cx, constraints| {
+            let measured = cx.text().measure(&TextLayoutRequest {
+                text,
+                wrap,
+                max_width: (wrap != TextWrap::None && constraints.max.width.is_finite())
+                    .then_some(constraints.max.width),
+                max_lines,
+            });
+            constraints.constrain(measured)
+        });
+        ui.paint(move |cx, area| cx.context_mut().paint(area, &self));
     }
 }
 

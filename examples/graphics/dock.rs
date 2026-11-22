@@ -82,9 +82,31 @@ impl Dock {
                         ))
                         .radius(BorderRadius::uniform(10.0)),
                 );
-                button.insert(PlaybackIcon {
-                    running: self.running,
-                    pressed: press.active,
+                let running = self.running;
+                let pressed = press.active;
+                button.paint(move |cx, area| {
+                    let x = area.x + area.width * 0.5;
+                    let y = area.y + area.height * 0.5 + f32::from(pressed);
+                    let context = cx.context_mut();
+                    if running {
+                        for offset in [-7.0, 1.0] {
+                            Rectangle::new()
+                                .background(Color::WHITE)
+                                .radius(BorderRadius::uniform(1.5))
+                                .paint(LogicalRect::new(x + offset, y - 8.0, 6.0, 16.0), context);
+                        }
+                    } else {
+                        let vertices = [
+                            MeshVertex::new(x - 5.0, y - 8.0, Color::WHITE),
+                            MeshVertex::new(x + 8.0, y, Color::WHITE),
+                            MeshVertex::new(x - 5.0, y + 8.0, Color::WHITE),
+                        ];
+                        Mesh {
+                            vertices: &vertices,
+                            indices: &[0, 1, 2],
+                        }
+                        .paint(area, context);
+                    }
                 });
             });
         toolbar
@@ -100,42 +122,6 @@ impl Dock {
                 .item(flex::item().fixed(1.0, 24.0))
                 .insert(Rectangle::new().background(LinearGradient::new(&colors::RIM).angle(90.0)));
             toolbar.child().build(controls);
-        }
-    }
-}
-
-struct PlaybackIcon {
-    running: bool,
-    pressed: bool,
-}
-
-impl Atom<DesktopContext> for PlaybackIcon {
-    fn measure(&self, _: &mut AtomCx<'_, DesktopContext>, constraints: Constraints<f32>) -> Size<f32> {
-        constraints.constrain(Size::ZERO)
-    }
-
-    fn paint(&self, cx: &mut AtomCx<'_, DesktopContext>, area: LogicalRect) {
-        let x = area.x + area.width * 0.5;
-        let y = area.y + area.height * 0.5 + f32::from(self.pressed);
-        let context = cx.context_mut();
-        if self.running {
-            for offset in [-7.0, 1.0] {
-                Rectangle::new()
-                    .background(Color::WHITE)
-                    .radius(BorderRadius::uniform(1.5))
-                    .paint(LogicalRect::new(x + offset, y - 8.0, 6.0, 16.0), context);
-            }
-        } else {
-            let vertices = [
-                MeshVertex::new(x - 5.0, y - 8.0, Color::WHITE),
-                MeshVertex::new(x + 8.0, y, Color::WHITE),
-                MeshVertex::new(x - 5.0, y + 8.0, Color::WHITE),
-            ];
-            Mesh {
-                vertices: &vertices,
-                indices: &[0, 1, 2],
-            }
-            .paint(area, context);
         }
     }
 }

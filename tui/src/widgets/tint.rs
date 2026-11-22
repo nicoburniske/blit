@@ -1,4 +1,4 @@
-use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
+use blit::{Ui, Widget, state};
 
 use crate::Context;
 
@@ -12,19 +12,19 @@ blit::builder! {
     }
 }
 
-impl<C> Atom<C> for Tint
+impl<C> Widget<C, state::Insert> for Tint
 where
     C: Context,
 {
-    fn measure(&self, _: &mut AtomCx<'_, C>, _: Constraints<i32>) -> Size<i32> {
-        Size::ZERO
-    }
+    type Response = ();
 
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
-        cx.context_mut()
-            .as_mut()
-            .renderer
-            .cells(area)
-            .tint(self.color, self.opacity);
+    fn build(self, mut ui: Ui<'_, C, state::Insert>) {
+        ui.paint(move |cx, area| {
+            cx.context_mut()
+                .as_mut()
+                .renderer
+                .cells(area)
+                .tint(self.color, self.opacity);
+        });
     }
 }

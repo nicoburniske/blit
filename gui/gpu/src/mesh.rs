@@ -4,12 +4,12 @@ use blit_gui::mesh::{self};
 use crate::{MeshData, Renderer};
 
 impl Paint<mesh::FrameMesh> for Renderer {
-    fn paint(&mut self, bounds: LogicalRect, value: mesh::FrameMesh) {
+    fn paint(&mut self, bounds: LogicalRect, value: &mesh::FrameMesh) {
         self.record_native(
             bounds,
             bounds,
             self.paint_clip,
-            value,
+            *value,
             |value, command, list, renderer, _| {
                 let clip = command.clip;
                 let mesh = value.view(list);

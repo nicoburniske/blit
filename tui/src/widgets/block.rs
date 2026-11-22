@@ -1,6 +1,6 @@
 use std::ops::{BitOr, BitOrAssign};
 
-use blit::{Atom, AtomCx, Constraints, Paint, PhysicalRect, Size, Widget, state};
+use blit::{Paint, PhysicalRect, Widget, state};
 
 use crate::{
     Context,
@@ -52,10 +52,79 @@ where
         if let Some(shadow) = self.shadow {
             ui.insert(shadow);
         }
-        ui.insert(BlockAtom {
-            border: self.border,
-            background: self.background,
-            titles,
+        let border = self.border;
+        let background = self.background;
+        ui.paint(move |cx, area| {
+            let context = cx.context_mut();
+            let (width, height) = {
+                let mut cells = context.as_mut().renderer.cells(area);
+                let width = cells.columns();
+                let height = cells.rows();
+                if let Some(background) = background {
+                    cells.clear(Cell::default().style(CellStyle::new().background(background)));
+                }
+                if let Some(border) = border
+                    && width > 0
+                    && height > 0
+                {
+                    let style = CellStyle::new().foreground(border.color);
+                    if border.sides.contains(BorderSides::TOP) {
+                        for x in 0..width {
+                            let edges = border_edges(border.sides, x, 0, width, height);
+                            if edges != 0 {
+                                cells.set_cell(x, 0, Cell::new(border_character(border.style, edges)).style(style));
+                            }
+                        }
+                    }
+                    if height > 1 && border.sides.contains(BorderSides::BOTTOM) {
+                        for x in 0..width {
+                            let edges = border_edges(border.sides, x, height - 1, width, height);
+                            if edges != 0 {
+                                cells.set_cell(
+                                    x,
+                                    height - 1,
+                                    Cell::new(border_character(border.style, edges)).style(style),
+                                );
+                            }
+                        }
+                    }
+                    for y in 1..height.saturating_sub(1) {
+                        if border.sides.contains(BorderSides::LEFT) {
+                            let edges = border_edges(border.sides, 0, y, width, height);
+                            if edges != 0 {
+                                cells.set_cell(0, y, Cell::new(border_character(border.style, edges)).style(style));
+                            }
+                        }
+                        if width > 1 && border.sides.contains(BorderSides::RIGHT) {
+                            let edges = border_edges(border.sides, width - 1, y, width, height);
+                            if edges != 0 {
+                                cells.set_cell(
+                                    width - 1,
+                                    y,
+                                    Cell::new(border_character(border.style, edges)).style(style),
+                                );
+                            }
+                        }
+                    }
+                }
+                (width, height)
+            };
+            if height == 0 {
+                return;
+            }
+            let left = usize::from(border.is_some_and(|border| border.sides.contains(BorderSides::LEFT)));
+            let right = width.saturating_sub(usize::from(
+                border.is_some_and(|border| border.sides.contains(BorderSides::RIGHT)),
+            ));
+            paint_title_row(context, [titles[0], titles[1], titles[2]], area.x, area.y, left, right);
+            paint_title_row(
+                context,
+                [titles[3], titles[4], titles[5]],
+                area.x,
+                area.y + height.saturating_sub(1) as i32,
+                left,
+                right,
+            );
         });
     }
 }
@@ -137,110 +206,11 @@ impl TitlePosition {
     }
 }
 
-struct BlockAtom {
-    border: Option<Border>,
-    background: Option<Color>,
-    titles: [Option<TitleRun>; 6],
-}
-
 #[derive(Clone, Copy)]
 struct TitleRun {
     text: TextRun,
     color: Color,
     attributes: TextAttributes,
-}
-
-impl<C> Atom<C> for BlockAtom
-where
-    C: Context + Paint<FrameText>,
-{
-    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
-        constraints.constrain(Size::ZERO)
-    }
-
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
-        let context = cx.context_mut();
-        let (width, height) = {
-            let mut cells = context.as_mut().renderer.cells(area);
-            let width = cells.columns();
-            let height = cells.rows();
-            if let Some(background) = self.background {
-                cells.clear(Cell::default().style(CellStyle::new().background(background)));
-            }
-            if let Some(border) = self.border
-                && width > 0
-                && height > 0
-            {
-                let style = CellStyle::new().foreground(border.color);
-                if border.sides.contains(BorderSides::TOP) {
-                    for x in 0..width {
-                        let edges = border_edges(border.sides, x, 0, width, height);
-                        if edges != 0 {
-                            cells.set_cell(x, 0, Cell::new(border_character(border.style, edges)).style(style));
-                        }
-                    }
-                }
-                if height > 1 && border.sides.contains(BorderSides::BOTTOM) {
-                    for x in 0..width {
-                        let edges = border_edges(border.sides, x, height - 1, width, height);
-                        if edges != 0 {
-                            cells.set_cell(
-                                x,
-                                height - 1,
-                                Cell::new(border_character(border.style, edges)).style(style),
-                            );
-                        }
-                    }
-                }
-                for y in 1..height.saturating_sub(1) {
-                    if border.sides.contains(BorderSides::LEFT) {
-                        let edges = border_edges(border.sides, 0, y, width, height);
-                        if edges != 0 {
-                            cells.set_cell(0, y, Cell::new(border_character(border.style, edges)).style(style));
-                        }
-                    }
-                    if width > 1 && border.sides.contains(BorderSides::RIGHT) {
-                        let edges = border_edges(border.sides, width - 1, y, width, height);
-                        if edges != 0 {
-                            cells.set_cell(
-                                width - 1,
-                                y,
-                                Cell::new(border_character(border.style, edges)).style(style),
-                            );
-                        }
-                    }
-                }
-            }
-            (width, height)
-        };
-        if height == 0 {
-            return;
-        }
-        let left = usize::from(
-            self.border
-                .is_some_and(|border| border.sides.contains(BorderSides::LEFT)),
-        );
-        let right = width.saturating_sub(usize::from(
-            self.border
-                .is_some_and(|border| border.sides.contains(BorderSides::RIGHT)),
-        ));
-        paint_title_row(
-            context,
-            [self.titles[0], self.titles[1], self.titles[2]],
-            area.x,
-            area.y,
-            left,
-            right,
-        );
-        paint_title_row(
-            context,
-            [self.titles[3], self.titles[4], self.titles[5]],
-            area.x,
-            area.y + height.saturating_sub(1) as i32,
-            left,
-            right,
-        );
-    }
 }
 
 fn paint_title_row(
@@ -299,7 +269,7 @@ fn paint_title(
         .color(title.color)
         .attributes(title.attributes)
         .options(TextOptions::new().max_lines(1));
-    context.paint(PhysicalRect::new(origin_x + x as i32, y, width as i32, 1), text);
+    context.paint(PhysicalRect::new(origin_x + x as i32, y, width as i32, 1), &text);
 }
 
 fn border_edges(sides: BorderSides, x: usize, y: usize, width: usize, height: usize) -> u8 {
@@ -357,7 +327,7 @@ mod tests {
     use crate::{RendererConfig, TuiContext, TuiRenderer, layout::flex, widgets::shadow::Shadow};
 
     #[test]
-    fn block_and_shadow_paint_as_atoms() {
+    fn block_and_shadow_paint_into_cells() {
         let renderer = TuiRenderer::new(RendererConfig::new().columns(20).rows(5));
         let mut context = TuiContext::new(renderer);
         let mut frame = Frame::default();

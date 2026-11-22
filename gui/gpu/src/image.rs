@@ -4,12 +4,12 @@ use blit_gui::image::{Image, ImageSampling};
 use crate::{Instance, Pipeline, Renderer, image_axis, image_flag, physical_rect, premultiplied};
 
 impl Paint<Image> for Renderer {
-    fn paint(&mut self, area: LogicalRect, request: Image) {
+    fn paint(&mut self, area: LogicalRect, request: &Image) {
         self.record_native(
             area,
             area,
             self.paint_clip,
-            request,
+            request.clone(),
             |request, command, _, renderer, bounds| {
                 let clip = command.clip;
 

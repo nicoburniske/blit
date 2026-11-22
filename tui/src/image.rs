@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use blit::{Atom, AtomCx, Constraints, Paint, PhysicalRect, Size};
+use blit::{Paint, Size, Ui, Widget, state};
 
 use crate::Context;
 
@@ -15,34 +15,36 @@ blit::builder! {
     }
 }
 
-impl<C> Atom<C> for Image
+impl<C> Widget<C, state::Insert> for Image
 where
     C: Context + Paint<Self>,
 {
-    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
-        let cell = cx.context_mut().as_mut().renderer.cell_size();
-        let pixels = self.image.size();
-        let width = f64::from(pixels.width) / f64::from(cell.width);
-        let height = f64::from(pixels.height) / f64::from(cell.height);
-        let mut size = self
-            .intrinsic
-            .unwrap_or(Size::new((width.round() as i32).max(1), (height.round() as i32).max(1)));
-        if self.fit == ImageFit::Contain {
-            let scale = (f64::from(size.width.min(constraints.max.width)) / width)
-                .min(f64::from(size.height.min(constraints.max.height)) / height);
-            if scale <= 0.0 {
-                return constraints.constrain(Size::ZERO);
-            }
-            size = Size::new(
-                ((width * scale).round() as i32).max(1),
-                ((height * scale).round() as i32).max(1),
-            );
-        }
-        constraints.constrain(size)
-    }
+    type Response = ();
 
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
-        cx.context_mut().paint(area, self.clone());
+    fn build(self, mut ui: Ui<'_, C, state::Insert>) {
+        let pixels = self.image.size();
+        let intrinsic = self.intrinsic;
+        let fit = self.fit;
+        ui.measure(move |cx, constraints| {
+            let cell = cx.as_mut().renderer.cell_size();
+            let width = f64::from(pixels.width) / f64::from(cell.width);
+            let height = f64::from(pixels.height) / f64::from(cell.height);
+            let mut size =
+                intrinsic.unwrap_or(Size::new((width.round() as i32).max(1), (height.round() as i32).max(1)));
+            if fit == ImageFit::Contain {
+                let scale = (f64::from(size.width.min(constraints.max.width)) / width)
+                    .min(f64::from(size.height.min(constraints.max.height)) / height);
+                if scale <= 0.0 {
+                    return constraints.constrain(Size::ZERO);
+                }
+                size = Size::new(
+                    ((width * scale).round() as i32).max(1),
+                    ((height * scale).round() as i32).max(1),
+                );
+            }
+            constraints.constrain(size)
+        });
+        ui.paint(move |cx, area| cx.context_mut().paint(area, &self));
     }
 }
 

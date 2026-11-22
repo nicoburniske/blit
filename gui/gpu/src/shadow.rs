@@ -5,12 +5,12 @@ use bytemuck::Zeroable;
 use crate::{INSET_SHADOW, Instance, OUTSET_SHADOW, Pipeline, Renderer, physical_radii, physical_rect, premultiplied};
 
 impl Paint<Shadow> for Renderer {
-    fn paint(&mut self, area: LogicalRect, shadow: Shadow) {
+    fn paint(&mut self, area: LogicalRect, shadow: &Shadow) {
         self.record_native(
             area,
             shadow.bounds(area),
             self.paint_clip,
-            shadow,
+            *shadow,
             |&shadow, command, _, renderer, bounds| {
                 let clip = command.clip;
 

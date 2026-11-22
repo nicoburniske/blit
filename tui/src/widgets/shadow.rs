@@ -1,4 +1,4 @@
-use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
+use blit::{PhysicalRect, Ui, Widget, state};
 
 use crate::{
     Context,
@@ -23,37 +23,37 @@ impl Shadow {
     }
 }
 
-impl<C> Atom<C> for Shadow
+impl<C> Widget<C, state::Insert> for Shadow
 where
     C: Context,
 {
-    fn measure(&self, _: &mut AtomCx<'_, C>, _: Constraints<i32>) -> Size<i32> {
-        Size::ZERO
-    }
+    type Response = ();
 
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
-        let shifted = PhysicalRect {
-            x: area.x + self.offset_x,
-            y: area.y + self.offset_y,
-            ..area
-        };
-        let left = area.x as isize;
-        let top = area.y as isize;
-        let right = (area.x + area.width) as isize;
-        let bottom = (area.y + area.height) as isize;
-        let origin_x = shifted.x as isize;
-        let origin_y = shifted.y as isize;
-        let mut cells = cx.context_mut().as_mut().renderer.cells(shifted);
-        let style = CellStyle::new().background(self.color);
-        for y in 0..cells.rows() {
-            for x in 0..cells.columns() {
-                let screen_x = origin_x + x as isize;
-                let screen_y = origin_y + y as isize;
-                if (left..right).contains(&screen_x) && (top..bottom).contains(&screen_y) {
-                    continue;
+    fn build(self, mut ui: Ui<'_, C, state::Insert>) {
+        ui.paint(move |cx, area| {
+            let shifted = PhysicalRect {
+                x: area.x + self.offset_x,
+                y: area.y + self.offset_y,
+                ..area
+            };
+            let left = area.x as isize;
+            let top = area.y as isize;
+            let right = (area.x + area.width) as isize;
+            let bottom = (area.y + area.height) as isize;
+            let origin_x = shifted.x as isize;
+            let origin_y = shifted.y as isize;
+            let mut cells = cx.context_mut().as_mut().renderer.cells(shifted);
+            let style = CellStyle::new().background(self.color);
+            for y in 0..cells.rows() {
+                for x in 0..cells.columns() {
+                    let screen_x = origin_x + x as isize;
+                    let screen_y = origin_y + y as isize;
+                    if (left..right).contains(&screen_x) && (top..bottom).contains(&screen_y) {
+                        continue;
+                    }
+                    cells.set_cell(x, y, Cell::default().style(style));
                 }
-                cells.set_cell(x, y, Cell::default().style(style));
             }
-        }
+        });
     }
 }

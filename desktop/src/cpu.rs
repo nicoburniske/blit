@@ -48,7 +48,7 @@ impl<T> Paint<T> for Backend
 where
     Renderer<DesktopBuffer, Scanline>: Paint<T>,
 {
-    fn paint(&mut self, bounds: LogicalRect, command: T) {
+    fn paint(&mut self, bounds: LogicalRect, command: &T) {
         self.renderer.paint(bounds, command);
     }
 }

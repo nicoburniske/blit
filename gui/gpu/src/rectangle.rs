@@ -9,12 +9,12 @@ use crate::{GradientStop, Instance, MeshData, Pipeline, Renderer, physical_radii
 const CONIC_FILL: u32 = 1 << 2;
 
 impl Paint<FrameRectangle> for Renderer {
-    fn paint(&mut self, area: LogicalRect, value: FrameRectangle) {
+    fn paint(&mut self, area: LogicalRect, value: &FrameRectangle) {
         self.record_native(
             area,
             area,
             self.paint_clip,
-            value,
+            *value,
             |value, command, list, renderer, bounds| {
                 let clip = command.clip;
                 let rectangle = value.view(list);

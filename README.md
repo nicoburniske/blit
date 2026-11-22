@@ -35,10 +35,7 @@ each frame, blit:
 
 - builds widgets into a tree of nodes
 - solves layouts and assigns final rectangles
-- paints each node's atoms
-
-an atom describes visual content, like text or a rectangle. painting it typically
-means recording draw commands for the backend using its resolved position and size.
+- paints each node (usually recording draw commands) with its resolved area
 
 ```rust
 use blit::KeyboardEvent;
@@ -54,7 +51,7 @@ use blit_tui::{
 fn main() -> std::io::Result<()> {
     blit_tui::run(|ui| {
         // layout arranges the root's children in a column
-        // pad insets children while atoms keep the full box
+        // pad insets children while painted content keeps the full box
         let mut root = ui.layout(flex::column().gap(1)).pad(1);
 
         let quit = root

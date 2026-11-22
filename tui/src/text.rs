@@ -3,7 +3,7 @@ use std::{
     ops::{BitOr, BitOrAssign},
 };
 
-use blit::{Atom, AtomCx, Constraints, Paint, PhysicalRect, Size, Widget, state};
+use blit::{Paint, Widget, state};
 
 use crate::{Context, color::Color};
 
@@ -71,23 +71,27 @@ blit::builder! {
     }
 }
 
-impl<C> Atom<C> for FrameText
+impl<C> Widget<C, state::Insert> for FrameText
 where
     C: Context + Paint<Self>,
 {
-    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
-        let measured = cx.context_mut().as_mut().renderer.measure_text(&TextLayoutRequest {
-            text: self.text,
-            wrap: self.options.wrap,
-            max_width: (self.options.wrap != TextWrap::None && constraints.max.width != i32::MAX)
-                .then_some(constraints.max.width),
-            max_lines: self.options.max_lines,
-        });
-        constraints.constrain(measured)
-    }
+    type Response = ();
 
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
-        cx.context_mut().paint(area, *self);
+    fn build(self, mut ui: blit::Ui<'_, C, state::Insert>) {
+        let text = self.text;
+        let wrap = self.options.wrap;
+        let max_lines = self.options.max_lines;
+        ui.measure(move |cx, constraints| {
+            let measured = cx.as_mut().renderer.measure_text(&TextLayoutRequest {
+                text,
+                wrap,
+                max_width: (wrap != TextWrap::None && constraints.max.width != i32::MAX)
+                    .then_some(constraints.max.width),
+                max_lines,
+            });
+            constraints.constrain(measured)
+        });
+        ui.paint(move |cx, area| cx.context_mut().paint(area, &self));
     }
 }
 

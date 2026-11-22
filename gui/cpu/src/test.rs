@@ -110,8 +110,8 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
         S: RenderStrategy<B>,
         D: DamageTracker,
     {
-        fn paint(&mut self, bounds: LogicalRect, key: Key) {
-            self.record(bounds).push::<KeyRenderer>(key, None);
+        fn paint(&mut self, bounds: LogicalRect, key: &Key) {
+            self.record(bounds).push::<KeyRenderer>(key.clone(), None);
         }
     }
 
@@ -120,11 +120,11 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
         B: PixelBuffer<Pixel = Xrgb8888>,
         S: RenderStrategy<B>,
         D: DamageTracker,
-        T: 'static,
+        T: Clone + 'static,
     {
-        fn paint(&mut self, bounds: LogicalRect, command: (Key, T)) {
+        fn paint(&mut self, bounds: LogicalRect, command: &(Key, T)) {
             self.record(bounds)
-                .push::<KeyedRenderer<T>>(Keyed(command.0, command.1), None);
+                .push::<KeyedRenderer<T>>(Keyed(command.0.clone(), command.1.clone()), None);
         }
     }
 
@@ -137,10 +137,10 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
             visible.hashes.set(0);
             visible.comparisons.set(0);
             hidden.hashes.set(0);
-            renderer.paint(area, Key(value, visible.clone()));
-            renderer.paint(LogicalRect::new(32.0, 0.0, 8.0, 8.0), Key(255, hidden.clone()));
+            renderer.paint(area, &Key(value, visible.clone()));
+            renderer.paint(LogicalRect::new(32.0, 0.0, 8.0, 8.0), &Key(255, hidden.clone()));
             renderer.push_clip(LogicalRect::new(8.0, 0.0, 8.0, 8.0), BorderRadius::default());
-            renderer.paint(area, Key(255, hidden.clone()));
+            renderer.paint(area, &Key(255, hidden.clone()));
             renderer.pop_clip();
             assert_eq!(visible.hashes.get(), 0);
             assert_eq!(visible.comparisons.get(), 0);
@@ -160,8 +160,8 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
     let bounds = LogicalRect::new(0.0, 0.0, 8.0, 8.0);
     let mut left = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
     let mut right = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
-    left.paint(bounds, (Key(1, counts.clone()), 0u8));
-    right.paint(bounds, (Key(1, counts.clone()), 0u16));
+    left.paint(bounds, &(Key(1, counts.clone()), 0u8));
+    right.paint(bounds, &(Key(1, counts.clone()), 0u16));
     assert!(!left.context.list.equivalent(0, &right.context.list, 0));
     assert_eq!(counts.comparisons.get(), 0);
     assert_eq!(size_of::<Command>(), 48);
@@ -255,7 +255,7 @@ fn renderers_keep_independent_state_and_configuration_invalidates_damage() {
 fn pending_commands_prevent_renderer_replacement() {
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(8, 8), renderer_config());
     let shadow = Shadow::new(Color::BLACK);
-    renderer.paint(LogicalRect::new(0.0, 0.0, 8.0, 8.0), shadow);
+    renderer.paint(LogicalRect::new(0.0, 0.0, 8.0, 8.0), &shadow);
     let _ = renderer.register(render::shadow::Renderer::default());
 }
 
@@ -263,6 +263,7 @@ fn pending_commands_prevent_renderer_replacement() {
 fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
     use std::{cell::Cell, rc::Rc};
 
+    #[derive(Clone)]
     struct Under(Rc<Cell<usize>>);
 
     impl Compare for Under {
@@ -296,8 +297,8 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
         S: RenderStrategy<B>,
         D: DamageTracker,
     {
-        fn paint(&mut self, bounds: LogicalRect, under: Under) {
-            self.record(bounds).push::<UnderRenderer>(under, None);
+        fn paint(&mut self, bounds: LogicalRect, under: &Under) {
+            self.record(bounds).push::<UnderRenderer>(under.clone(), None);
         }
     }
 
@@ -323,14 +324,14 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
         S: RenderStrategy<B>,
         D: DamageTracker,
     {
-        fn paint(&mut self, bounds: LogicalRect, cover: Cover) {
+        fn paint(&mut self, bounds: LogicalRect, cover: &Cover) {
             let mut cx = self.record(bounds);
             let area = cover.area;
             let opaque = cover.report.then_some(area);
             if cover.prepared {
-                cx.push::<CoverRenderer>(cover, opaque)
+                cx.push::<CoverRenderer>(cover.clone(), opaque)
             } else {
-                cx.push_ready::<CoverRenderer>(cover, opaque)
+                cx.push_ready::<CoverRenderer>(cover.clone(), opaque)
             }
         }
     }
@@ -378,8 +379,8 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
                     cover.set(0);
                     Rectangle::new().background(Color::BLACK).paint(screen, &mut renderer);
                     Rectangle::new().background(Color::BLACK).paint(screen, &mut reference);
-                    renderer.paint(area.to_logical(SCALE), Under(under.clone()));
-                    reference.paint(area.to_logical(SCALE), Under(Rc::default()));
+                    renderer.paint(area.to_logical(SCALE), &Under(under.clone()));
+                    reference.paint(area.to_logical(SCALE), &Under(Rc::default()));
                     let clip = match mode {
                         1 => Some((LogicalRect::new(16.0, 4.0, 24.0, 16.0), BorderRadius::default())),
                         2 => Some((area.to_logical(SCALE), BorderRadius::uniform(6.0))),
@@ -403,13 +404,13 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
                     };
                     reference.paint(
                         bounds,
-                        Cover {
+                        &Cover {
                             report: false,
                             prepares: Rc::default(),
                             ..command.clone()
                         },
                     );
-                    renderer.paint(bounds, command);
+                    renderer.paint(bounds, &command);
                     if clip.is_some() {
                         renderer.pop_clip();
                         reference.pop_clip();
@@ -473,10 +474,10 @@ fn prepared_draws_capture_data_and_drop_results_once() {
         S: RenderStrategy<B>,
         D: DamageTracker,
     {
-        fn paint(&mut self, bounds: LogicalRect, samples: Samples<'_>) {
+        fn paint(&mut self, bounds: LogicalRect, samples: &Samples<'_>) {
             let mut cx = self.record(bounds);
             let values = cx.store_mut().slice_from(samples.0);
-            cx.push::<SamplesRenderer>(SamplesData(values, samples.1), None);
+            cx.push::<SamplesRenderer>(SamplesData(values, samples.1.clone()), None);
         }
     }
 
@@ -509,7 +510,7 @@ fn prepared_draws_capture_data_and_drop_results_once() {
         for (mode, expected) in [(0, 0), (1, 1), (2, 2), (3, 3), (3, 3)] {
             Rectangle::new().background(Color::BLACK).paint(bounds, &mut renderer);
             let mut values = [64];
-            renderer.paint(bounds, Samples(&values, counts.clone()));
+            renderer.paint(bounds, &Samples(&values, counts.clone()));
             values.fill(128);
             assert_eq!(renderer.context.raster.prepared.used(), 0);
             Mesh {
@@ -603,7 +604,7 @@ fn builtin_preparation_follows_damage_and_occlusion() {
         (false, Color::BLACK),
         (false, Color::BLACK),
     ] {
-        renderer.paint(bounds, Clear);
+        renderer.paint(bounds, &Clear);
         Rectangle::new().background(color).paint(area, &mut renderer);
         Rectangle::new()
             .background(Color::WHITE)
@@ -635,8 +636,8 @@ fn shadow_masks_are_lazy_and_shared_until_frame_end() {
     let shadow = Shadow::new(Color::WHITE).blur(2.0);
     for covered in [true, false] {
         Rectangle::new().background(Color::BLACK).paint(bounds, &mut renderer);
-        renderer.paint(LogicalRect::new(8.0, 6.0, 8.0, 6.0), shadow);
-        renderer.paint(LogicalRect::new(18.0, 6.0, 8.0, 6.0), shadow);
+        renderer.paint(LogicalRect::new(8.0, 6.0, 8.0, 6.0), &shadow);
+        renderer.paint(LogicalRect::new(18.0, 6.0, 8.0, 6.0), &shadow);
         assert!(renderer.context.images.is_empty());
         if covered {
             Rectangle::new().background(Color::WHITE).paint(bounds, &mut renderer);
@@ -647,7 +648,7 @@ fn shadow_masks_are_lazy_and_shared_until_frame_end() {
 }
 
 #[test]
-fn atoms_record_into_the_renderer_context() {
+fn widgets_record_into_the_renderer_context() {
     use std::time::Duration;
 
     use blit::{Frame, FrameInfo, Input, LogicalSize};
@@ -715,7 +716,7 @@ fn scattered_tiles_stay_local_across_command_reorders() {
     for frame in 0..3 {
         renderer.buffer_mut().ranges.clear();
 
-        renderer.paint((PhysicalRect::new(0, 0, 643, 53)).to_logical(SCALE), Clear);
+        renderer.paint((PhysicalRect::new(0, 0, 643, 53)).to_logical(SCALE), &Clear);
         renderer.push_clip(
             LogicalRect::new(0.0, 0.0, if frame == 2 { 635.0 } else { 643.0 }, 53.0),
             BorderRadius::default(),
@@ -817,7 +818,7 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
             std::mem::swap(renderer.buffer_mut(), &mut buffers[index]);
             let left = frame.min(19) % 5 * 7;
 
-            renderer.paint((PhysicalRect::new(0, 0, 37, 21)).to_logical(SCALE), Clear);
+            renderer.paint((PhysicalRect::new(0, 0, 37, 21)).to_logical(SCALE), &Clear);
             let area = LogicalRect::new(left as f32, 2.0, 6.0, 16.0);
             Rectangle::new().background(Color::WHITE).paint(area, &mut renderer);
             renderer.render(age);
@@ -943,7 +944,7 @@ fn renderer_supports_custom_pixel_layouts() {
     Rectangle::new()
         .background(Color::rgb(12, 34, 56))
         .paint(clip.to_logical(SCALE), &mut renderer);
-    renderer.paint(clip.to_logical(SCALE), blit_gui::blur::BackdropBlur::new(2.0));
+    renderer.paint(clip.to_logical(SCALE), &blit_gui::blur::BackdropBlur::new(2.0));
     renderer.render(0);
     assert_eq!(
         renderer.buffer().pixels()[0],
@@ -965,11 +966,11 @@ fn renderer_supports_custom_pixel_layouts() {
         (32.0, [Color::rgb(255, 0, 0), Color::WHITE]),
     ] {
         let stored = renderer.store_mut().slice_from(&colors);
-        renderer.paint(LogicalRect::new(x, 0.0, 32.0, 24.0), FrameText::new(text, stored));
+        renderer.paint(LogicalRect::new(x, 0.0, 32.0, 24.0), &FrameText::new(text, stored));
         colors.fill(Color::TRANSPARENT);
     }
     let stored = renderer.store_mut().slice_from(&[Color::WHITE]);
-    renderer.paint(LogicalRect::new(64.0, 0.0, 32.0, 24.0), FrameText::new(text, stored));
+    renderer.paint(LogicalRect::new(64.0, 0.0, 32.0, 24.0), &FrameText::new(text, stored));
     renderer.render(0);
 
     let pixels = renderer.buffer().pixels();
@@ -1094,7 +1095,7 @@ fn mesh_occlusion_uses_screen_and_ancestor_clip_bounds() {
                     .strategy(Check(make(), hidden));
                     renderer.set_scale(scale);
                     let screen = renderer.screen().to_logical(Scale2::uniform(scale));
-                    renderer.paint(screen, Clear);
+                    renderer.paint(screen, &Clear);
                     let cover = if clipped {
                         renderer.push_clip(LogicalRect::new(8.0, 8.0, 8.0, 8.0), BorderRadius::uniform(2.0));
                         renderer.push_clip(LogicalRect::new(4.0, 4.0, 16.0, 16.0), BorderRadius::default());
@@ -1201,7 +1202,7 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
             let text = renderer.text().text_run("M", TextStyle::default());
             for (frame, color) in [Color::BLACK, Color::WHITE, Color::WHITE].into_iter().enumerate() {
                 renderer.buffer_mut().ranges.clear();
-                renderer.paint(area, Clear);
+                renderer.paint(area, &Clear);
                 match case {
                     "fill" | "border" => {
                         let stops = [GradientStop::new(0.0, Color::BLACK), GradientStop::new(1.0, color)];
@@ -1224,10 +1225,10 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
                     }
                     "text" => {
                         let colors = renderer.store_mut().slice_from(&[color]);
-                        renderer.paint(area, FrameText::new(text, colors));
+                        renderer.paint(area, &FrameText::new(text, colors));
                     }
-                    "image" => renderer.paint(area, Image::new(&image).opacity(if frame == 0 { 0.5 } else { 1.0 })),
-                    "shadow" => renderer.paint(area, Shadow::new(color).blur(2.0).inset(true)),
+                    "image" => renderer.paint(area, &Image::new(&image).opacity(if frame == 0 { 0.5 } else { 1.0 })),
+                    "shadow" => renderer.paint(area, &Shadow::new(color).blur(2.0).inset(true)),
                     "mesh" => Mesh {
                         vertices: &[
                             MeshVertex::new(0.0, 0.0, color),
@@ -1265,11 +1266,11 @@ fn text_placement_tracks_physical_clip_size() {
                     .text()
                     .rich_text("MM", &[Span::new(0..1), Span::new(1..2)], TextStyle::new().size(20.0));
             let screen = renderer.screen();
-            renderer.paint(screen.to_logical(SCALE), Clear);
+            renderer.paint(screen.to_logical(SCALE), &Clear);
             let colors = renderer.store_mut().slice_from(&[Color::rgb(255, 0, 0), Color::WHITE]);
             renderer.paint(
                 LogicalRect::new(x, y, 8.0, 8.0),
-                FrameText::new(text, colors).offset_x(12.0),
+                &FrameText::new(text, colors).offset_x(12.0),
             );
             renderer.render(0);
         }
@@ -1517,7 +1518,7 @@ fn clear_resets_stale_pixels_before_drawing() {
             .radius(BorderRadius::uniform(5.0));
 
         if clear {
-            renderer.paint(screen.to_logical(SCALE), Clear);
+            renderer.paint(screen.to_logical(SCALE), &Clear);
         }
         rectangle.paint(rectangle_area, &mut renderer);
         renderer.render(0);
@@ -1539,7 +1540,7 @@ fn clear_resets_stale_pixels_before_drawing() {
     renderer.buffer_mut().pixels_mut().fill(stale);
     let screen = renderer.screen();
 
-    renderer.paint(screen.to_logical(SCALE), Clear);
+    renderer.paint(screen.to_logical(SCALE), &Clear);
     renderer.render(0);
     assert!(renderer.buffer().pixels().iter().all(|pixel| *pixel == transparent));
 }
@@ -1578,7 +1579,7 @@ fn images_keep_native_size_and_ownership_until_last_reference() {
         );
         frame.layout(&mut renderer);
         let screen = renderer.screen().to_logical(SCALE);
-        renderer.paint(screen, Clear);
+        renderer.paint(screen, &Clear);
         frame.paint(&mut renderer);
         renderer.render(1);
         assert_eq!(renderer.buffer().pixels()[0], Xrgb8888::from_rgb(255, 255, 255));
@@ -1666,7 +1667,7 @@ fn image_alpha_rows_are_cached_and_used() {
     BLENDED.store(0, Ordering::Relaxed);
     COPIED.store(0, Ordering::Relaxed);
 
-    renderer.paint(screen.to_logical(SCALE), request.clone());
+    renderer.paint(screen.to_logical(SCALE), &request);
     renderer.render(0);
     assert_eq!(COPIED.load(Ordering::Relaxed), 10);
     assert_eq!(BLENDED.load(Ordering::Relaxed), 8);
@@ -1674,7 +1675,7 @@ fn image_alpha_rows_are_cached_and_used() {
     BLENDED.store(0, Ordering::Relaxed);
     COPIED.store(0, Ordering::Relaxed);
 
-    renderer.paint(screen.to_logical(SCALE), request.opacity(0.5));
+    renderer.paint(screen.to_logical(SCALE), &request.opacity(0.5));
     renderer.render(0);
     assert_eq!(COPIED.load(Ordering::Relaxed), 0);
     assert_eq!(BLENDED.load(Ordering::Relaxed), 18);
@@ -1699,7 +1700,7 @@ fn image_alpha_rows_are_cached_and_used() {
     assert!(rows.iter().all(|row| row.opaque_start == 0 && row.opaque_end == 0));
     BLENDED.store(0, Ordering::Relaxed);
 
-    renderer.paint(screen.to_logical(SCALE), Image::new(&image));
+    renderer.paint(screen.to_logical(SCALE), &Image::new(&image));
     renderer.render(0);
     assert_eq!(BLENDED.load(Ordering::Relaxed), 11);
 
@@ -1845,7 +1846,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     Rectangle::new()
         .background(Color::rgba(255, 0, 0, 128))
         .paint(area, &mut renderer);
-    renderer.paint(area, image);
+    renderer.paint(area, &image);
     Rectangle::new()
         .background(Color::rgba(0, 0, 255, 128))
         .paint(area, &mut renderer);
@@ -1866,7 +1867,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     Rectangle::new()
         .background(Color::rgba(255, 0, 0, 128))
         .paint(area, &mut renderer);
-    renderer.paint(area, transparent_image);
+    renderer.paint(area, &transparent_image);
     Rectangle::new()
         .background(Color::rgba(0, 0, 255, 128))
         .paint(area, &mut renderer);
@@ -1900,8 +1901,8 @@ fn scanline_skips_commands_behind_opaque_content() {
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
 
     background.paint(screen.to_logical(SCALE), &mut renderer);
-    renderer.paint(screen.to_logical(SCALE), underlay.clone());
-    renderer.paint(screen.to_logical(SCALE), partial_image.clone());
+    renderer.paint(screen.to_logical(SCALE), &underlay);
+    renderer.paint(screen.to_logical(SCALE), &partial_image);
     overlay.paint(screen.to_logical(SCALE), &mut renderer);
     renderer.render(0);
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 14);
@@ -1927,8 +1928,8 @@ fn scanline_skips_commands_behind_opaque_content() {
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
 
     background.paint(screen.to_logical(SCALE), &mut renderer);
-    renderer.paint(screen.to_logical(SCALE), underlay);
-    renderer.paint(screen.to_logical(SCALE), partial_image.clone().opacity(0.5));
+    renderer.paint(screen.to_logical(SCALE), &underlay);
+    renderer.paint(screen.to_logical(SCALE), &partial_image.clone().opacity(0.5));
     overlay.paint(screen.to_logical(SCALE), &mut renderer);
     renderer.render(0);
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 18);
@@ -1936,7 +1937,7 @@ fn scanline_skips_commands_behind_opaque_content() {
     RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
 
     background.paint(screen.to_logical(SCALE), &mut renderer);
-    renderer.paint(screen.to_logical(SCALE), partial_image);
+    renderer.paint(screen.to_logical(SCALE), &partial_image);
     overlay.paint(screen.to_logical(SCALE), &mut renderer);
     renderer.render(0);
     assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 10);
@@ -2090,8 +2091,8 @@ fn rounded_clips_match_between_strategies() {
             },
             BorderRadius::default(),
         );
-        renderer.paint(screen.to_logical(SCALE), image);
-        renderer.paint(screen.to_logical(SCALE), text);
+        renderer.paint(screen.to_logical(SCALE), &image);
+        renderer.paint(screen.to_logical(SCALE), &text);
         renderer.pop_clip();
         renderer.pop_clip();
         Rectangle::new()
@@ -2122,8 +2123,8 @@ fn dropped_image_remains_valid_until_frame_end() {
     let image = renderer.create_image(ImageData::new(ImagePixels::Static(&PIXEL), ImageFormat::Rgba8, 1, 1));
     let screen = renderer.screen();
 
-    renderer.paint(screen.to_logical(SCALE), Clear);
-    renderer.paint(screen.to_logical(SCALE), Image::new(&image));
+    renderer.paint(screen.to_logical(SCALE), &Clear);
+    renderer.paint(screen.to_logical(SCALE), &Image::new(&image));
     let image_id = image.id();
     drop(image);
     renderer.render(0);
@@ -2139,7 +2140,7 @@ fn dropped_image_remains_valid_until_frame_end() {
         1,
     ));
     assert_ne!(replacement.id(), image_id);
-    renderer.paint(screen.to_logical(SCALE), Clear);
+    renderer.paint(screen.to_logical(SCALE), &Clear);
     renderer.render(0);
     assert_eq!(renderer.buffer().pixels()[0].raw(), 0);
 }
@@ -2238,7 +2239,7 @@ fn damage_trackers_preserve_overlapping_reorders() {
         for frame in frames {
             reference.invalidate_all();
             for renderer in [&mut incremental, &mut reference] {
-                renderer.paint((PhysicalRect::new(0, 0, 16, 16)).to_logical(SCALE), Clear);
+                renderer.paint((PhysicalRect::new(0, 0, 16, 16)).to_logical(SCALE), &Clear);
                 for &index in *frame {
                     let rectangle_area = LogicalRect::new(index as f32, index as f32, 10.0, 10.0);
                     let rectangle = Rectangle::new().background(Color::rgba(index * 50, 100, 200, 128));

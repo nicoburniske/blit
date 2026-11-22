@@ -133,28 +133,28 @@ fn renders_primitives_and_rebuilds_frames() {
     let partial = renderer.create_image(partial);
     renderer.paint(
         LogicalRect::new(8.0, 0.0, 4.0, 4.0),
-        Image::new(&image).sampling(ImageSampling::Bilinear),
+        &Image::new(&image).sampling(ImageSampling::Bilinear),
     );
-    renderer.paint(LogicalRect::new(8.0, 5.0, 4.0, 4.0), nearest);
-    renderer.paint(LogicalRect::new(-1.0, 8.0, 1.5, 0.5), Image::new(&sparse));
+    renderer.paint(LogicalRect::new(8.0, 5.0, 4.0, 4.0), &nearest);
+    renderer.paint(LogicalRect::new(-1.0, 8.0, 1.5, 0.5), &Image::new(&sparse));
     renderer.paint(
         LogicalRect::new(-1.0, 8.5, 1.5, 0.5),
-        Image::new(&sparse).horizontal_tiling(ImageTiling::Round),
+        &Image::new(&sparse).horizontal_tiling(ImageTiling::Round),
     );
     let partial_request = Image::new(&partial);
-    renderer.paint(LogicalRect::new(20.0, 0.0, 3.0, 1.0), partial_request.clone());
+    renderer.paint(LogicalRect::new(20.0, 0.0, 3.0, 1.0), &partial_request);
     renderer.paint(
         LogicalRect::new(20.0, 1.0, 3.0, 1.0),
-        Image {
+        &Image {
             sampling: ImageSampling::Bilinear,
             ..partial_request
         },
     );
     let shadow = Shadow::new(Color::rgb(255, 0, 0)).blur(1.0);
-    renderer.paint(LogicalRect::new(14.0, 9.0, 1.0, 1.0), shadow);
+    renderer.paint(LogicalRect::new(14.0, 9.0, 1.0, 1.0), &shadow);
     let text = renderer.text().text_run("M", TextStyle::new());
     let colors = renderer.store_mut().slice_from(&[Color::rgb(255, 0, 0)]);
-    renderer.paint(LogicalRect::new(1.0, 20.0, 12.0, 20.0), FrameText::new(text, colors));
+    renderer.paint(LogicalRect::new(1.0, 20.0, 12.0, 20.0), &FrameText::new(text, colors));
     Rectangle::new()
         .background(Color::rgb(0, 255, 0))
         .radius(BorderRadius {
@@ -249,7 +249,7 @@ fn renders_primitives_and_rebuilds_frames() {
             1
         ))
     );
-    renderer.paint(bounds, Image::new(oversized));
+    renderer.paint(bounds, &Image::new(oversized));
     renderer.render(&target);
 
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
@@ -364,9 +364,9 @@ fn renders_primitives_and_rebuilds_frames() {
         indices: &[0, 1, 2],
     }
     .paint(bounds, &mut renderer);
-    renderer.paint(bounds, Image::new(&image));
+    renderer.paint(bounds, &Image::new(&image));
     let colors = renderer.store_mut().slice_from(&[Color::WHITE]);
-    renderer.paint(bounds, FrameText::new(text, colors));
+    renderer.paint(bounds, &FrameText::new(text, colors));
     renderer.pop_clip();
     renderer.render(&target);
     assert_eq!(renderer.batch_count(), 0);

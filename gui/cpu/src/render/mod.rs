@@ -48,7 +48,7 @@ use crate::{
 /// }
 ///
 /// impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Swatch> for Renderer<B, S, D> {
-///     fn paint(&mut self, bounds: LogicalRect, swatch: Swatch) {
+///     fn paint(&mut self, bounds: LogicalRect, swatch: &Swatch) {
 ///         self.record(bounds).push_ready::<SwatchRenderer>(swatch.0, None);
 ///     }
 /// }

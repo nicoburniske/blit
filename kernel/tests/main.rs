@@ -6,9 +6,8 @@ use std::{
 };
 
 use blit::{
-    Animation, AnimationOptions, Atom, AtomCx, Clip, ClipShape, Constraints, Contact, ContactId, ContactSource,
-    Context, Easing, Frame, FrameInfo, Id, Input, Interact, InteractCx, Layout, LayoutCx, Modifiers, Motion,
-    MouseButton,
+    Animation, AnimationOptions, Clip, ClipShape, Constraints, Contact, ContactId, ContactSource, Context, Easing,
+    Frame, FrameInfo, Id, Input, Interact, InteractCx, Layout, LayoutCx, Modifiers, Motion, MouseButton,
     Phase::{Cancelled, Ended, Held, Started},
     Place, PlaceCx, Point, Rect, Scope, ScrollPhase, Size, Spring, Target, TouchPhase,
     TouchPhase::{Cancel, Down, Move, Up},
@@ -119,13 +118,14 @@ fn render_inputs<O>(
 
 struct Fill(char, Size<f32>);
 
-impl Atom<TestContext> for Fill {
-    fn measure(&self, _: &mut AtomCx<'_, TestContext>, bounds: Constraints<f32>) -> Size<f32> {
-        bounds.constrain(self.1)
-    }
+impl Widget<TestContext, blit::state::Insert> for Fill {
+    type Response = ();
 
-    fn paint(&self, cx: &mut AtomCx<'_, TestContext>, area: Rect<f32>) {
-        cx.context_mut().commands.push(Command::Paint(self.0, area));
+    fn build(self, mut ui: Ui<'_, blit::state::Insert>) {
+        ui.measure(move |_, bounds| bounds.constrain(self.1));
+        ui.paint(move |cx, area| {
+            cx.context_mut().commands.push(Command::Paint(self.0, area));
+        });
     }
 }
 
@@ -267,16 +267,18 @@ impl Layout<TestContext> for Probe {
     }
 }
 
-impl Atom<TestContext> for Probe {
-    fn measure(&self, _: &mut AtomCx<'_, TestContext>, bounds: Constraints<f32>) -> Size<f32> {
-        bounds.constrain(Size::uniform(1.0))
-    }
-    fn paint(&self, cx: &mut AtomCx<'_, TestContext>, area: Rect<f32>) {
-        let mut result = self.result.get();
-        result.paints += 1;
-        result.area = area;
-        self.result.set(result);
-        Fill('P', Size::ZERO).paint(cx, area);
+impl Widget<TestContext, blit::state::Insert> for Probe {
+    type Response = ();
+
+    fn build(self, mut ui: Ui<'_, blit::state::Insert>) {
+        ui.measure(|_, bounds| bounds.constrain(Size::uniform(1.0)));
+        ui.paint(move |cx, area| {
+            let mut result = self.result.get();
+            result.paints += 1;
+            result.area = area;
+            self.result.set(result);
+            cx.context_mut().commands.push(Command::Paint('P', area));
+        });
     }
 }
 

@@ -1,6 +1,5 @@
 pub mod animation;
 pub mod arena;
-pub mod atom;
 pub mod interact;
 pub mod layout;
 pub mod paint;
@@ -16,8 +15,8 @@ use self::{
     ui::{ROOT, Site, Target, Ui},
 };
 use crate::{
-    Atom, AtomWidget, Clip, ClipShape, ContactId, ContactSource, Context, FrameInfo, FrameStore, HasFrameStore, Id,
-    IntoWidget, Scalar, ScratchBuffer, Widget,
+    Clip, ClipShape, ContactId, ContactSource, Context, FrameInfo, FrameStore, HasFrameStore, Id, Scalar,
+    ScratchBuffer, Widget,
     animation::{Animation, AnimationOptions, Motion, MotionProps, Tween},
     geometry::{Constraints, Point, Rect, Sides, Size},
     input::{Input, MouseButton, ScrollPhase, TouchPhase},
@@ -29,7 +28,8 @@ use crate::{
 pub struct Frame<C: Context> {
     nodes: Vec<StoredNode>,
     placements: Vec<Placement<C::Scalar>>,
-    atoms: Vec<StoredAtom<C>>,
+    measures: Vec<StoredMeasure<C>>,
+    paints: Vec<StoredPaint<C>>,
     aux: Vec<Aux<C::Scalar>>,
     places: Vec<StoredPlace<C>>,
     node_motions: Vec<NodeMotion>,
@@ -70,7 +70,8 @@ impl<C: Context> Default for Frame<C> {
         Self {
             nodes: Vec::new(),
             placements: Vec::new(),
-            atoms: Vec::new(),
+            measures: Vec::new(),
+            paints: Vec::new(),
             aux: Vec::new(),
             places: Vec::new(),
             node_motions: Vec::new(),
@@ -136,7 +137,8 @@ impl<C: Context> Frame<C> {
         self.nodes.clear();
         self.placements.clear();
         self.focus = FocusRequest::Keep;
-        self.atoms.clear();
+        self.measures.clear();
+        self.paints.clear();
         self.aux.clear();
         self.places.clear();
         self.node_motions.clear();
@@ -356,8 +358,8 @@ impl<C: Context> Frame<C> {
             widget_id,
             parent: parent.unwrap_or(id),
             subtree_end: id.value,
-            first_atom: StoredAtomId::NONE,
-            last_atom: StoredAtomId::NONE,
+            first_measure: StoredMeasureId::NONE,
+            last_paint: StoredPaintId::NONE,
             layout: BumpId::NONE,
             layout_kind: 0,
             aux: AuxId::NONE,
@@ -438,8 +440,8 @@ pub struct StoredNode {
     widget_id: Id,
     parent: NodeId,
     subtree_end: u32,
-    first_atom: StoredAtomId,
-    last_atom: StoredAtomId,
+    first_measure: StoredMeasureId,
+    last_paint: StoredPaintId,
     layout: BumpId,
     layout_kind: u16,
     aux: AuxId,
@@ -491,27 +493,33 @@ pub struct ResolvedClip<T> {
     shape: ClipShape<T>,
 }
 
-struct StoredAtom<C: Context> {
-    kind: *const AtomKind<C>,
+struct StoredMeasure<C: Context> {
+    run: fn(&BumpArena, BumpId, &mut C, Constraints<C::Scalar>) -> Size<C::Scalar>,
     bump_id: BumpId,
-    next: StoredAtomId,
+    next: StoredMeasureId,
 }
 
-impl<C: Context> Clone for StoredAtom<C> {
+impl<C: Context> Clone for StoredMeasure<C> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<C: Context> Copy for StoredAtom<C> {}
+impl<C: Context> Copy for StoredMeasure<C> {}
 
-impl<C: Context> StoredAtom<C> {
-    #[inline]
-    fn kind(&self) -> &AtomKind<C> {
-        // safety: kind points to the static table of an atom type
-        unsafe { &*self.kind }
+struct StoredPaint<C: Context> {
+    run: fn(&BumpArena, BumpId, &mut C, Rect<C::Scalar>),
+    bump_id: BumpId,
+    next: StoredPaintId,
+}
+
+impl<C: Context> Clone for StoredPaint<C> {
+    fn clone(&self) -> Self {
+        *self
     }
 }
+
+impl<C: Context> Copy for StoredPaint<C> {}
 
 struct StoredPlace<C: Context> {
     bump_id: BumpId,
@@ -554,16 +562,12 @@ impl<T> Index<T> {
     }
 }
 
-type StoredAtomId = Index<StoredAtom<()>>;
+type StoredMeasureId = Index<StoredMeasure<()>>;
+type StoredPaintId = Index<StoredPaint<()>>;
 type AuxId = Index<Aux<()>>;
 type PlaceId = Index<StoredPlace<()>>;
 type NodeMotionId = Index<NodeMotion>;
 type ResolvedClipId = Index<ResolvedClip<()>>;
-
-struct AtomKind<C: Context> {
-    measure: fn(&BumpArena, BumpId, &mut C, Constraints<C::Scalar>) -> Size<C::Scalar>,
-    paint: fn(&BumpArena, BumpId, &mut C, Rect<C::Scalar>),
-}
 
 struct LayoutKind<C: Context> {
     type_id: TypeId,

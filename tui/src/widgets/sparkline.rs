@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use blit::{Atom, AtomCx, Constraints, PhysicalRect, Size};
+use blit::{Size, Ui, Widget, state};
 
 use crate::{
     Context,
@@ -19,42 +19,44 @@ blit::builder! {
     }
 }
 
-impl<C> Atom<C> for Sparkline
+impl<C> Widget<C, state::Insert> for Sparkline
 where
     C: Context,
 {
-    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
-        constraints.constrain(Size::new(self.data.borrow().len() as i32, 1))
-    }
+    type Response = ();
 
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
-        const LEVELS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-        let data = self.data.borrow();
-        let mut cells = cx.context_mut().as_mut().renderer.cells(area);
-        let width = cells.columns();
-        let rows = cells.rows();
-        let style = if let Some(background) = self.background {
-            CellStyle::new().foreground(self.color).background(background)
-        } else {
-            CellStyle::new().foreground(self.color)
-        };
-        if let Some(background) = self.background {
-            cells.clear(Cell::new(' ').style(CellStyle::new().background(background)));
-        }
-        let maximum = self
-            .maximum
-            .unwrap_or_else(|| data.iter().copied().max().unwrap_or(0))
-            .max(1);
-        for (x, value) in data.iter().copied().take(width).enumerate() {
-            let mut eighths = ((value as u128 * rows as u128 * 8) / maximum as u128) as usize;
-            for y in (0..rows).rev() {
-                if eighths == 0 {
-                    break;
-                }
-                let level = eighths.min(8);
-                cells.set_cell(x, y, Cell::new(LEVELS[level]).style(style));
-                eighths = eighths.saturating_sub(8);
+    fn build(self, mut ui: Ui<'_, C, state::Insert>) {
+        let len = self.data.borrow().len() as i32;
+        ui.measure(move |_, constraints| constraints.constrain(Size::new(len, 1)));
+        ui.paint(move |cx, area| {
+            const LEVELS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+            let data = self.data.borrow();
+            let mut cells = cx.context_mut().as_mut().renderer.cells(area);
+            let width = cells.columns();
+            let rows = cells.rows();
+            let style = if let Some(background) = self.background {
+                CellStyle::new().foreground(self.color).background(background)
+            } else {
+                CellStyle::new().foreground(self.color)
+            };
+            if let Some(background) = self.background {
+                cells.clear(Cell::new(' ').style(CellStyle::new().background(background)));
             }
-        }
+            let maximum = self
+                .maximum
+                .unwrap_or_else(|| data.iter().copied().max().unwrap_or(0))
+                .max(1);
+            for (x, value) in data.iter().copied().take(width).enumerate() {
+                let mut eighths = ((value as u128 * rows as u128 * 8) / maximum as u128) as usize;
+                for y in (0..rows).rev() {
+                    if eighths == 0 {
+                        break;
+                    }
+                    let level = eighths.min(8);
+                    cells.set_cell(x, y, Cell::new(LEVELS[level]).style(style));
+                    eighths = eighths.saturating_sub(8);
+                }
+            }
+        });
     }
 }

@@ -5,36 +5,36 @@
 //!
 //! # traits
 //!
-//! a node is the retained unit of geometry. it holds atoms, an optional layout, and child nodes
+//! a node is the retained unit of geometry. it holds deferred measure and paint callbacks,
+//! an optional layout, and child nodes
 //!
-//! | trait        | runs during   | does                                         |
-//! |--------------|---------------|----------------------------------------------|
-//! | [`Widget`]   | build         | describes nodes, layouts and children        |
-//! | [`Atom`]     | layout, paint | content that measures and paints in its node |
-//! | [`Layout`]   | layout        | sizes and positions a node's children        |
-//! | [`Place`]    | layout        | positions a node outside its parent's flow   |
-//! | [`Clip`]     | paint, input  | clips drawing and hit testing to a shape     |
-//! | [`Interact`] | build         | turns input into a response for a widget     |
+//! | trait        | runs during   | does                                           |
+//! |--------------|---------------|------------------------------------------------|
+//! | [`Widget`]   | build         | describes nodes, layouts, content and children |
+//! | [`Layout`]   | layout        | sizes and positions a node's children          |
+//! | [`Place`]    | layout        | positions a node outside its parent's flow     |
+//! | [`Clip`]     | paint, input  | clips drawing and hit testing to a shape       |
+//! | [`Interact`] | build         | turns input into a response for a widget       |
 //!
 //! # context
 //!
 //! everything is generic over a [`Context`], usually your renderer. it opts into capabilities
 //!
-//! - [`Paint<T>`](Paint) draws command `T`. atoms paint through it
+//! - [`Paint<T>`](Paint) draws command `T`. paint callbacks send commands through it
 //! - [`HasFrameStore`] stores drawing inputs in a [`FrameStore`] until the context renders
 //!
 //! # frame lifecycle
 //!
 //! ```text
 //! Frame::build
-//!     │ records nodes, Layouts, and Atoms
+//!     │ records nodes, Layouts, and deferred measure/paint callbacks
 //!     │ Ui::store_mut provides frame storage for drawing inputs
 //!     ▼
 //! retained frame graph
-//!     │ Frame::layout measures Atoms and arranges children
+//!     │ Frame::layout runs measurements and arranges children
 //!     ▼
 //! resolved node positions and sizes
-//!     │ Frame::paint invokes Atom::paint, which sends commands through Paint
+//!     │ Frame::paint runs paint callbacks, sending commands through Paint
 //!     ▼
 //! context
 //!     │ renders its commands, then clears their stored inputs
@@ -42,15 +42,15 @@
 //! output
 //! ```
 //!
-//! widgets therefore describe a frame now, while layouts and atoms do their work later in that
-//! frame.
+//! widgets therefore describe a frame now, while layouts, measurements and painters do their
+//! work later in that frame.
 //!
 //! the graph is rebuilt every frame
 //!
 //! # storage
 //!
 //! ```text
-//! Scratch      Ui::scratch().slice(capacity), also on LayoutCx and AtomCx
+//! Scratch      Ui::scratch().slice(capacity), also on LayoutCx and PaintCx
 //!              temporary slices for the current step, reclaimed when it ends
 //!
 //! FrameSlice   Ui::store_mut().slice(capacity)
@@ -76,8 +76,8 @@ pub use self::{
     clip::{Clip, ClipShape},
     frame::{
         Frame, NodeId,
-        atom::AtomCx,
         interact::{Contacts, InteractCx},
+        paint::PaintCx,
         timer::Timer,
         ui::{Scope, Target, Ui, state},
     },
@@ -92,7 +92,7 @@ pub use self::{
     scratch::{Scratch, ScratchBuffer},
 };
 
-/// resources shared by every widget, layout and atom in a frame
+/// resources shared by every widget, layout and painter in a frame
 pub trait Context {
     /// coordinate type for all frame geometry
     type Scalar: Scalar;
@@ -105,7 +105,7 @@ impl Context for () {
 /// accepts one kind of drawing operation in frame coordinates
 pub trait Paint<T>: Context {
     /// area supplies placement and dimensions while the operation defines any outsets
-    fn paint(&mut self, area: Rect<Self::Scalar>, command: T);
+    fn paint(&mut self, area: Rect<Self::Scalar>, command: &T);
 }
 
 /// provides access to drawing inputs owned by a context
@@ -130,19 +130,6 @@ pub trait Widget<C: Context, S = state::Build> {
     type Response;
 
     fn build(self, ui: Ui<'_, C, S>) -> Self::Response;
-}
-
-/// retained visual content that measures and paints after building
-///
-/// atoms can be passed directly to [`Ui::insert`]
-pub trait Atom<C: Context>: 'static {
-    /// returns the size requested by this atom under `constraints`
-    ///
-    /// measurement may be skipped under tight constraints. painting must not
-    /// depend on prior measurement.
-    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<C::Scalar>) -> Size<C::Scalar>;
-
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: Rect<C::Scalar>);
 }
 
 /// stable identity for widgets, animations and timers
@@ -201,29 +188,6 @@ impl From<&str> for Id {
     }
 }
 
-/// converts atoms and insert widgets for insertion
-///
-/// implemented automatically for atoms and insert widgets. [`Ui::insert`] infers the output type.
-/// types implementing both require an explicit output widget type.
-pub trait IntoWidget<C: Context, W> {
-    fn into_widget(self) -> W;
-}
-
-/// adapts an atom to an insert widget
-pub struct AtomWidget<A>(A);
-
-impl<C: Context, W: Widget<C, state::Insert>> IntoWidget<C, W> for W {
-    fn into_widget(self) -> W {
-        self
-    }
-}
-
-impl<C: Context, A: Atom<C>> IntoWidget<C, AtomWidget<A>> for A {
-    fn into_widget(self) -> AtomWidget<A> {
-        AtomWidget(self)
-    }
-}
-
 impl<C: Context, F, O> Widget<C> for F
 where
     F: FnOnce(Ui<'_, C>) -> O,
@@ -235,12 +199,10 @@ where
     }
 }
 
-impl<C: Context> Atom<C> for () {
-    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
-        constraints.constrain(Size::ZERO)
-    }
+impl<C: Context> Widget<C, state::Insert> for () {
+    type Response = ();
 
-    fn paint(&self, _: &mut AtomCx<'_, C>, _: Rect<C::Scalar>) {}
+    fn build(self, _: Ui<'_, C, state::Insert>) {}
 }
 
 #[cfg(doctest)]

@@ -172,19 +172,18 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
 }
 
 impl<'a, C: Context> LayoutCx<'a, C> {
-    /// measures atoms against the full box
+    /// measures content against the full box
     #[inline]
     fn measure(&mut self, node: NodeId, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
         if constraints.min == constraints.max {
             return constraints.min;
         }
-        let mut atom = self.frame.nodes[node.index()].first_atom;
+        let mut measure = self.frame.nodes[node.index()].first_measure;
         let mut size = Size::ZERO;
-        while let Some(index) = atom.index() {
-            let stored = self.frame.atoms[index];
-            let measure = stored.kind().measure;
-            size = size.max(measure(self.bump, stored.bump_id, self.context, constraints));
-            atom = stored.next;
+        while let Some(index) = measure.index() {
+            let stored = self.frame.measures[index];
+            size = size.max((stored.run)(self.bump, stored.bump_id, self.context, constraints));
+            measure = stored.next;
         }
         constraints.constrain(size)
     }
@@ -209,7 +208,7 @@ impl<'a, C: Context> LayoutCx<'a, C> {
             bounds.max.height = height;
         }
         let stored = &self.frame.nodes[node.index()];
-        // atoms size every node so layouts only account for children
+        // content sizes every node so layouts only account for children
         let mut size = self.measure(node, bounds);
         if stored.layout.offset().is_some() {
             let padding = stored

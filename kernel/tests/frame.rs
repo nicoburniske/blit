@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn local_bounds_apply_to_atoms_and_layouts() {
+fn local_bounds_apply_to_content_and_layouts() {
     let (mut frame, mut context) = frame(Size::new(8.0, 6.0));
     for with_layout in [false, true] {
         let measured = render(&mut frame, &mut context, |ui: Ui<'_>| {
@@ -80,7 +80,7 @@ fn layout_and_paint() {
 }
 
 #[test]
-fn content_and_atom_order() {
+fn content_and_paint_order() {
     let (mut frame, mut context) = frame(Size::new(5.0, 4.0));
     render(&mut frame, &mut context, |ui: Ui<'_>| {
         ui.layout(Overlay).child().build(|mut ui: Ui<'_>| {
@@ -152,7 +152,7 @@ fn owned_values_and_culling() {
     );
     assert_eq!(context.commands, [Paint('P', Rect::new(0.0, 0.0, 3.0, 2.0))]);
 
-    // nodes paint past the screen since atoms may draw outside their area
+    // nodes paint past the screen since painters may draw outside their area
     // while an empty clip hides everything under it
     let results = [0; 2].map(|_| Rc::new(Cell::new(ProbeResult::default())));
     context.info = FrameInfo::new(Size::new(3.0, 1.0));
@@ -418,7 +418,7 @@ fn bindings_and_geometry() {
 }
 
 #[test]
-fn padding_insets_children_while_atoms_keep_the_full_box() {
+fn padding_insets_children_while_content_keeps_the_full_box() {
     let (mut frame, mut context) = frame(Size::new(7.0, 5.0));
     let node = "padded";
     render(&mut frame, &mut context, |ui: Ui<'_>| {

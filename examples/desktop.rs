@@ -1,8 +1,6 @@
 use std::{cell::Cell, time::Duration};
 
-use blit::{
-    Animation, Atom, AtomCx, Axis, Constraints, Easing, LogicalRect, Motion, Sides, Size, Spring, Target, Tween, Widget,
-};
+use blit::{Animation, Axis, Constraints, Easing, LogicalRect, Motion, Sides, Size, Spring, Target, Tween, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, Transition, board, select};
 #[cfg(not(feature = "gpu"))]
 use blit_desktop::cpu;

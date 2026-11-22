@@ -16,12 +16,12 @@ where
     S: RenderStrategy<B>,
     D: DamageTracker,
 {
-    fn paint(&mut self, bounds: LogicalRect, value: mesh::FrameMesh) {
+    fn paint(&mut self, bounds: LogicalRect, value: &mesh::FrameMesh) {
         let mut recording = self.record(bounds);
         recording.record_input(
             recording.bounds,
             recording.clip,
-            value,
+            *value,
             |value, mesh_offset, record, list, context| {
                 let mesh = value.view(list);
                 if mesh.indices.is_empty() || !mesh.is_valid() {

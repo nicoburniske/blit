@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use blit::{
-    Atom, AtomCx, Constraints, Context, Easing, Frame, FrameInfo, Input, Motion, Rect, Scalar, Sides, Size, Target,
-    Tween, Ui, Widget,
+    Constraints, Context, Easing, Frame, FrameInfo, Input, Motion, Rect, Scalar, Sides, Size, Target, Tween, Ui,
+    Widget, state,
 };
 use blit_layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, wrap};
 
@@ -31,32 +31,34 @@ fn layout_frame<C: Context, W: Widget<C>>(
 }
 
 #[derive(Clone, Copy)]
-struct BoxAtom<T>(Size<T>);
+struct BoxContent<T>(Size<T>);
 
-impl<C: Context<Scalar = T>, T: Scalar> Atom<C> for BoxAtom<T> {
-    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<T>) -> Size<T> {
-        constraints.constrain(self.0)
+impl<C: Context<Scalar = T>, T: Scalar> Widget<C, state::Insert> for BoxContent<T> {
+    type Response = ();
+
+    fn build(self, mut ui: Ui<'_, C, state::Insert>) {
+        ui.measure(move |_, constraints| constraints.constrain(self.0));
     }
-
-    fn paint(&self, _: &mut AtomCx<'_, C>, _: Rect<T>) {}
 }
 
 #[derive(Clone, Copy)]
-struct ResponsiveAtom;
+struct ResponsiveContent;
 
-impl<C: Context> Atom<C> for ResponsiveAtom {
-    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<C::Scalar>) -> Size<C::Scalar> {
-        constraints.constrain(Size::new(
-            C::Scalar::from_f32(4.0),
-            if constraints.max.width < C::Scalar::from_f32(10.0) || !constraints.max.width.is_finite() {
-                C::Scalar::from_f32(2.0)
-            } else {
-                C::Scalar::from_f32(1.0)
-            },
-        ))
+impl<C: Context> Widget<C, state::Insert> for ResponsiveContent {
+    type Response = ();
+
+    fn build(self, mut ui: Ui<'_, C, state::Insert>) {
+        ui.measure(|_, constraints| {
+            constraints.constrain(Size::new(
+                C::Scalar::from_f32(4.0),
+                if constraints.max.width < C::Scalar::from_f32(10.0) || !constraints.max.width.is_finite() {
+                    C::Scalar::from_f32(2.0)
+                } else {
+                    C::Scalar::from_f32(1.0)
+                },
+            ))
+        });
     }
-
-    fn paint(&self, _: &mut AtomCx<'_, C>, _: Rect<C::Scalar>) {}
 }
 
 #[test]
@@ -74,7 +76,7 @@ fn absolute_percentages_use_the_target() {
                 top: 1.0,
                 bottom: 1.0,
             });
-            root.child_id(1).insert(BoxAtom(Size::new(6.0, 2.0)));
+            root.child_id(1).insert(BoxContent(Size::new(6.0, 2.0)));
             root.child_id(id).place(
                 Target::PARENT.at(1),
                 absolute::place()
@@ -97,7 +99,7 @@ fn absolute_flips_then_clamps_into_the_screen() {
         FrameInfo::new(Size::new(20, 10)),
         |ui: Ui<'_, Cells>| {
             let mut root = ui.layout(flex::column().justify(Justify::End));
-            root.child_id(1).insert(BoxAtom(Size::new(6, 2)));
+            root.child_id(1).insert(BoxContent(Size::new(6, 2)));
             // flips above and clamps x
             root.child_id(popup).place(
                 Target::PARENT.at(1),
@@ -115,7 +117,7 @@ fn absolute_flips_then_clamps_into_the_screen() {
 }
 
 #[test]
-fn flex_remeasures_constraint_dependent_atoms() {
+fn flex_remeasures_constraint_dependent_content() {
     let mut frame = Frame::default();
     let mut context = TestContext;
     let child = "responsive";
@@ -127,7 +129,7 @@ fn flex_remeasures_constraint_dependent_atoms() {
             let mut row = ui.layout(flex::row().align(Align::Start));
             row.child_id(child)
                 .item(flex::item().width(Sizing::grow()))
-                .insert(ResponsiveAtom);
+                .insert(ResponsiveContent);
         },
     );
     assert_eq!(frame.area(child).unwrap().size(), Size::new(5.0, 2.0));
@@ -164,7 +166,7 @@ fn parent_items_allocate_and_component_bounds_constrain_each_axis() {
                         .constrain(height)
                         .layout(())
                         .child()
-                        .insert(BoxAtom(Size::uniform(10.0)));
+                        .insert(BoxContent(Size::uniform(10.0)));
                 } else {
                     let mut row = ui.layout(flex::row());
                     row.child_id(inherited)
@@ -180,7 +182,7 @@ fn parent_items_allocate_and_component_bounds_constrain_each_axis() {
                         .constrain(height)
                         .layout(())
                         .child()
-                        .insert(BoxAtom(Size::uniform(10.0)));
+                        .insert(BoxContent(Size::uniform(10.0)));
                 }
             },
         );
@@ -242,13 +244,13 @@ fn flex_cross_grow_uses_fit_siblings_under_loose_constraints() {
                 let mut row = ui.layout(flex::row());
                 row.child()
                     .item(flex::item().grow())
-                    .insert(BoxAtom(Size::uniform(10.0)));
-                row.child().insert(BoxAtom(Size::uniform(10.0)));
+                    .insert(BoxContent(Size::uniform(10.0)));
+                row.child().insert(BoxContent(Size::uniform(10.0)));
             });
             column
                 .child_id(body)
                 .item(flex::item().height(Sizing::grow()))
-                .insert(BoxAtom(Size::ZERO));
+                .insert(BoxContent(Size::ZERO));
         },
     );
     assert_eq!(frame.area(header).unwrap().height, 10.0);
@@ -316,7 +318,7 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
                             .pad(1.0);
                         nested
                             .child_in(blit::Scope::ROOT, leaf)
-                            .insert(BoxAtom(Size::uniform(10.0)));
+                            .insert(BoxContent(Size::uniform(10.0)));
                     }
                     let cross = if cross_fixed {
                         Sizing::fixed(40.0)
@@ -329,7 +331,7 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
                     };
                     root.child_in(blit::Scope::ROOT, sibling)
                         .item(item)
-                        .insert(BoxAtom(Size::ZERO));
+                        .insert(BoxContent(Size::ZERO));
                 },
             );
             assert_eq!(context.0, [1; 3]);
@@ -409,7 +411,7 @@ fn flex_unbounded_cross_uses_content_or_zero_for_fill_children() {
                                 };
                                 flex.child_in(blit::Scope::ROOT, id)
                                     .item(item)
-                                    .insert(BoxAtom(Size::uniform(50.0)));
+                                    .insert(BoxContent(Size::uniform(50.0)));
                             }
                         },
                     );
@@ -445,10 +447,10 @@ fn flex_distributes_growing_space() {
             let mut row = ui.layout(flex::row().gap(4.0));
             row.child_id(fixed)
                 .item(flex::item().width(Sizing::fixed(20.0)))
-                .insert(BoxAtom(Size::new(1.0, 10.0)));
+                .insert(BoxContent(Size::new(1.0, 10.0)));
             row.child_id(grow)
                 .item(flex::item().width(Sizing::grow()))
-                .insert(BoxAtom(Size::new(1.0, 10.0)));
+                .insert(BoxContent(Size::new(1.0, 10.0)));
         },
     );
     assert_eq!(frame.area(fixed).unwrap().width, 20.0);
@@ -473,7 +475,7 @@ fn flex_respects_growth_caps() {
             for (id, sizing) in ids.into_iter().zip(sizing) {
                 row.child_id(id)
                     .item(flex::item().width(sizing))
-                    .insert(BoxAtom(Size::uniform(1.0)));
+                    .insert(BoxContent(Size::uniform(1.0)));
             }
         },
     );
@@ -496,10 +498,10 @@ fn flex_size_motion_preserves_exact_overflow_and_reflows_siblings() {
                 row.child_id(animated)
                     .item(flex::item().fixed(extent, extent))
                     .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).size())
-                    .insert(BoxAtom(Size::ZERO));
+                    .insert(BoxContent(Size::ZERO));
                 row.child_id(sibling)
                     .item(flex::item().fixed(1.0, 1.0))
-                    .insert(BoxAtom(Size::ZERO));
+                    .insert(BoxContent(Size::ZERO));
             },
         );
         frame.layout(&mut TestContext);
@@ -542,9 +544,9 @@ fn wrap_uses_exact_cell_boundaries() {
         |ui: Ui<'_, Cells>| {
             let mut wrap = ui.layout(wrap::horizontal());
             for _ in 0..4096 {
-                wrap.child().insert(BoxAtom(Size::uniform(1)));
+                wrap.child().insert(BoxContent(Size::uniform(1)));
             }
-            wrap.child_id(last).insert(BoxAtom(Size::uniform(1)));
+            wrap.child_id(last).insert(BoxContent(Size::uniform(1)));
         },
     );
     assert_eq!(frame.area(last), Some(Rect::new(0, 1, 1, 1)));
@@ -567,13 +569,13 @@ fn wrap_grows_each_run_and_stretches_cross_grow() {
                 .layout(wrap::horizontal().align(Align::Start));
             wrap.child_in(blit::Scope::ROOT, ids[0])
                 .item(wrap::item().width(Sizing::grow_range(0.0, 5.0)).height(Sizing::grow()))
-                .insert(BoxAtom(Size::new(4.0, 1.0)));
+                .insert(BoxContent(Size::new(4.0, 1.0)));
             wrap.child_in(blit::Scope::ROOT, ids[1])
                 .item(wrap::item().width(Sizing::grow()))
-                .insert(BoxAtom(Size::new(4.0, 3.0)));
+                .insert(BoxContent(Size::new(4.0, 3.0)));
             wrap.child_in(blit::Scope::ROOT, ids[2])
                 .item(wrap::item().width(Sizing::grow()))
-                .insert(ResponsiveAtom);
+                .insert(ResponsiveContent);
         },
     );
     assert_eq!(frame.area(wrap_id).unwrap().size(), Size::new(11.0, 4.0));
@@ -607,7 +609,7 @@ fn wrap_keeps_target_runs_during_size_motions() {
                     wrap.child_id(id)
                         .item(wrap::item().width(Sizing::grow_range(2, i32::MAX)))
                         .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).size())
-                        .insert(BoxAtom(Size::uniform(1)));
+                        .insert(BoxContent(Size::uniform(1)));
                 }
             },
         );
@@ -638,7 +640,7 @@ fn wrap_shrinkwraps_animated_target_runs() {
                     wrap.child_in(blit::Scope::ROOT, id)
                         .item(wrap::item().fixed(extent, 1.0))
                         .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).size())
-                        .insert(BoxAtom(Size::ZERO));
+                        .insert(BoxContent(Size::ZERO));
                 }
             },
         );
@@ -673,14 +675,14 @@ fn percentage_children_share_rounded_space() {
                         } else {
                             Sizing::fit()
                         }))
-                        .insert(BoxAtom(Size::uniform(1)));
+                        .insert(BoxContent(Size::uniform(1)));
                 }
             }
             let mut row = column.child().layout(wrap::horizontal());
             for id in &ids[2..] {
                 row.child_in(blit::Scope::ROOT, *id)
                     .item(wrap::item().width(Sizing::percent(0.5)))
-                    .insert(BoxAtom(Size::uniform(1)));
+                    .insert(BoxContent(Size::uniform(1)));
             }
         },
     );
@@ -709,7 +711,7 @@ fn parent_percentages_apply_once_before_padding() {
                 .layout(())
                 .pad(1.0);
             fit.child_in(blit::Scope::ROOT, percent)
-                .insert(BoxAtom(Size::new(4.0, 2.0)));
+                .insert(BoxContent(Size::new(4.0, 2.0)));
         },
     );
     assert_eq!(frame.area(container), Some(Rect::new(0.0, 0.0, 10.0, 5.0)));
@@ -732,8 +734,8 @@ fn spanning_grid_sizes_spanning_items() {
             let mut grid = ui.layout(layout);
             grid.child_id(wide)
                 .item(grid::item().column_span(2).height(12.0))
-                .insert(BoxAtom(Size::new(20.0, 10.0)));
-            grid.child().insert(BoxAtom(Size::uniform(10.0)));
+                .insert(BoxContent(Size::new(20.0, 10.0)));
+            grid.child().insert(BoxContent(Size::uniform(10.0)));
         },
     );
     assert_eq!(frame.area(wide).unwrap().size(), Size::new(66.0, 12.0));
@@ -755,11 +757,11 @@ fn grid_intrinsic_width_preserves_integer_spans() {
                 if start != 0 {
                     grid.child()
                         .item(grid::item().column_span(start))
-                        .insert(BoxAtom(Size::new(0, 1)));
+                        .insert(BoxContent(Size::new(0, 1)));
                 }
                 grid.child_in(blit::Scope::ROOT, child)
                     .item(grid::item().column_span(span))
-                    .insert(BoxAtom(Size::new(width, 1)));
+                    .insert(BoxContent(Size::new(width, 1)));
             },
         );
         assert_eq!(frame.area(Target::ROOT.scoped(child)), Some(Rect::new(x, 0, width, 1)));
@@ -779,9 +781,9 @@ fn spanning_grid_fills_available_cell() {
             let mut grid = ui.layout(grid::new(3));
             grid.child()
                 .item(grid::item().row_span(2).column_span(2))
-                .insert(BoxAtom(Size::new(20, 2)));
-            grid.child().insert(ResponsiveAtom);
-            grid.child_id(hole).insert(ResponsiveAtom);
+                .insert(BoxContent(Size::new(20, 2)));
+            grid.child().insert(ResponsiveContent);
+            grid.child_id(hole).insert(ResponsiveContent);
         },
     );
     assert_eq!(frame.area(hole), Some(Rect::new(19, 2, 9, 2)));
@@ -801,8 +803,8 @@ fn grid_preserves_an_animated_child_extent_with_a_larger_sibling() {
                 let mut grid = ui.layout(grid::new(2));
                 grid.child_id(id)
                     .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).height())
-                    .insert(BoxAtom(Size::new(1, extent)));
-                grid.child().insert(BoxAtom(Size::new(1, extent)));
+                    .insert(BoxContent(Size::new(1, extent)));
+                grid.child().insert(BoxContent(Size::new(1, extent)));
             },
         );
         frame.layout(&mut Cells);

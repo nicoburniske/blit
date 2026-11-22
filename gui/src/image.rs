@@ -6,8 +6,9 @@ use std::{
 };
 
 use blit::{
-    Atom, AtomCx, Constraints, Paint, Rect, Scale2, Size,
+    Paint, Rect, Scale2, Size, Ui, Widget,
     geometry::{LogicalRect, PhysicalRect},
+    state,
 };
 
 use crate::color::Color;
@@ -29,29 +30,31 @@ blit::builder! {
     }
 }
 
-impl<C> Atom<C> for Image
+impl<C> Widget<C, state::Insert> for Image
 where
     C: Paint<Self, Scalar = f32>,
 {
-    fn measure(&self, _: &mut AtomCx<'_, C>, constraints: Constraints<f32>) -> Size<f32> {
+    type Response = ();
+
+    fn build(self, mut ui: Ui<'_, C, state::Insert>) {
         let pixels = self.image.size();
-        let natural = Size::new(pixels.width as f32, pixels.height as f32);
-        let mut size = self.intrinsic.unwrap_or(natural);
-        if self.fit == ImageFit::Contain
+        let intrinsic = self.intrinsic;
+        let contain = self.fit == ImageFit::Contain
             && self.nine_slice.is_none()
             && self.horizontal_tiling == ImageTiling::None
-            && self.vertical_tiling == ImageTiling::None
-        {
-            size.width = size.width.min(constraints.max.width);
-            size.height = size.height.min(constraints.max.height);
-            let scale = (size.width / natural.width).min(size.height / natural.height).max(0.0);
-            size = Size::new(natural.width * scale, natural.height * scale);
-        }
-        constraints.constrain(size)
-    }
-
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        cx.context_mut().paint(area, self.clone());
+            && self.vertical_tiling == ImageTiling::None;
+        ui.measure(move |_, constraints| {
+            let natural = Size::new(pixels.width as f32, pixels.height as f32);
+            let mut size = intrinsic.unwrap_or(natural);
+            if contain {
+                size.width = size.width.min(constraints.max.width);
+                size.height = size.height.min(constraints.max.height);
+                let scale = (size.width / natural.width).min(size.height / natural.height).max(0.0);
+                size = Size::new(natural.width * scale, natural.height * scale);
+            }
+            constraints.constrain(size)
+        });
+        ui.paint(move |cx, area| cx.context_mut().paint(area, &self));
     }
 }
 

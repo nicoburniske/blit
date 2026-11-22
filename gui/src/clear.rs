@@ -1,14 +1,12 @@
-use blit::{Atom, AtomCx, Constraints, LogicalRect, Paint, Size};
+use blit::{Paint, Ui, Widget, state};
 
 #[derive(Clone, Copy, Default)]
 pub struct Clear;
 
-impl<C: Paint<Clear, Scalar = f32>> Atom<C> for Clear {
-    fn measure(&self, _: &mut AtomCx<'_, C>, bounds: Constraints<f32>) -> Size<f32> {
-        bounds.constrain(Size::ZERO)
-    }
+impl<C: Paint<Clear, Scalar = f32>> Widget<C, state::Insert> for Clear {
+    type Response = ();
 
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: LogicalRect) {
-        cx.context_mut().paint(area, *self);
+    fn build(self, mut ui: Ui<'_, C, state::Insert>) {
+        ui.paint(move |cx, area| cx.context_mut().paint(area, &self));
     }
 }

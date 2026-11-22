@@ -26,8 +26,8 @@ pub struct Renderer {
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<path::FramePath> for crate::Renderer<B, S, D> {
-    fn paint(&mut self, bounds: LogicalRect, value: path::FramePath) {
-        self.record(bounds).push::<Renderer>(value, None);
+    fn paint(&mut self, bounds: LogicalRect, value: &path::FramePath) {
+        self.record(bounds).push::<Renderer>(*value, None);
     }
 }
 

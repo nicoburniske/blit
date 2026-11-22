@@ -67,13 +67,13 @@ where
 }
 
 impl Paint<Image> for TuiContext {
-    fn paint(&mut self, area: PhysicalRect, image: Image) {
-        self.renderer.paint_image(area, &image);
+    fn paint(&mut self, area: PhysicalRect, image: &Image) {
+        self.renderer.paint_image(area, image);
     }
 }
 
 impl Paint<FrameText> for TuiContext {
-    fn paint(&mut self, area: PhysicalRect, text: FrameText) {
-        self.renderer.paint_text(area, &text);
+    fn paint(&mut self, area: PhysicalRect, text: &FrameText) {
+        self.renderer.paint_text(area, text);
     }
 }

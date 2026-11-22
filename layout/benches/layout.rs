@@ -1,6 +1,6 @@
 use std::{hint::black_box, time::Duration};
 
-use blit::{Atom, AtomCx, Constraints, Frame, FrameInfo, Input, Rect, Size, Ui};
+use blit::{Frame, FrameInfo, Input, Size, Ui};
 use blit_layout::{Sizing, flex};
 
 #[global_allocator]
@@ -12,13 +12,6 @@ fn main() {
 
 #[divan::bench(args = ["fit", "grow", "capped"])]
 fn flex_layout(bencher: divan::Bencher, sizing: &str) {
-    struct Child;
-    impl Atom<()> for Child {
-        fn measure(&self, _: &mut AtomCx<'_, ()>, bounds: Constraints<f32>) -> Size<f32> {
-            bounds.constrain(Size::new(8.0, 2.0))
-        }
-        fn paint(&self, _: &mut AtomCx<'_, ()>, _: Rect<f32>) {}
-    }
     let mut frame = Frame::default();
     frame.build(
         &mut (),
@@ -34,7 +27,9 @@ fn flex_layout(bencher: divan::Bencher, sizing: &str) {
                     "capped" => Sizing::grow_range(0.0, 8.0 + (index % 3) as f32 * 8.0),
                     _ => unreachable!(),
                 };
-                root.child().item(flex::item().width(width)).insert(Child);
+                root.child()
+                    .item(flex::item().width(width))
+                    .measure(|_, bounds| bounds.constrain(Size::new(8.0, 2.0)));
             }
         },
     );

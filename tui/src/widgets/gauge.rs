@@ -1,4 +1,4 @@
-use blit::{Atom, AtomCx, Constraints, Paint, PhysicalRect, Size};
+use blit::{Paint, PhysicalRect, Size, Ui, Widget, state};
 
 use crate::{
     Context,
@@ -47,72 +47,76 @@ impl Gauge {
     }
 }
 
-impl<C> Atom<C> for Gauge
+impl<C> Widget<C, state::Insert> for Gauge
 where
     C: Context + Paint<FrameText>,
 {
-    fn measure(&self, cx: &mut AtomCx<'_, C>, constraints: Constraints<i32>) -> Size<i32> {
-        let width = self.label.map_or_else(
-            || percentage_label(self.ratio).1 as i32,
-            |label| {
-                cx.context_mut()
-                    .as_mut()
-                    .renderer
-                    .measure_text(&TextLayoutRequest {
-                        text: label,
-                        wrap: TextWrap::None,
-                        max_width: None,
-                        max_lines: Some(1),
-                    })
-                    .width
-            },
-        );
-        constraints.constrain(Size::new(width.max(1), 1))
-    }
+    type Response = ();
 
-    fn paint(&self, cx: &mut AtomCx<'_, C>, area: PhysicalRect) {
-        {
-            let mut cells = cx.context_mut().as_mut().renderer.cells(area);
-            let width = cells.columns();
-            let rows = cells.rows();
-            let filled = (width as f64 * self.ratio.clamp(0.0, 1.0)).round() as usize;
-            for y in 0..rows {
-                for x in 0..width {
-                    let background = if x < filled { self.filled } else { self.unfilled };
-                    cells.set_cell(x, y, Cell::new(' ').style(CellStyle::new().background(background)));
+    fn build(self, mut ui: Ui<'_, C, state::Insert>) {
+        let ratio = self.ratio;
+        let label = self.label;
+        ui.measure(move |cx, constraints| {
+            let width = label.map_or_else(
+                || percentage_label(ratio).1 as i32,
+                |label| {
+                    cx.as_mut()
+                        .renderer
+                        .measure_text(&TextLayoutRequest {
+                            text: label,
+                            wrap: TextWrap::None,
+                            max_width: None,
+                            max_lines: Some(1),
+                        })
+                        .width
+                },
+            );
+            constraints.constrain(Size::new(width.max(1), 1))
+        });
+        ui.paint(move |cx, area| {
+            {
+                let mut cells = cx.context_mut().as_mut().renderer.cells(area);
+                let width = cells.columns();
+                let rows = cells.rows();
+                let filled = (width as f64 * self.ratio.clamp(0.0, 1.0)).round() as usize;
+                for y in 0..rows {
+                    for x in 0..width {
+                        let background = if x < filled { self.filled } else { self.unfilled };
+                        cells.set_cell(x, y, Cell::new(' ').style(CellStyle::new().background(background)));
+                    }
+                }
+                if rows == 0 {
+                    return;
+                }
+                let style = |x| {
+                    CellStyle::new()
+                        .foreground(self.label_color)
+                        .background(if x < filled { self.filled } else { self.unfilled })
+                        .attributes(TextAttributes::BOLD)
+                };
+                if self.label.is_none() {
+                    let (label, label_width) = percentage_label(self.ratio);
+                    let label_width = label_width.min(width);
+                    let start = (width - label_width) / 2;
+                    for (offset, character) in label.into_iter().take(label_width).enumerate() {
+                        let x = start + offset;
+                        cells.set_cell(x, rows / 2, Cell::new(character).style(style(x)));
+                    }
                 }
             }
-            if rows == 0 {
-                return;
-            }
-            let style = |x| {
-                CellStyle::new()
-                    .foreground(self.label_color)
-                    .background(if x < filled { self.filled } else { self.unfilled })
+            if let Some(label) = self.label {
+                let text = FrameText::new(label)
+                    .color(self.label_color)
                     .attributes(TextAttributes::BOLD)
-            };
-            if self.label.is_none() {
-                let (label, label_width) = percentage_label(self.ratio);
-                let label_width = label_width.min(width);
-                let start = (width - label_width) / 2;
-                for (offset, character) in label.into_iter().take(label_width).enumerate() {
-                    let x = start + offset;
-                    cells.set_cell(x, rows / 2, Cell::new(character).style(style(x)));
-                }
+                    .options(
+                        TextOptions::new()
+                            .max_lines(1)
+                            .horizontal_align(HorizontalAlign::Center),
+                    );
+                let row = PhysicalRect::new(area.x, area.y + area.height / 2, area.width, 1);
+                cx.context_mut().paint(row, &text);
             }
-        }
-        if let Some(label) = self.label {
-            let text = FrameText::new(label)
-                .color(self.label_color)
-                .attributes(TextAttributes::BOLD)
-                .options(
-                    TextOptions::new()
-                        .max_lines(1)
-                        .horizontal_align(HorizontalAlign::Center),
-                );
-            let row = PhysicalRect::new(area.x, area.y + area.height / 2, area.width, 1);
-            cx.context_mut().paint(row, text);
-        }
+        });
     }
 }
 

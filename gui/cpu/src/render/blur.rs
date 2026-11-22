@@ -9,7 +9,7 @@ where
     S: RenderStrategy<B>,
     D: DamageTracker,
 {
-    fn paint(&mut self, bounds: LogicalRect, blur: BackdropBlur) {
+    fn paint(&mut self, bounds: LogicalRect, blur: &BackdropBlur) {
         if !blur.radius.is_finite() || blur.radius <= 0.0 {
             return;
         }

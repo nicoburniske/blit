@@ -1,4 +1,4 @@
-use blit::{Atom, AtomCx, Constraints, LogicalRect, Paint, Size, Widget};
+use blit::{LogicalRect, Paint, Widget};
 use blit_gpu::{PrepareContext, Render, RenderContext, Renderer};
 use bytemuck::{Pod, Zeroable};
 
@@ -25,7 +25,8 @@ impl Widget<DesktopContext> for &mut View {
             );
         });
         if self.dock.selected == 0 {
-            stage.insert(Interference { phase: self.dock.phase });
+            let phase = self.dock.phase;
+            stage.paint(move |cx, area| cx.context_mut().paint(area, &Interference { phase }));
         } else {
             stage.child().build(|ui: Ui<'_>| match self.dock.selected {
                 1 => self.knot.build(ui, self.dock.phase),
@@ -40,18 +41,8 @@ struct Interference {
     phase: f32,
 }
 
-impl Atom<DesktopContext> for Interference {
-    fn measure(&self, _: &mut AtomCx<'_, DesktopContext>, constraints: Constraints<f32>) -> Size<f32> {
-        constraints.constrain(Size::ZERO)
-    }
-
-    fn paint(&self, cx: &mut AtomCx<'_, DesktopContext>, area: LogicalRect) {
-        cx.context_mut().paint(area, Interference { phase: self.phase });
-    }
-}
-
 impl Paint<Interference> for Renderer {
-    fn paint(&mut self, bounds: LogicalRect, signal: Interference) {
+    fn paint(&mut self, bounds: LogicalRect, signal: &Interference) {
         self.record(bounds).push::<SignalRenderer>(signal.phase.to_bits());
     }
 }

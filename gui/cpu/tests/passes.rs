@@ -68,8 +68,8 @@ fn pass_barriers_read_current_frame_and_respect_nested_clips() {
         S: RenderStrategy<B>,
         D: DamageTracker,
     {
-        fn paint(&mut self, bounds: LogicalRect, command: Shift) {
-            self.record(bounds).push_pass::<Shift>(command);
+        fn paint(&mut self, bounds: LogicalRect, command: &Shift) {
+            self.record(bounds).push_pass::<Shift>(*command);
         }
     }
     let mut renderer =
@@ -87,12 +87,12 @@ fn pass_barriers_read_current_frame_and_respect_nested_clips() {
     {
         let source_area = LogicalRect::new(0.0, 0.0, 12.0, 1.0);
         let source = Rectangle::new().background(color);
-        renderer.paint(source_area, Shift);
+        renderer.paint(source_area, &Shift);
         source.paint(source_area, &mut renderer);
-        renderer.paint(LogicalRect::new(0.0, 1.0, 12.0, 1.0), Shift);
+        renderer.paint(LogicalRect::new(0.0, 1.0, 12.0, 1.0), &Shift);
         renderer.push_clip(LogicalRect::new(1.0, 0.0, 9.0, 8.0), BorderRadius::uniform(3.0));
         renderer.push_clip(LogicalRect::new(2.0, 0.0, 6.0, 8.0), BorderRadius::default());
-        renderer.paint(LogicalRect::new(0.0, 2.0, 12.0, 1.0), Shift);
+        renderer.paint(LogicalRect::new(0.0, 2.0, 12.0, 1.0), &Shift);
         renderer.pop_clip();
         renderer.pop_clip();
         renderer.render(if index < 2 { 0 } else { 2 });
@@ -123,8 +123,8 @@ where
         .paint(LogicalRect::new(12.0 + frame as f32 * 4.0, 18.0, 4.0, 8.0), renderer);
     renderer.push_clip(LogicalRect::new(3.0, 2.0, 90.0, 60.0), BorderRadius::uniform(8.0));
     if frame != 3 {
-        renderer.paint(LogicalRect::new(8.0, 8.0, 48.0, 32.0), BackdropBlur::new(3.0));
-        renderer.paint(LogicalRect::new(32.0, 20.0, 40.0, 28.0), BackdropBlur::new(2.0));
+        renderer.paint(LogicalRect::new(8.0, 8.0, 48.0, 32.0), &BackdropBlur::new(3.0));
+        renderer.paint(LogicalRect::new(32.0, 20.0, 40.0, 28.0), &BackdropBlur::new(2.0));
     }
     renderer.pop_clip();
     Rectangle::new()

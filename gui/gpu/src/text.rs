@@ -14,12 +14,12 @@ use crate::{
 };
 
 impl Paint<FrameText> for Renderer {
-    fn paint(&mut self, area: LogicalRect, value: FrameText) {
+    fn paint(&mut self, area: LogicalRect, value: &FrameText) {
         self.record_native(
             area,
             area,
             self.paint_clip,
-            value,
+            *value,
             |value, command, list, renderer, bounds| {
                 let clip = command.clip;
                 let request = value.request();

@@ -66,7 +66,7 @@ impl<T> Paint<T> for Backend
 where
     Renderer: Paint<T>,
 {
-    fn paint(&mut self, bounds: LogicalRect, command: T) {
+    fn paint(&mut self, bounds: LogicalRect, command: &T) {
         self.gpu
             .as_mut()
             .expect("GPU renderer is not initialized")
