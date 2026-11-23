@@ -95,23 +95,42 @@ impl Prepared {
     pub fn opaque_span(
         &self,
         line: i32,
+        limit: i32,
         bounds: PhysicalRect,
         texture: &ImageData,
         alpha_rows: &AlphaRows,
-    ) -> Option<Range<i32>> {
+    ) -> Option<(Range<i32>, i32)> {
         let texture_y = texture.texture_rect.y as usize;
+        let row = self.source_y(line).checked_sub(texture_y)?;
         let AlphaRow {
             opaque_start,
             opaque_end,
             ..
-        } = alpha_rows.get(texture.format, self.source_y(line).checked_sub(texture_y)?)?;
+        } = alpha_rows.get(texture.format, row)?;
         let start = i64::from(self.display.x) + i64::from(texture.texture_rect.x) + i64::from(opaque_start)
             - i64::from(self.source.x);
         let end = i64::from(self.display.x) + i64::from(texture.texture_rect.x) + i64::from(opaque_end)
             - i64::from(self.source.x);
         let start = start.max(i64::from(bounds.x));
         let end = end.min(i64::from(bounds.x.saturating_add(bounds.width)));
-        (start < end).then_some(start as i32..end as i32)
+        let rows = if texture.format == ImageFormat::Rgba8Premultiplied
+            && self.source.height == self.display.height as u32
+            && self.flags & flag::WRAP_Y == 0
+        {
+            let max_rows = limit
+                .min(self.display.y.saturating_add(self.display.height))
+                .saturating_sub(line)
+                .max(1) as usize;
+            alpha_rows.0[row * 4..]
+                .chunks_exact(4)
+                .take(max_rows)
+                .take_while(|next| next[2] == opaque_start && next[3] == opaque_end)
+                .count() as i32
+        } else {
+            1
+        };
+        let span = if start < end { start as i32..end as i32 } else { 0..0 };
+        Some((span, line.saturating_add(rows.max(1))))
     }
 
     pub fn draw_line<P: Pixel>(
@@ -359,6 +378,7 @@ impl Prepared {
                         visible_end,
                         opaque_start,
                         opaque_end,
+                        ..
                     }) = alpha_row
                     {
                         let visible_start = (texture_x + visible_start as usize).saturating_sub(source_x).min(len);

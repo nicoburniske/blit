@@ -158,10 +158,17 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                 if !self.span_occlusion {
                     continue;
                 }
-                let (span, zone) = commands.opaque_span(command, line, list, clips, images, text);
+                let (span, zone) = commands.opaque_span(command, line, until, list, clips, images, text);
                 until = until.min(zone);
-                let (last, _) =
-                    commands.opaque_span(command, zone.saturating_sub(1).max(line), list, clips, images, text);
+                let (last, _) = commands.opaque_span(
+                    command,
+                    until.saturating_sub(1).max(line),
+                    until,
+                    list,
+                    clips,
+                    images,
+                    text,
+                );
                 let start = span.start.max(last.start).max(opaque.start).max(0) as usize;
                 let end = span.end.min(last.end).min(opaque.end).max(0) as usize;
                 if start >= end {

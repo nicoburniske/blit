@@ -177,6 +177,7 @@ impl<P: Pixel> RasterCommands<P> {
         &mut self,
         id: CommandId,
         line: i32,
+        limit: i32,
         list: &DisplayList,
         clips: &ClipStack,
         images: &mut blit_arena::Arena<StoredImage>,
@@ -205,10 +206,11 @@ impl<P: Pixel> RasterCommands<P> {
                 RoundedLine::zone_until(rectangle.geometry, rectangle.radii, line),
             ),
             Payload::Image(image) => {
-                let span = images
+                let (span, until) = images
                     .get(image.image.into())
-                    .and_then(|texture| image.opaque_span(line, area, &texture.data, &texture.alpha_rows));
-                (span, line + 1)
+                    .and_then(|texture| image.opaque_span(line, limit, area, &texture.data, &texture.alpha_rows))
+                    .unwrap_or((0..0, line + 1));
+                (Some(span), until)
             }
             _ => return (0..0, i32::MAX),
         };
