@@ -47,6 +47,12 @@ impl<T: Scalar> Sizing<T> {
         }
     }
 }
+
+impl<T: Scalar> From<T> for Sizing<T> {
+    fn from(size: T) -> Self {
+        Self::Fixed(size)
+    }
+}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Align {
     Start,

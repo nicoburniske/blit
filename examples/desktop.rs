@@ -359,8 +359,8 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                     let marker = absolute::place()
                         .target_anchor(if *right { Anchor::Right } else { Anchor::Left })
                         .child_anchor(Anchor::Center)
-                        .width(absolute::Sizing::fixed(20.0))
-                        .height(absolute::Sizing::fixed(20.0));
+                        .width(20.0)
+                        .height(20.0);
                     track.child().place(Target::PARENT, marker).insert(
                         Rectangle::new()
                             .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
@@ -972,7 +972,7 @@ fn split(
             };
             let mut row = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
             row.child()
-                .item(flex::item().fixed(marker.width, marker.height))
+                .item(flex::item().width(marker.width).height(marker.height))
                 .insert(
                     Rectangle::new()
                         .background(if active { colors::ACCENT } else { colors::BORDER })
@@ -999,7 +999,7 @@ fn draw_grip(ui: Ui<'_>, grip: ResizeGrip) {
     };
     let mut grip = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
     grip.child()
-        .item(flex::item().fixed(marker.width, marker.height))
+        .item(flex::item().width(marker.width).height(marker.height))
         .insert(
             Rectangle::new()
                 .background(color)
@@ -1205,8 +1205,8 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
                         absolute::place()
                             .target_anchor(anchor)
                             .child_anchor(Anchor::Center)
-                            .width(absolute::Sizing::fixed(sz::BADGE_WIDTH * config.zoom))
-                            .height(absolute::Sizing::fixed(sz::LG * config.zoom)),
+                            .width(sz::BADGE_WIDTH * config.zoom)
+                            .height(sz::LG * config.zoom),
                     )
                     .layout(flex::row().align(Align::Center).justify(Justify::Center));
                 badge.insert(

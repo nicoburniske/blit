@@ -94,7 +94,7 @@ where
                     );
                     badge
                         .child()
-                        .item(flex::item().fixed(self.marker_size, self.marker_size))
+                        .item(flex::item().width(self.marker_size).height(self.marker_size))
                         .insert(Rectangle::new().background(self.accent).radius(self.marker_radius));
                     badge
                         .child()
@@ -139,14 +139,11 @@ where
                     }
                     let mut chart = panel.child().layout(flex::row().gap(self.gap));
                     {
-                        let mut axis = chart
-                            .child()
-                            .item(flex::item().height(Sizing::fixed(graph_height)))
-                            .layout(
-                                flex::column()
-                                    .align(Align::End)
-                                    .justify(crate::layout::Justify::SpaceBetween),
-                            );
+                        let mut axis = chart.child().item(flex::item().height(graph_height)).layout(
+                            flex::column()
+                                .align(Align::End)
+                                .justify(crate::layout::Justify::SpaceBetween),
+                        );
                         for (label, value) in axis_labels.iter_mut().zip([scale, scale / 2.0, 0.0]) {
                             label.clear();
                             let _ = write!(label, "{value:.1} ms");
@@ -156,17 +153,13 @@ where
                     }
                     let mut graph = chart
                         .child()
-                        .item(flex::item().fixed(graph_width, graph_height))
+                        .item(flex::item().width(graph_width).height(graph_height))
                         .layout(flex::row().align(Align::End));
                     graph.insert(Rectangle::new().background(self.graph_background));
                     for &millis in graph_values.iter() {
                         graph
                             .child()
-                            .item(
-                                flex::item()
-                                    .width(Sizing::grow())
-                                    .height(Sizing::fixed(graph_height * millis / scale)),
-                            )
+                            .item(flex::item().width(Sizing::grow()).height(graph_height * millis / scale))
                             .insert(Rectangle::new().background(self.accent));
                     }
                 }),

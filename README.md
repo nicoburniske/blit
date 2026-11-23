@@ -73,7 +73,7 @@ fn main() -> std::io::Result<()> {
 
                 header
                     .child()
-                    .item(flex::item().fixed(8, 1))
+                    .item(flex::item().width(8).height(1))
                     .build(|mut ui: Ui<'_>| {
                         let press = ui.interact(interact::press());
 

@@ -53,7 +53,7 @@ impl Dock {
         );
         toolbar
             .child()
-            .item(flex::item().fixed(40.0, 40.0))
+            .item(flex::item().width(40.0).height(40.0))
             .build(|mut ui: Ui<'_>| {
                 let press = ui.interact(interact::press());
                 if press.clicked {
@@ -111,7 +111,7 @@ impl Dock {
             });
         toolbar
             .child()
-            .item(flex::item().fixed(1.0, 24.0))
+            .item(flex::item().width(1.0).height(24.0))
             .insert(Rectangle::new().background(LinearGradient::new(&colors::RIM).angle(90.0)));
         toolbar
             .child()
@@ -119,7 +119,7 @@ impl Dock {
         if let Some(controls) = controls(self.selected) {
             toolbar
                 .child()
-                .item(flex::item().fixed(1.0, 24.0))
+                .item(flex::item().width(1.0).height(24.0))
                 .insert(Rectangle::new().background(LinearGradient::new(&colors::RIM).angle(90.0)));
             toolbar.child().build(controls);
         }

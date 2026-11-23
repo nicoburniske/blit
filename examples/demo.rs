@@ -44,7 +44,7 @@ pub fn board<'a, C: Context>(
 ) -> impl Widget<C> + 'a {
     move |ui: Ui<'_, C>| {
         let spring = Spring::new(Duration::from_millis(350), 0.15);
-        let item = || flex::item().height(Sizing::fixed(height));
+        let item = || flex::item().height(height);
         let mut board = ui.layout(flex::row().gap(gap).align(Align::Stretch));
         let scope = board.scope();
         let mut dragged = None;
@@ -73,8 +73,8 @@ pub fn board<'a, C: Context>(
                     absolute::place()
                         .x(area.x + response.delta.x)
                         .y(area.y + response.delta.y)
-                        .width(absolute::Sizing::fixed(area.width))
-                        .height(absolute::Sizing::fixed(area.height)),
+                        .width(area.width)
+                        .height(area.height),
                 )
                 .parent(Target::ROOT)
                 .z_index(1)

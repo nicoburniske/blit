@@ -22,31 +22,26 @@ blit::builder! {
 blit::builder! {
     /// sizing overrides and growth weight for a flex child
     ///
-    /// unspecified axes use exact local dimensions or fit the content
+    /// exact local dimensions take precedence over item sizing
     /// weight only affects how grow children share leftover space
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Item<T: Scalar> {
         new(),
         #[into]
-        width: Option<Sizing<T>> = None,
+        width: Sizing<T> = Sizing::fit(),
         #[into]
-        height: Option<Sizing<T>> = None,
+        height: Sizing<T> = Sizing::fit(),
         weight: f32 = 1.0,
     }
 }
 
 impl<T: Scalar> Item<T> {
-    pub fn fixed(mut self, width: T, height: T) -> Self {
-        self.width = Some(Sizing::fixed(width));
-        self.height = Some(Sizing::fixed(height));
-        self
-    }
     pub fn grow(mut self) -> Self {
-        self.width = Some(Sizing::grow());
-        self.height = Some(Sizing::grow());
+        self.width = Sizing::grow();
+        self.height = Sizing::grow();
         self
     }
-    pub fn sizing(&self, axis: Axis) -> Option<Sizing<T>> {
+    pub fn sizing(&self, axis: Axis) -> Sizing<T> {
         match axis {
             Axis::Horizontal => self.width,
             Axis::Vertical => self.height,
@@ -338,10 +333,7 @@ impl<T: Scalar> Layout<T> {
         item: &Item<T>,
         axis: Axis,
     ) -> Sizing<T> {
-        cx.fixed_extent(child, axis)
-            .map(Sizing::Fixed)
-            .or(item.sizing(axis))
-            .unwrap_or_else(Sizing::fit)
+        cx.fixed_extent(child, axis).map_or(item.sizing(axis), Sizing::Fixed)
     }
 
     #[inline(always)]

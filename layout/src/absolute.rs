@@ -15,7 +15,9 @@ blit::builder! {
         child_anchor: Anchor = Anchor::TopLeft,
         x: T = T::ZERO,
         y: T = T::ZERO,
+        #[into]
         width: Sizing<T> = Sizing::fit(),
+        #[into]
         height: Sizing<T> = Sizing::fit(),
         /// mirrors an axis that overflows the screen
         flip: bool = false,
@@ -50,6 +52,12 @@ impl<T: Scalar> Sizing<T> {
 
     pub const fn full() -> Self {
         Self::percent(1.0)
+    }
+}
+
+impl<T: Scalar> From<T> for Sizing<T> {
+    fn from(size: T) -> Self {
+        Self::Fixed(size)
     }
 }
 

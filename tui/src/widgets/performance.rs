@@ -7,7 +7,7 @@ pub use blit_widgets::performance::*;
 use crate::{
     Context,
     color::Color,
-    layout::{Align, Justify, Sizing, absolute::Anchor, flex, grid},
+    layout::{Align, Justify, absolute::Anchor, flex, grid},
     text::{FrameText, Text, TextAttributes},
     widgets::{
         block::{Block, Border, BorderStyle},
@@ -91,7 +91,7 @@ where
                     );
                     badge
                         .child()
-                        .item(flex::item().fixed(1, 1))
+                        .item(flex::item().width(1).height(1))
                         .insert(Block::new().background(self.accent));
                     badge
                         .child()
@@ -129,7 +129,7 @@ where
                     {
                         let mut axis = chart
                             .child()
-                            .item(flex::item().height(Sizing::fixed(rows as i32)))
+                            .item(flex::item().height(rows as i32))
                             .layout(flex::column().align(Align::End).justify(Justify::SpaceBetween));
                         for (label, value) in axis_labels.iter_mut().zip([scale, scale / 2.0, 0.0]) {
                             label.clear();
@@ -139,7 +139,7 @@ where
                     }
                     let mut graph = chart
                         .child()
-                        .item(flex::item().fixed(columns as i32, rows as i32))
+                        .item(flex::item().width(columns as i32).height(rows as i32))
                         .layout(flex::row().align(Align::End));
                     graph.insert(Block::new().background(self.graph_background));
                     for &millis in graph_values.iter() {
@@ -150,16 +150,16 @@ where
                         let partial = eighths % 8;
                         let mut bar = graph
                             .child()
-                            .item(flex::item().fixed(1, full as i32 + i32::from(partial != 0)))
+                            .item(flex::item().width(1).height(full as i32 + i32::from(partial != 0)))
                             .layout(flex::column());
                         if partial != 0 {
                             bar.child()
-                                .item(flex::item().fixed(1, 1))
+                                .item(flex::item().width(1).height(1))
                                 .insert(Text::new(["", "▁", "▂", "▃", "▄", "▅", "▆", "▇"][partial]).color(self.accent));
                         }
                         if full != 0 {
                             bar.child()
-                                .item(flex::item().fixed(1, full as i32))
+                                .item(flex::item().width(1).height(full as i32))
                                 .insert(Block::new().background(self.accent));
                         }
                     }

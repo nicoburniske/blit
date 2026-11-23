@@ -97,8 +97,8 @@ impl View {
                     absolute::place()
                         .target_anchor(Anchor::Center)
                         .child_anchor(Anchor::Center)
-                        .width(absolute::Sizing::fixed(220.0))
-                        .height(absolute::Sizing::fixed(96.0)),
+                        .width(220.0)
+                        .height(96.0),
                 )
                 .layout(flex::column().justify(Justify::End))
                 .clip(BoundsClip)

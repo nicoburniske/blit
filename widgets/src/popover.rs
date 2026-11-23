@@ -27,7 +27,9 @@ blit::builder! {
         child_anchor: Anchor = Anchor::TopLeft,
         x: C::Scalar = C::Scalar::ZERO,
         y: C::Scalar = C::Scalar::ZERO,
+        #[into]
         width: Sizing<C::Scalar> = Sizing::fit(),
+        #[into]
         height: Sizing<C::Scalar> = Sizing::fit(),
         hit: Sides<C::Scalar> = Sides::all(C::Scalar::ZERO),
         open_on_hover: bool = false,
@@ -166,14 +168,9 @@ mod tests {
             step(&mut frame, input, |mut ui: Ui<'_, TestContext>| {
                 let background = ui.interact(interact::scroll()).delta;
                 let content = ui
-                    .build(
-                        Popover::new(&mut state)
-                            .width(Sizing::fixed(100.0))
-                            .height(Sizing::fixed(100.0))
-                            .content(|mut ui: Ui<'_, TestContext>| {
-                                ui.interact(interact::scroll().axis(Axis::Horizontal)).delta
-                            }),
-                    )
+                    .build(Popover::new(&mut state).width(100.0).height(100.0).content(
+                        |mut ui: Ui<'_, TestContext>| ui.interact(interact::scroll().axis(Axis::Horizontal)).delta,
+                    ))
                     .unwrap();
                 (background, content)
             })
@@ -287,12 +284,7 @@ mod tests {
                     if let Input::MouseUp { .. } = input {
                         content_area = ui.at(2u8).area();
                     }
-                    render(
-                        ui,
-                        Popover::new(&mut state)
-                            .width(Sizing::fixed(5.0))
-                            .height(Sizing::fixed(4.0)),
-                    );
+                    render(ui, Popover::new(&mut state).width(5.0).height(4.0));
                     assert_eq!(state.open, expected.next().unwrap());
                 },
             );

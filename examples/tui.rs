@@ -85,7 +85,7 @@ impl Demo {
         {
             let mut header = root
                 .child()
-                .item(flex::item().height(Sizing::fixed(1)))
+                .item(flex::item().height(1))
                 .layout(flex::row().align(Align::Center).gap(1));
             header.insert(Block::new().background(colors::SURFACE));
             header.child().build(|ui: Ui<'_>| {
@@ -284,11 +284,11 @@ impl Widget<TuiContext> for &mut AnimationPage {
                         .item(flex::item().width(Sizing::grow()))
                         .layout(flex::row().align(Align::Center).gap(2));
                     row.child()
-                        .item(flex::item().width(Sizing::fixed(18)))
+                        .item(flex::item().width(18))
                         .insert(Text::new(label).color(colors::TEXT));
                     let mut track = row
                         .child()
-                        .item(flex::item().width(Sizing::grow()).height(Sizing::fixed(1)))
+                        .item(flex::item().width(Sizing::grow()).height(1))
                         .layout(())
                         .clip(BoundsClip);
                     track.insert(Block::new().background(colors::SURFACE_HIGH));
@@ -306,8 +306,8 @@ impl Widget<TuiContext> for &mut AnimationPage {
                     let marker = absolute::place()
                         .target_anchor(if *right { Anchor::Right } else { Anchor::Left })
                         .child_anchor(Anchor::Center)
-                        .width(absolute::Sizing::fixed(3))
-                        .height(absolute::Sizing::fixed(1));
+                        .width(3)
+                        .height(1);
                     range.child().place(Target::PARENT, marker).insert(
                         Text::new("│")
                             .color(colors::TEXT)
@@ -825,7 +825,7 @@ impl Widget<TuiContext> for &mut TextPage {
                 {
                     let mut input_preview = preview
                         .child()
-                        .item(flex::item().width(Sizing::grow()).height(Sizing::fixed(3)));
+                        .item(flex::item().width(Sizing::grow()).height(3));
                     input_preview.insert(panel(colors::SURFACE, " input "));
                     input_preview.build(
                         TextInput::new(input_state, input)
@@ -1038,15 +1038,13 @@ impl Widget<TuiContext> for &mut WidgetsPage {
 
         let mut body = ui.layout(flex::column().gap(1)).pad(1);
         body.insert(panel(colors::SURFACE, " widgets "));
-        body.child()
-            .item(flex::item().width(Sizing::grow()).height(Sizing::fixed(1)))
-            .insert(
-                Gauge::new(ratio as f64)
-                    .filled(colors::ACCENT)
-                    .unfilled(colors::TRACK)
-                    .label_color(colors::SURFACE),
-            );
-        body.child().item(flex::item().height(Sizing::fixed(5))).insert(
+        body.child().item(flex::item().width(Sizing::grow()).height(1)).insert(
+            Gauge::new(ratio as f64)
+                .filled(colors::ACCENT)
+                .unfilled(colors::TRACK)
+                .label_color(colors::SURFACE),
+        );
+        body.child().item(flex::item().height(5)).insert(
             Sparkline::new(self.sparkline.clone())
                 .maximum(100)
                 .color(colors::ACCENT)
@@ -1336,8 +1334,8 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
                         absolute::place()
                             .target_anchor(anchor)
                             .child_anchor(Anchor::Center)
-                            .width(absolute::Sizing::fixed(unit.width * 2))
-                            .height(absolute::Sizing::fixed(unit.height)),
+                            .width(unit.width * 2)
+                            .height(unit.height),
                     )
                     .layout(flex::row().align(Align::Center).justify(Justify::Center));
                 badge.insert(Block::new().background(colors::ACCENT_DARK));

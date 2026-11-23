@@ -19,14 +19,17 @@ fn main() -> std::io::Result<()> {
                 ui.insert(Text::new("hello from blit!").attributes(TextAttributes::BOLD));
             });
 
-            header.child().item(flex::item().fixed(8, 1)).build(|mut ui: Ui<'_>| {
-                let press = ui.interact(interact::press());
+            header
+                .child()
+                .item(flex::item().width(8).height(1))
+                .build(|mut ui: Ui<'_>| {
+                    let press = ui.interact(interact::press());
 
-                ui.insert(Block::new().background(Color::BLUE));
-                ui.insert(Text::new("quit").options(TextOptions::new().horizontal_align(HorizontalAlign::Center)));
+                    ui.insert(Block::new().background(Color::BLUE));
+                    ui.insert(Text::new("quit").options(TextOptions::new().horizontal_align(HorizontalAlign::Center)));
 
-                press.clicked
-            })
+                    press.clicked
+                })
         });
         let quit_key = root.interact(interact::keyboard(|input| match input {
             KeyboardEvent::Text('q') => Some(()),

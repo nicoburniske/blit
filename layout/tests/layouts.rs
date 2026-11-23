@@ -106,8 +106,8 @@ fn absolute_flips_then_clamps_into_the_screen() {
                 absolute::place()
                     .target_anchor(Anchor::BottomLeft)
                     .x(18)
-                    .width(absolute::Sizing::fixed(4))
-                    .height(absolute::Sizing::fixed(4))
+                    .width(4)
+                    .height(4)
                     .flip(true)
                     .clamp(true),
             );
@@ -158,7 +158,7 @@ fn parent_items_allocate_and_component_bounds_constrain_each_axis() {
                         .constrain(height)
                         .layout(());
                     row.child_id(fixed)
-                        .item(wrap::item().fixed(20.0, 9.0))
+                        .item(wrap::item().width(20.0).height(9.0))
                         .constrain(height)
                         .layout(());
                     row.child_id(fit)
@@ -174,7 +174,7 @@ fn parent_items_allocate_and_component_bounds_constrain_each_axis() {
                         .constrain(height)
                         .layout(());
                     row.child_id(fixed)
-                        .item(flex::item().fixed(20.0, 9.0))
+                        .item(flex::item().width(20.0).height(9.0))
                         .constrain(height)
                         .layout(());
                     row.child_id(fit)
@@ -217,7 +217,7 @@ fn explicit_items_and_grid_accept_custom_layouts() {
                 } else {
                     ui.layout(flex::row())
                         .child_id(child)
-                        .item(flex::item().fixed(10.0, 10.0))
+                        .item(flex::item().width(10.0).height(10.0))
                         .layout(Plain);
                 }
             },
@@ -326,8 +326,8 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
                         Sizing::grow()
                     };
                     let item = match axis {
-                        Axis::Horizontal => flex::item().width(Sizing::fixed(10.0)).height(cross),
-                        Axis::Vertical => flex::item().width(cross).height(Sizing::fixed(10.0)),
+                        Axis::Horizontal => flex::item().width(10.0).height(cross),
+                        Axis::Vertical => flex::item().width(cross).height(10.0),
                     };
                     root.child_in(blit::Scope::ROOT, sibling)
                         .item(item)
@@ -446,7 +446,7 @@ fn flex_distributes_growing_space() {
         |ui: Ui<'_, TestContext>| {
             let mut row = ui.layout(flex::row().gap(4.0));
             row.child_id(fixed)
-                .item(flex::item().width(Sizing::fixed(20.0)))
+                .item(flex::item().width(20.0))
                 .insert(BoxContent(Size::new(1.0, 10.0)));
             row.child_id(grow)
                 .item(flex::item().width(Sizing::grow()))
@@ -496,11 +496,11 @@ fn flex_size_motion_preserves_exact_overflow_and_reflows_siblings() {
             |ui: Ui<'_, TestContext>| {
                 let mut row = ui.layout(flex::row());
                 row.child_id(animated)
-                    .item(flex::item().fixed(extent, extent))
+                    .item(flex::item().width(extent).height(extent))
                     .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).size())
                     .insert(BoxContent(Size::ZERO));
                 row.child_id(sibling)
-                    .item(flex::item().fixed(1.0, 1.0))
+                    .item(flex::item().width(1.0).height(1.0))
                     .insert(BoxContent(Size::ZERO));
             },
         );
@@ -565,7 +565,7 @@ fn wrap_grows_each_run_and_stretches_cross_grow() {
             let mut root = ui.layout(flex::row().align(Align::Start));
             let mut wrap = root
                 .child_id(wrap_id)
-                .item(flex::item().width(Sizing::fixed(11.0)))
+                .item(flex::item().width(11.0))
                 .layout(wrap::horizontal().align(Align::Start));
             wrap.child_in(blit::Scope::ROOT, ids[0])
                 .item(wrap::item().width(Sizing::grow_range(0.0, 5.0)).height(Sizing::grow()))
@@ -638,7 +638,7 @@ fn wrap_shrinkwraps_animated_target_runs() {
                 let mut wrap = root.child_id(wrap_id).layout(wrap::horizontal());
                 for id in child_ids {
                     wrap.child_in(blit::Scope::ROOT, id)
-                        .item(wrap::item().fixed(extent, 1.0))
+                        .item(wrap::item().width(extent).height(1.0))
                         .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).size())
                         .insert(BoxContent(Size::ZERO));
                 }
