@@ -91,7 +91,7 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
                     .0[0]
             }
             Playback::Loop { value, .. } => {
-                let mut animator = Animator::new([*value], Animation::default(), AnimationOptions::default());
+                let mut animator = Animator::new([*value], Animation::default());
                 let value = animator
                     .advance([target], [true], animation.into(), options, frame.time, true)
                     .0[0];
@@ -102,8 +102,9 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     }
 
     #[track_caller]
-    pub fn animate_loop(&mut self, tween: Tween) -> f32 {
-        if tween.duration.is_zero() {
+    pub fn animate_loop(&mut self, mut tween: Tween) -> f32 {
+        tween.duration = tween.duration.max(0.0);
+        if tween.duration == 0.0 {
             return self.animate(0.0, Animation::default(), AnimationOptions::default());
         }
         let id = self.inner.target.child(Location::caller());
@@ -116,7 +117,7 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
             } if previous == tween => time,
             _ => now,
         };
-        let progress = (now - time).max(0.0) as f32 / tween.duration.as_secs_f32();
+        let progress = (now - time).max(0.0) as f32 / tween.duration;
         let value = tween.easing.sample(progress % 1.0).0;
         state.playback = Playback::Loop { tween, time, value };
         value

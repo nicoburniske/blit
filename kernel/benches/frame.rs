@@ -14,61 +14,37 @@ fn main() {
 
 #[divan::bench(args = [100, 1000])]
 fn animate_tweens(bencher: divan::Bencher, count: usize) {
-    animate(
-        bencher,
-        count,
-        Tween::new(Duration::from_secs(1), Easing::EASE_OUT_QUAD).into(),
-    );
+    animate(bencher, count, Tween::new(1.0, Easing::EASE_OUT_QUAD).into());
 }
 
 #[divan::bench(args = [100, 1000])]
 fn animate_springs(bencher: divan::Bencher, count: usize) {
-    animate(bencher, count, Spring::new(Duration::from_millis(250), 0.2).into());
+    animate(bencher, count, Spring::new(0.250, 0.2).into());
 }
 
 #[divan::bench(args = [100, 1000])]
 fn animate_critical_springs(bencher: divan::Bencher, count: usize) {
-    animate(bencher, count, Spring::new(Duration::from_millis(250), 0.0).into());
+    animate(bencher, count, Spring::new(0.250, 0.0).into());
 }
 
 #[divan::bench(args = [100, 1000])]
 fn motion_tween_position(bencher: divan::Bencher, count: usize) {
-    motions(
-        bencher,
-        count,
-        Tween::new(Duration::from_secs(1), Easing::EASE_OUT_QUAD).into(),
-        false,
-    );
+    motions(bencher, count, Tween::new(1.0, Easing::EASE_OUT_QUAD).into(), false);
 }
 
 #[divan::bench(args = [100, 1000])]
 fn motion_spring_position(bencher: divan::Bencher, count: usize) {
-    motions(
-        bencher,
-        count,
-        Spring::new(Duration::from_millis(250), 0.2).into(),
-        false,
-    );
+    motions(bencher, count, Spring::new(0.250, 0.2).into(), false);
 }
 
 #[divan::bench(args = [100, 1000])]
 fn motion_tween_size(bencher: divan::Bencher, count: usize) {
-    motions(
-        bencher,
-        count,
-        Tween::new(Duration::from_secs(1), Easing::EASE_OUT_QUAD).into(),
-        true,
-    );
+    motions(bencher, count, Tween::new(1.0, Easing::EASE_OUT_QUAD).into(), true);
 }
 
 #[divan::bench(args = [100, 1000])]
 fn motion_spring_size(bencher: divan::Bencher, count: usize) {
-    motions(
-        bencher,
-        count,
-        Spring::new(Duration::from_millis(250), 0.2).into(),
-        true,
-    );
+    motions(bencher, count, Spring::new(0.250, 0.2).into(), true);
 }
 
 #[divan::bench(args = [100, 1000])]
@@ -116,8 +92,7 @@ fn build_motions(bencher: divan::Bencher, count: usize) {
     let mut frame = Frame::default();
     bencher.bench_local(|| {
         build(&mut frame, count, |ui, _| {
-            ui.motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)))
-                .insert(());
+            ui.motion(Motion::new(Tween::new(1.0, Easing::LINEAR))).insert(());
         })
     });
 }
@@ -256,6 +231,7 @@ fn motions(bencher: divan::Bencher, count: usize, animation: Animation, size: bo
     let config = Motion {
         animation,
         restart: false,
+        delay: 0.0,
         lift: None,
         properties: if size {
             blit::MotionProps::SIZE

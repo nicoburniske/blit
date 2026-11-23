@@ -11,17 +11,20 @@ pub struct Animator<T, const N: usize> {
     pub values: [T; N],
     pub targets: [T; N],
     pub active: [bool; N],
-    pub options: AnimationOptions,
+    // compared against the next request to detect a retarget
+    pub restart: bool,
+    pub velocity: Option<f32>,
     pub kind: Kind<N>,
 }
 
 impl<T: Scalar, const N: usize> Animator<T, N> {
-    pub fn new(values: [T; N], animation: impl Into<Animation>, options: AnimationOptions) -> Self {
+    pub fn new(values: [T; N], animation: impl Into<Animation>) -> Self {
         Self {
             values,
             targets: values,
             active: [false; N],
-            options,
+            restart: false,
+            velocity: None,
             kind: Kind::new(animation.into(), [0.0; N], [0.0; N], 0.0),
         }
     }
@@ -46,26 +49,32 @@ impl<T: Scalar, const N: usize> Animator<T, N> {
         {
             *velocity = 0.0;
         }
-        if let Animation::Spring(spring) = &mut animation {
-            for value in [&mut spring.bounce, &mut spring.rest_distance, &mut spring.rest_speed] {
-                if !value.is_finite() {
-                    *value = 0.0;
+        options.delay = options.delay.max(0.0);
+        match &mut animation {
+            Animation::Tween(tween) => tween.duration = tween.duration.max(0.0),
+            Animation::Spring(spring) => {
+                spring.duration = spring.duration.max(0.0);
+                for value in [&mut spring.bounce, &mut spring.rest_distance, &mut spring.rest_speed] {
+                    if !value.is_finite() {
+                        *value = 0.0;
+                    }
                 }
+                spring.bounce = spring.bounce.clamp(-0.999, 1.0);
+                spring.rest_distance = spring.rest_distance.max(f32::EPSILON);
+                spring.rest_speed = spring.rest_speed.max(f32::EPSILON);
             }
-            spring.bounce = spring.bounce.clamp(-0.999, 1.0);
-            spring.rest_distance = spring.rest_distance.max(f32::EPSILON);
-            spring.rest_speed = spring.rest_speed.max(f32::EPSILON);
         }
         let now = now.as_secs_f64();
         let previous_animation = match &self.kind {
             Kind::Tween { tween, .. } => Animation::Tween(*tween),
             Kind::Spring { spring, .. } => Animation::Spring(*spring),
         };
+        let relaunch = self.restart != options.restart || self.velocity != options.velocity;
         // at rest on unchanged targets nothing can change
         if !self.is_active()
             && self.targets == targets
             && self.values == targets
-            && self.options == options
+            && !relaunch
             && previous_animation == animation
         {
             return (targets, [false; N]);
@@ -81,12 +90,11 @@ impl<T: Scalar, const N: usize> Animator<T, N> {
                 }
             }
         }
-        let retarget = previous_animation != animation
-            || self.options != options
-            || (0..N).any(|i| enabled[i] && targets[i] != self.targets[i]);
+        let retarget =
+            previous_animation != animation || relaunch || (0..N).any(|i| enabled[i] && targets[i] != self.targets[i]);
         let instant = match animation {
-            Animation::Tween(tween) => tween.duration.is_zero(),
-            Animation::Spring(spring) => spring.duration.is_zero(),
+            Animation::Tween(tween) => tween.duration == 0.0,
+            Animation::Spring(spring) => spring.duration == 0.0,
         };
         let start = std::array::from_fn(|i| targets[i].delta(self.targets[i]) + displacement[i]);
         let values = std::array::from_fn(|i| {
@@ -98,9 +106,11 @@ impl<T: Scalar, const N: usize> Animator<T, N> {
         });
         if retarget {
             for i in 0..N {
-                velocity[i] = options
-                    .velocity
-                    .unwrap_or(if options.restart { 0.0 } else { velocity[i] });
+                velocity[i] = options.velocity.unwrap_or(if options.restart || options.delay > 0.0 {
+                    0.0
+                } else {
+                    velocity[i]
+                });
                 active[i] = start[i] != 0.0 || velocity[i] != 0.0;
             }
         }
@@ -109,9 +119,10 @@ impl<T: Scalar, const N: usize> Animator<T, N> {
         }
         if commit {
             if retarget {
-                self.kind = Kind::new(animation, start, velocity, now);
+                self.kind = Kind::new(animation, start, velocity, now + f64::from(options.delay));
             }
-            self.options = options;
+            self.restart = options.restart;
+            self.velocity = options.velocity;
             self.values = values;
             self.targets = targets;
             self.active = active;
@@ -134,9 +145,9 @@ impl<T: Scalar, const N: usize> Animator<T, N> {
     /// moves `channel` `amount` away from its target and animates it back
     pub fn displace(&mut self, channel: usize, amount: f32, now: Duration) {
         let now = now.as_secs_f64();
-        // resampling a curve that starts now would read its own launch velocity
+        // resampling a curve that has not started would read its own launch velocity and drop its delay
         if let Kind::Tween { displacement, time, .. } | Kind::Spring { displacement, time, .. } = &mut self.kind
-            && *time == now
+            && *time >= now
             && self.active.iter().any(|active| *active)
         {
             displacement[channel] += amount;
@@ -222,6 +233,26 @@ impl<const N: usize> Kind<N> {
 
     #[inline]
     fn sample(&self, now: f64) -> ([f32; N], [f32; N], [bool; N]) {
+        let (Self::Tween {
+            displacement,
+            velocity,
+            time,
+            ..
+        }
+        | Self::Spring {
+            displacement,
+            velocity,
+            time,
+            ..
+        }) = self;
+        // a delayed curve holds still at its start
+        if now < *time {
+            return (
+                *displacement,
+                [0.0; N],
+                std::array::from_fn(|i| displacement[i] != 0.0 || velocity[i] != 0.0),
+            );
+        }
         match self {
             Self::Tween {
                 tween,
@@ -230,7 +261,7 @@ impl<const N: usize> Kind<N> {
                 time,
             } => {
                 let elapsed = (now - *time).max(0.0);
-                let seconds = tween.duration.as_secs_f64();
+                let seconds = f64::from(tween.duration);
                 if elapsed >= seconds {
                     return ([0.0; N], [0.0; N], [false; N]);
                 }
@@ -256,7 +287,7 @@ impl<const N: usize> Kind<N> {
                 time,
             } => {
                 let elapsed = (now - *time).max(0.0);
-                let omega = std::f64::consts::TAU / spring.duration.as_secs_f64();
+                let omega = std::f64::consts::TAU / f64::from(spring.duration);
                 let bounce = spring.bounce as f64;
                 let damping = if bounce >= 0.0 {
                     1.0 - bounce

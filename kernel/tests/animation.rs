@@ -19,11 +19,9 @@ fn motions() {
                 } else {
                     column.child()
                 };
-                let child = child.item(gap).motion(
-                    Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR))
-                        .height()
-                        .y(),
-                );
+                let child = child
+                    .item(gap)
+                    .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).height().y());
                 let (_, measured) = child.build_measured(
                     Constraints {
                         min: Size::new(1.0, 0.0),
@@ -60,11 +58,7 @@ fn animation_and_timers() {
             [],
             |mut ui: Ui<'_>| {
                 (
-                    ui.animate(
-                        target,
-                        Tween::new(Duration::from_secs(1), Easing::LINEAR),
-                        Default::default(),
-                    ),
+                    ui.animate(target, Tween::new(1.0, Easing::LINEAR), Default::default()),
                     ui.timer(Duration::from_millis(500)).fired(),
                 )
             },
@@ -77,7 +71,7 @@ fn animation_and_timers() {
 #[test]
 fn repeated_calls_from_one_site_are_keyed_by_order() {
     let (mut frame, mut context) = frame(Size::uniform(1.0));
-    let tween = Tween::new(Duration::from_secs(1), Easing::LINEAR);
+    let tween = Tween::new(1.0, Easing::LINEAR);
     let mut next = |millis, targets: [f32; 2]| {
         render_inputs(
             &mut frame,
@@ -103,22 +97,22 @@ fn repeated_calls_from_one_site_are_keyed_by_order() {
 #[test]
 fn looping_switches_to_target_motion() {
     let (mut frame, mut context) = frame(Size::uniform(1.0));
-    let tween = Tween::new(Duration::from_secs(1), Easing::LINEAR);
+    let tween = Tween::new(1.0, Easing::LINEAR);
     for (millis, duration, expected, active) in [
-        (0, Some(1000), 0.0, true),
-        (250, Some(1000), 0.25, true),
-        (1000, Some(1000), 0.0, true),
-        (1250, Some(2000), 0.0, true),
-        (1750, Some(2000), 0.25, true),
+        (0, Some(1.0), 0.0, true),
+        (250, Some(1.0), 0.25, true),
+        (1000, Some(1.0), 0.0, true),
+        (1250, Some(2.0), 0.0, true),
+        (1750, Some(2.0), 0.25, true),
         (1750, None, 0.25, true),
         (2250, None, 0.625, true),
-        (2250, Some(0), 0.0, false),
+        (2250, Some(0.0), 0.0, false),
         (2250, None, 0.0, true),
         (2750, None, 0.5, true),
         (3250, None, 1.0, false),
-        (3250, Some(1000), 0.0, true),
-        (3750, Some(1000), 0.5, true),
-        (3750, Some(0), 0.0, false),
+        (3250, Some(1.0), 0.0, true),
+        (3750, Some(1.0), 0.5, true),
+        (3750, Some(0.0), 0.0, false),
     ] {
         let now = Duration::from_millis(millis);
         for _ in 0..2 {
@@ -132,12 +126,9 @@ fn looping_switches_to_target_motion() {
 
     // both calls share the caller's site, so they drive one animation
     #[track_caller]
-    fn animate(ui: &mut Ui<'_>, duration: Option<u64>, tween: Tween) -> f32 {
+    fn animate(ui: &mut Ui<'_>, duration: Option<f32>, tween: Tween) -> f32 {
         match duration {
-            Some(duration) => ui.animate_loop(Tween::new(
-                Duration::from_millis(duration),
-                Easing::Function(|t| (t, 1.0)),
-            )),
+            Some(duration) => ui.animate_loop(Tween::new(duration, Easing::Function(|t| (t, 1.0)))),
             None => ui.animate(1.0, tween, Default::default()),
         }
     }
@@ -147,16 +138,16 @@ fn looping_switches_to_target_motion() {
 fn tween_retargeting() {
     let options = AnimationOptions::default();
     for restart in [false, true] {
-        let mut animator = Animator::new([0.0], Animation::default(), options);
+        let mut animator = Animator::new([0.0], Animation::default());
         animator.advance(
             [100.0],
             [true],
-            Tween::new(Duration::from_secs(1), Easing::EASE_IN_QUAD),
+            Tween::new(1.0, Easing::EASE_IN_QUAD),
             options,
             Duration::ZERO,
             true,
         );
-        let animation = Tween::new(Duration::from_secs(2), Easing::LINEAR);
+        let animation = Tween::new(2.0, Easing::LINEAR);
         let options = AnimationOptions { restart, ..options };
         for (millis, expected) in [
             (500, [25.0, 25.0]),
@@ -174,8 +165,8 @@ fn tween_retargeting() {
         assert!(!animator.is_active());
     }
 
-    let mut animator = Animator::new([0.0], Animation::default(), options);
-    let linear = Tween::new(Duration::from_secs(1), Easing::LINEAR);
+    let mut animator = Animator::new([0.0], Animation::default());
+    let linear = Tween::new(1.0, Easing::LINEAR);
     animator.advance([100.0], [true], linear, options, Duration::ZERO, true);
     animator.advance([120.0], [true], linear, options, Duration::from_millis(500), true);
     let mut restarted = animator.clone();
@@ -214,8 +205,8 @@ fn tween_retargeting() {
 #[test]
 fn tween_retargeting_carries_velocity() {
     let options = AnimationOptions::default();
-    let mut animator = Animator::new([0.0], Animation::default(), options);
-    let animation = Tween::new(Duration::from_secs(1), Easing::EASE_IN_QUAD);
+    let mut animator = Animator::new([0.0], Animation::default());
+    let animation = Tween::new(1.0, Easing::EASE_IN_QUAD);
     let mut previous = 0.0;
     for (millis, target) in [(0, 100.0), (200, 200.0), (300, -100.0), (400, 300.0), (500, -200.0)] {
         let now = Duration::from_millis(millis);
@@ -242,6 +233,43 @@ fn tween_retargeting_carries_velocity() {
 }
 
 #[test]
+fn delay_holds_before_moving() {
+    let linear = Tween::new(1.0, Easing::LINEAR);
+    let spring = Spring::new(1.0, 0.0);
+    for animation in [Animation::from(linear), Animation::from(spring)] {
+        let options = AnimationOptions::new().delay(0.500);
+        let mut animator = Animator::new([0.0], Animation::default());
+        for millis in [0, 250, 500] {
+            assert_eq!(
+                animator.advance([100.0], [true], animation, options, Duration::from_millis(millis), true),
+                ([0.0], [true])
+            );
+        }
+        let value = animator
+            .advance([100.0], [true], animation, options, Duration::from_millis(750), true)
+            .0[0];
+        assert!(value > 0.0 && value < 100.0);
+        assert_eq!(
+            animator.advance([100.0], [true], animation, options, Duration::from_secs(10), true),
+            ([100.0], [false])
+        );
+
+        // reverting during the hold never moves
+        let mut animator = Animator::new([0.0], Animation::default());
+        animator.advance([100.0], [true], animation, options, Duration::ZERO, true);
+        for millis in [250, 750, 1000, 1500] {
+            assert_eq!(
+                animator
+                    .advance([0.0], [true], animation, options, Duration::from_millis(millis), true)
+                    .0,
+                [0.0]
+            );
+        }
+        assert!(!animator.is_active());
+    }
+}
+
+#[test]
 fn retargeted_motion_measurement() {
     let (mut frame, mut context) = frame(Size::uniform(100.0));
     let id = "retargeted height";
@@ -263,7 +291,7 @@ fn retargeted_motion_measurement() {
                 let mut column = ui.layout(Column);
                 let (_, size) = column
                     .child_id(id)
-                    .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).height())
+                    .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).height())
                     .build_measured(Constraints::loose(Size::uniform(100.0)), |mut ui: Ui<'_>| {
                         ui.insert(Fill('X', Size::new(1.0, extent)));
                     });
@@ -283,8 +311,8 @@ fn retargeted_motion_measurement() {
 #[test]
 fn spring_retargeting_and_velocity() {
     let options = AnimationOptions::default();
-    let spring = Spring::new(Duration::from_millis(500), 0.3);
-    let mut animator = Animator::new([0.0], Animation::default(), options);
+    let spring = Spring::new(0.500, 0.3);
+    let mut animator = Animator::new([0.0], Animation::default());
     animator.advance([1.0], [true], spring, options, Duration::ZERO, true);
     let time = Duration::from_millis(30);
     let position = animator.advance([1.0], [true], spring, options, time, true).0[0];
@@ -321,7 +349,7 @@ fn spring_retargeting_and_velocity() {
     );
     assert!(!animator.is_active());
 
-    let mut launched = Animator::new([0.0], Animation::default(), options);
+    let mut launched = Animator::new([0.0], Animation::default());
     let launch = AnimationOptions {
         velocity: Some(-10.0),
         ..options
@@ -334,7 +362,7 @@ fn spring_retargeting_and_velocity() {
             < 0.0
     );
 
-    let mut at_target = Animator::new([0.0], Animation::default(), options);
+    let mut at_target = Animator::new([0.0], Animation::default());
     let launch = AnimationOptions {
         velocity: Some(5.0),
         ..options
@@ -355,8 +383,8 @@ fn spring_retargeting_and_velocity() {
     at_target.advance([0.0], [true], spring, launch, Duration::from_secs(11), true);
     assert!(!at_target.is_active());
 
-    let mut tween = Animator::new([0.0], Animation::default(), options);
-    let linear = Tween::new(Duration::from_secs(1), Easing::Function(|t| (t, 1.0)));
+    let mut tween = Animator::new([0.0], Animation::default());
+    let linear = Tween::new(1.0, Easing::Function(|t| (t, 1.0)));
     tween.advance([1.0], [true], linear, options, Duration::ZERO, true);
     assert_eq!(
         tween
@@ -375,16 +403,16 @@ fn spring_retargeting_and_velocity() {
 #[test]
 fn spring_to_tween_carries_velocity() {
     let options = AnimationOptions::default();
-    let spring = Spring::new(Duration::from_millis(500), 0.3);
+    let spring = Spring::new(0.500, 0.3);
     for easing in [Easing::LINEAR, Easing::EASE_IN_QUAD, Easing::EASE_OUT_QUAD] {
         for restart in [false, true] {
-            let mut animator = Animator::new([0.0], Animation::default(), options);
+            let mut animator = Animator::new([0.0], Animation::default());
             animator.advance([1.0], [true], spring, options, Duration::ZERO, true);
             let now = Duration::from_millis(30);
             let next = now + Duration::from_micros(100);
             let position = animator.advance([1.0], [true], spring, options, now, false).0[0];
             let continuing = animator.advance([1.0], [true], spring, options, next, false).0[0];
-            let tween = Tween::new(Duration::from_secs(1), easing);
+            let tween = Tween::new(1.0, easing);
             let options = AnimationOptions { restart, ..options };
             assert_eq!(
                 animator.advance([-1.0], [true], tween, options, now, false).0,
@@ -413,10 +441,10 @@ fn spring_to_tween_carries_velocity() {
 #[test]
 fn explicit_velocity_overrides_carried_velocity() {
     for animation in [
-        Animation::Spring(Spring::new(Duration::from_millis(500), 0.3)),
-        Tween::new(Duration::from_secs(1), Easing::LINEAR).into(),
-        Tween::new(Duration::from_secs(1), Easing::EASE_IN_QUAD).into(),
-        Tween::new(Duration::from_secs(1), Easing::EASE_OUT_QUAD).into(),
+        Animation::Spring(Spring::new(0.500, 0.3)),
+        Tween::new(1.0, Easing::LINEAR).into(),
+        Tween::new(1.0, Easing::EASE_IN_QUAD).into(),
+        Tween::new(1.0, Easing::EASE_OUT_QUAD).into(),
     ] {
         for restart in [false, true] {
             for velocity in [-2.0, 0.0, 2.0] {
@@ -424,16 +452,16 @@ fn explicit_velocity_overrides_carried_velocity() {
                     initial: None,
                     restart,
                     velocity: Some(velocity),
+                    delay: 0.0,
                 };
-                let mut animator = Animator::new([0.0], Animation::default(), AnimationOptions::default());
+                let mut animator = Animator::new([0.0], Animation::default());
                 let mut now = Duration::ZERO;
                 for target in [0.0, 1.0, -1.0] {
                     let position = animator.values;
                     let expected = match animation {
                         Animation::Spring(_) => velocity,
                         Animation::Tween(tween) => {
-                            velocity
-                                + (target - position[0]) * tween.easing.sample(0.0).1 / tween.duration.as_secs_f32()
+                            velocity + (target - position[0]) * tween.easing.sample(0.0).1 / tween.duration
                         }
                     };
                     assert_eq!(
@@ -466,12 +494,12 @@ fn explicit_velocity_overrides_carried_velocity() {
 fn spring_timestep_and_bounce() {
     let options = AnimationOptions::default();
     for bounce in [1.0, 0.5, 0.000001, 0.0, -0.000001, -0.5, -0.999] {
-        let spring = Spring::new(Duration::from_millis(500), bounce);
+        let spring = Spring::new(0.500, bounce);
         let options = AnimationOptions {
             velocity: Some(3.0),
             ..options
         };
-        let mut direct = Animator::new([0.0], Animation::default(), options);
+        let mut direct = Animator::new([0.0], Animation::default());
         direct.advance([10.0], [true], spring, options, Duration::ZERO, true);
         let mut divided = direct.clone();
         let expected = direct
@@ -494,8 +522,8 @@ fn spring_timestep_and_bounce() {
             assert!(!direct.is_active());
         }
     }
-    let mut animator = Animator::new([0.0], Animation::default(), options);
-    let instant = Spring::new(Duration::ZERO, 0.3);
+    let mut animator = Animator::new([0.0], Animation::default());
+    let instant = Spring::new(0.0, 0.3);
     assert_eq!(
         animator.advance([10.0], [true], instant, options, Duration::ZERO, true),
         ([10.0], [false])
@@ -505,10 +533,10 @@ fn spring_timestep_and_bounce() {
 #[test]
 fn integer_springs_preserve_fractional_motion() {
     let options = AnimationOptions::default();
-    let spring = Animation::Spring(Spring::new(Duration::from_millis(500), 0.0));
+    let spring = Animation::Spring(Spring::new(0.500, 0.0));
     let base = 2_000_000_000;
-    let mut cells = Animator::new([base], Animation::default(), options);
-    let mut pixels = Animator::new([0.0], Animation::default(), options);
+    let mut cells = Animator::new([base], Animation::default());
+    let mut pixels = Animator::new([0.0], Animation::default());
     cells.advance([base + 8], [true], spring, options, Duration::ZERO, true);
     pixels.advance([8.0], [true], spring, options, Duration::ZERO, true);
     let mut cell = base;
@@ -526,7 +554,7 @@ fn integer_springs_preserve_fractional_motion() {
 fn spring_motion_measurement_and_settling() {
     let (mut frame, mut context) = frame(Size::uniform(100.0));
     let id = "spring motion";
-    let spring = Spring::new(Duration::from_millis(500), 0.0);
+    let spring = Spring::new(0.500, 0.0);
     for (extent, millis) in [(1.0, 0), (3.0, 0), (3.0, 100), (3.0, 10_000)] {
         let time = Duration::from_millis(millis);
         let measured = render_inputs(&mut frame, &mut context, time, [], |ui: Ui<'_>| {
@@ -605,7 +633,7 @@ fn spring_sizes_stay_nonnegative_and_resize_snaps() {
         move |ui: Ui<'_>| {
             ui.layout(Column)
                 .child_id(id)
-                .motion(Motion::new(Spring::new(Duration::from_millis(250), 0.4)).size())
+                .motion(Motion::new(Spring::new(0.250, 0.4)).size())
                 .insert(Fill('X', Size::uniform(extent)));
         }
     };
@@ -624,7 +652,7 @@ fn spring_sizes_stay_nonnegative_and_resize_snaps() {
 #[test]
 fn reparented_motion_continues_from_its_screen_position() {
     let (mut frame, mut context) = frame(Size::uniform(40.0));
-    let motion = Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).position();
+    let motion = Motion::new(Tween::new(1.0, Easing::LINEAR)).position();
     // the card moves from the first column to the second without moving within either
     for (millis, column, x) in [(0, 0, 0.0), (0, 1, 0.0), (500, 1, 10.0), (1000, 1, 20.0)] {
         render_inputs(
@@ -686,7 +714,7 @@ fn intervals_count_and_reset() {
 #[test]
 fn lifted_motion_paints_above_while_moving() {
     let (mut frame, mut context) = frame(Size::uniform(40.0));
-    let motion = Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR))
+    let motion = Motion::new(Tween::new(1.0, Easing::LINEAR))
         .position()
         .lift(Target::ROOT);
     // the card moves into the first column, under the second until lifted
@@ -736,7 +764,7 @@ fn lifted_motion_paints_above_while_moving() {
 #[test]
 fn motion_within_a_parent_does_not_lift() {
     let (mut frame, mut context) = frame(Size::uniform(40.0));
-    let motion = Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR))
+    let motion = Motion::new(Tween::new(1.0, Easing::LINEAR))
         .position()
         .lift(Target::ROOT);
     // the card slides down its column while the next column still paints over it

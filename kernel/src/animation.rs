@@ -1,7 +1,4 @@
-use std::{
-    ops::{BitOr, BitOrAssign},
-    time::Duration,
-};
+use std::ops::{BitOr, BitOrAssign};
 
 use crate::{Target, builder};
 
@@ -46,6 +43,10 @@ builder! {
         /// zero removes carried momentum but a tween still follows its easing
         #[into]
         velocity: Option<f32> = None,
+        /// seconds to hold the current value before moving toward a new target
+        /// starts from rest unless `velocity` is set
+        /// ignored by zero duration animations
+        delay: f32 = 0.0,
     }
 }
 
@@ -53,7 +54,11 @@ builder! {
     /// an easing curve with a duration specifying the time to reach the target
     #[derive(Clone, Copy, Debug, Default, PartialEq)]
     pub struct Tween {
-        new(duration: Duration, easing: Easing),
+        new(
+            /// seconds to reach the target
+            duration: f32,
+            easing: Easing,
+        ),
     }
 }
 
@@ -62,8 +67,8 @@ builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Spring {
         new(
-            /// undamped period controlling the response speed
-            duration: Duration,
+            /// undamped period in seconds controlling the response speed
+            duration: f32,
             /// positive overshoots, zero is critically damped and negative is overdamped
             bounce: f32,
         ),
@@ -89,6 +94,9 @@ builder! {
         properties: MotionProps = MotionProps::NONE,
         /// discards carried velocity when retargeting
         restart: bool = false,
+        /// seconds to hold the current layout before moving toward a new one from rest
+        /// ignored by zero duration animations
+        delay: f32 = 0.0,
         /// while moving to a new parent or anchor, paints above everything under this target,
         /// which is ignored unless it was built before the node
         #[into]

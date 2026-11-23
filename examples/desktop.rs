@@ -1,4 +1,4 @@
-use std::{cell::Cell, time::Duration};
+use std::cell::Cell;
 
 use blit::{Animation, Axis, Constraints, Easing, LogicalRect, Motion, Sides, Size, Spring, Target, Tween, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, Transition, board, select};
@@ -253,7 +253,7 @@ struct AnimationPage {
 impl Default for AnimationPage {
     fn default() -> Self {
         Self {
-            spring: Spring::new(Duration::from_millis(650), 0.5).rest(0.01, 0.01),
+            spring: Spring::new(0.650, 0.5).rest(0.01, 0.01),
             right: false,
             scroll: ScrollState::default(),
             split: SplitState::default(),
@@ -300,12 +300,7 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                                 ui,
                                 "duration",
                                 &mut spring.duration,
-                                &[
-                                    ("350ms", Duration::from_millis(350)),
-                                    ("650ms", Duration::from_millis(650)),
-                                    ("1000ms", Duration::from_millis(1000)),
-                                    ("2000ms", Duration::from_millis(2000)),
-                                ],
+                                &[("350ms", 0.35), ("650ms", 0.65), ("1000ms", 1.0), ("2000ms", 2.0)],
                             );
                         });
                     }));

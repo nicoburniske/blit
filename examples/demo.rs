@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use blit::{
     Animation, Axis, Easing, Layout, Motion, Scalar, Sides, Size, Spring, Target, Tween, Ui, Widget, state::Open,
 };
@@ -43,7 +41,7 @@ pub fn board<'a, C: Context>(
     mut card: impl FnMut(Ui<'_, C>, Option<u32>, bool) + 'a,
 ) -> impl Widget<C> + 'a {
     move |ui: Ui<'_, C>| {
-        let spring = Spring::new(Duration::from_millis(350), 0.15);
+        let spring = Spring::new(0.350, 0.15);
         let item = || flex::item().height(height);
         let mut board = ui.layout(flex::row().gap(gap).align(Align::Stretch));
         let scope = board.scope();
@@ -136,7 +134,7 @@ pub enum Transition {
 
 impl Transition {
     pub fn motion(self) -> Option<Motion> {
-        let duration = Duration::from_millis(250);
+        let duration = 0.25;
         let animation = match self {
             Self::Off => return None,
             Self::Spring => Animation::Spring(Spring::new(duration, 0.2).rest(0.01, 0.01)),

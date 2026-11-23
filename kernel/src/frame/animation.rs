@@ -23,11 +23,7 @@ impl AnimationState {
                         index,
                         Self {
                             id,
-                            playback: Playback::Target(Animator::new(
-                                [initial],
-                                Animation::default(),
-                                AnimationOptions::default(),
-                            )),
+                            playback: Playback::Target(Animator::new([initial], Animation::default())),
                             seen: false,
                         },
                     );
@@ -68,7 +64,7 @@ impl<T: Scalar> MotionState<T> {
     pub fn new(id: Id, node: NodeId) -> Self {
         Self {
             id,
-            animator: Animator::new([T::ZERO; 4], Animation::default(), AnimationOptions::default()),
+            animator: Animator::new([T::ZERO; 4], Animation::default()),
             properties: MotionProps::NONE,
             node,
             initialized: false,
@@ -94,10 +90,11 @@ impl<T: Scalar> MotionState<T> {
             initial: None,
             restart: config.restart,
             velocity: None,
+            delay: config.delay,
         };
         if !self.initialized || (resized && !config.properties.intersects(MotionProps::RESIZE)) {
             if commit {
-                self.animator = Animator::new(targets, config.animation, options);
+                self.animator = Animator::new(targets, config.animation);
                 self.initialized = true;
             }
             return (targets, MotionProps::NONE);

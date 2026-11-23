@@ -24,7 +24,7 @@ impl Dock {
         controls: impl FnOnce(usize) -> Option<W>,
     ) {
         if self.running {
-            self.phase = ui.animate_loop(Tween::new(Duration::from_secs(24), Easing::LINEAR));
+            self.phase = ui.animate_loop(Tween::new(24.0, Easing::LINEAR));
         }
         let mut toolbar = ui
             .z_index(1)
@@ -36,7 +36,7 @@ impl Dock {
                     .y(-sz::LG),
             )
             .layout(flex::row().gap(sz::SM).align(Align::Center))
-            .motion(Motion::new(Tween::new(Duration::from_millis(220), Easing::EASE_IN_OUT)).size())
+            .motion(Motion::new(Tween::new(0.220, Easing::EASE_IN_OUT)).size())
             .pad(sz::XS);
         toolbar.interact(interact::press());
         toolbar.insert(

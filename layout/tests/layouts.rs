@@ -497,7 +497,7 @@ fn flex_size_motion_preserves_exact_overflow_and_reflows_siblings() {
                 let mut row = ui.layout(flex::row());
                 row.child_id(animated)
                     .item(flex::item().width(extent).height(extent))
-                    .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).size())
+                    .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).size())
                     .insert(BoxContent(Size::ZERO));
                 row.child_id(sibling)
                     .item(flex::item().width(1.0).height(1.0))
@@ -608,7 +608,7 @@ fn wrap_keeps_target_runs_during_size_motions() {
                 for id in ids {
                     wrap.child_id(id)
                         .item(wrap::item().width(Sizing::grow_range(2, i32::MAX)))
-                        .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).size())
+                        .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).size())
                         .insert(BoxContent(Size::uniform(1)));
                 }
             },
@@ -639,7 +639,7 @@ fn wrap_shrinkwraps_animated_target_runs() {
                 for id in child_ids {
                     wrap.child_in(blit::Scope::ROOT, id)
                         .item(wrap::item().width(extent).height(1.0))
-                        .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).size())
+                        .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).size())
                         .insert(BoxContent(Size::ZERO));
                 }
             },
@@ -802,7 +802,7 @@ fn grid_preserves_an_animated_child_extent_with_a_larger_sibling() {
             |ui: Ui<'_, Cells>| {
                 let mut grid = ui.layout(grid::new(2));
                 grid.child_id(id)
-                    .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).height())
+                    .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).height())
                     .insert(BoxContent(Size::new(1, extent)));
                 grid.child().insert(BoxContent(Size::new(1, extent)));
             },

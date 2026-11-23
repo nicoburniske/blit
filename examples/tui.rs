@@ -2,7 +2,6 @@ use std::{
     cell::{Cell, RefCell},
     io,
     rc::Rc,
-    time::Duration,
 };
 
 use blit::{
@@ -192,7 +191,7 @@ struct AnimationPage {
 impl Default for AnimationPage {
     fn default() -> Self {
         Self {
-            spring: Spring::new(Duration::from_millis(650), 0.5).rest(0.01, 0.01),
+            spring: Spring::new(0.650, 0.5).rest(0.01, 0.01),
             right: false,
             scroll: ScrollState::default(),
             split: SplitState::default(),
@@ -238,12 +237,7 @@ impl Widget<TuiContext> for &mut AnimationPage {
                                         ui,
                                         "duration",
                                         &mut spring.duration,
-                                        &[
-                                            ("350ms", Duration::from_millis(350)),
-                                            ("650ms", Duration::from_millis(650)),
-                                            ("1000ms", Duration::from_millis(1000)),
-                                            ("2000ms", Duration::from_millis(2000)),
-                                        ],
+                                        &[("350ms", 0.35), ("650ms", 0.65), ("1000ms", 1.0), ("2000ms", 2.0)],
                                     );
                                 });
                             },
@@ -1030,7 +1024,7 @@ impl Widget<TuiContext> for &mut WidgetsPage {
     type Response = ();
 
     fn build(self, mut ui: Ui<'_>) {
-        let phase = ui.animate_loop(Tween::new(Duration::from_secs(3), Easing::LINEAR));
+        let phase = ui.animate_loop(Tween::new(3.0, Easing::LINEAR));
         let ratio = (phase * std::f32::consts::TAU).sin() * 0.25 + 0.5;
         for (x, value) in self.sparkline.borrow_mut().iter_mut().enumerate() {
             *value = (((x as f32 * 0.24 + phase * std::f32::consts::TAU).sin() + 1.0) * 50.0) as u64;

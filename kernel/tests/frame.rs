@@ -107,7 +107,7 @@ fn scratch_and_default_items() {
             |ui: Ui<'_>| {
                 let mut root = ui.layout(SharedItems(3));
                 root.child_id(id)
-                    .motion(Motion::new(Tween::new(Duration::from_secs(1), Easing::LINEAR)).size())
+                    .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).size())
                     .layout(Temporary)
                     .child()
                     .layout(Temporary)

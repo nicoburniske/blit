@@ -493,7 +493,7 @@ fn animate<C: Context, S: Local>(state: &mut ScrollState<C::Scalar>, ui: &mut Ui
     };
     let animator = request
         .animator
-        .get_or_insert_with(|| Animator::new([state.offset], Animation::default(), AnimationOptions::default()));
+        .get_or_insert_with(|| Animator::new([state.offset], Animation::default()));
     animator.advance([goal], [true], request.animation, request.options, ui.time(), true);
     let offset = animator.clamp(0, C::Scalar::ZERO, maximum, ui.time());
     if animator.is_active() {
@@ -693,7 +693,7 @@ mod tests {
             viewport_extent: 100.0,
             ..ScrollState::default()
         };
-        let spring = Spring::new(Duration::from_millis(500), 0.3).rest(0.01, 0.01);
+        let spring = Spring::new(0.500, 0.3).rest(0.01, 0.01);
         let mut step = |state: &mut ScrollState<f32>, millis| {
             frame.build(
                 &mut TestContext,
