@@ -1,4 +1,4 @@
-use std::{
+use core::{
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
     sync::atomic::{AtomicU32, Ordering},
@@ -58,7 +58,7 @@ impl FrameStore {
         let offset = self.data.allocate::<T>(capacity);
         // safety: allocate reserves aligned storage and this borrow prevents growth or clearing
         let values =
-            unsafe { std::slice::from_raw_parts_mut(self.data.as_ptr().add(offset.byte() as usize).cast(), capacity) };
+            unsafe { core::slice::from_raw_parts_mut(self.data.as_ptr().add(offset.byte() as usize).cast(), capacity) };
         FrameSliceBuilder {
             values,
             slice: Slice { offset, len: 0 },

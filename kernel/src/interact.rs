@@ -53,7 +53,7 @@
 //!
 //! after capture, just follow the contact without claiming or capturing it again
 
-use std::num::NonZeroU32;
+use core::num::NonZeroU32;
 
 pub use crate::frame::interact::Contact;
 use crate::{Context, InteractCx, KeyInput, MouseButton, geometry::Point};

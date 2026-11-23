@@ -358,28 +358,6 @@ fn duplicate_keys_are_rejected() {
     }
 }
 
-#[cfg(debug_assertions)]
-#[test]
-fn node_targets_reject_previous_renders() {
-    for anchor in [false, true] {
-        let (mut frame, mut context) = frame(Size::uniform(1.0));
-        let previous = render(&mut frame, &mut context, |ui: Ui<'_>| ui.node_id());
-        assert!(
-            catch_unwind(AssertUnwindSafe(|| {
-                render(&mut frame, &mut context, |ui: Ui<'_>| {
-                    let mut root = ui.layout(Overlay);
-                    if anchor {
-                        root.child().place(previous, At(|_| Point::ZERO)).insert(());
-                    } else {
-                        root.child().parent(previous).insert(());
-                    }
-                });
-            }))
-            .is_err()
-        );
-    }
-}
-
 #[test]
 fn bindings_and_geometry() {
     let (mut frame, mut context) = frame(Size::uniform(10.0));

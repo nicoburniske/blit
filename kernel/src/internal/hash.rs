@@ -1,6 +1,6 @@
 // adapted from rustc-hash 2.1.3, algorithm by Orson Peters
 
-use std::hash::Hasher;
+use core::hash::Hasher;
 
 #[derive(Default)]
 pub struct FxHasher {

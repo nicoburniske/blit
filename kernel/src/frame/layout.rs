@@ -133,10 +133,10 @@ impl Iterator for Children<'_> {
 
     #[inline]
     fn next(&mut self) -> Option<NodeId> {
-        while (self.next.value as usize) < self.nodes.len() {
+        while (self.next.0 as usize) < self.nodes.len() {
             let node = self.next;
             let stored = &self.nodes[node.index()];
-            self.next.value = stored.subtree_end + 1;
+            self.next.0 = stored.subtree_end + 1;
             if stored.place.index().is_none() {
                 return Some(node);
             }
@@ -152,7 +152,7 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     #[inline]
     fn cast<J>(&mut self) -> &mut LayoutCx<'a, C, J> {
         // safety: repr(C) changes only the item marker and preserves this borrow and lifetime
-        unsafe { &mut *std::ptr::from_mut(self).cast::<LayoutCx<'a, C, J>>() }
+        unsafe { &mut *core::ptr::from_mut(self).cast::<LayoutCx<'a, C, J>>() }
     }
 
     fn size_overrides(&self, node: NodeId) -> Size<Option<C::Scalar>> {
@@ -375,7 +375,7 @@ pub fn position<C: Context>(frame: &mut Frame<C>) {
             continue;
         };
         // previous nodes belong to another build, so their references are read by value
-        let old_reference = frame.old_nodes[frame.old_nodes[old].target.value as usize].widget_id;
+        let old_reference = frame.old_nodes[frame.old_nodes[old].target.0 as usize].widget_id;
         if old_reference == frame.nodes[stored.target.index()].widget_id {
             continue;
         }
@@ -421,7 +421,7 @@ fn arrange<C: Context>(
     node: NodeId,
     bounds: Constraints<C::Scalar>,
 ) -> Size<C::Scalar> {
-    let mut placements = std::mem::take(&mut frame.placements);
+    let mut placements = core::mem::take(&mut frame.placements);
     let mut requested = frame.frame_requested;
     let mut cx = LayoutCx {
         frame,
@@ -436,7 +436,7 @@ fn arrange<C: Context>(
         item: PhantomData::<fn() -> ()>,
     };
     let size = cx.resolve(node, bounds);
-    if node.value == 0 {
+    if node.0 == 0 {
         for index in 1..cx.frame.nodes.len() {
             let stored = &cx.frame.nodes[index];
             let Some(place) = stored.place.index() else {

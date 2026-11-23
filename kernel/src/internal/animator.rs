@@ -1,8 +1,9 @@
-use std::time::Duration;
+use core::time::Duration;
 
 use crate::{
     Scalar,
     animation::{Animation, AnimationOptions, Spring, Tween},
+    math,
 };
 
 /// continuous motion with snapped output
@@ -96,8 +97,8 @@ impl<T: Scalar, const N: usize> Animator<T, N> {
             Animation::Tween(tween) => tween.duration == 0.0,
             Animation::Spring(spring) => spring.duration == 0.0,
         };
-        let start = std::array::from_fn(|i| targets[i].delta(self.targets[i]) + displacement[i]);
-        let values = std::array::from_fn(|i| {
+        let start = core::array::from_fn(|i| targets[i].delta(self.targets[i]) + displacement[i]);
+        let values = core::array::from_fn(|i| {
             if !enabled[i] || instant {
                 targets[i]
             } else {
@@ -250,7 +251,7 @@ impl<const N: usize> Kind<N> {
             return (
                 *displacement,
                 [0.0; N],
-                std::array::from_fn(|i| displacement[i] != 0.0 || velocity[i] != 0.0),
+                core::array::from_fn(|i| displacement[i] != 0.0 || velocity[i] != 0.0),
             );
         }
         match self {
@@ -287,7 +288,7 @@ impl<const N: usize> Kind<N> {
                 time,
             } => {
                 let elapsed = (now - *time).max(0.0);
-                let omega = std::f64::consts::TAU / f64::from(spring.duration);
+                let omega = core::f64::consts::TAU / f64::from(spring.duration);
                 let bounce = spring.bounce as f64;
                 let damping = if bounce >= 0.0 {
                     1.0 - bounce
@@ -297,19 +298,20 @@ impl<const N: usize> Kind<N> {
                 let decay = damping * omega;
                 let discriminant = damping * damping - 1.0;
                 let (cosine, sine) = if discriminant == 0.0 {
-                    let envelope = (-omega * elapsed).exp();
+                    let envelope = math::exp(-omega * elapsed);
                     (envelope, elapsed * envelope)
                 } else if discriminant < 0.0 {
-                    let frequency = omega * (-discriminant).sqrt();
-                    let (sine, cosine) = (frequency * elapsed).sin_cos();
-                    let envelope = (-decay * elapsed).exp();
+                    let frequency = omega * math::sqrt(-discriminant);
+                    let (sine, cosine) = math::sin_cos(frequency * elapsed);
+                    let envelope = math::exp(-decay * elapsed);
                     (envelope * cosine, envelope * sine / frequency)
                 } else {
-                    let root = discriminant.sqrt();
+                    let root = math::sqrt(discriminant);
                     let frequency = omega * root;
-                    let slow = (-omega / (damping + root) * elapsed).exp();
-                    let fast = (-(decay + frequency) * elapsed).exp();
-                    let sine = slow * -(-2.0 * frequency * elapsed).exp_m1() / (2.0 * frequency);
+                    let slow = math::exp(-omega / (damping + root) * elapsed);
+                    let fast = math::exp(-(decay + frequency) * elapsed);
+                    // exp_m1 precision is unneeded for f32 output
+                    let sine = slow * (1.0 - math::exp(-2.0 * frequency * elapsed)) / (2.0 * frequency);
                     ((slow + fast) * 0.5, sine)
                 };
                 let [a, b, c, d] = [

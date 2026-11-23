@@ -165,7 +165,7 @@ impl<T> Contact<'_, T> {
 
 /// iterate contact handles from [`InteractCx::contacts`]
 pub struct Contacts<'a, T> {
-    contacts: std::slice::IterMut<'a, TrackedContact<T>>,
+    contacts: core::slice::IterMut<'a, TrackedContact<T>>,
     id: Id,
     node: u32,
     end: u32,
@@ -564,7 +564,7 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
         let end = nodes
             .get(slot.node as usize)
             .map_or(UNRESOLVED, |stored| stored.subtree_end);
-        (end, std::cmp::Reverse(slot.node), slot.order)
+        (end, core::cmp::Reverse(slot.node), slot.order)
     });
     retained.rebuild();
     retained.requested = 0;
@@ -597,7 +597,7 @@ pub fn resolve<C: Context>(frame: &mut Frame<C>) {
     }
     frame.interaction.focus_seen = frame.interaction.focused;
     // focus requested during the build applies once it resolves
-    match std::mem::replace(&mut frame.focus, super::FocusRequest::Keep) {
+    match core::mem::replace(&mut frame.focus, super::FocusRequest::Keep) {
         super::FocusRequest::Keep => {}
         super::FocusRequest::Clear => frame.interaction.focused = None,
         super::FocusRequest::Focus(id) => frame.interaction.focused = Some(id),

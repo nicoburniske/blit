@@ -1,6 +1,7 @@
 //! aligned storage addressed by byte offsets
 
-use std::{
+use alloc::vec::Vec;
+use core::{
     cell::UnsafeCell,
     marker::PhantomData,
     mem::{MaybeUninit, align_of, needs_drop, size_of},
@@ -42,7 +43,7 @@ impl Bump {
         let offset = self.allocate::<T>(len as usize);
         // safety: allocate reserves aligned storage for this slice
         let slots = unsafe {
-            std::slice::from_raw_parts_mut(
+            core::slice::from_raw_parts_mut(
                 self.as_ptr().add(offset.byte as usize).cast::<MaybeUninit<T>>(),
                 len as usize,
             )
@@ -79,7 +80,7 @@ impl Bump {
         }
         // safety: the caller guarantees the type and validity of this allocation
         unsafe {
-            std::slice::from_raw_parts(
+            core::slice::from_raw_parts(
                 self.as_ptr().add(slice.offset.byte as usize).cast::<T>(),
                 slice.len as usize,
             )

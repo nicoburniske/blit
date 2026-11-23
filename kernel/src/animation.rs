@@ -1,4 +1,4 @@
-use std::ops::{BitOr, BitOrAssign};
+use core::ops::{BitOr, BitOrAssign};
 
 use crate::{Target, builder};
 
@@ -293,7 +293,7 @@ impl PartialEq for Easing {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Bezier(a), Self::Bezier(b)) => a == b,
-            (Self::Function(a), Self::Function(b)) => std::ptr::fn_addr_eq(*a, *b),
+            (Self::Function(a), Self::Function(b)) => core::ptr::fn_addr_eq(*a, *b),
             _ => false,
         }
     }

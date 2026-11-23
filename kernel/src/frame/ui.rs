@@ -403,7 +403,7 @@ impl<'ui, C: Context, S: state::NoLayout> Ui<'ui, C, S> {
             inner.frame.nodes[node.index()].place.index().is_none(),
             "measured widgets must stay in flow"
         );
-        let mut bump = std::mem::take(&mut inner.frame.bump);
+        let mut bump = core::mem::take(&mut inner.frame.bump);
         bump.storage.prepare();
         let size = layout::resolve(inner.frame, &bump, inner.context, node, bounds, false);
         inner.frame.bump = bump;
@@ -447,7 +447,7 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
         let sites = &mut frame.sites[self.inner.sites as usize..];
         // copies of one call site may not share an address
         let site = sites.iter_mut().find(|site| {
-            std::ptr::eq(site.location, location)
+            core::ptr::eq(site.location, location)
                 || (site.location.line() == location.line()
                     && site.location.column() == location.column()
                     && site.location.file() == location.file())

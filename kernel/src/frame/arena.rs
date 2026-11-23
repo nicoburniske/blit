@@ -48,7 +48,7 @@ impl BumpArena {
                 .is_some_and(|end| end <= self.storage.bump.used())
         );
         if size_of::<T>() == 0 {
-            return std::ptr::NonNull::<T>::dangling().as_ptr();
+            return core::ptr::NonNull::<T>::dangling().as_ptr();
         }
         // safety: the offset is within the arena and shared writes use disjoint reserved ranges
         unsafe { self.storage.bump.as_ptr().add(offset).cast::<T>() }

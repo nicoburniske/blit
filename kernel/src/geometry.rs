@@ -1,7 +1,9 @@
-use std::{
+use core::{
     fmt::Debug,
     ops::{Add, AddAssign, Mul, Neg, Sub},
 };
+
+use crate::math;
 
 /// coordinate arithmetic and snapping used by [`Context::Scalar`](crate::Context::Scalar)
 ///
@@ -118,7 +120,7 @@ impl Scalar for i32 {
 
     #[inline]
     fn from_f32(value: f32) -> Self {
-        value.round() as Self
+        math::round(value as f64)
     }
     #[inline]
     fn to_f32(self) -> f32 {
@@ -130,7 +132,7 @@ impl Scalar for i32 {
     }
     #[inline]
     fn offset(self, amount: f32) -> Self {
-        (self as f64 + amount as f64).round() as Self
+        math::round(self as f64 + amount as f64)
     }
     #[inline]
     fn allocate(cursor: &mut f32, share: f32) -> Self {
@@ -153,7 +155,7 @@ impl Scalar for i32 {
     }
     #[inline]
     fn lerp(self, end: Self, amount: f32) -> Self {
-        (self as f64 + (end as f64 - self as f64) * amount as f64).round() as Self
+        math::round(self as f64 + (end as f64 - self as f64) * amount as f64)
     }
     #[inline]
     fn min(self, other: Self) -> Self {
@@ -331,10 +333,10 @@ impl<T: Scalar> Rect<T> {
 
 impl Rect<f32> {
     pub fn to_physical(self, scale: Scale2) -> PhysicalRect {
-        let x = (self.x * scale.x).floor() as i32;
-        let y = (self.y * scale.y).floor() as i32;
-        let right = ((self.x + self.width) * scale.x).ceil() as i32;
-        let bottom = ((self.y + self.height) * scale.y).ceil() as i32;
+        let x = math::floor(self.x * scale.x);
+        let y = math::floor(self.y * scale.y);
+        let right = math::ceil((self.x + self.width) * scale.x);
+        let bottom = math::ceil((self.y + self.height) * scale.y);
         PhysicalRect {
             x,
             y,

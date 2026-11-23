@@ -1,4 +1,5 @@
-use std::{
+use alloc::vec::Vec;
+use core::{
     cell::Cell,
     mem::{MaybeUninit, align_of, size_of},
     ops::{Deref, DerefMut},
@@ -34,13 +35,13 @@ impl ScratchBuffer {
         let live = self.live.get().checked_add(1).expect("too many scratch guards");
         let inner = if end <= self.bump.capacity() {
             let pointer = if capacity == 0 || size_of::<T>() == 0 {
-                std::ptr::NonNull::<T>::dangling().as_ptr()
+                core::ptr::NonNull::<T>::dangling().as_ptr()
             } else {
                 // safety: this range is disjoint from all live scratch guards
                 unsafe { self.bump.as_ptr().add(offset).cast::<T>() }
             };
             // safety: the storage is aligned and sized for this uninitialized slice
-            ScratchInner::Ref(unsafe { std::slice::from_raw_parts_mut(pointer.cast::<MaybeUninit<T>>(), capacity) })
+            ScratchInner::Ref(unsafe { core::slice::from_raw_parts_mut(pointer.cast::<MaybeUninit<T>>(), capacity) })
         } else {
             let mut values = Vec::with_capacity(capacity);
             values.resize_with(capacity, MaybeUninit::uninit);

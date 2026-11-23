@@ -6,7 +6,8 @@ pub mod paint;
 pub mod timer;
 pub mod ui;
 
-use std::{any::TypeId, marker::PhantomData, mem::size_of, num::NonZeroU32, panic::Location, time::Duration};
+use alloc::vec::Vec;
+use core::{any::TypeId, marker::PhantomData, mem::size_of, num::NonZeroU32, panic::Location, time::Duration};
 
 use self::{
     animation::{AnimationState, MotionState, Playback},
@@ -62,7 +63,7 @@ pub struct Frame<C: Context> {
     // the next frame updates interactions against this layout
     settle: bool,
     #[cfg(debug_assertions)]
-    widget_ids: std::collections::HashSet<Id>,
+    widget_ids: Vec<Id>,
 }
 
 impl<C: Context> Default for Frame<C> {
@@ -119,7 +120,7 @@ impl<C: Context> Frame<C> {
         // unless nothing but settling built it
         let settling = match input {
             Input::None => {
-                std::mem::take(&mut self.settle)
+                core::mem::take(&mut self.settle)
                     && !self.has_pending_redraw()
                     && self.screen.size() == frame.size
                     && self.next_timer_deadline().is_none_or(|deadline| deadline > time)
@@ -128,12 +129,10 @@ impl<C: Context> Frame<C> {
         };
         self.settle = !settling;
         self.frame_requested = false;
-        #[cfg(debug_assertions)]
-        generation::begin();
         // interactions update against the previous build's nodes
         self.interaction.begin(&input, time, &self.nodes);
-        std::mem::swap(&mut self.nodes, &mut self.old_nodes);
-        std::mem::swap(&mut self.placements, &mut self.old_placements);
+        core::mem::swap(&mut self.nodes, &mut self.old_nodes);
+        core::mem::swap(&mut self.placements, &mut self.old_placements);
         self.nodes.clear();
         self.placements.clear();
         self.focus = FocusRequest::Keep;
@@ -167,16 +166,20 @@ impl<C: Context> Frame<C> {
         }
 
         let root = self.push_node(None, ROOT);
-        let mut scratch = std::mem::take(&mut self.scratch);
+        let mut scratch = core::mem::take(&mut self.scratch);
         scratch.prepare();
         let output = widget.build(Ui::new(self, context, &scratch, root));
         scratch.prepare();
         self.scratch = scratch;
         #[cfg(debug_assertions)]
-        assert!(
-            self.nodes.iter().all(|node| self.widget_ids.insert(node.widget_id)),
-            "widget ids must identify unique nodes"
-        );
+        {
+            self.widget_ids.extend(self.nodes.iter().map(|node| node.widget_id));
+            self.widget_ids.sort_unstable();
+            assert!(
+                self.widget_ids.windows(2).all(|pair| pair[0] != pair[1]),
+                "widget ids must identify unique nodes"
+            );
+        }
         assert_eq!(
             self.nodes[0].subtree_end as usize,
             self.nodes.len() - 1,
@@ -187,7 +190,7 @@ impl<C: Context> Frame<C> {
 
     /// resolves layout, positioning, clipping and interaction for the built graph
     pub fn layout(&mut self, context: &mut C) {
-        let mut bump = std::mem::take(&mut self.bump);
+        let mut bump = core::mem::take(&mut self.bump);
         bump.storage.prepare();
         layout::resolve(
             self,
@@ -235,7 +238,7 @@ impl<C: Context> Frame<C> {
 
     /// paints the resolved graph and releases its retained values
     pub fn paint(&mut self, context: &mut C) {
-        let mut bump = std::mem::take(&mut self.bump);
+        let mut bump = core::mem::take(&mut self.bump);
         paint::paint(self, &bump, context);
         bump.clear();
         self.bump = bump;
@@ -274,13 +277,9 @@ impl<C: Context> Frame<C> {
 /// identifies a node only during the current render
 ///
 /// do not store this across renders
-#[cfg_attr(not(debug_assertions), repr(transparent))]
+#[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct NodeId {
-    value: u32,
-    #[cfg(debug_assertions)]
-    generation: u16,
-}
+pub struct NodeId(u32);
 
 //
 // internals
@@ -289,17 +288,11 @@ pub struct NodeId {
 impl NodeId {
     #[inline]
     fn new(index: usize) -> Self {
-        Self {
-            value: u32::try_from(index).expect("too many frame nodes"),
-            #[cfg(debug_assertions)]
-            generation: generation::get(),
-        }
+        Self(u32::try_from(index).expect("too many frame nodes"))
     }
 
     fn index(self) -> usize {
-        #[cfg(debug_assertions)]
-        generation::assert(self.generation);
-        self.value as usize
+        self.0 as usize
     }
 }
 
@@ -357,7 +350,7 @@ impl<C: Context> Frame<C> {
         self.nodes.push(StoredNode {
             widget_id,
             parent: parent.unwrap_or(id),
-            subtree_end: id.value,
+            subtree_end: id.0,
             first_measure: StoredMeasureId::NONE,
             last_paint: StoredPaintId::NONE,
             layout: BumpId::NONE,
@@ -399,33 +392,6 @@ impl<C: Context> Frame<C> {
     fn clip_bounds(&self, clip: ResolvedClipId) -> Rect<C::Scalar> {
         clip.index()
             .map_or(self.screen, |clip| self.interaction.clips[clip].bounds)
-    }
-}
-
-#[cfg(debug_assertions)]
-mod generation {
-    use std::{
-        cell::Cell,
-        sync::atomic::{AtomicU16, Ordering},
-    };
-
-    static NEXT: AtomicU16 = AtomicU16::new(1);
-
-    thread_local! {
-        static CURRENT: Cell<u16> = const { Cell::new(0) };
-    }
-
-    pub fn begin() {
-        CURRENT.set(NEXT.fetch_add(1, Ordering::Relaxed));
-    }
-
-    pub fn get() -> u16 {
-        CURRENT.get()
-    }
-
-    #[inline]
-    pub fn assert(id: u16) {
-        assert_eq!(id, get(), "id belongs to another frame");
     }
 }
 

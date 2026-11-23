@@ -57,10 +57,15 @@
 //!              drawing inputs owned by the context until it renders
 //! ```
 
+#![no_std]
+
+extern crate alloc;
+
 mod clip;
 mod frame;
 mod frame_store;
 mod macros;
+mod math;
 pub mod scratch;
 
 pub mod animation;
@@ -134,12 +139,12 @@ pub trait Widget<C: Context, S = state::Build> {
 
 /// stable identity for widgets, animations and timers
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Id(std::num::NonZeroU64);
+pub struct Id(core::num::NonZeroU64);
 
 impl Id {
     /// creates an absolute id from a stable value
-    pub fn new(source: impl std::hash::Hash) -> Self {
-        use std::num::NonZeroU64;
+    pub fn new(source: impl core::hash::Hash) -> Self {
+        use core::num::NonZeroU64;
 
         let mut hasher = internal::hash::FxHasher::default();
         source.hash(&mut hasher);
@@ -157,14 +162,14 @@ impl Id {
         let mut hasher = internal::hash::FxHasher::new();
         hasher.write_usize(source.len());
         hasher.write(source);
-        match std::num::NonZeroU64::new(hasher.finish()) {
+        match core::num::NonZeroU64::new(hasher.finish()) {
             Some(value) => Self(value),
-            None => Self(std::num::NonZeroU64::MIN),
+            None => Self(core::num::NonZeroU64::MIN),
         }
     }
 
     /// composes a stable child id without using the current ui node
-    pub fn child(self, source: impl std::hash::Hash) -> Self {
+    pub fn child(self, source: impl core::hash::Hash) -> Self {
         Self::new((self, source))
     }
 }
