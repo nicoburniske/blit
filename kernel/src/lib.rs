@@ -1,14 +1,19 @@
 //! a small immediate-mode kernel for building user interfaces
 //!
-//! each frame, you describe the interface as a tree of nodes. blit calculates the size and
-//! position of each node, then paints its contents
+//! # frame
+//!
+//! each frame rebuilds the interface as a tree of nodes in three stages
+//!
+//! 1. [`Kernel::build`] records nodes and registers callbacks for the later stages
+//!    - [`Ui::measure`] sizes a node's content
+//!    - [`Ui::layout`] arranges a node's children
+//!    - [`Ui::paint`] draws a node's content
+//! 2. [`Kernel::layout`] runs the measure and layout callbacks to size and position every node
+//! 3. [`Kernel::paint`] runs the paint callbacks with resolved geometry
 //!
 //! # traits
 //!
-//! a node is the retained unit of geometry. it holds deferred measure and paint callbacks,
-//! an optional layout, and child nodes
-//!
-//! | trait        | runs during   | does                                           |
+//! | trait        | stage         | does                                           |
 //! |--------------|---------------|------------------------------------------------|
 //! | [`Widget`]   | build         | describes nodes, layouts, content and children |
 //! | [`Layout`]   | layout        | sizes and positions a node's children          |
@@ -23,39 +28,14 @@
 //! - [`Paint<T>`](Paint) draws command `T`. paint callbacks send commands through it
 //! - [`HasFrameStore`] stores drawing inputs in a [`FrameStore`] until the context renders
 //!
-//! # frame lifecycle
-//!
-//! ```text
-//! Kernel::build
-//!     │ records nodes, Layouts, and deferred measure/paint callbacks
-//!     │ Ui::store_mut provides frame storage for drawing inputs
-//!     ▼
-//! retained frame graph
-//!     │ Kernel::layout runs measurements and arranges children
-//!     ▼
-//! resolved node positions and sizes
-//!     │ Kernel::paint runs paint callbacks, sending commands through Paint
-//!     ▼
-//! context
-//!     │ renders its commands, then clears their stored inputs
-//!     ▼
-//! output
-//! ```
-//!
-//! widgets therefore describe a frame now, while layouts, measurements and painters do their
-//! work later in that frame.
-//!
-//! the graph is rebuilt every frame
-//!
 //! # storage
 //!
-//! ```text
-//! Scratch      Ui::scratch().slice(capacity), also on LayoutCx and PaintCx
-//!              temporary slices for the current step, reclaimed when it ends
-//!
-//! FrameSlice   Ui::store_mut().slice(capacity)
-//!              drawing inputs owned by the context until it renders
-//! ```
+//! - [`Scratch`] is a temporary slice for the current scope, reclaimed when it ends
+//!   - [`Ui::scratch`]
+//!   - [`LayoutCx::scratch`]
+//!   - [`PaintCx::scratch`]
+//! - [`FrameSlice`] is a slice of drawing inputs the context owns until it renders
+//!   - [`Ui::store_mut`]
 
 #![no_std]
 
