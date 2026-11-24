@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use blit::geometry::PhysicalRect;
+use blit::PhysicalRect;
 
 use super::{
     RenderStrategy,

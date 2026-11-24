@@ -7,17 +7,19 @@ use std::{
 
 use blit::{
     Animation, AnimationOptions, Clip, ClipShape, Constraints, Contact, ContactId, ContactSource, Context, Easing,
-    Frame, FrameInfo, Id, Input, Interact, InteractCx, Layout, LayoutCx, Modifiers, Motion, MouseButton,
+    FrameInfo, Id, Interact, InteractCx, Kernel, Layout, LayoutCx, Motion,
     Phase::{Cancelled, Ended, Held, Started},
-    Place, PlaceCx, Point, Rect, Scope, ScrollPhase, Size, Spring, Target, TouchPhase,
-    TouchPhase::{Cancel, Down, Move, Up},
-    Tween, Widget,
+    Place, PlaceCx, Point, Rect, Scope, Size, Spring, Target, Tween, Widget,
+    input::{
+        Input, Modifiers, MouseButton, ScrollPhase, TouchPhase,
+        TouchPhase::{Cancel, Down, Move, Up},
+    },
 };
 
 mod animation;
 mod bump;
-mod frame;
 mod interact;
+mod kernel;
 
 type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TestContext, S>;
 
@@ -78,9 +80,9 @@ impl<C: Context<Scalar = f32>> Interact<C> for Watch {
     }
 }
 
-fn frame(size: Size<f32>) -> (Frame<TestContext>, TestContext) {
+fn kernel(size: Size<f32>) -> (Kernel<TestContext>, TestContext) {
     (
-        Frame::default(),
+        Kernel::default(),
         TestContext {
             info: FrameInfo::new(size),
             commands: Vec::new(),
@@ -89,12 +91,12 @@ fn frame(size: Size<f32>) -> (Frame<TestContext>, TestContext) {
     )
 }
 
-fn render<O>(frame: &mut Frame<TestContext>, context: &mut TestContext, build: impl FnMut(Ui<'_>) -> O) -> O {
-    render_inputs(frame, context, Duration::ZERO, [Input::None], build)
+fn render<O>(kernel: &mut Kernel<TestContext>, context: &mut TestContext, build: impl FnMut(Ui<'_>) -> O) -> O {
+    render_inputs(kernel, context, Duration::ZERO, [Input::None], build)
 }
 
 fn render_inputs<O>(
-    frame: &mut Frame<TestContext>,
+    kernel: &mut Kernel<TestContext>,
     context: &mut TestContext,
     time: Duration,
     inputs: impl IntoIterator<Item = Input<f32>>,
@@ -105,14 +107,14 @@ fn render_inputs<O>(
     let mut inputs = inputs.into_iter();
     let mut input = inputs.next().unwrap_or(Input::None);
     let output = loop {
-        let output = frame.build(context, info, time, input, &mut build);
-        frame.layout(context);
+        let output = kernel.build(context, info, time, input, &mut build);
+        kernel.layout(context);
         match inputs.next() {
             Some(next) => input = next,
             None => break output,
         }
     };
-    frame.paint(context);
+    kernel.paint(context);
     output
 }
 

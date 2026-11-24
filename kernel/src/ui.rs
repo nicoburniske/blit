@@ -1,4 +1,4 @@
-use super::*;
+use crate::*;
 
 /// typestate modes for [`Ui`]
 ///
@@ -59,41 +59,41 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
 
     /// the target's area from the previous layout
     pub fn area(&self) -> Option<Rect<C::Scalar>> {
-        let frame = &*self.inner.frame;
-        frame
+        let kernel = &*self.inner.kernel;
+        kernel
             .laid_out
-            .get(self.inner.target, |index| frame.old_nodes[index].widget_id)
-            .map(|index| frame.old_placements[index].area)
+            .get(self.inner.target, |index| kernel.old_nodes[index].widget_id)
+            .map(|index| kernel.old_placements[index].area)
     }
 
     /// adds `interaction` to the target and returns its latest response
     ///
     /// one interaction of each kind per target, repeated requests share it
     pub fn interact<K: Interact<C>>(&mut self, interaction: K) -> K::Response {
-        let frame = &mut *self.inner.frame;
-        frame
+        let kernel = &mut *self.inner.kernel;
+        kernel
             .interaction
-            .interact::<C, K>(self.inner.target, interaction, frame.time)
+            .interact::<C, K>(self.inner.target, interaction, kernel.time)
     }
 
     /// animates toward `target`, keyed by the target and call site, then by call order within a frame
     #[track_caller]
     pub fn animate(&mut self, target: f32, animation: impl Into<Animation>, mut options: AnimationOptions) -> f32 {
         let id = self.inner.target.child(Location::caller());
-        let frame = &mut *self.inner.frame;
+        let kernel = &mut *self.inner.kernel;
         // cleared so stored options stay equal across frames and do not retarget
         let initial = options.initial.take().unwrap_or(target);
-        let state = AnimationState::update(&mut frame.animations, id, initial);
+        let state = AnimationState::update(&mut kernel.animations, id, initial);
         match &mut state.playback {
             Playback::Target(animator) => {
                 animator
-                    .advance([target], [true], animation.into(), options, frame.time, true)
+                    .advance([target], [true], animation.into(), options, kernel.time, true)
                     .0[0]
             }
             Playback::Loop { value, .. } => {
                 let mut animator = Animator::new([*value], Animation::default());
                 let value = animator
-                    .advance([target], [true], animation.into(), options, frame.time, true)
+                    .advance([target], [true], animation.into(), options, kernel.time, true)
                     .0[0];
                 state.playback = Playback::Target(animator);
                 value
@@ -108,9 +108,9 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
             return self.animate(0.0, Animation::default(), AnimationOptions::default());
         }
         let id = self.inner.target.child(Location::caller());
-        let frame = &mut *self.inner.frame;
-        let state = AnimationState::update(&mut frame.animations, id, 0.0);
-        let now = frame.time.as_secs_f64();
+        let kernel = &mut *self.inner.kernel;
+        let state = AnimationState::update(&mut kernel.animations, id, 0.0);
+        let now = kernel.time.as_secs_f64();
         let time = match state.playback {
             Playback::Loop {
                 tween: previous, time, ..
@@ -127,8 +127,8 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     #[track_caller]
     pub fn timer(&mut self, duration: Duration) -> Timer<'_> {
         let id = self.inner.target.child(Location::caller());
-        let frame = &mut *self.inner.frame;
-        TimerState::update(&mut frame.timers, id, duration, false, frame.time)
+        let kernel = &mut *self.inner.kernel;
+        TimerState::update(&mut kernel.timers, id, duration, false, kernel.time)
     }
 
     /// fires every `period`, counting from when the target first calls it from this site or from a reset
@@ -136,29 +136,29 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     pub fn interval(&mut self, period: Duration) -> Timer<'_> {
         assert!(!period.is_zero(), "an interval must be nonzero");
         let id = self.inner.target.child(Location::caller());
-        let frame = &mut *self.inner.frame;
-        TimerState::update(&mut frame.timers, id, period, true, frame.time)
+        let kernel = &mut *self.inner.kernel;
+        TimerState::update(&mut kernel.timers, id, period, true, kernel.time)
     }
 
     /// focuses the target from the next build while it requests an interaction
     pub fn focus(&mut self) {
-        self.inner.frame.focus = FocusRequest::Focus(self.inner.target);
+        self.inner.kernel.focus = FocusRequest::Focus(self.inner.target);
     }
 
     /// whether the target holds focus as this build began
     pub fn focused(&self) -> bool {
-        self.inner.frame.interaction.focused == Some(self.inner.target)
+        self.inner.kernel.interaction.focused == Some(self.inner.target)
     }
 
     /// whether focus changed from the previous build
     pub fn focus_moved(&self) -> bool {
-        let interaction = &self.inner.frame.interaction;
+        let interaction = &self.inner.kernel.interaction;
         interaction.focused != interaction.focus_seen
     }
 
     /// clears focus from the next build
     pub fn clear_focus(&mut self) {
-        self.inner.frame.focus = FocusRequest::Clear;
+        self.inner.kernel.focus = FocusRequest::Clear;
     }
 
     /// access context during frame construction
@@ -173,33 +173,33 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
 
     /// the mouse cursor position, independent of touches
     pub fn mouse_position(&self) -> Option<Point<C::Scalar>> {
-        self.inner.frame.interaction.mouse_position
+        self.inner.kernel.interaction.mouse_position
     }
 
     /// the position of a contact in this frame
     ///
     /// ended and cancelled contacts remain available until the next build
     pub fn contact_position(&self, id: ContactId) -> Option<Point<C::Scalar>> {
-        self.inner.frame.interaction.contact_position(id)
+        self.inner.kernel.interaction.contact_position(id)
     }
 
     /// this frame's input regardless of focus or claims
     ///
     /// handle keyboard shortcuts through an interaction to respect input routing.
     pub fn input(&self) -> Input<C::Scalar> {
-        self.inner.frame.input
+        self.inner.kernel.input
     }
 
     pub fn screen(&self) -> Rect<C::Scalar> {
-        self.inner.frame.screen
+        self.inner.kernel.screen
     }
 
     pub fn time(&self) -> Duration {
-        self.inner.frame.time
+        self.inner.kernel.time
     }
 
     pub fn request_frame(&mut self) {
-        self.inner.frame.request_frame();
+        self.inner.kernel.request_frame();
     }
 }
 
@@ -208,10 +208,10 @@ impl<'ui, C: Context, S: state::Local> Ui<'ui, C, S> {
     ///
     /// a bare key names the child of this node with that key
     pub fn at(&mut self, target: impl Into<Target>) -> Ui<'_, C, state::At> {
-        let target = self.inner.frame.target_id(self.inner.node, target.into());
+        let target = target_id(self.inner.kernel, self.inner.node, target.into());
         Ui {
             inner: UiInner {
-                frame: self.inner.frame,
+                kernel: self.inner.kernel,
                 context: self.inner.context,
                 scratch: self.inner.scratch,
                 node: self.inner.node,
@@ -228,7 +228,7 @@ impl<'ui, C: Context, S: state::Local> Ui<'ui, C, S> {
     pub fn insert<W: Widget<C, state::Insert>>(&mut self, widget: W) -> W::Response {
         widget.build(Ui {
             inner: UiInner {
-                frame: self.inner.frame,
+                kernel: self.inner.kernel,
                 context: self.inner.context,
                 scratch: self.inner.scratch,
                 node: self.inner.node,
@@ -244,9 +244,9 @@ impl<'ui, C: Context, S: state::Local> Ui<'ui, C, S> {
     #[inline]
     pub fn paint<F>(&mut self, paint: F)
     where
-        F: Fn(&mut paint::PaintCx<'_, C>, Rect<C::Scalar>) + 'static,
+        F: Fn(&mut PaintCx<'_, C>, Rect<C::Scalar>) + 'static,
     {
-        paint::insert_paint(self.inner.frame, self.inner.node, paint);
+        paint::insert_paint(self.inner.kernel, self.inner.node, paint);
     }
 
     /// registers a deferred measurement closure on the current node
@@ -258,17 +258,17 @@ impl<'ui, C: Context, S: state::Local> Ui<'ui, C, S> {
     where
         F: Fn(&mut C, Constraints<C::Scalar>) -> Size<C::Scalar> + 'static,
     {
-        paint::insert_measure(self.inner.frame, self.inner.node, measure);
+        paint::insert_measure(self.inner.kernel, self.inner.node, measure);
     }
 
     /// the focused node, if it was beneath this one in the previous layout
     pub fn focus_within(&self) -> Option<Id> {
-        let frame = &*self.inner.frame;
-        let focused = frame.interaction.focused?;
-        let old_id = |index: usize| frame.old_nodes[index].widget_id;
-        let node = frame.laid_out.get(self.inner.target, old_id)?;
-        let inside = frame.laid_out.get(focused, old_id)?;
-        (node < inside && inside <= frame.old_nodes[node].subtree_end as usize).then_some(focused)
+        let kernel = &*self.inner.kernel;
+        let focused = kernel.interaction.focused?;
+        let old_id = |index: usize| kernel.old_nodes[index].widget_id;
+        let node = kernel.laid_out.get(self.inner.target, old_id)?;
+        let inside = kernel.laid_out.get(focused, old_id)?;
+        (node < inside && inside <= kernel.old_nodes[node].subtree_end as usize).then_some(focused)
     }
 
     /// this node's scope, for descendants to key themselves in with [`Ui::child_in`]
@@ -313,7 +313,7 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
                 && limits.max.height >= limits.min.height,
             "invalid local bounds"
         );
-        self.inner.frame.aux_mut(self.inner.node).limits = limits;
+        self.inner.kernel.aux_mut(self.inner.node).limits = limits;
         self
     }
 
@@ -321,14 +321,14 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
     ///
     /// a target not built before this node places it against its parent
     pub fn place<P: Place<C>>(self, target: impl Into<Target>, place: P) -> Self {
-        let frame = &mut *self.inner.frame;
-        let reference = frame.resolve_target(self.inner.node, target.into());
-        let id = PlaceId::new(frame.places.len());
-        frame.places.push(StoredPlace {
-            bump_id: frame.bump.store(place),
+        let kernel = &mut *self.inner.kernel;
+        let reference = resolve_target(kernel, self.inner.node, target.into());
+        let id = PlaceId::new(kernel.places.len());
+        kernel.places.push(StoredPlace {
+            bump_id: kernel.bump.store(place),
             run: layout::place::<C, P>,
         });
-        let node = &mut frame.nodes[self.inner.node.index()];
+        let node = &mut kernel.nodes[self.inner.node.index()];
         node.target = reference.unwrap_or(node.target);
         node.place = id;
         self
@@ -337,17 +337,17 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
     #[inline]
     pub fn motion(self, motion: Motion) -> Self {
         // kept out of line so motion inlines without moving the ui through a call
-        fn store<C: Context>(frame: &mut Frame<C>, node: NodeId, motion: Motion) {
-            let stored = &mut frame.nodes[node.index()];
+        fn store<C: Context>(kernel: &mut Kernel<C>, node: NodeId, motion: Motion) {
+            let stored = &mut kernel.nodes[node.index()];
             match stored.motion.index() {
-                Some(index) => frame.node_motions[index].motion = motion,
+                Some(index) => kernel.node_motions[index].motion = motion,
                 None => {
-                    stored.motion = NodeMotionId::new(frame.node_motions.len());
-                    frame.node_motions.push(NodeMotion { node, motion });
+                    stored.motion = NodeMotionId::new(kernel.node_motions.len());
+                    kernel.node_motions.push(NodeMotion { node, motion });
                 }
             }
         }
-        store(self.inner.frame, self.inner.node, motion);
+        store(self.inner.kernel, self.inner.node, motion);
         self
     }
 
@@ -356,26 +356,48 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
     /// positioning stays with its anchor. a target not built before this node leaves its own parent
     #[inline]
     pub fn parent(self, target: impl Into<Target>) -> Self {
-        if let Some(parent) = self.inner.frame.resolve_target(self.inner.node, target.into()) {
-            self.inner.frame.aux_mut(self.inner.node).visual_parent = parent;
+        if let Some(parent) = resolve_target(self.inner.kernel, self.inner.node, target.into()) {
+            self.inner.kernel.aux_mut(self.inner.node).visual_parent = parent;
         }
         self
     }
 
     pub fn clip<X: Clip<C>>(self, clip: X) -> Self {
-        let clip = self.inner.frame.store_clip(clip);
-        self.inner.frame.aux_mut(self.inner.node).clip = clip;
+        let kernel = &mut *self.inner.kernel;
+        let type_id = TypeId::of::<X>();
+        let clip = if type_id == TypeId::of::<()>() {
+            StoredClip::NONE
+        } else {
+            let kind = kernel
+                .clip_kinds
+                .iter()
+                .position(|kind| kind.type_id == type_id)
+                .unwrap_or_else(|| {
+                    kernel.clip_kinds.push(ClipKind {
+                        type_id,
+                        shape: |bump, id, area| bump.load::<X>(id).shape(area),
+                        push: |bump, id, context, area| bump.load::<X>(id).push(context, area),
+                        pop: |bump, id, context| bump.load::<X>(id).pop(context),
+                    });
+                    kernel.clip_kinds.len() - 1
+                });
+            StoredClip {
+                kind: u16::try_from(kind).expect("too many clip types"),
+                bump_id: kernel.bump.store(clip),
+            }
+        };
+        kernel.aux_mut(self.inner.node).clip = clip;
         self
     }
 
     /// sets this node's paint order among its visual siblings
     pub fn z_index(self, z_index: i16) -> Self {
-        self.inner.frame.placements[self.inner.node.index()].z_index = z_index;
+        self.inner.kernel.placements[self.inner.node.index()].z_index = z_index;
         self
     }
 
     pub fn hit(self, hit: Sides<C::Scalar>) -> Self {
-        self.inner.frame.aux_mut(self.inner.node).hit = hit;
+        self.inner.kernel.aux_mut(self.inner.node).hit = hit;
         self
     }
 }
@@ -398,22 +420,43 @@ impl<'ui, C: Context, S: state::NoLayout> Ui<'ui, C, S> {
         let mut inner = self.inner;
         inner.owns_node = false;
         let node = inner.node;
-        let response = widget.build(Ui::new(inner.frame, inner.context, inner.scratch, node));
+        let response = widget.build(Ui::new(inner.kernel, inner.context, inner.scratch, node));
         assert!(
-            inner.frame.nodes[node.index()].place.index().is_none(),
+            inner.kernel.nodes[node.index()].place.index().is_none(),
             "measured widgets must stay in flow"
         );
-        let mut bump = core::mem::take(&mut inner.frame.bump);
+        let mut bump = core::mem::take(&mut inner.kernel.bump);
         bump.storage.prepare();
-        let size = layout::resolve(inner.frame, &bump, inner.context, node, bounds, false);
-        inner.frame.bump = bump;
+        let size = layout::resolve(inner.kernel, &bump, inner.context, node, bounds, false);
+        inner.kernel.bump = bump;
         (response, size)
     }
 
     /// establishes the current node's layout
     pub fn layout<L: Layout<C>>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
         let Ui { inner, .. } = self;
-        inner.frame.store_layout(inner.node, layout);
+        let kernel = &mut *inner.kernel;
+        let type_id = TypeId::of::<L>();
+        let kind = kernel
+            .layout_kinds
+            .iter()
+            .position(|kind| kind.type_id == type_id)
+            .unwrap_or_else(|| {
+                kernel.layout_kinds.push(LayoutKind {
+                    type_id,
+                    run: layout::run::<C, L>,
+                    default_item: BumpId::NONE,
+                });
+                kernel.layout_kinds.len() - 1
+            });
+        if kernel.layout_kinds[kind].default_item.offset().is_none() {
+            kernel.layout_kinds[kind].default_item = kernel.bump.store(L::Item::default());
+        }
+        let kind = u16::try_from(kind).expect("too many layout kinds");
+        let bump_id = kernel.bump.store(layout);
+        let node = &mut kernel.nodes[inner.node.index()];
+        node.layout = bump_id;
+        node.layout_kind = kind;
         Ui {
             inner,
             marker: PhantomData,
@@ -425,11 +468,11 @@ impl<'ui, C: Context, I: 'static> Ui<'ui, C, state::Child<I>> {
     /// sets this child's layout item
     #[inline]
     pub fn item(self, item: I) -> Self {
-        let node = &mut self.inner.frame.nodes[self.inner.node.index()];
+        let node = &mut self.inner.kernel.nodes[self.inner.node.index()];
         if node.item.offset().is_some() {
-            *self.inner.frame.bump.load_mut(node.item) = item;
+            *self.inner.kernel.bump.load_mut(node.item) = item;
         } else {
-            node.item = self.inner.frame.bump.store(item);
+            node.item = self.inner.kernel.bump.store(item);
         }
         self
     }
@@ -443,8 +486,8 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
     #[track_caller]
     pub fn child(&mut self) -> Ui<'_, C, state::Child<L::Item>> {
         let location = Location::caller();
-        let frame = &mut *self.inner.frame;
-        let sites = &mut frame.sites[self.inner.sites as usize..];
+        let kernel = &mut *self.inner.kernel;
+        let sites = &mut kernel.sites[self.inner.sites as usize..];
         // copies of one call site may not share an address
         let site = sites.iter_mut().find(|site| {
             core::ptr::eq(site.location, location)
@@ -465,11 +508,11 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
                     sites.push(Site { location, id, count: 0 });
                     id
                 }
-                first(&mut frame.sites, self.inner.target, location)
+                first(&mut kernel.sites, self.inner.target, location)
             }
         };
-        let node = frame.push_node(Some(self.inner.node), id);
-        Ui::new(self.inner.frame, self.inner.context, self.inner.scratch, node)
+        let node = kernel.push_node(Some(self.inner.node), id);
+        Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node)
     }
 
     /// creates a child identified among its siblings by `key` rather than where it is built
@@ -477,9 +520,9 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
     /// [`Target::at`] addresses it
     #[inline]
     pub fn child_id(&mut self, key: impl Into<Id>) -> Ui<'_, C, state::Child<L::Item>> {
-        let id = self.inner.target.child(Key::Child(key.into()));
-        let node = self.inner.frame.push_node(Some(self.inner.node), id);
-        Ui::new(self.inner.frame, self.inner.context, self.inner.scratch, node)
+        let id = self.inner.target.child(TargetKey::Child(key.into()));
+        let node = self.inner.kernel.push_node(Some(self.inner.node), id);
+        Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node)
     }
 
     /// creates a child keyed `key` in `scope`, usually an ancestor's
@@ -488,9 +531,9 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
     /// [`Target::scoped`] and [`Scope::key`] address it.
     #[inline]
     pub fn child_in(&mut self, scope: Scope, key: impl Into<Id>) -> Ui<'_, C, state::Child<L::Item>> {
-        let id = scope.0.child(Key::Scoped(key.into()));
-        let node = self.inner.frame.push_node(Some(self.inner.node), id);
-        Ui::new(self.inner.frame, self.inner.context, self.inner.scratch, node)
+        let id = scope.0.child(TargetKey::Scoped(key.into()));
+        let node = self.inner.kernel.push_node(Some(self.inner.node), id);
+        Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node)
     }
 
     /// insets this node's children while painted content keeps the full box
@@ -502,7 +545,7 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
                 .all(|side| *side >= C::Scalar::ZERO && side.is_finite()),
             "invalid padding"
         );
-        self.inner.frame.aux_mut(self.inner.node).padding = padding;
+        self.inner.kernel.aux_mut(self.inner.node).padding = padding;
         self
     }
 }
@@ -513,7 +556,7 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Target {
     base: Base,
-    key: Option<Key>,
+    key: Option<TargetKey>,
 }
 
 impl Target {
@@ -527,7 +570,7 @@ impl Target {
     /// the child of this node created with [`Ui::child_id`] and `key`
     pub fn at(self, key: impl Into<Id>) -> Self {
         Self {
-            key: Some(Key::Child(key.into())),
+            key: Some(TargetKey::Child(key.into())),
             ..self
         }
     }
@@ -535,7 +578,7 @@ impl Target {
     /// the node created with [`Ui::child_in`] and `key` in this node's [`Scope`]
     pub fn scoped(self, key: impl Into<Id>) -> Self {
         Self {
-            key: Some(Key::Scoped(key.into())),
+            key: Some(TargetKey::Scoped(key.into())),
             ..self
         }
     }
@@ -580,7 +623,7 @@ impl Scope {
     pub fn key(self, key: impl Into<Id>) -> Target {
         Target {
             base: Base::Id(self.0),
-            key: Some(Key::Scoped(key.into())),
+            key: Some(TargetKey::Scoped(key.into())),
         }
     }
 }
@@ -589,7 +632,7 @@ impl Scope {
 // internals
 //
 
-pub(super) const ROOT: Id = Id::named(b"blit frame root");
+pub const ROOT: Id = Id::named(b"blit frame root");
 
 impl Target {
     const fn new(base: Base) -> Self {
@@ -608,72 +651,70 @@ enum Base {
 
 // hashed with its base, the variant keeps child and scope keys of one node apart
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum Key {
+enum TargetKey {
     Child(Id),
     Scoped(Id),
 }
 
 // children built from one call site under the open node
-pub(super) struct Site {
+pub struct Site {
     location: &'static Location<'static>,
     id: Id,
     count: u32,
 }
 
-impl<C: Context> Frame<C> {
-    pub(super) fn target_id(&self, node: NodeId, target: Target) -> Id {
-        let base = match target.base {
-            Base::This => self.nodes[node.index()].widget_id,
-            Base::Parent => self.nodes[self.nodes[node.index()].parent.index()].widget_id,
-            Base::Root => ROOT,
-            Base::Node(node) => self.nodes[node.index()].widget_id,
-            Base::Id(id) => id,
-        };
-        match target.key {
-            Some(key) => base.child(key),
-            None => base,
-        }
-    }
-
-    /// the node `target` names, if it was built before `node`
-    pub(super) fn resolve_target(&self, node: NodeId, target: Target) -> Option<NodeId> {
-        let target = match (target.base, target.key) {
-            (Base::Parent, None) => self.nodes[node.index()].parent,
-            (Base::Root, None) => NodeId::new(0),
-            (Base::Node(target), None) => target,
-            _ => {
-                let id = self.target_id(node, target);
-                // open ancestors are cheap to find on the parent chain
-                let mut ancestor = self.nodes[node.index()].parent;
-                loop {
-                    let stored = &self.nodes[ancestor.index()];
-                    if stored.widget_id == id {
-                        break ancestor;
-                    }
-                    if stored.parent == ancestor {
-                        // the previous layout's index usually still holds
-                        let hint = self
-                            .laid_out
-                            .get(id, |index| self.old_nodes[index].widget_id)
-                            .filter(|&index| index < node.index() && self.nodes[index].widget_id == id);
-                        // worst case after the fast paths miss, repeated lookups are n^2
-                        let index = hint.or_else(|| {
-                            self.nodes[..node.index()]
-                                .iter()
-                                .rposition(|stored| stored.widget_id == id)
-                        })?;
-                        break NodeId::new(index);
-                    }
-                    ancestor = stored.parent;
-                }
-            }
-        };
-        (target.index() < node.index()).then_some(target)
+pub fn target_id<C: Context>(kernel: &Kernel<C>, node: NodeId, target: Target) -> Id {
+    let base = match target.base {
+        Base::This => kernel.nodes[node.index()].widget_id,
+        Base::Parent => kernel.nodes[kernel.nodes[node.index()].parent.index()].widget_id,
+        Base::Root => ROOT,
+        Base::Node(node) => kernel.nodes[node.index()].widget_id,
+        Base::Id(id) => id,
+    };
+    match target.key {
+        Some(key) => base.child(key),
+        None => base,
     }
 }
 
+/// the node `target` names, if it was built before `node`
+pub fn resolve_target<C: Context>(kernel: &Kernel<C>, node: NodeId, target: Target) -> Option<NodeId> {
+    let target = match (target.base, target.key) {
+        (Base::Parent, None) => kernel.nodes[node.index()].parent,
+        (Base::Root, None) => NodeId::new(0),
+        (Base::Node(target), None) => target,
+        _ => {
+            let id = target_id(kernel, node, target);
+            // open ancestors are cheap to find on the parent chain
+            let mut ancestor = kernel.nodes[node.index()].parent;
+            loop {
+                let stored = &kernel.nodes[ancestor.index()];
+                if stored.widget_id == id {
+                    break ancestor;
+                }
+                if stored.parent == ancestor {
+                    // the previous layout's index usually still holds
+                    let hint = kernel
+                        .laid_out
+                        .get(id, |index| kernel.old_nodes[index].widget_id)
+                        .filter(|&index| index < node.index() && kernel.nodes[index].widget_id == id);
+                    // worst case after the fast paths miss, repeated lookups are n^2
+                    let index = hint.or_else(|| {
+                        kernel.nodes[..node.index()]
+                            .iter()
+                            .rposition(|stored| stored.widget_id == id)
+                    })?;
+                    break NodeId::new(index);
+                }
+                ancestor = stored.parent;
+            }
+        }
+    };
+    (target.index() < node.index()).then_some(target)
+}
+
 struct UiInner<'ui, C: Context> {
-    frame: &'ui mut Frame<C>,
+    kernel: &'ui mut Kernel<C>,
     context: &'ui mut C,
     scratch: &'ui ScratchBuffer,
     node: NodeId,
@@ -685,17 +726,17 @@ struct UiInner<'ui, C: Context> {
 }
 
 impl<'ui, C: Context, S> Ui<'ui, C, S> {
-    pub(super) fn new(
-        frame: &'ui mut Frame<C>,
+    pub(crate) fn new(
+        kernel: &'ui mut Kernel<C>,
         context: &'ui mut C,
         scratch: &'ui ScratchBuffer,
         node: NodeId,
     ) -> Self {
         Self {
             inner: UiInner {
-                target: frame.nodes[node.index()].widget_id,
-                sites: frame.sites.len() as u32,
-                frame,
+                target: kernel.nodes[node.index()].widget_id,
+                sites: kernel.sites.len() as u32,
+                kernel,
                 context,
                 scratch,
                 node,
@@ -711,8 +752,8 @@ impl<C: Context> Drop for UiInner<'_, C> {
         if !self.owns_node {
             return;
         }
-        self.frame.nodes[self.node.index()].subtree_end = (self.frame.nodes.len() - 1) as u32;
+        self.kernel.nodes[self.node.index()].subtree_end = (self.kernel.nodes.len() - 1) as u32;
         // sites nest like open nodes so this node's are always last
-        self.frame.sites.truncate(self.sites as usize);
+        self.kernel.sites.truncate(self.sites as usize);
     }
 }

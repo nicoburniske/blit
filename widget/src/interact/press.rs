@@ -1,4 +1,4 @@
-use blit::{ContactId, ContactSource, InteractCx, MouseButton, Phase, Scalar};
+use blit::{ContactId, ContactSource, InteractCx, Phase, Scalar, input::MouseButton};
 
 use crate::Context;
 
@@ -78,9 +78,11 @@ impl<C: Context> blit::Interact<C> for Interact {
 #[cfg(test)]
 mod tests {
     use blit::{
-        Frame, Input, Point,
-        TouchPhase::{Cancel, Down, Move, Up},
-        Ui,
+        Kernel, Point, Ui,
+        input::{
+            Input,
+            TouchPhase::{Cancel, Down, Move, Up},
+        },
     };
 
     use crate::{
@@ -91,10 +93,10 @@ mod tests {
     #[test]
     fn presses() {
         for id in [None, Some(1)] {
-            let mut frame = Frame::<TestContext>::default();
+            let mut kernel = Kernel::<TestContext>::default();
             let mut last_contact = None;
             let mut press = |input| {
-                step(&mut frame, input, |mut ui: Ui<'_, TestContext>| {
+                step(&mut kernel, input, |mut ui: Ui<'_, TestContext>| {
                     let press = ui.interact(interact::press());
                     last_contact = press.contact.or(last_contact);
                     (
@@ -155,7 +157,7 @@ mod tests {
     #[test]
     fn capture_cancels_click() {
         for ending in [Up, Cancel] {
-            let mut frame = Frame::<TestContext>::default();
+            let mut kernel = Kernel::<TestContext>::default();
             let build = |mut ui: Ui<'_, TestContext>| {
                 // takes a press once it moves, like a scroll view panning
                 let pan = ui.interact(interact::drag());
@@ -165,7 +167,7 @@ mod tests {
                     .build(|mut ui: Ui<'_, TestContext>| ui.interact(interact::press()));
                 (pan, press)
             };
-            let mut next = |input| step(&mut frame, input, build);
+            let mut next = |input| step(&mut kernel, input, build);
             next(Input::None);
             // the button claims the press, hiding it from the ancestor
             let (pan, press) = next(pointer(Some(1), Down, 10.0, 10.0));

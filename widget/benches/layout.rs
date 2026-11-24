@@ -1,6 +1,6 @@
 use std::{hint::black_box, time::Duration};
 
-use blit::{Frame, FrameInfo, Input, Size, Ui};
+use blit::{FrameInfo, Kernel, Size, Ui, input::Input};
 use blit_widget::layout::{Sizing, flex};
 
 #[global_allocator]
@@ -12,8 +12,8 @@ fn main() {
 
 #[divan::bench(args = ["fit", "grow", "capped"])]
 fn flex_layout(bencher: divan::Bencher, sizing: &str) {
-    let mut frame = Frame::default();
-    frame.build(
+    let mut kernel = Kernel::default();
+    kernel.build(
         &mut (),
         FrameInfo::new(Size::new(16000.0, 32.0)),
         Duration::ZERO,
@@ -34,10 +34,10 @@ fn flex_layout(bencher: divan::Bencher, sizing: &str) {
         },
     );
     for _ in 0..4 {
-        frame.layout(&mut ());
+        kernel.layout(&mut ());
     }
     bencher.bench_local(|| {
-        frame.layout(&mut ());
-        black_box(&frame);
+        kernel.layout(&mut ());
+        black_box(&kernel);
     });
 }

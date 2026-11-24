@@ -17,7 +17,10 @@ pub trait Context: blit::Context {
 mod test {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, Input, Modifiers, MouseButton, Point, Size, TouchPhase, Ui};
+    use blit::{
+        FrameInfo, Kernel, Point, Size, Ui,
+        input::{Input, Modifiers, MouseButton, TouchPhase},
+    };
 
     pub struct TestContext;
 
@@ -31,18 +34,18 @@ mod test {
 
     /// builds and lays out one 200 by 200 frame
     pub fn step<O>(
-        frame: &mut Frame<TestContext>,
+        kernel: &mut Kernel<TestContext>,
         input: Input<f32>,
         build: impl FnOnce(Ui<'_, TestContext>) -> O,
     ) -> O {
-        let output = frame.build(
+        let output = kernel.build(
             &mut TestContext,
             FrameInfo::new(Size::uniform(200.0)),
             Duration::ZERO,
             input,
             build,
         );
-        frame.layout(&mut TestContext);
+        kernel.layout(&mut TestContext);
         output
     }
 

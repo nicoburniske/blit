@@ -42,7 +42,7 @@ use std::{
 };
 
 use blit::{
-    Frame, FrameInfo, PhysicalPoint, PhysicalSize,
+    FrameInfo, Kernel, PhysicalPoint, PhysicalSize,
     input::{Input, Key, KeyInput, Modifiers, MouseButton, ScrollPhase},
 };
 use blit_widget::performance::Stage;
@@ -68,7 +68,7 @@ where
     terminal: Terminal,
     config: RendererConfig,
     wake: WakeHandle,
-    frame: Frame<C>,
+    kernel: Kernel<C>,
     started: Instant,
     next_frame: Duration,
     frame_interval: Duration,
@@ -93,7 +93,7 @@ where
             wake: WakeHandle {
                 writer: Arc::new(wake_writer),
             },
-            frame: Frame::default(),
+            kernel: Kernel::default(),
             started: Instant::now(),
             next_frame: Duration::ZERO,
             frame_interval: Duration::from_nanos(4_166_667),
@@ -110,7 +110,7 @@ where
     pub fn pump(&mut self, context: &mut C, mut render: impl FnMut(blit::Ui<'_, C>)) -> io::Result<bool> {
         let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
         let mut input_count = 0;
-        let mut pending = self.frame.has_pending_redraw();
+        let mut pending = self.kernel.has_pending_redraw();
         let needs_frame = |poll: Poll| poll.input_count != 0 || poll.resized || poll.redraw || poll.woken;
 
         // buffer events until another frame is allowed
@@ -132,7 +132,7 @@ where
         // once allowed, wait for a reason to render
         while !pending {
             let now = self.started.elapsed();
-            let timer = self.frame.next_timer_deadline();
+            let timer = self.kernel.next_timer_deadline();
             if timer.is_some_and(|deadline| deadline <= now) {
                 break;
             }
@@ -152,13 +152,13 @@ where
         // the prefilled Input::None runs one pass when no events were collected
         context.as_mut().profiler.begin_frame(now);
         for &input in &inputs[..input_count.max(1)] {
-            self.frame.build(context, info, now, input, |mut ui: blit::Ui<'_, C>| {
+            self.kernel.build(context, info, now, input, |mut ui: blit::Ui<'_, C>| {
                 if !ui.context_mut().as_mut().should_quit {
                     render(ui);
                 }
             });
             context.as_mut().profiler.finish_stage(Stage::Build);
-            self.frame.layout(context);
+            self.kernel.layout(context);
             context.as_mut().profiler.finish_stage(Stage::Layout);
         }
         if context.as_mut().should_quit {
@@ -167,7 +167,7 @@ where
             return Ok(false);
         }
         context.as_mut().renderer.begin_frame();
-        self.frame.paint(context);
+        self.kernel.paint(context);
         context.as_mut().renderer.end_frame();
         context.as_mut().profiler.finish_frame();
         self.present(context)?;

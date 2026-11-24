@@ -656,13 +656,13 @@ fn shadow_masks_are_lazy_and_shared_until_frame_end() {
 fn widgets_record_into_the_renderer_context() {
     use core::time::Duration;
 
-    use blit::{Frame, FrameInfo, Input, LogicalSize};
+    use blit::{FrameInfo, Kernel, LogicalSize, input::Input};
     use blit_gui::{clip::BoundsClip, rectangle::Rectangle, shadow::Shadow, text::Text};
 
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(64, 48), text_system(), renderer_config());
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     for _ in 0..2 {
-        frame.build(
+        kernel.build(
             &mut renderer,
             FrameInfo::new(LogicalSize::new(64.0, 48.0)),
             Duration::ZERO,
@@ -675,8 +675,8 @@ fn widgets_record_into_the_renderer_context() {
                 panel.insert(Text::new("paint"));
             },
         );
-        frame.layout(&mut renderer);
-        frame.paint(&mut renderer);
+        kernel.layout(&mut renderer);
+        kernel.paint(&mut renderer);
         renderer.render(1);
         assert!(renderer.context.list.commands().is_empty());
         assert_eq!(renderer.renderers.len(), 2);
@@ -1555,7 +1555,7 @@ fn clear_resets_stale_pixels_before_drawing() {
 fn images_keep_native_size_and_ownership_until_last_reference() {
     use core::time::Duration;
 
-    use blit::{Constraints, Frame, FrameInfo, Input, Size};
+    use blit::{Constraints, FrameInfo, Kernel, Size, input::Input};
 
     let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(8, 4), renderer_config());
     let texture = ImageData::new(ImagePixels::Static(&[255; 8 * 4 * 4]), ImageFormat::Rgba8, 8, 4);
@@ -1565,13 +1565,13 @@ fn images_keep_native_size_and_ownership_until_last_reference() {
     let first_id = first.id();
     renderer.render(0);
     drop(first);
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     for (maximum, expected) in [
         (Size::new(8.0, 4.0), Size::new(8.0, 4.0)),
         (Size::new(4.0, 4.0), Size::new(4.0, 2.0)),
         (Size::new(8.0, 4.0), Size::new(8.0, 4.0)),
     ] {
-        frame.build(
+        kernel.build(
             &mut renderer,
             FrameInfo::new(Size::new(8.0, 4.0)),
             Duration::ZERO,
@@ -1583,10 +1583,10 @@ fn images_keep_native_size_and_ownership_until_last_reference() {
                 assert_eq!(size, expected);
             },
         );
-        frame.layout(&mut renderer);
+        kernel.layout(&mut renderer);
         let screen = renderer.screen().to_logical(SCALE);
         renderer.paint(screen, &Clear);
-        frame.paint(&mut renderer);
+        kernel.paint(&mut renderer);
         renderer.render(1);
         assert_eq!(renderer.buffer().pixels()[0], Xrgb8888::from_rgb(255, 255, 255));
         assert!(renderer.context.images.get(first_id.into()).is_some());

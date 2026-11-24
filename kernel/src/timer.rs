@@ -1,4 +1,4 @@
-use super::*;
+use crate::*;
 
 /// a timer from [`Ui::timer`] or [`Ui::interval`]
 pub struct Timer<'a> {

@@ -3,11 +3,7 @@
 use alloc::{boxed::Box, rc::Rc};
 use core::hash::{Hash, Hasher};
 
-use blit::{
-    Paint, Rect, Scale2, Size, Ui, Widget,
-    geometry::{LogicalRect, PhysicalRect},
-    state,
-};
+use blit::{LogicalRect, Paint, PhysicalRect, Rect, Scale2, Size, Ui, Widget, state};
 
 use crate::color::Color;
 

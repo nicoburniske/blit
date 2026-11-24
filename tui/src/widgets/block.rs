@@ -321,7 +321,7 @@ fn border_character(style: BorderStyle, edges: u8) -> char {
 mod tests {
     use std::time::Duration;
 
-    use blit::{Constraints, Frame, FrameInfo, Input, Size};
+    use blit::{Constraints, FrameInfo, Kernel, Size, input::Input};
 
     use super::*;
     use crate::{RendererConfig, TuiContext, TuiRenderer, layout::flex, widgets::shadow::Shadow};
@@ -330,9 +330,9 @@ mod tests {
     fn block_and_shadow_paint_into_cells() {
         let renderer = TuiRenderer::new(RendererConfig::new().columns(20).rows(5));
         let mut context = TuiContext::new(renderer);
-        let mut frame = Frame::default();
+        let mut kernel = Kernel::default();
         context.renderer.begin_frame();
-        frame.build(
+        kernel.build(
             &mut context,
             FrameInfo::new(Size::new(20, 5)),
             Duration::ZERO,
@@ -356,8 +356,8 @@ mod tests {
                 );
             },
         );
-        frame.layout(&mut context);
-        frame.paint(&mut context);
+        kernel.layout(&mut context);
+        kernel.paint(&mut context);
         context.renderer.end_frame();
 
         assert_eq!(

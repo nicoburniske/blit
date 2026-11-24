@@ -1,4 +1,4 @@
-use blit::{Axis, ContactId, ContactSource, InteractCx, MouseButton, Phase, Point, Scalar, builder};
+use blit::{Axis, ContactId, ContactSource, InteractCx, Phase, Point, Scalar, builder, input::MouseButton};
 
 use crate::Context;
 
@@ -106,9 +106,11 @@ mod tests {
     use std::cell::Cell;
 
     use blit::{
-        Frame, Input,
-        TouchPhase::{Down, Move, Up},
-        Ui,
+        Kernel, Ui,
+        input::{
+            Input,
+            TouchPhase::{Down, Move, Up},
+        },
     };
 
     use super::*;
@@ -148,8 +150,8 @@ mod tests {
     #[test]
     fn drags_pick_contacts_by_axis() {
         let idle = Response::default();
-        let mut frame = Frame::default();
-        let mut next = |input| step(&mut frame, input, slider);
+        let mut kernel = Kernel::default();
+        let mut next = |input| step(&mut kernel, input, slider);
         next(Input::None);
         next(pointer(Some(1), Down, 10.0, 10.0));
         assert_eq!(next(pointer(Some(1), Move, 12.0, 10.0)), (idle, idle));
@@ -186,7 +188,7 @@ mod tests {
 
     #[test]
     fn removing_the_dragged_widget_cancels() {
-        let mut frame = Frame::<TestContext>::default();
+        let mut kernel = Kernel::<TestContext>::default();
         let mounted = Cell::new(true);
         let build = |mut ui: Ui<'_, TestContext>| {
             let drag = ui.at("handle").interact(interact::drag());
@@ -195,7 +197,7 @@ mod tests {
             }
             drag
         };
-        let mut next = |input| step(&mut frame, input, build);
+        let mut next = |input| step(&mut kernel, input, build);
         next(Input::None);
         next(pointer(Some(1), Down, 10.0, 10.0));
         assert!(next(pointer(Some(1), Move, 40.0, 10.0)).active);

@@ -5,7 +5,8 @@ use std::{
 };
 
 use blit::{
-    Animation, Axis, Easing, Input, Key, KeyboardEvent, Motion, Scalar, Sides, Size, Spring, Target, Tween, Widget,
+    Animation, Axis, Easing, KeyboardEvent, Motion, Scalar, Sides, Size, Spring, Target, Tween, Widget,
+    input::{Input, Key},
 };
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, Transition, board, select};
 use blit_tui::{

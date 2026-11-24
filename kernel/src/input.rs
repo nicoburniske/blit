@@ -1,4 +1,4 @@
-use crate::geometry::Point;
+use crate::Point;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Input<T> {

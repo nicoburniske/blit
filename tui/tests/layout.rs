@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use blit::{Constraints, Frame, FrameInfo, Id, Input, Size, Target};
+use blit::{Constraints, FrameInfo, Id, Kernel, Size, Target, input::Input};
 use blit_tui::{
     RendererConfig, TuiContext, TuiRenderer, Ui,
     layout::{Sizing, flex, grid},
@@ -11,8 +11,8 @@ use blit_tui::{
 fn three_columns_use_all_ten_cells_and_wrap_at_the_assigned_width() {
     for use_grid in [false, true] {
         let mut context = TuiContext::new(TuiRenderer::new(RendererConfig::new().columns(10).rows(2)));
-        let mut frame = Frame::default();
-        frame.build(
+        let mut kernel = Kernel::default();
+        kernel.build(
             &mut context,
             FrameInfo::new(Size::new(10, 2)),
             Duration::ZERO,
@@ -39,13 +39,13 @@ fn three_columns_use_all_ten_cells_and_wrap_at_the_assigned_width() {
                     });
             },
         );
-        frame.layout(&mut context);
+        kernel.layout(&mut context);
         assert_eq!(
-            [0, 1, 2].map(|column| frame.area(Target::ROOT.scoped(Id::new(column))).unwrap().width),
+            [0, 1, 2].map(|column| kernel.area(Target::ROOT.scoped(Id::new(column))).unwrap().width),
             [3, 4, 3]
         );
         context.renderer.begin_frame();
-        frame.paint(&mut context);
+        kernel.paint(&mut context);
         context.renderer.end_frame();
         assert_eq!(context.renderer.plain_text(), "abcabcdabc\nd      d\n");
     }

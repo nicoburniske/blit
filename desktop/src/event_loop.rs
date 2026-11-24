@@ -4,7 +4,7 @@ use std::{
 };
 
 use blit::{
-    Frame, FrameInfo, LogicalPoint, Size,
+    FrameInfo, Kernel, LogicalPoint, Size,
     input::{Input, Key, KeyInput, Modifiers, MouseButton, ScrollPhase},
 };
 use blit_executor::LocalExecutor;
@@ -119,7 +119,7 @@ struct Active<A: Application> {
     app: A,
     executor: LocalExecutor<A>,
     context: DesktopContext<A::Graphics>,
-    frame: Frame<DesktopContext<A::Graphics>>,
+    kernel: Kernel<DesktopContext<A::Graphics>>,
     window: Arc<Window>,
     ui_scale: f32,
     render_deferred: bool,
@@ -136,7 +136,7 @@ impl<A: Application> Active<A> {
         self.context.graphics.resize(size)?;
         self.render_deferred = self.occluded || size.width == 0 || size.height == 0;
         if !self.render_deferred {
-            self.frame.request_frame();
+            self.kernel.request_frame();
             self.window.request_redraw();
         }
         Ok(())
@@ -201,10 +201,10 @@ impl<A: Application> Runner<A> {
         }
         let time = self.started_at.elapsed();
         let timer_due = active
-            .frame
+            .kernel
             .next_timer_deadline()
             .is_some_and(|deadline| time >= deadline);
-        if self.inputs.is_empty() && !active.frame.has_pending_redraw() && !timer_due {
+        if self.inputs.is_empty() && !active.kernel.has_pending_redraw() && !timer_due {
             return;
         }
         let scale = active.scale();
@@ -214,15 +214,15 @@ impl<A: Application> Runner<A> {
         active.context.graphics.reset_frame();
         for input in self.inputs.drain(..).chain(no_input) {
             active
-                .frame
+                .kernel
                 .build(&mut active.context, info, time, input, |ui: Ui<'_, A::Graphics>| {
                     active.app.build(ui)
                 });
             active.context.profiler.finish_stage(Stage::Build);
-            active.frame.layout(&mut active.context);
+            active.kernel.layout(&mut active.context);
             active.context.profiler.finish_stage(Stage::Layout);
         }
-        active.frame.paint(&mut active.context);
+        active.kernel.paint(&mut active.context);
         let presented = match active.context.graphics.render() {
             Ok(presented) => presented,
             Err(error) => return self.fail(event_loop, error),
@@ -230,7 +230,7 @@ impl<A: Application> Runner<A> {
         active.context.profiler.finish_frame();
         active.render_deferred = !presented;
         if !presented {
-            active.frame.request_frame();
+            active.kernel.request_frame();
         }
     }
 }
@@ -271,7 +271,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             return self.fail(event_loop, error);
         }
         context.graphics.set_scale(window.scale_factor() as f32);
-        let frame = Frame::default();
+        let kernel = Kernel::default();
         let wake = input.inner.clone();
         let executor = LocalExecutor::new(move || {
             let _ = wake.send_event(Event::TasksReady);
@@ -282,7 +282,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             app,
             executor,
             context,
-            frame,
+            kernel,
             window,
             ui_scale: 1.0,
             render_deferred: false,
@@ -315,7 +315,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             Event::TasksReady => active.executor.run_ready(&mut active.app),
         };
         if request_frame {
-            active.frame.request_frame();
+            active.kernel.request_frame();
             active.window.request_redraw();
         }
     }
@@ -515,10 +515,10 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
                     id: touch.id,
                     position,
                     phase: match touch.phase {
-                        TouchPhase::Started => blit::TouchPhase::Down,
-                        TouchPhase::Moved => blit::TouchPhase::Move,
-                        TouchPhase::Ended => blit::TouchPhase::Up,
-                        TouchPhase::Cancelled => blit::TouchPhase::Cancel,
+                        TouchPhase::Started => blit::input::TouchPhase::Down,
+                        TouchPhase::Moved => blit::input::TouchPhase::Move,
+                        TouchPhase::Ended => blit::input::TouchPhase::Up,
+                        TouchPhase::Cancelled => blit::input::TouchPhase::Cancel,
                     },
                 });
             }
@@ -535,16 +535,16 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             return;
         }
         let now = self.started_at.elapsed();
-        if active.frame.has_pending_redraw()
+        if active.kernel.has_pending_redraw()
             || active
-                .frame
+                .kernel
                 .next_timer_deadline()
                 .is_some_and(|deadline| deadline <= now)
             || !self.inputs.is_empty()
         {
             active.window.request_redraw();
             event_loop.set_control_flow(ControlFlow::Wait);
-        } else if let Some(deadline) = active.frame.next_timer_deadline() {
+        } else if let Some(deadline) = active.kernel.next_timer_deadline() {
             event_loop.set_control_flow(ControlFlow::WaitUntil(self.started_at + deadline));
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);

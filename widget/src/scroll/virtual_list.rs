@@ -584,7 +584,10 @@ fn metrics<T: Scalar>(state: &VirtualListState<T>, count: Option<usize>, height:
 mod tests {
     use std::time::Duration;
 
-    use blit::{Frame, FrameInfo, Input, Rect, Scope, Target, TouchPhase};
+    use blit::{
+        FrameInfo, Kernel, Rect, Scope, Target,
+        input::{Input, TouchPhase},
+    };
 
     use super::*;
     use crate::test::{TestContext, pointer};
@@ -592,37 +595,37 @@ mod tests {
     #[test]
     fn shrinking_anchor_keeps_the_window_bounded() {
         for count in [Some(1_000_000), None] {
-            let mut frame = Frame::default();
+            let mut kernel = Kernel::default();
             let mut state = VirtualListState::default();
             let tall = |index| (Id::new(index), 10_000.0);
-            settle_frame(&mut frame, &mut state, count, tall);
+            settle_frame(&mut kernel, &mut state, count, tall);
             state.scroll_by(5_000.0);
-            settle_frame(&mut frame, &mut state, count, tall);
-            settle_frame(&mut frame, &mut state, count, |index| (Id::new(index), 1.0));
+            settle_frame(&mut kernel, &mut state, count, tall);
+            settle_frame(&mut kernel, &mut state, count, |index| (Id::new(index), 1.0));
             assert!(state.sample.len() <= 101);
             assert_eq!(state.position().0, 1);
-            assert_eq!(frame.area(Target::ROOT.scoped(Id::new(1usize))).unwrap().y, 0.0);
+            assert_eq!(kernel.area(Target::ROOT.scoped(Id::new(1usize))).unwrap().y, 0.0);
         }
     }
 
     #[test]
     fn queued_movement_and_position_preserve_the_row_offset() {
         for count in [Some(1_000_000), None] {
-            let mut frame = Frame::default();
+            let mut kernel = Kernel::default();
             let mut state = VirtualListState::default();
             state.scroll_by(5_000_000.0);
-            settle_frame(&mut frame, &mut state, count, |index| (Id::new(index), 10.0));
+            settle_frame(&mut kernel, &mut state, count, |index| (Id::new(index), 10.0));
             assert_eq!(state.position().0, 500_000);
             state.scroll_by(1.0);
             state.scroll_by(5.0);
-            render_frame(&mut frame, &mut state, count, Input::None, |index| {
+            render_frame(&mut kernel, &mut state, count, Input::None, |index| {
                 (Id::new(index), 10.0)
             });
             let (index, offset) = state.position();
             assert_eq!(offset, 5.0);
             state.scroll_to(index + 1, offset);
             let (area, _) = render_frame(
-                &mut frame,
+                &mut kernel,
                 &mut state,
                 count.map(|count| count + 1),
                 Input::None,
@@ -652,27 +655,27 @@ mod tests {
                 (Some(2), &[10.0, 10.0]),
                 (None, &[10.0]),
             ] {
-                let mut frame = Frame::default();
+                let mut kernel = Kernel::default();
                 let mut state = VirtualListState::default();
-                settle_frame(&mut frame, &mut state, count, |index| {
+                settle_frame(&mut kernel, &mut state, count, |index| {
                     (Id::new(index), heights[index % heights.len()])
                 });
                 for phase in [TouchPhase::Down, TouchPhase::Up] {
                     render_frame(
-                        &mut frame,
+                        &mut kernel,
                         &mut state,
                         count,
                         pointer(id, phase, 79.5, 49.999),
                         |index| (Id::new(index), heights[index % heights.len()]),
                     );
                 }
-                if frame.has_pending_redraw() {
-                    settle_frame(&mut frame, &mut state, count, |index| {
+                if kernel.has_pending_redraw() {
+                    settle_frame(&mut kernel, &mut state, count, |index| {
                         (Id::new(index), heights[index % heights.len()])
                     });
                 }
                 if let Some(count) = count {
-                    let area = frame.area(Target::ROOT.scoped(Id::new(count - 1))).unwrap();
+                    let area = kernel.area(Target::ROOT.scoped(Id::new(count - 1))).unwrap();
                     assert_eq!(area.y + area.height, heights.iter().sum::<f32>().min(50.0));
                 } else {
                     assert_eq!(state.position().0, 5);
@@ -684,22 +687,22 @@ mod tests {
 
     #[test]
     fn variable_rows_keep_the_thumb_moving_with_the_scroll() {
-        let mut frame = Frame::default();
+        let mut kernel = Kernel::default();
         let mut state = VirtualListState::default();
         let row = |index| (Id::new(index), [1.0, 1024.0, 16.0, 512.0][index % 4]);
-        let mut previous = settle_frame(&mut frame, &mut state, None, row).1;
+        let mut previous = settle_frame(&mut kernel, &mut state, None, row).1;
         for delta in [16.0, -16.0] {
             for _ in 0..400 {
                 state.scroll_by(delta);
-                let thumb = render_frame(&mut frame, &mut state, None, Input::None, row).1;
+                let thumb = render_frame(&mut kernel, &mut state, None, Input::None, row).1;
                 assert!((thumb.y - previous.y) * delta >= -0.0001);
                 if delta > 0.0 {
                     assert!(thumb.height <= previous.height);
                 }
                 assert!(thumb.y >= 0.0 && thumb.y + thumb.height <= 50.00001);
-                let idle = render_frame(&mut frame, &mut state, None, Input::None, row).1;
+                let idle = render_frame(&mut kernel, &mut state, None, Input::None, row).1;
                 assert_eq!(idle, thumb);
-                assert!(!frame.has_pending_redraw());
+                assert!(!kernel.has_pending_redraw());
                 previous = thumb;
             }
         }
@@ -710,34 +713,34 @@ mod tests {
     fn scrolling_up_preserves_the_existing_row_position() {
         for count in [Some(1_000), None] {
             for (before, after) in [(1024.0, 16.0), (16.0, 1024.0)] {
-                let mut frame = Frame::default();
+                let mut kernel = Kernel::default();
                 let mut state = VirtualListState::default();
                 let row = |index| (Id::new(index), if index < 20 { before } else { after });
                 state.scroll_to(20, 0.0);
-                settle_frame(&mut frame, &mut state, count, row);
+                settle_frame(&mut kernel, &mut state, count, row);
                 let key = Id::new(20usize);
-                let y = frame.area(Target::ROOT.scoped(key)).unwrap().y;
+                let y = kernel.area(Target::ROOT.scoped(key)).unwrap().y;
                 state.scroll_by(-20.0);
-                render_frame(&mut frame, &mut state, count, Input::None, row);
-                assert_eq!(frame.area(Target::ROOT.scoped(key)).unwrap().y, y + 20.0);
-                settle_frame(&mut frame, &mut state, count, row);
-                assert_eq!(frame.area(Target::ROOT.scoped(key)).unwrap().y, y + 20.0);
+                render_frame(&mut kernel, &mut state, count, Input::None, row);
+                assert_eq!(kernel.area(Target::ROOT.scoped(key)).unwrap().y, y + 20.0);
+                settle_frame(&mut kernel, &mut state, count, row);
+                assert_eq!(kernel.area(Target::ROOT.scoped(key)).unwrap().y, y + 20.0);
                 state.scroll_by(40.0);
-                render_frame(&mut frame, &mut state, count, Input::None, row);
-                assert_eq!(frame.area(Target::ROOT.scoped(key)).unwrap().y, y - 20.0);
+                render_frame(&mut kernel, &mut state, count, Input::None, row);
+                assert_eq!(kernel.area(Target::ROOT.scoped(key)).unwrap().y, y - 20.0);
             }
         }
     }
 
     fn settle_frame(
-        frame: &mut Frame<TestContext>,
+        kernel: &mut Kernel<TestContext>,
         state: &mut VirtualListState<f32>,
         count: Option<usize>,
         row: impl Fn(usize) -> (Id, f32),
     ) -> (Option<Rect<f32>>, Rect<f32>) {
         for _ in 0..8 {
-            let result = render_frame(frame, state, count, Input::None, &row);
-            if !frame.has_pending_redraw() {
+            let result = render_frame(kernel, state, count, Input::None, &row);
+            if !kernel.has_pending_redraw() {
                 return result;
             }
         }
@@ -745,13 +748,13 @@ mod tests {
     }
 
     fn render_frame(
-        frame: &mut Frame<TestContext>,
+        kernel: &mut Kernel<TestContext>,
         state: &mut VirtualListState<f32>,
         count: Option<usize>,
         input: Input<f32>,
         row: impl Fn(usize) -> (Id, f32),
     ) -> (Option<Rect<f32>>, Rect<f32>) {
-        frame.build(
+        kernel.build(
             &mut TestContext,
             FrameInfo::new(Size::new(80.0, 50.0)),
             Duration::ZERO,
@@ -775,13 +778,13 @@ mod tests {
                 );
             },
         );
-        frame.layout(&mut TestContext);
+        kernel.layout(&mut TestContext);
         (
             state
                 .sample
                 .get(state.visible.start)
-                .and_then(|row| frame.area(Target::ROOT.scoped(row.id))),
-            frame.area(THUMB).unwrap(),
+                .and_then(|row| kernel.area(Target::ROOT.scoped(row.id))),
+            kernel.area(THUMB).unwrap(),
         )
     }
 }

@@ -78,12 +78,12 @@ scratch cannot escape frame construction
 use blit::*;
 use std::time::Duration;
 
-fn escape(frame: &mut Frame<()>) {
-    let scratch = frame.build(
+fn escape(kernel: &mut Kernel<()>) {
+    let scratch = kernel.build(
         &mut (),
         FrameInfo::new(Size::uniform(1.0)),
         Duration::ZERO,
-        Input::None,
+        input::Input::None,
         |ui: Ui<'_, ()>| ui.scratch().slice::<u8>(1),
     );
 }

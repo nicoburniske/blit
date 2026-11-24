@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use blit::{
-    Constraints, Context, Easing, Frame, FrameInfo, Input, Motion, Rect, Scalar, Sides, Size, Target, Tween, Ui,
-    Widget, state,
+    Constraints, Context, Easing, FrameInfo, Kernel, Motion, Rect, Scalar, Sides, Size, Target, Tween, Ui, Widget,
+    input::Input, state,
 };
 use blit_widget::layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, wrap};
 
@@ -20,13 +20,13 @@ impl Context for Cells {
 }
 
 fn layout_frame<C: Context, W: Widget<C>>(
-    frame: &mut Frame<C>,
+    kernel: &mut Kernel<C>,
     context: &mut C,
     info: FrameInfo<C::Scalar>,
     widget: W,
 ) -> W::Response {
-    let output = frame.build(context, info, Duration::ZERO, Input::None, widget);
-    frame.layout(context);
+    let output = kernel.build(context, info, Duration::ZERO, Input::None, widget);
+    kernel.layout(context);
     output
 }
 
@@ -63,10 +63,10 @@ impl<C: Context> Widget<C, state::Insert> for ResponsiveContent {
 
 #[test]
 fn absolute_percentages_use_the_target() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let id = "absolute";
     layout_frame(
-        &mut frame,
+        &mut kernel,
         &mut TestContext,
         FrameInfo::new(Size::new(10.0, 4.0)),
         |ui: Ui<'_, TestContext>| {
@@ -86,15 +86,15 @@ fn absolute_percentages_use_the_target() {
             );
         },
     );
-    assert_eq!(frame.area(id), Some(Rect::new(8.0, 3.0, 3.0, 2.0)));
+    assert_eq!(kernel.area(id), Some(Rect::new(8.0, 3.0, 3.0, 2.0)));
 }
 
 #[test]
 fn absolute_flips_then_clamps_into_the_screen() {
     let popup = "popup";
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     layout_frame(
-        &mut frame,
+        &mut kernel,
         &mut Cells,
         FrameInfo::new(Size::new(20, 10)),
         |ui: Ui<'_, Cells>| {
@@ -113,16 +113,16 @@ fn absolute_flips_then_clamps_into_the_screen() {
             );
         },
     );
-    assert_eq!(frame.area(popup), Some(Rect::new(16, 4, 4, 4)));
+    assert_eq!(kernel.area(popup), Some(Rect::new(16, 4, 4, 4)));
 }
 
 #[test]
 fn flex_remeasures_constraint_dependent_content() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let mut context = TestContext;
     let child = "responsive";
     layout_frame(
-        &mut frame,
+        &mut kernel,
         &mut context,
         FrameInfo::new(Size::new(5.0, 10.0)),
         |ui: Ui<'_, TestContext>| {
@@ -132,13 +132,13 @@ fn flex_remeasures_constraint_dependent_content() {
                 .insert(ResponsiveContent);
         },
     );
-    assert_eq!(frame.area(child).unwrap().size(), Size::new(5.0, 2.0));
+    assert_eq!(kernel.area(child).unwrap().size(), Size::new(5.0, 2.0));
 }
 
 #[test]
 fn parent_items_allocate_and_component_bounds_constrain_each_axis() {
     for wrapping in [false, true] {
-        let mut frame = Frame::default();
+        let mut kernel = Kernel::default();
         let inherited = "inherited";
         let fixed = "fixed";
         let fit = "fit";
@@ -147,7 +147,7 @@ fn parent_items_allocate_and_component_bounds_constrain_each_axis() {
             max: Size::new(f32::INFINITY, 6.0),
         };
         layout_frame(
-            &mut frame,
+            &mut kernel,
             &mut TestContext,
             FrameInfo::new(Size::uniform(100.0)),
             |ui: Ui<'_, TestContext>| {
@@ -186,9 +186,9 @@ fn parent_items_allocate_and_component_bounds_constrain_each_axis() {
                 }
             },
         );
-        assert_eq!(frame.area(inherited).unwrap().size(), Size::new(70.0, 6.0));
-        assert_eq!(frame.area(fixed).unwrap().size(), Size::new(20.0, 6.0));
-        assert_eq!(frame.area(fit).unwrap().size(), Size::new(10.0, 6.0));
+        assert_eq!(kernel.area(inherited).unwrap().size(), Size::new(70.0, 6.0));
+        assert_eq!(kernel.area(fixed).unwrap().size(), Size::new(20.0, 6.0));
+        assert_eq!(kernel.area(fit).unwrap().size(), Size::new(10.0, 6.0));
     }
 }
 
@@ -206,9 +206,9 @@ fn explicit_items_and_grid_accept_custom_layouts() {
 
     for use_grid in [false, true] {
         let child = "custom layout";
-        let mut frame = Frame::default();
+        let mut kernel = Kernel::default();
         layout_frame(
-            &mut frame,
+            &mut kernel,
             &mut TestContext,
             FrameInfo::new(Size::uniform(100.0)),
             |ui: Ui<'_, TestContext>| {
@@ -223,7 +223,7 @@ fn explicit_items_and_grid_accept_custom_layouts() {
             },
         );
         assert_eq!(
-            frame.area(child).unwrap().size(),
+            kernel.area(child).unwrap().size(),
             Size::new(if use_grid { 100.0 } else { 10.0 }, 10.0)
         );
     }
@@ -231,11 +231,11 @@ fn explicit_items_and_grid_accept_custom_layouts() {
 
 #[test]
 fn flex_cross_grow_uses_fit_siblings_under_loose_constraints() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let header = "header";
     let body = "body";
     layout_frame(
-        &mut frame,
+        &mut kernel,
         &mut TestContext,
         FrameInfo::new(Size::new(100.0, 100.0)),
         |ui: Ui<'_, TestContext>| {
@@ -253,8 +253,8 @@ fn flex_cross_grow_uses_fit_siblings_under_loose_constraints() {
                 .insert(BoxContent(Size::ZERO));
         },
     );
-    assert_eq!(frame.area(header).unwrap().height, 10.0);
-    assert_eq!(frame.area(body).unwrap().height, 90.0);
+    assert_eq!(kernel.area(header).unwrap().height, 10.0);
+    assert_eq!(kernel.area(body).unwrap().height, 90.0);
 }
 
 #[test]
@@ -284,11 +284,11 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
     let branch_id = "deferred grow branch";
     for axis in [Axis::Horizontal, Axis::Vertical] {
         for cross_fixed in [false, true] {
-            let mut frame = Frame::default();
+            let mut kernel = Kernel::default();
             let mut context = CountContext::default();
             let screen = Size::new(100.0, 80.0);
             layout_frame(
-                &mut frame,
+                &mut kernel,
                 &mut context,
                 FrameInfo::new(screen),
                 |ui: Ui<'_, CountContext>| {
@@ -337,16 +337,16 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
             assert_eq!(context.0, [1; 3]);
             assert_eq!(
                 axis.other()
-                    .extent(frame.area(Target::ROOT.scoped(leaf)).unwrap().size()),
+                    .extent(kernel.area(Target::ROOT.scoped(leaf)).unwrap().size()),
                 if cross_fixed { 36.0 } else { 10.0 }
             );
             assert_eq!(
                 axis.other()
-                    .extent(frame.area(Target::ROOT.scoped(sibling)).unwrap().size()),
+                    .extent(kernel.area(Target::ROOT.scoped(sibling)).unwrap().size()),
                 if cross_fixed { 40.0 } else { 14.0 }
             );
             assert_eq!(
-                axis.extent(frame.area(Target::ROOT.scoped(branch_id)).unwrap().size()),
+                axis.extent(kernel.area(Target::ROOT.scoped(branch_id)).unwrap().size()),
                 axis.extent(screen) - 18.0
             );
         }
@@ -390,9 +390,9 @@ fn flex_unbounded_cross_uses_content_or_zero_for_fill_children() {
                     Sizing::percent(0.25),
                     Sizing::grow(),
                 ] {
-                    let mut frame = Frame::default();
+                    let mut kernel = Kernel::default();
                     layout_frame(
-                        &mut frame,
+                        &mut kernel,
                         &mut TestContext,
                         FrameInfo::new(Size::new(100.0, 80.0)),
                         |ui: Ui<'_, TestContext>| {
@@ -418,13 +418,13 @@ fn flex_unbounded_cross_uses_content_or_zero_for_fill_children() {
                     if include_fit {
                         assert_eq!(
                             axis.other()
-                                .extent(frame.area(Target::ROOT.scoped(fit)).unwrap().size()),
+                                .extent(kernel.area(Target::ROOT.scoped(fit)).unwrap().size()),
                             12.0
                         );
                     }
                     assert_eq!(
                         axis.other()
-                            .extent(frame.area(Target::ROOT.scoped(grow)).unwrap().size()),
+                            .extent(kernel.area(Target::ROOT.scoped(grow)).unwrap().size()),
                         if include_fit { 8.0 } else { 0.0 }
                     );
                 }
@@ -435,12 +435,12 @@ fn flex_unbounded_cross_uses_content_or_zero_for_fill_children() {
 
 #[test]
 fn flex_distributes_growing_space() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let mut context = TestContext;
     let fixed = "fixed";
     let grow = "grow";
     layout_frame(
-        &mut frame,
+        &mut kernel,
         &mut context,
         FrameInfo::new(Size::new(100.0, 20.0)),
         |ui: Ui<'_, TestContext>| {
@@ -453,16 +453,16 @@ fn flex_distributes_growing_space() {
                 .insert(BoxContent(Size::new(1.0, 10.0)));
         },
     );
-    assert_eq!(frame.area(fixed).unwrap().width, 20.0);
-    assert_eq!(frame.area(grow).unwrap().width, 76.0);
+    assert_eq!(kernel.area(fixed).unwrap().width, 20.0);
+    assert_eq!(kernel.area(grow).unwrap().width, 76.0);
 }
 
 #[test]
 fn flex_respects_growth_caps() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let ids = ["two", "four", "unbounded"];
     layout_frame(
-        &mut frame,
+        &mut kernel,
         &mut TestContext,
         FrameInfo::new(Size::new(15.0, 1.0)),
         |ui: Ui<'_, TestContext>| {
@@ -479,16 +479,16 @@ fn flex_respects_growth_caps() {
             }
         },
     );
-    assert_eq!(ids.map(|id| frame.area(id).unwrap().width), [2.0, 4.0, 9.0]);
+    assert_eq!(ids.map(|id| kernel.area(id).unwrap().width), [2.0, 4.0, 9.0]);
 }
 
 #[test]
 fn flex_size_motion_preserves_exact_overflow_and_reflows_siblings() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let animated = "animated flex child";
     let sibling = "flex sibling";
     let mut render = |extent, time| {
-        frame.build(
+        kernel.build(
             &mut TestContext,
             FrameInfo::new(Size::new(4.0, 2.0)),
             time,
@@ -504,8 +504,8 @@ fn flex_size_motion_preserves_exact_overflow_and_reflows_siblings() {
                     .insert(BoxContent(Size::ZERO));
             },
         );
-        frame.layout(&mut TestContext);
-        (frame.area(animated).unwrap().size(), frame.area(sibling).unwrap().x)
+        kernel.layout(&mut TestContext);
+        (kernel.area(animated).unwrap().size(), kernel.area(sibling).unwrap().x)
     };
 
     assert_eq!(render(1.0, Duration::ZERO), (Size::uniform(1.0), 1.0));
@@ -516,10 +516,10 @@ fn flex_size_motion_preserves_exact_overflow_and_reflows_siblings() {
 
 #[test]
 fn empty_layouts_keep_padding() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let ids = ["empty flex", "empty wrap", "empty grid"];
     layout_frame(
-        &mut frame,
+        &mut kernel,
         &mut Cells,
         FrameInfo::new(Size::new(20, 10)),
         |ui: Ui<'_, Cells>| {
@@ -530,15 +530,15 @@ fn empty_layouts_keep_padding() {
             root.child_id(ids[2]).layout(grid::new(2)).pad(padding);
         },
     );
-    assert_eq!(ids.map(|id| frame.area(id).unwrap().size()), [Size::uniform(4); 3]);
+    assert_eq!(ids.map(|id| kernel.area(id).unwrap().size()), [Size::uniform(4); 3]);
 }
 
 #[test]
 fn wrap_uses_exact_cell_boundaries() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let last = "last";
     layout_frame(
-        &mut frame,
+        &mut kernel,
         &mut Cells,
         FrameInfo::new(Size::new(4096, 2)),
         |ui: Ui<'_, Cells>| {
@@ -549,16 +549,16 @@ fn wrap_uses_exact_cell_boundaries() {
             wrap.child_id(last).insert(BoxContent(Size::uniform(1)));
         },
     );
-    assert_eq!(frame.area(last), Some(Rect::new(0, 1, 1, 1)));
+    assert_eq!(kernel.area(last), Some(Rect::new(0, 1, 1, 1)));
 }
 
 #[test]
 fn wrap_grows_each_run_and_stretches_cross_grow() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let wrap_id = "wrap";
     let ids = ["capped", "uncapped", "next run"];
     layout_frame(
-        &mut frame,
+        &mut kernel,
         &mut TestContext,
         FrameInfo::new(Size::new(11.0, 10.0)),
         |ui: Ui<'_, TestContext>| {
@@ -578,27 +578,27 @@ fn wrap_grows_each_run_and_stretches_cross_grow() {
                 .insert(ResponsiveContent);
         },
     );
-    assert_eq!(frame.area(wrap_id).unwrap().size(), Size::new(11.0, 4.0));
+    assert_eq!(kernel.area(wrap_id).unwrap().size(), Size::new(11.0, 4.0));
     assert_eq!(
-        frame.area(Target::ROOT.scoped(ids[0])),
+        kernel.area(Target::ROOT.scoped(ids[0])),
         Some(Rect::new(0.0, 0.0, 5.0, 3.0))
     );
     assert_eq!(
-        frame.area(Target::ROOT.scoped(ids[1])),
+        kernel.area(Target::ROOT.scoped(ids[1])),
         Some(Rect::new(5.0, 0.0, 5.5, 3.0))
     );
     assert_eq!(
-        frame.area(Target::ROOT.scoped(ids[2])),
+        kernel.area(Target::ROOT.scoped(ids[2])),
         Some(Rect::new(0.0, 3.0, 11.0, 1.0))
     );
 }
 
 #[test]
 fn wrap_keeps_target_runs_during_size_motions() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let ids: [usize; 10] = std::array::from_fn(|index| index);
     let mut render = |width, time| {
-        frame.build(
+        kernel.build(
             &mut Cells,
             FrameInfo::new(Size::new(width, 2)),
             time,
@@ -613,8 +613,8 @@ fn wrap_keeps_target_runs_during_size_motions() {
                 }
             },
         );
-        frame.layout(&mut Cells);
-        frame.area(ids[9]).unwrap()
+        kernel.layout(&mut Cells);
+        kernel.area(ids[9]).unwrap()
     };
 
     assert_eq!(render(40, Duration::ZERO).y, 1);
@@ -624,11 +624,11 @@ fn wrap_keeps_target_runs_during_size_motions() {
 
 #[test]
 fn wrap_shrinkwraps_animated_target_runs() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let wrap_id = "wrap";
     let child_ids = ["first", "second"];
     let mut render = |extent, time| {
-        frame.build(
+        kernel.build(
             &mut TestContext,
             FrameInfo::new(Size::new(20.0, 2.0)),
             time,
@@ -644,9 +644,9 @@ fn wrap_shrinkwraps_animated_target_runs() {
                 }
             },
         );
-        frame.layout(&mut TestContext);
-        let wrap = frame.area(wrap_id).unwrap();
-        let child = frame.area(Target::ROOT.scoped(child_ids[1])).unwrap();
+        kernel.layout(&mut TestContext);
+        let wrap = kernel.area(wrap_id).unwrap();
+        let child = kernel.area(Target::ROOT.scoped(child_ids[1])).unwrap();
         [wrap.width, child.x, child.y]
     };
 
@@ -658,10 +658,10 @@ fn wrap_shrinkwraps_animated_target_runs() {
 
 #[test]
 fn percentage_children_share_rounded_space() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let ids = [0, 1, 2, 3];
     layout_frame(
-        &mut frame,
+        &mut kernel,
         &mut Cells,
         FrameInfo::new(Size::new(3, 2)),
         |ui: Ui<'_, Cells>| {
@@ -688,7 +688,7 @@ fn percentage_children_share_rounded_space() {
     );
     for index in [1, 3] {
         assert_eq!(
-            frame.area(Target::ROOT.scoped(ids[index])),
+            kernel.area(Target::ROOT.scoped(ids[index])),
             Some(Rect::new(2, (index / 2) as i32, 1, 1))
         );
     }
@@ -696,11 +696,11 @@ fn percentage_children_share_rounded_space() {
 
 #[test]
 fn parent_percentages_apply_once_before_padding() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let percent = "percentage child";
     let container = "percentage container";
     layout_frame(
-        &mut frame,
+        &mut kernel,
         &mut TestContext,
         FrameInfo::new(Size::new(20.0, 10.0)),
         |ui: Ui<'_, TestContext>| {
@@ -714,20 +714,20 @@ fn parent_percentages_apply_once_before_padding() {
                 .insert(BoxContent(Size::new(4.0, 2.0)));
         },
     );
-    assert_eq!(frame.area(container), Some(Rect::new(0.0, 0.0, 10.0, 5.0)));
+    assert_eq!(kernel.area(container), Some(Rect::new(0.0, 0.0, 10.0, 5.0)));
     assert_eq!(
-        frame.area(Target::ROOT.scoped(percent)),
+        kernel.area(Target::ROOT.scoped(percent)),
         Some(Rect::new(1.0, 1.0, 8.0, 3.0))
     );
 }
 
 #[test]
 fn spanning_grid_sizes_spanning_items() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let wide = "wide";
     let layout = grid::new(3).gap(2.0);
     layout_frame(
-        &mut frame,
+        &mut kernel,
         &mut TestContext,
         FrameInfo::new(Size::new(100.0, 40.0)),
         |ui: Ui<'_, TestContext>| {
@@ -738,7 +738,7 @@ fn spanning_grid_sizes_spanning_items() {
             grid.child().insert(BoxContent(Size::uniform(10.0)));
         },
     );
-    assert_eq!(frame.area(wide).unwrap().size(), Size::new(66.0, 12.0));
+    assert_eq!(kernel.area(wide).unwrap().size(), Size::new(66.0, 12.0));
 }
 
 #[test]
@@ -746,9 +746,9 @@ fn grid_intrinsic_width_preserves_integer_spans() {
     let grid_id = "intrinsic grid";
     let child = "spanning child";
     for (columns, start, span, width, total, x) in [(7, 2, 3, 1, 3, 1), (18, 9, 6, 25, 75, 38), (7, 0, 7, 57, 57, 0)] {
-        let mut frame = Frame::default();
+        let mut kernel = Kernel::default();
         layout_frame(
-            &mut frame,
+            &mut kernel,
             &mut Cells,
             FrameInfo::new(Size::new(100, 20)),
             |ui: Ui<'_, Cells>| {
@@ -764,17 +764,17 @@ fn grid_intrinsic_width_preserves_integer_spans() {
                     .insert(BoxContent(Size::new(width, 1)));
             },
         );
-        assert_eq!(frame.area(Target::ROOT.scoped(child)), Some(Rect::new(x, 0, width, 1)));
-        assert_eq!(frame.area(grid_id).unwrap().size(), Size::new(total, 1));
+        assert_eq!(kernel.area(Target::ROOT.scoped(child)), Some(Rect::new(x, 0, width, 1)));
+        assert_eq!(kernel.area(grid_id).unwrap().size(), Size::new(total, 1));
     }
 }
 
 #[test]
 fn spanning_grid_fills_available_cell() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let hole = "hole";
     layout_frame(
-        &mut frame,
+        &mut kernel,
         &mut Cells,
         FrameInfo::new(Size::new(28, 4)),
         |ui: Ui<'_, Cells>| {
@@ -786,15 +786,15 @@ fn spanning_grid_fills_available_cell() {
             grid.child_id(hole).insert(ResponsiveContent);
         },
     );
-    assert_eq!(frame.area(hole), Some(Rect::new(19, 2, 9, 2)));
+    assert_eq!(kernel.area(hole), Some(Rect::new(19, 2, 9, 2)));
 }
 
 #[test]
 fn grid_preserves_an_animated_child_extent_with_a_larger_sibling() {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let id = "animated grid child";
     let mut render = |extent, time| {
-        frame.build(
+        kernel.build(
             &mut Cells,
             FrameInfo::new(Size::new(20, 10)),
             time,
@@ -807,8 +807,8 @@ fn grid_preserves_an_animated_child_extent_with_a_larger_sibling() {
                 grid.child().insert(BoxContent(Size::new(1, extent)));
             },
         );
-        frame.layout(&mut Cells);
-        frame.area(id).unwrap().height
+        kernel.layout(&mut Cells);
+        kernel.area(id).unwrap().height
     };
 
     assert_eq!(render(1, Duration::ZERO), 1);

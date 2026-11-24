@@ -73,7 +73,10 @@ impl<C: Context> blit::Interact<C> for Interact {
 mod tests {
     use std::cell::Cell;
 
-    use blit::{Frame, Input, Modifiers, Rect, ScrollPhase, Ui};
+    use blit::{
+        Kernel, Rect, Ui,
+        input::{Input, Modifiers, ScrollPhase},
+    };
 
     use super::*;
     use crate::{
@@ -84,7 +87,7 @@ mod tests {
 
     #[test]
     fn uncaptured_scroll_follows_reordered_nodes() {
-        let mut frame = Frame::<TestContext>::default();
+        let mut kernel = Kernel::<TestContext>::default();
         let order = Cell::new([0, 1]);
         let build = |mut ui: Ui<'_, TestContext>| {
             let responses = [0, 1].map(|id| ui.at(id).interact(interact::scroll()));
@@ -94,7 +97,7 @@ mod tests {
             }
             responses
         };
-        let mut next = |input| step(&mut frame, input, build);
+        let mut next = |input| step(&mut kernel, input, build);
         let scroll = |phase, delta_y| Input::Scroll {
             position: Point::new(10.0, 10.0),
             delta_x: 0.0,
@@ -118,7 +121,7 @@ mod tests {
 
     #[test]
     fn new_sequence_ends_the_held_one() {
-        let mut frame = Frame::<TestContext>::default();
+        let mut kernel = Kernel::<TestContext>::default();
         let build = |mut ui: Ui<'_, TestContext>| {
             let responses = [0, 1].map(|id| ui.at(id).interact(interact::scroll()));
             let mut root = ui.layout(rect::new());
@@ -127,7 +130,7 @@ mod tests {
             }
             responses
         };
-        let mut next = |input| step(&mut frame, input, build);
+        let mut next = |input| step(&mut kernel, input, build);
         let scroll = |x, phase| Input::Scroll {
             position: Point::new(x, 10.0),
             delta_x: 0.0,
@@ -151,7 +154,7 @@ mod tests {
             Some(ScrollPhase::Ended),
             Some(ScrollPhase::Started),
         ] {
-            let mut frame = Frame::<TestContext>::default();
+            let mut kernel = Kernel::<TestContext>::default();
             let mounted = Cell::new(true);
             let build = |mut ui: Ui<'_, TestContext>| {
                 let response = ui.at("owner").interact(interact::scroll());
@@ -161,7 +164,7 @@ mod tests {
                 }
                 response
             };
-            let mut next = |input| step(&mut frame, input, build);
+            let mut next = |input| step(&mut kernel, input, build);
             let scroll = |phase| Input::Scroll {
                 position: Point::new(10.0, 10.0),
                 delta_x: 0.0,
@@ -195,9 +198,9 @@ mod tests {
     fn scroll() {
         // zero delta endings stay with the owner even outside its bounds
         for horizontal in [true, false] {
-            let mut frame = Frame::<TestContext>::default();
+            let mut kernel = Kernel::<TestContext>::default();
             let mut scroll = |input| {
-                step(&mut frame, input, |mut ui: Ui<'_, TestContext>| {
+                step(&mut kernel, input, |mut ui: Ui<'_, TestContext>| {
                     ui.interact(interact::scroll())
                 })
             };
@@ -277,7 +280,7 @@ mod tests {
 
     #[test]
     fn wheel_axis_leaves_other_directions_to_ancestors() {
-        let mut frame = Frame::<TestContext>::default();
+        let mut kernel = Kernel::<TestContext>::default();
         let build = |mut ui: Ui<'_, TestContext>| {
             let list = ui.interact(interact::scroll().axis(Axis::Vertical));
             let carousel = ui
@@ -286,7 +289,7 @@ mod tests {
                 .build(|mut ui: Ui<'_, TestContext>| ui.interact(interact::scroll().axis(Axis::Horizontal)));
             (list, carousel)
         };
-        step(&mut frame, Input::None, build);
+        step(&mut kernel, Input::None, build);
         let mut wheel = |phase, continuous, delta_x, delta_y| {
             let input = Input::Scroll {
                 position: Point::new(10.0, 10.0),
@@ -296,7 +299,7 @@ mod tests {
                 phase,
                 modifiers: Modifiers::NONE,
             };
-            let (list, carousel) = step(&mut frame, input, build);
+            let (list, carousel) = step(&mut kernel, input, build);
             (list.delta != Point::ZERO, carousel.delta != Point::ZERO)
         };
         assert_eq!(wheel(ScrollPhase::Moved, false, 5.0, 1.0), (false, true));

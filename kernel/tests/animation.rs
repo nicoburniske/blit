@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn motions() {
     for named in [false, true] {
-        let (mut frame, mut context) = frame(Size::new(1.0, 5.0));
+        let (mut kernel, mut context) = kernel(Size::new(1.0, 5.0));
         for (extent, gap, millis, area, sibling, pending) in [
             (1.0, 0.0, 0, Rect::new(0.0, 0.0, 1.0, 1.0), 1.0, false),
             (3.0, 2.0, 0, Rect::new(0.0, 0.0, 1.0, 1.0), 3.0, true),
@@ -35,24 +35,24 @@ fn motions() {
                 column.child().insert(Fill('Y', Size::uniform(1.0)));
             };
             let time = Duration::from_millis(millis);
-            render_inputs(&mut frame, &mut context, time, [], build);
+            render_inputs(&mut kernel, &mut context, time, [], build);
             assert_eq!(
                 context.commands,
                 [Paint('X', area), Paint('Y', Rect::new(0.0, sibling, 1.0, 1.0))]
             );
             // the frame after settles without changing the motion
-            render_inputs(&mut frame, &mut context, time, [], build);
-            assert_eq!(frame.has_pending_redraw(), pending);
+            render_inputs(&mut kernel, &mut context, time, [], build);
+            assert_eq!(kernel.has_pending_redraw(), pending);
         }
     }
 }
 
 #[test]
 fn animation_and_timers() {
-    let (mut frame, mut context) = frame(Size::uniform(1.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(1.0));
     for (target, millis, expected, fired) in [(0.0, 0, 0.0, false), (1.0, 0, 0.0, false), (1.0, 500, 0.5, true)] {
         let result = render_inputs(
-            &mut frame,
+            &mut kernel,
             &mut context,
             Duration::from_millis(millis),
             [],
@@ -65,16 +65,16 @@ fn animation_and_timers() {
         );
         assert_eq!(result, (expected, fired));
     }
-    assert!(frame.has_pending_redraw());
+    assert!(kernel.has_pending_redraw());
 }
 
 #[test]
 fn repeated_calls_from_one_site_are_keyed_by_order() {
-    let (mut frame, mut context) = frame(Size::uniform(1.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(1.0));
     let tween = Tween::new(1.0, Easing::LINEAR);
     let mut next = |millis, targets: [f32; 2]| {
         render_inputs(
-            &mut frame,
+            &mut kernel,
             &mut context,
             Duration::from_millis(millis),
             [],
@@ -96,7 +96,7 @@ fn repeated_calls_from_one_site_are_keyed_by_order() {
 
 #[test]
 fn looping_switches_to_target_motion() {
-    let (mut frame, mut context) = frame(Size::uniform(1.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(1.0));
     let tween = Tween::new(1.0, Easing::LINEAR);
     for (millis, duration, expected, active) in [
         (0, Some(1.0), 0.0, true),
@@ -116,12 +116,12 @@ fn looping_switches_to_target_motion() {
     ] {
         let now = Duration::from_millis(millis);
         for _ in 0..2 {
-            let value = render_inputs(&mut frame, &mut context, now, [], |mut ui: Ui<'_>| {
+            let value = render_inputs(&mut kernel, &mut context, now, [], |mut ui: Ui<'_>| {
                 animate(&mut ui, duration, tween)
             });
             assert_eq!(value, expected);
         }
-        assert_eq!(frame.has_pending_redraw(), active);
+        assert_eq!(kernel.has_pending_redraw(), active);
     }
 
     // both calls share the caller's site, so they drive one animation
@@ -271,7 +271,7 @@ fn delay_holds_before_moving() {
 
 #[test]
 fn retargeted_motion_measurement() {
-    let (mut frame, mut context) = frame(Size::uniform(100.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(100.0));
     let id = "retargeted height";
     for (extent, millis, expected) in [
         (1.0, 0, 1.0),
@@ -283,7 +283,7 @@ fn retargeted_motion_measurement() {
         (5.0, 1500, 5.0),
     ] {
         render_inputs(
-            &mut frame,
+            &mut kernel,
             &mut context,
             Duration::from_millis(millis),
             [],
@@ -299,13 +299,13 @@ fn retargeted_motion_measurement() {
                 column.child().insert(Fill('Y', Size::uniform(1.0)));
             },
         );
-        assert_eq!(frame.area(id).unwrap().height, expected);
+        assert_eq!(kernel.area(id).unwrap().height, expected);
         assert_eq!(
             context.commands.last(),
             Some(&Paint('Y', Rect::new(0.0, expected, 1.0, 1.0)))
         );
     }
-    assert!(!frame.has_pending_redraw());
+    assert!(!kernel.has_pending_redraw());
 }
 
 #[test]
@@ -552,12 +552,12 @@ fn integer_springs_preserve_fractional_motion() {
 
 #[test]
 fn spring_motion_measurement_and_settling() {
-    let (mut frame, mut context) = frame(Size::uniform(100.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(100.0));
     let id = "spring motion";
     let spring = Spring::new(0.500, 0.0);
     for (extent, millis) in [(1.0, 0), (3.0, 0), (3.0, 100), (3.0, 10_000)] {
         let time = Duration::from_millis(millis);
-        let measured = render_inputs(&mut frame, &mut context, time, [], |ui: Ui<'_>| {
+        let measured = render_inputs(&mut kernel, &mut context, time, [], |ui: Ui<'_>| {
             ui.layout(Column)
                 .child_id(id)
                 .motion(Motion::new(spring).height())
@@ -575,15 +575,15 @@ fn spring_motion_measurement_and_settling() {
             3.0
         };
         assert!((measured.height - expected).abs() < 0.00001);
-        assert_eq!(frame.area(id).unwrap().height, measured.height);
+        assert_eq!(kernel.area(id).unwrap().height, measured.height);
     }
-    render_inputs(&mut frame, &mut context, Duration::from_secs(10), [], |ui: Ui<'_>| {
+    render_inputs(&mut kernel, &mut context, Duration::from_secs(10), [], |ui: Ui<'_>| {
         ui.layout(Column)
             .child_id(id)
             .motion(Motion::new(spring).height())
             .insert(Fill('X', Size::new(1.0, 3.0)));
     });
-    assert!(!frame.has_pending_redraw());
+    assert!(!kernel.has_pending_redraw());
 }
 
 #[test]
@@ -627,7 +627,7 @@ fn easing_curves() {
 
 #[test]
 fn spring_sizes_stay_nonnegative_and_resize_snaps() {
-    let (mut frame, mut context) = frame(Size::uniform(100.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(100.0));
     let id = "bounded spring";
     let build = |extent| {
         move |ui: Ui<'_>| {
@@ -637,26 +637,26 @@ fn spring_sizes_stay_nonnegative_and_resize_snaps() {
                 .insert(Fill('X', Size::uniform(extent)));
         }
     };
-    render_inputs(&mut frame, &mut context, Duration::ZERO, [], build(1.0));
-    render_inputs(&mut frame, &mut context, Duration::ZERO, [], build(0.0));
-    render_inputs(&mut frame, &mut context, Duration::from_millis(125), [], build(0.0));
-    assert_eq!(frame.area(id).unwrap().size(), Size::ZERO);
+    render_inputs(&mut kernel, &mut context, Duration::ZERO, [], build(1.0));
+    render_inputs(&mut kernel, &mut context, Duration::ZERO, [], build(0.0));
+    render_inputs(&mut kernel, &mut context, Duration::from_millis(125), [], build(0.0));
+    assert_eq!(kernel.area(id).unwrap().size(), Size::ZERO);
     context.info = FrameInfo::new(Size::uniform(200.0));
-    render_inputs(&mut frame, &mut context, Duration::from_millis(130), [], build(3.0));
-    assert_eq!(frame.area(id).unwrap().size(), Size::uniform(3.0));
-    render_inputs(&mut frame, &mut context, Duration::from_secs(1), [], build(3.0));
-    assert_eq!(frame.area(id).unwrap().size(), Size::uniform(3.0));
-    assert!(!frame.has_pending_redraw());
+    render_inputs(&mut kernel, &mut context, Duration::from_millis(130), [], build(3.0));
+    assert_eq!(kernel.area(id).unwrap().size(), Size::uniform(3.0));
+    render_inputs(&mut kernel, &mut context, Duration::from_secs(1), [], build(3.0));
+    assert_eq!(kernel.area(id).unwrap().size(), Size::uniform(3.0));
+    assert!(!kernel.has_pending_redraw());
 }
 
 #[test]
 fn reparented_motion_continues_from_its_screen_position() {
-    let (mut frame, mut context) = frame(Size::uniform(40.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(40.0));
     let motion = Motion::new(Tween::new(1.0, Easing::LINEAR)).position();
     // the card moves from the first column to the second without moving within either
     for (millis, column, x) in [(0, 0, 0.0), (0, 1, 0.0), (500, 1, 10.0), (1000, 1, 20.0)] {
         render_inputs(
-            &mut frame,
+            &mut kernel,
             &mut context,
             Duration::from_millis(millis),
             [],
@@ -677,13 +677,13 @@ fn reparented_motion_continues_from_its_screen_position() {
                 }
             },
         );
-        assert_eq!(frame.area(Scope::ROOT.key("card")), Some(Rect::new(x, 0.0, 2.0, 2.0)));
+        assert_eq!(kernel.area(Scope::ROOT.key("card")), Some(Rect::new(x, 0.0, 2.0, 2.0)));
     }
 }
 
 #[test]
 fn intervals_count_and_reset() {
-    let (mut frame, mut context) = frame(Size::uniform(1.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(1.0));
     for (millis, edited, count, fired, wake) in [
         (0, false, 0, false, 500),
         (500, false, 1, true, 1000),
@@ -694,7 +694,7 @@ fn intervals_count_and_reset() {
         (1700, false, 1, true, 2200),
     ] {
         let result = render_inputs(
-            &mut frame,
+            &mut kernel,
             &mut context,
             Duration::from_millis(millis),
             [],
@@ -707,20 +707,20 @@ fn intervals_count_and_reset() {
             },
         );
         assert_eq!(result, (count, fired), "{millis}ms");
-        assert_eq!(frame.next_timer_deadline(), Some(Duration::from_millis(wake)));
+        assert_eq!(kernel.next_timer_deadline(), Some(Duration::from_millis(wake)));
     }
 }
 
 #[test]
 fn lifted_motion_paints_above_while_moving() {
-    let (mut frame, mut context) = frame(Size::uniform(40.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(40.0));
     let motion = Motion::new(Tween::new(1.0, Easing::LINEAR))
         .position()
         .lift(Target::ROOT);
     // the card moves into the first column, under the second until lifted
     for (millis, column, lifted) in [(0, 1, false), (0, 0, true), (1000, 0, false)] {
         render_inputs(
-            &mut frame,
+            &mut kernel,
             &mut context,
             Duration::from_millis(millis),
             [],
@@ -763,14 +763,14 @@ fn lifted_motion_paints_above_while_moving() {
 
 #[test]
 fn motion_within_a_parent_does_not_lift() {
-    let (mut frame, mut context) = frame(Size::uniform(40.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(40.0));
     let motion = Motion::new(Tween::new(1.0, Easing::LINEAR))
         .position()
         .lift(Target::ROOT);
     // the card slides down its column while the next column still paints over it
     for (millis, gap) in [(0, 0.0), (0, 5.0), (500, 5.0)] {
         render_inputs(
-            &mut frame,
+            &mut kernel,
             &mut context,
             Duration::from_millis(millis),
             [],
@@ -791,7 +791,7 @@ fn motion_within_a_parent_does_not_lift() {
             },
         );
         // the slide is still running, so a lift would show
-        assert!(gap == 0.0 || frame.has_pending_redraw());
+        assert!(gap == 0.0 || kernel.has_pending_redraw());
         let order: Vec<char> = context
             .commands
             .iter()

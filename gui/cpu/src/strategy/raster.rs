@@ -1,4 +1,4 @@
-use blit::geometry::PhysicalRect;
+use blit::PhysicalRect;
 use blit_gui::display_list::DisplayList;
 use blit_util::arena::Arena;
 

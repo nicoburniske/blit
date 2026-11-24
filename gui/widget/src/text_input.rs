@@ -1,4 +1,7 @@
-use blit::{Axis, Input, KeyboardEvent, LogicalRect, MouseButton, Paint, Sides, TouchPhase, Widget};
+use blit::{
+    Axis, KeyboardEvent, LogicalRect, Paint, Sides, Widget,
+    input::{Input, MouseButton, TouchPhase},
+};
 use blit_widget::interact::{self, keyboard::Handler};
 pub use blit_widget::text_input::{Edit, Response as TextInputResponse, default_keymap};
 pub type TextInputState = blit_widget::text_input::State<f32>;

@@ -1,4 +1,4 @@
-use blit::{Key, KeyboardEvent, Scalar};
+use blit::{KeyboardEvent, Scalar, input::Key};
 use unicode_segmentation::UnicodeSegmentation;
 
 /// an editing action independent of its keyboard binding

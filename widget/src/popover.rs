@@ -1,4 +1,4 @@
-use blit::{Input, InteractCx, Scalar, Sides, Target, Ui, Widget};
+use blit::{InteractCx, Scalar, Sides, Target, Ui, Widget, input::Input};
 
 use crate::{
     Context, interact,
@@ -153,7 +153,8 @@ mod tests {
     use std::time::Duration;
 
     use blit::{
-        Axis, Constraints, Frame, FrameInfo, Modifiers, MouseButton, Point as InputPoint, Rect, ScrollPhase, Size,
+        Axis, Constraints, FrameInfo, Kernel, Point as InputPoint, Rect, Size,
+        input::{Modifiers, MouseButton, ScrollPhase},
     };
 
     use super::*;
@@ -164,10 +165,10 @@ mod tests {
 
     #[test]
     fn popover_blocks_background_scroll() {
-        let mut frame = Frame::default();
+        let mut kernel = Kernel::default();
         let mut state = PopoverState::new().open(true);
         let mut next = |input| {
-            step(&mut frame, input, |mut ui: Ui<'_, TestContext>| {
+            step(&mut kernel, input, |mut ui: Ui<'_, TestContext>| {
                 let background = ui.interact(interact::scroll()).delta;
                 let content = ui
                     .build(Popover::new(&mut state).width(100.0).height(100.0).content(
@@ -216,19 +217,19 @@ mod tests {
 
     #[test]
     fn popover_uses_root_constraints_and_close_behavior() {
-        let mut frame = Frame::default();
+        let mut kernel = Kernel::default();
         let mut context = TestContext;
         let info = FrameInfo::new(Size::uniform(10.0));
         let mut state = PopoverState::new();
 
-        frame.build(
+        kernel.build(
             &mut context,
             info,
             Duration::ZERO,
             Input::None,
             |ui: Ui<'_, TestContext>| render(ui, Popover::new(&mut state)),
         );
-        frame.layout(&mut context);
+        kernel.layout(&mut context);
         let mut expected = [true, true, false].into_iter();
         for input in [
             Input::MouseMove {
@@ -244,7 +245,7 @@ mod tests {
                 modifiers: Modifiers::NONE,
             },
         ] {
-            frame.build(&mut context, info, Duration::ZERO, input, |ui: Ui<'_, TestContext>| {
+            kernel.build(&mut context, info, Duration::ZERO, input, |ui: Ui<'_, TestContext>| {
                 render(
                     ui,
                     Popover::new(&mut state)
@@ -254,7 +255,7 @@ mod tests {
                 );
                 assert_eq!(state.open, expected.next().unwrap());
             });
-            frame.layout(&mut context);
+            kernel.layout(&mut context);
         }
 
         let mut expected = [true, true, false].into_iter();
@@ -277,7 +278,7 @@ mod tests {
                 modifiers: Modifiers::NONE,
             },
         ] {
-            frame.build(
+            kernel.build(
                 &mut context,
                 info,
                 Duration::ZERO,
@@ -290,14 +291,14 @@ mod tests {
                     assert_eq!(state.open, expected.next().unwrap());
                 },
             );
-            frame.layout(&mut context);
+            kernel.layout(&mut context);
             if let Input::MouseUp { .. } = input {
                 assert_eq!(
-                    frame.area(Target::ROOT.scoped("named content")),
+                    kernel.area(Target::ROOT.scoped("named content")),
                     Some(Rect::new(0.0, 1.0, 4.0, 3.0))
                 );
                 assert_eq!(
-                    frame.area(Target::ROOT.scoped("named trigger")),
+                    kernel.area(Target::ROOT.scoped("named trigger")),
                     Some(Rect::new(0.0, 0.0, 2.0, 1.0)),
                 );
             }

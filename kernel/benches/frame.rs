@@ -1,8 +1,8 @@
 use std::{hint::black_box, time::Duration};
 
 use blit::{
-    Animation, Constraints, Context, Easing, Frame, FrameInfo, Input, Interact, InteractCx, Layout, LayoutCx, Motion,
-    Point, Size, Spring, Target, Tween, Ui, state,
+    Animation, Constraints, Context, Easing, FrameInfo, Interact, InteractCx, Kernel, Layout, LayoutCx, Motion, Point,
+    Size, Spring, Target, Tween, Ui, input::Input, state,
 };
 
 #[global_allocator]
@@ -49,9 +49,9 @@ fn motion_spring_size(bencher: divan::Bencher, count: usize) {
 
 #[divan::bench(args = [100, 1000])]
 fn build_passive(bencher: divan::Bencher, count: usize) {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     bencher.bench_local(|| {
-        build(&mut frame, count, |mut ui, _| {
+        build(&mut kernel, count, |mut ui, _| {
             ui.insert(());
         })
     });
@@ -59,9 +59,9 @@ fn build_passive(bencher: divan::Bencher, count: usize) {
 
 #[divan::bench(args = [100, 1000])]
 fn build_explicit_ids(bencher: divan::Bencher, count: usize) {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     bencher.bench_local(|| {
-        frame.build(
+        kernel.build(
             &mut (),
             FrameInfo::new(Size::uniform(1000.0)),
             Duration::ZERO,
@@ -73,15 +73,15 @@ fn build_explicit_ids(bencher: divan::Bencher, count: usize) {
                 }
             },
         );
-        black_box(&frame);
+        black_box(&kernel);
     });
 }
 
 #[divan::bench(args = [100, 1000])]
 fn build_interactive(bencher: divan::Bencher, count: usize) {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     bencher.bench_local(|| {
-        build(&mut frame, count, |mut ui, _| {
+        build(&mut kernel, count, |mut ui, _| {
             black_box(ui.interact(Hover));
         })
     });
@@ -89,9 +89,9 @@ fn build_interactive(bencher: divan::Bencher, count: usize) {
 
 #[divan::bench(args = [100, 1000])]
 fn build_motions(bencher: divan::Bencher, count: usize) {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     bencher.bench_local(|| {
-        build(&mut frame, count, |ui, _| {
+        build(&mut kernel, count, |ui, _| {
             ui.motion(Motion::new(Tween::new(1.0, Easing::LINEAR))).insert(());
         })
     });
@@ -99,9 +99,9 @@ fn build_motions(bencher: divan::Bencher, count: usize) {
 
 #[divan::bench(args = [100, 1000])]
 fn build_named_parent(bencher: divan::Bencher, count: usize) {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     bencher.bench_local(|| {
-        frame.build(
+        kernel.build(
             &mut (),
             FrameInfo::new(Size::uniform(1000.0)),
             Duration::ZERO,
@@ -115,55 +115,55 @@ fn build_named_parent(bencher: divan::Bencher, count: usize) {
                 }
             },
         );
-        black_box(&frame);
+        black_box(&kernel);
     });
 }
 
 #[divan::bench(args = [100, 1000])]
 fn build_and_layout(bencher: divan::Bencher, count: usize) {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     bencher.bench_local(|| {
-        build(&mut frame, count, |mut ui, _| {
+        build(&mut kernel, count, |mut ui, _| {
             ui.insert(());
         });
-        frame.layout(&mut ());
-        black_box(&frame);
+        kernel.layout(&mut ());
+        black_box(&kernel);
     });
 }
 
 #[divan::bench(args = [100, 1000])]
 fn build_interactive_and_layout(bencher: divan::Bencher, count: usize) {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     bencher.bench_local(|| {
-        build(&mut frame, count, |mut ui, _| {
+        build(&mut kernel, count, |mut ui, _| {
             black_box(ui.interact(Hover));
         });
-        frame.layout(&mut ());
-        black_box(&frame);
+        kernel.layout(&mut ());
+        black_box(&kernel);
     });
 }
 
 #[divan::bench]
 fn build_interactive_after_peak(bencher: divan::Bencher) {
-    let mut frame = Frame::default();
-    build(&mut frame, 100_000, |mut ui, _| {
+    let mut kernel = Kernel::default();
+    build(&mut kernel, 100_000, |mut ui, _| {
         black_box(ui.interact(Hover));
     });
-    frame.layout(&mut ());
+    kernel.layout(&mut ());
     bencher.bench_local(|| {
-        build(&mut frame, 100, |mut ui, _| {
+        build(&mut kernel, 100, |mut ui, _| {
             black_box(ui.interact(Hover));
         });
-        frame.layout(&mut ());
-        black_box(&frame);
+        kernel.layout(&mut ());
+        black_box(&kernel);
     });
 }
 
 #[divan::bench(args = [1000])]
 fn build_areas_and_layout(bencher: divan::Bencher, count: usize) {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     bencher.bench_local(|| {
-        frame.build(
+        kernel.build(
             &mut (),
             FrameInfo::new(Size::uniform(1000.0)),
             Duration::ZERO,
@@ -178,13 +178,13 @@ fn build_areas_and_layout(bencher: divan::Bencher, count: usize) {
                 }
             },
         );
-        frame.layout(&mut ());
-        black_box(&frame);
+        kernel.layout(&mut ());
+        black_box(&kernel);
     });
 }
 
-fn build(frame: &mut Frame<()>, count: usize, mut child: impl for<'a> FnMut(Ui<'a, (), state::Child<()>>, usize)) {
-    frame.build(
+fn build(kernel: &mut Kernel<()>, count: usize, mut child: impl for<'a> FnMut(Ui<'a, (), state::Child<()>>, usize)) {
+    kernel.build(
         &mut (),
         FrameInfo::new(Size::uniform(1000.0)),
         Duration::ZERO,
@@ -196,14 +196,14 @@ fn build(frame: &mut Frame<()>, count: usize, mut child: impl for<'a> FnMut(Ui<'
             }
         },
     );
-    black_box(frame);
+    black_box(kernel);
 }
 
 fn animate(bencher: divan::Bencher, count: usize, animation: Animation) {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let mut elapsed = Duration::ZERO;
     let mut render = |elapsed: Duration, target: f32| {
-        frame.build(
+        kernel.build(
             &mut (),
             FrameInfo::new(Size::uniform(1000.0)),
             elapsed,
@@ -214,8 +214,8 @@ fn animate(bencher: divan::Bencher, count: usize, animation: Animation) {
                 }
             },
         );
-        frame.layout(&mut ());
-        black_box(&frame);
+        kernel.layout(&mut ());
+        black_box(&kernel);
     };
     render(elapsed, 0.0);
     render(elapsed, 100.0);
@@ -226,7 +226,7 @@ fn animate(bencher: divan::Bencher, count: usize, animation: Animation) {
 }
 
 fn motions(bencher: divan::Bencher, count: usize, animation: Animation, size: bool) {
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let mut elapsed = Duration::ZERO;
     let config = Motion {
         animation,
@@ -240,7 +240,7 @@ fn motions(bencher: divan::Bencher, count: usize, animation: Animation, size: bo
         },
     };
     let mut render = |elapsed: Duration, target: f32| {
-        frame.build(
+        kernel.build(
             &mut (),
             FrameInfo::new(Size::uniform(1000.0)),
             elapsed,
@@ -255,8 +255,8 @@ fn motions(bencher: divan::Bencher, count: usize, animation: Animation, size: bo
                 }
             },
         );
-        frame.layout(&mut ());
-        black_box(&frame);
+        kernel.layout(&mut ());
+        black_box(&kernel);
     };
     render(elapsed, 10.0);
     render(elapsed, 100.0);

@@ -1,8 +1,11 @@
 use std::time::Duration;
 
 use blit::{
-    Frame, FrameInfo, Input, Point, Size,
-    TouchPhase::{Down, Move, Up},
+    FrameInfo, Kernel, Point, Size,
+    input::{
+        Input,
+        TouchPhase::{Down, Move, Up},
+    },
 };
 use blit_tui::{
     RendererConfig, TuiContext, TuiRenderer, Ui,
@@ -12,11 +15,11 @@ use blit_tui::{
 #[test]
 fn selection_ignores_other_contacts() {
     let mut context = TuiContext::new(TuiRenderer::new(RendererConfig::new().columns(20).rows(1)));
-    let mut frame = Frame::default();
+    let mut kernel = Kernel::default();
     let mut state = TextInputState::default();
     let mut value = String::from("abcdefghij");
     let mut next = |input| {
-        frame.build(
+        kernel.build(
             &mut context,
             FrameInfo::new(Size::new(20, 1)),
             Duration::ZERO,
@@ -26,7 +29,7 @@ fn selection_ignores_other_contacts() {
                 ui.build(TextInput::new(&mut state, &mut value));
             },
         );
-        frame.layout(&mut context);
+        kernel.layout(&mut context);
         (state.cursor, state.anchor)
     };
     next(Input::None);

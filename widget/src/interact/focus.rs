@@ -1,4 +1,4 @@
-use blit::{ContactSource, Context, InteractCx, MouseButton, Phase};
+use blit::{ContactSource, Context, InteractCx, Phase, input::MouseButton};
 
 /// takes focus when pressed or tapped, returning whether this widget is focused
 #[derive(Clone, Copy, Debug)]
@@ -28,9 +28,11 @@ mod tests {
     use std::cell::Cell;
 
     use blit::{
-        Frame, Input, Rect, Target,
-        TouchPhase::{Down, Move, Up},
-        Ui,
+        Kernel, Rect, Target, Ui,
+        input::{
+            Input,
+            TouchPhase::{Down, Move, Up},
+        },
     };
 
     use crate::{
@@ -41,7 +43,7 @@ mod tests {
 
     #[test]
     fn focus_follows_presses_and_taps() {
-        let mut frame = Frame::<TestContext>::default();
+        let mut kernel = Kernel::<TestContext>::default();
         let change_focus = Cell::new(false);
         let clear_focus = Cell::new(false);
         let build = |mut ui: Ui<'_, TestContext>| {
@@ -58,7 +60,7 @@ mod tests {
             let mut right = ui.child_id("right").item(Rect::new(100.0, 0.0, 100.0, 200.0));
             (left_focused, right.interact(interact::focus()))
         };
-        let mut next = |input| step(&mut frame, input, build);
+        let mut next = |input| step(&mut kernel, input, build);
         next(Input::None);
         assert_eq!(next(pointer(None, Down, 10.0, 10.0)), (true, false));
         next(pointer(None, Up, 10.0, 10.0));

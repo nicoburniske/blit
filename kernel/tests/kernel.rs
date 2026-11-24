@@ -2,9 +2,9 @@ use super::*;
 
 #[test]
 fn local_bounds_apply_to_content_and_layouts() {
-    let (mut frame, mut context) = frame(Size::new(8.0, 6.0));
+    let (mut kernel, mut context) = kernel(Size::new(8.0, 6.0));
     for with_layout in [false, true] {
-        let measured = render(&mut frame, &mut context, |ui: Ui<'_>| {
+        let measured = render(&mut kernel, &mut context, |ui: Ui<'_>| {
             ui.build_measured(Constraints::loose(Size::new(5.0, 6.0)), |ui: Ui<'_>| {
                 let mut ui = ui.constrain(Constraints::tight(Size::new(7.0, 2.0)));
                 if with_layout {
@@ -25,7 +25,7 @@ fn local_bounds_apply_to_content_and_layouts() {
 
 #[test]
 fn local_bounds_reject_invalid_ranges() {
-    let (mut frame, mut context) = frame(Size::uniform(4.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(4.0));
     for bounds in [
         Constraints::tight(Size::new(-1.0, 1.0)),
         Constraints::tight(Size::new(f32::INFINITY, 1.0)),
@@ -37,7 +37,7 @@ fn local_bounds_reject_invalid_ranges() {
     ] {
         assert!(
             catch_unwind(AssertUnwindSafe(|| {
-                render(&mut frame, &mut context, |ui: Ui<'_>| {
+                render(&mut kernel, &mut context, |ui: Ui<'_>| {
                     ui.constrain(bounds);
                 });
             }))
@@ -48,8 +48,8 @@ fn local_bounds_reject_invalid_ranges() {
 
 #[test]
 fn layout_and_paint() {
-    let (mut frame, mut context) = frame(Size::new(8.0, 6.0));
-    render(&mut frame, &mut context, |ui: Ui<'_>| {
+    let (mut kernel, mut context) = kernel(Size::new(8.0, 6.0));
+    render(&mut kernel, &mut context, |ui: Ui<'_>| {
         let mut column = ui.layout(Column);
         {
             let mut transparent = column.child().layout(());
@@ -81,8 +81,8 @@ fn layout_and_paint() {
 
 #[test]
 fn content_and_paint_order() {
-    let (mut frame, mut context) = frame(Size::new(5.0, 4.0));
-    render(&mut frame, &mut context, |ui: Ui<'_>| {
+    let (mut kernel, mut context) = kernel(Size::new(5.0, 4.0));
+    render(&mut kernel, &mut context, |ui: Ui<'_>| {
         ui.layout(Overlay).child().build(|mut ui: Ui<'_>| {
             ui.insert(Content("AC", Size::new(3.0, 1.0)));
             ui.insert(Fill('B', Size::new(1.0, 2.0)));
@@ -96,11 +96,11 @@ fn content_and_paint_order() {
 
 #[test]
 fn scratch_and_default_items() {
-    let (mut frame, mut context) = frame(Size::uniform(4.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(4.0));
     let id = "scratch";
     for (extent, millis) in [(1.0, 0), (2.0, 0), (2.0, 500)] {
         render_inputs(
-            &mut frame,
+            &mut kernel,
             &mut context,
             Duration::from_millis(millis),
             [],
@@ -118,7 +118,7 @@ fn scratch_and_default_items() {
             },
         );
         assert_eq!(
-            frame.area(id).unwrap().size(),
+            kernel.area(id).unwrap().size(),
             Size::uniform(if millis == 500 { 1.5 } else { 1.0 })
         );
     }
@@ -128,8 +128,8 @@ fn scratch_and_default_items() {
 #[test]
 #[should_panic(expected = "too much scratch data")]
 fn scratch_rejects_size_overflow() {
-    let (mut frame, mut context) = frame(Size::uniform(4.0));
-    render(&mut frame, &mut context, |ui: Ui<'_>| {
+    let (mut kernel, mut context) = kernel(Size::uniform(4.0));
+    render(&mut kernel, &mut context, |ui: Ui<'_>| {
         ui.scratch().slice::<u64>(usize::MAX);
     });
 }
@@ -137,8 +137,8 @@ fn scratch_rejects_size_overflow() {
 #[test]
 fn owned_values_and_culling() {
     let result = Rc::new(Cell::new(ProbeResult::default()));
-    let (mut frame, mut context) = frame(Size::new(3.0, 2.0));
-    render(&mut frame, &mut context, |ui: Ui<'_>| {
+    let (mut kernel, mut context) = kernel(Size::new(3.0, 2.0));
+    render(&mut kernel, &mut context, |ui: Ui<'_>| {
         let probe = || Probe { result: result.clone() };
         ui.layout(probe()).insert(probe());
     });
@@ -156,7 +156,7 @@ fn owned_values_and_culling() {
     // while an empty clip hides everything under it
     let results = [0; 2].map(|_| Rc::new(Cell::new(ProbeResult::default())));
     context.info = FrameInfo::new(Size::new(3.0, 1.0));
-    render(&mut frame, &mut context, |ui: Ui<'_>| {
+    render(&mut kernel, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
         root.child()
             .place(Target::PARENT, At(|_| Point::new(4.0, 0.0)))
@@ -181,8 +181,8 @@ fn owned_values_and_culling() {
 
 #[test]
 fn anchors_and_clip_parents() {
-    let (mut frame, mut context) = frame(Size::new(8.0, 5.0));
-    render(&mut frame, &mut context, |ui: Ui<'_>| {
+    let (mut kernel, mut context) = kernel(Size::new(8.0, 5.0));
+    render(&mut kernel, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
         root.child_id("anchor").insert(Fill('T', Size::uniform(2.0)));
         root.child()
@@ -201,7 +201,7 @@ fn anchors_and_clip_parents() {
     );
     context.info = FrameInfo::new(Size::uniform(3.0));
     for escape in [true, false] {
-        render(&mut frame, &mut context, |ui: Ui<'_>| {
+        render(&mut kernel, &mut context, |ui: Ui<'_>| {
             let mut root = ui.layout(Overlay);
             let mut panel = root.child_id("panel").layout(Fixed(Size::uniform(3.0))).clip(TestClip);
             panel.insert(Fill('p', Size::ZERO));
@@ -224,7 +224,7 @@ fn anchors_and_clip_parents() {
 
 #[test]
 fn visual_parent_and_hit_order() {
-    let (mut frame, mut context) = frame(Size::new(7.0, 5.0));
+    let (mut kernel, mut context) = kernel(Size::new(7.0, 5.0));
     let popup = Target::ROOT.scoped("popup");
     for open in [false, true, false] {
         let build = |mut ui: Ui<'_>| {
@@ -254,8 +254,8 @@ fn visual_parent_and_hit_order() {
             });
             responses
         };
-        render(&mut frame, &mut context, &build);
-        assert_eq!(frame.area(popup), Some(Rect::new(1.0, 0.0, 5.0, 5.0)));
+        render(&mut kernel, &mut context, &build);
+        assert_eq!(kernel.area(popup), Some(Rect::new(1.0, 0.0, 5.0, 5.0)));
         let area = Rect::new(1.0, 0.0, 5.0, 5.0);
         if open {
             assert_eq!(
@@ -272,7 +272,7 @@ fn visual_parent_and_hit_order() {
         }
         for (x, expected) in [(0.5, [false, open]), (1.5, [!open, open])] {
             let down = render_inputs(
-                &mut frame,
+                &mut kernel,
                 &mut context,
                 Duration::ZERO,
                 [pointer(None, Down, [x, 2.5])],
@@ -280,7 +280,7 @@ fn visual_parent_and_hit_order() {
             );
             assert_eq!(down, expected);
             let up = render_inputs(
-                &mut frame,
+                &mut kernel,
                 &mut context,
                 Duration::ZERO,
                 [pointer(None, Up, [x, 2.5])],
@@ -325,12 +325,12 @@ fn unbuilt_targets_keep_their_own_parent() {
         },
     ];
     for build in cases {
-        let (mut frame, mut context) = frame(Size::uniform(1.0));
+        let (mut kernel, mut context) = kernel(Size::uniform(1.0));
         // a previous build must not satisfy a current reference
-        render(&mut frame, &mut context, |ui: Ui<'_>| {
+        render(&mut kernel, &mut context, |ui: Ui<'_>| {
             ui.layout(Overlay).child_id("target").insert(())
         });
-        render(&mut frame, &mut context, build);
+        render(&mut kernel, &mut context, build);
     }
 }
 
@@ -350,9 +350,9 @@ fn duplicate_keys_are_rejected() {
         },
     ];
     for (case, build) in cases.iter().enumerate() {
-        let (mut frame, mut context) = frame(Size::uniform(1.0));
+        let (mut kernel, mut context) = kernel(Size::uniform(1.0));
         let result = catch_unwind(AssertUnwindSafe(|| {
-            render(&mut frame, &mut context, build);
+            render(&mut kernel, &mut context, build);
         }));
         assert!(result.is_err(), "case {case}");
     }
@@ -360,7 +360,7 @@ fn duplicate_keys_are_rejected() {
 
 #[test]
 fn bindings_and_geometry() {
-    let (mut frame, mut context) = frame(Size::uniform(10.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(10.0));
     let (a, b) = ("a", "b");
     // every area of the previous layout is available
     let mut laid_out = false;
@@ -373,7 +373,7 @@ fn bindings_and_geometry() {
         (2, false),
         (3, true),
     ] {
-        render(&mut frame, &mut context, |mut ui: Ui<'_>| {
+        render(&mut kernel, &mut context, |mut ui: Ui<'_>| {
             if query {
                 assert_eq!(ui.at(a).area().is_some(), laid_out);
                 assert_eq!(ui.at(b).area().is_some(), laid_out);
@@ -389,23 +389,23 @@ fn bindings_and_geometry() {
                 root.child().place(Target::PARENT.at(a), At(|_| Point::ZERO)).insert(());
             }
         });
-        assert_eq!(frame.area(a).is_some(), count != 0);
-        assert_eq!(frame.area(b).is_some(), count != 0);
+        assert_eq!(kernel.area(a).is_some(), count != 0);
+        assert_eq!(kernel.area(b).is_some(), count != 0);
         laid_out = count != 0;
     }
 }
 
 #[test]
 fn padding_insets_children_while_content_keeps_the_full_box() {
-    let (mut frame, mut context) = frame(Size::new(7.0, 5.0));
+    let (mut kernel, mut context) = kernel(Size::new(7.0, 5.0));
     let node = "padded";
-    render(&mut frame, &mut context, |ui: Ui<'_>| {
+    render(&mut kernel, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
         let mut padded = root.child_id(node).layout(()).pad(2.0);
         padded.insert(Fill('B', Size::ZERO));
         padded.child().insert(Fill('C', Size::new(3.0, 1.0)));
     });
-    assert_eq!(frame.area(node), Some(Rect::new(0.0, 0.0, 7.0, 5.0)));
+    assert_eq!(kernel.area(node), Some(Rect::new(0.0, 0.0, 7.0, 5.0)));
     assert_eq!(
         context.commands,
         [
@@ -417,12 +417,12 @@ fn padding_insets_children_while_content_keeps_the_full_box() {
 
 #[test]
 fn call_sites_identify_children() {
-    let (mut frame, mut context) = frame(Size::uniform(1.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(1.0));
     let period = Duration::from_millis(500);
     // a child built first only later must not take the state of the children after it
     for (millis, extra, expected) in [(0, false, [false; 4]), (500, true, [true; 4])] {
         let time = Duration::from_millis(millis);
-        let fired = render_inputs(&mut frame, &mut context, time, [], |ui: Ui<'_>| {
+        let fired = render_inputs(&mut kernel, &mut context, time, [], |ui: Ui<'_>| {
             let mut root = ui.layout(Overlay);
             if extra {
                 assert!(!root.child().timer(period).fired());
@@ -440,11 +440,11 @@ fn call_sites_identify_children() {
 
 #[test]
 fn keyed_children_resolve_ahead_and_keep_state_across_parents() {
-    let (mut frame, mut context) = frame(Size::uniform(10.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(10.0));
     let full = Some(Rect::new(0.0, 0.0, 10.0, 10.0));
     for (millis, column, expected) in [(0, 0, (None, None, false)), (500, 1, (full, full, true))] {
         let time = Duration::from_millis(millis);
-        let result = render_inputs(&mut frame, &mut context, time, [], |mut ui: Ui<'_>| {
+        let result = render_inputs(&mut kernel, &mut context, time, [], |mut ui: Ui<'_>| {
             let scope = ui.scope();
             let child = ui.at("child").area();
             let card = ui.at(scope.key("card")).area();

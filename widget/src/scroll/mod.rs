@@ -397,7 +397,7 @@ fn content_motion<C: Context>(
     let now = ui.time();
     let previous = state.last_frame.replace(now);
     let elapsed = previous.map_or(0.0, |previous| now.saturating_sub(previous).as_secs_f32());
-    if matches!(ui.input(), blit::Input::Touch { phase: blit::TouchPhase::Down, position, .. }
+    if matches!(ui.input(), blit::input::Input::Touch { phase: blit::input::TouchPhase::Down, position, .. }
         if ui.area().is_some_and(|area| area.contains(position)))
     {
         state.stop();
@@ -419,7 +419,7 @@ fn content_motion<C: Context>(
             state.pending_delta = 0.0;
         }
         if motion.activated {
-            if matches!(ui.input(), blit::Input::Touch { .. }) {
+            if matches!(ui.input(), blit::input::Input::Touch { .. }) {
                 let distance = motion.delta.x.hypot(motion.delta.y);
                 if distance > 0.0 {
                     direct_delta *= (1.0 - C::SLOP.to_f32() / distance).max(0.0);
@@ -558,7 +558,7 @@ const MAX_SCROLL_VELOCITY: f32 = 12_000.0;
 
 #[cfg(test)]
 mod tests {
-    use blit::{Frame, FrameInfo, Input, Spring};
+    use blit::{FrameInfo, Kernel, Spring, input::Input};
 
     use super::{area::ScrollArea, *};
     use crate::test::TestContext;
@@ -566,7 +566,7 @@ mod tests {
     #[test]
     fn release_preserves_recent_velocity() {
         for gap in [0, 16, 33, 100, 500] {
-            let mut frame = Frame::default();
+            let mut kernel = Kernel::default();
             let mut inertia = Inertia {
                 velocity: 1000.0,
                 tracking: true,
@@ -574,7 +574,7 @@ mod tests {
                 sample_time: Some(Duration::from_millis(64)),
                 ..Inertia::default()
             };
-            frame.build(
+            kernel.build(
                 &mut TestContext,
                 FrameInfo::new(Size::uniform(200.0)),
                 Duration::from_millis(64 + gap),
@@ -601,13 +601,13 @@ mod tests {
 
     #[test]
     fn touch_motion_stops_and_survives_batched_release() {
-        use blit::TouchPhase;
+        use blit::input::TouchPhase;
 
         for held in [false, true] {
-            let mut frame = Frame::default();
+            let mut kernel = Kernel::default();
             let mut state = ScrollState::<f32>::new();
             let mut step = |millis, phase: Option<TouchPhase>, y| {
-                frame.build(
+                kernel.build(
                     &mut TestContext,
                     FrameInfo::new(Size::uniform(200.0)),
                     Duration::from_millis(millis),
@@ -622,7 +622,7 @@ mod tests {
                         }))
                     },
                 );
-                frame.layout(&mut TestContext);
+                kernel.layout(&mut TestContext);
                 (state.offset, state.is_moving())
             };
             step(0, None, 0.0);
@@ -647,12 +647,12 @@ mod tests {
     fn requests_and_focus_reveal_content() {
         use std::cell::Cell;
 
-        let mut frame = Frame::default();
+        let mut kernel = Kernel::default();
         let mut state = ScrollState::<f32>::new();
         let focused = Cell::new(None);
         let mut step = |state: &mut ScrollState<f32>| {
             for _ in 0..3 {
-                crate::test::step(&mut frame, Input::None, |ui: Ui<'_, TestContext>| {
+                crate::test::step(&mut kernel, Input::None, |ui: Ui<'_, TestContext>| {
                     ui.build(ScrollArea::new(state).build_scrollbar(
                         |ui: Ui<'_, TestContext>| {
                             let mut rows = ui.layout(crate::layout::flex::column());
@@ -687,7 +687,7 @@ mod tests {
 
     #[test]
     fn animated_requests_retarget_bound_and_settle() {
-        let mut frame = Frame::default();
+        let mut kernel = Kernel::default();
         let mut state = ScrollState {
             content_extent: 1000.0,
             viewport_extent: 100.0,
@@ -695,14 +695,14 @@ mod tests {
         };
         let spring = Spring::new(0.500, 0.3).rest(0.01, 0.01);
         let mut step = |state: &mut ScrollState<f32>, millis| {
-            frame.build(
+            kernel.build(
                 &mut TestContext,
                 FrameInfo::new(Size::uniform(100.0)),
                 Duration::from_millis(millis),
                 Input::None,
                 |mut ui: Ui<'_, TestContext>| animate(state, &mut ui, true),
             );
-            frame.layout(&mut TestContext);
+            kernel.layout(&mut TestContext);
         };
         state.scroll_to(500.0, spring, AnimationOptions::default());
         step(&mut state, 0);
@@ -724,6 +724,6 @@ mod tests {
         state.scroll_to(300.0, Animation::default(), AnimationOptions::default());
         step(&mut state, 2000);
         assert_eq!(state.offset, 300.0);
-        assert!(!frame.has_pending_redraw());
+        assert!(!kernel.has_pending_redraw());
     }
 }

@@ -21,7 +21,7 @@ fn keyboard_input_bubbles_until_claimed() {
         }
     }
 
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(200.0));
     let focused = Cell::new(None);
     let build = |mut ui: Ui<'_>| {
         if let Some(key) = focused.get() {
@@ -46,8 +46,8 @@ fn keyboard_input_bubbles_until_claimed() {
         assert_eq!(handled.next(), None, "input was handled more than once");
         winner
     };
-    assert_eq!(render(&mut frame, &mut context, build), None);
-    let mut next = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], build);
+    assert_eq!(render(&mut kernel, &mut context, build), None);
+    let mut next = |input| render_inputs(&mut kernel, &mut context, Duration::ZERO, [input], build);
     assert_eq!(next(Input::Text('b')), Some('b'));
     assert_eq!(next(Input::Text('d')), Some('a'));
     focused.set(Some('d'));
@@ -121,14 +121,14 @@ impl<C: Context<Scalar = f32>> Interact<C> for Pinch {
 
 #[test]
 fn new_kind_gets_geometry_after_layout() {
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(200.0));
     let added = Cell::new(false);
     let build = |mut ui: Ui<'_>| {
         ui.interact(WATCH);
         added.get() && ui.interact(Hover)
     };
     render_inputs(
-        &mut frame,
+        &mut kernel,
         &mut context,
         Duration::ZERO,
         [pointer(None, Move, [10.0, 10.0])],
@@ -136,18 +136,18 @@ fn new_kind_gets_geometry_after_layout() {
     );
     // the app changes state and asks for a frame
     added.set(true);
-    frame.request_frame();
-    assert!(!render(&mut frame, &mut context, &build));
-    assert!(render(&mut frame, &mut context, &build));
-    assert!(!frame.has_pending_redraw());
+    kernel.request_frame();
+    assert!(!render(&mut kernel, &mut context, &build));
+    assert!(render(&mut kernel, &mut context, &build));
+    assert!(!kernel.has_pending_redraw());
 }
 
 #[test]
 fn gesture_sees_independent_contacts() {
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(200.0));
     let build = |mut ui: Ui<'_>| ui.interact(WATCH).map(|seen| seen.map(|(contact, _)| contact));
-    render(&mut frame, &mut context, &build);
-    let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
+    render(&mut kernel, &mut context, &build);
+    let mut step = |input| render_inputs(&mut kernel, &mut context, Duration::ZERO, [input], &build);
     step(pointer(Some(1), Down, [10.0, 10.0]));
     step(pointer(Some(2), Down, [20.0, 10.0]));
     let [first, second] = step(pointer(Some(1), Move, [15.0, 10.0])).map(Option::unwrap);
@@ -163,7 +163,7 @@ fn gesture_sees_independent_contacts() {
 
 #[test]
 fn deepest_gesture_captures_first() {
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(200.0));
     let build = |mut ui: Ui<'_>| {
         // requested out of preorder and before the child node exists
         let child = ui.at("child").interact(CAPTURE)[0];
@@ -172,22 +172,22 @@ fn deepest_gesture_captures_first() {
         root.child_id("child").insert(Fill('C', Size::uniform(200.0)));
         (parent, child)
     };
-    render(&mut frame, &mut context, &build);
+    render(&mut kernel, &mut context, &build);
     let down = pointer(Some(1), Down, [10.0, 10.0]);
-    let (parent, child) = render_inputs(&mut frame, &mut context, Duration::ZERO, [down], &build);
+    let (parent, child) = render_inputs(&mut kernel, &mut context, Duration::ZERO, [down], &build);
     assert_eq!(parent, None);
     assert!(child.unwrap().1);
 }
 
 #[test]
 fn gestures_on_one_widget_share_captures() {
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(200.0));
     let build = |mut ui: Ui<'_>| {
         ui.interact(CAPTURE);
         ui.interact(Pinch)
     };
-    render(&mut frame, &mut context, &build);
-    let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
+    render(&mut kernel, &mut context, &build);
+    let mut step = |input| render_inputs(&mut kernel, &mut context, Duration::ZERO, [input], &build);
     assert_eq!(step(pointer(Some(1), Down, [10.0, 10.0])), None);
     // the pinch still sees the fingers its widget captured
     assert_eq!(step(pointer(Some(2), Down, [20.0, 10.0])), Some(10.0));
@@ -196,7 +196,7 @@ fn gestures_on_one_widget_share_captures() {
 
 #[test]
 fn unmounted_owner_retires_contact() {
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(200.0));
     let mounted = Cell::new(true);
     let build = |mut ui: Ui<'_>| {
         let root = ui.interact(WATCH)[0];
@@ -208,8 +208,8 @@ fn unmounted_owner_retires_contact() {
         });
         (root, owned.flatten())
     };
-    render(&mut frame, &mut context, &build);
-    let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
+    render(&mut kernel, &mut context, &build);
+    let mut step = |input| render_inputs(&mut kernel, &mut context, Duration::ZERO, [input], &build);
     let (root, owned) = step(pointer(Some(1), Down, [10.0, 10.0]));
     assert!(root.is_none() && owned.unwrap().1);
     mounted.set(false);
@@ -234,7 +234,7 @@ fn gesture_state_lives_while_requested() {
         }
     }
 
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(200.0));
     let rows = Cell::new((0, 3));
     let build = |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
@@ -247,7 +247,7 @@ fn gesture_state_lives_while_requested() {
         }
         updates
     };
-    let mut step = || render(&mut frame, &mut context, &build);
+    let mut step = || render(&mut kernel, &mut context, &build);
     assert_eq!(step(), [Some(1), Some(1), Some(1), None]);
     assert_eq!(step(), [Some(2), Some(2), Some(2), None]);
     rows.set((1, 4));
@@ -255,16 +255,16 @@ fn gesture_state_lives_while_requested() {
     // row 0 returns in a recycled cell with fresh state
     rows.set((0, 3));
     assert_eq!(step(), [Some(1), Some(4), Some(4), None]);
-    assert_eq!(frame.next_timer_deadline(), Some(Duration::from_secs(1)));
+    assert_eq!(kernel.next_timer_deadline(), Some(Duration::from_secs(1)));
     rows.set((0, 0));
-    render(&mut frame, &mut context, &build);
-    render(&mut frame, &mut context, &build);
-    assert_eq!(frame.next_timer_deadline(), None);
+    render(&mut kernel, &mut context, &build);
+    render(&mut kernel, &mut context, &build);
+    assert_eq!(kernel.next_timer_deadline(), None);
 }
 
 #[test]
 fn named_kinds_follow_reordered_nodes() {
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(200.0));
     let order = Cell::new([Some(0), Some(1), Some(2)]);
     let build = |mut ui: Ui<'_>| {
         let responses = [0, 1, 2].map(|id| {
@@ -285,9 +285,9 @@ fn named_kinds_follow_reordered_nodes() {
         [Some(1), Some(2), Some(0)],
     ] {
         order.set(nodes);
-        render(&mut frame, &mut context, &build);
+        render(&mut kernel, &mut context, &build);
         let responses = render_inputs(
-            &mut frame,
+            &mut kernel,
             &mut context,
             Duration::ZERO,
             [pointer(None, Down, [5.0, 5.0])],
@@ -300,7 +300,7 @@ fn named_kinds_follow_reordered_nodes() {
 
 #[test]
 fn kind_order_follows_requests() {
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(200.0));
     let claim_first = Cell::new(true);
     let build = |mut ui: Ui<'_>| {
         let capture = Watch(|contact| contact.phase == Ended);
@@ -315,9 +315,9 @@ fn kind_order_follows_requests() {
     };
     for first in [true, false] {
         claim_first.set(first);
-        render(&mut frame, &mut context, &build);
+        render(&mut kernel, &mut context, &build);
         let claimed = render_inputs(
-            &mut frame,
+            &mut kernel,
             &mut context,
             Duration::ZERO,
             [pointer(Some(1), Down, [10.0, 10.0]), pointer(Some(1), Up, [10.0, 10.0])],
@@ -343,7 +343,7 @@ fn kind_requested_twice_keeps_one_slot() {
         }
     }
 
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(200.0));
     let build = |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
         for id in 0..64 {
@@ -357,7 +357,7 @@ fn kind_requested_twice_keeps_one_slot() {
     };
     for _ in 0..3 {
         UPDATES.store(0, std::sync::atomic::Ordering::Relaxed);
-        render(&mut frame, &mut context, &build);
+        render(&mut kernel, &mut context, &build);
         assert_eq!(UPDATES.load(std::sync::atomic::Ordering::Relaxed), 64);
     }
 }
@@ -365,7 +365,7 @@ fn kind_requested_twice_keeps_one_slot() {
 #[test]
 fn tapping_unregistered_background_clears_focus() {
     for id in [None, Some(1)] {
-        let (mut frame, mut context) = frame(Size::uniform(200.0));
+        let (mut kernel, mut context) = kernel(Size::uniform(200.0));
         let focus = Cell::new(true);
         let build = |mut ui: Ui<'_>| {
             if focus.replace(false) {
@@ -377,9 +377,9 @@ fn tapping_unregistered_background_clears_focus() {
             field.focused()
         };
         // programmatic focus shows from the next build
-        assert!(!render(&mut frame, &mut context, &build));
-        assert!(render(&mut frame, &mut context, &build));
-        let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
+        assert!(!render(&mut kernel, &mut context, &build));
+        assert!(render(&mut kernel, &mut context, &build));
+        let mut step = |input| render_inputs(&mut kernel, &mut context, Duration::ZERO, [input], &build);
         // mouse clears focus on press and touch on release
         assert_eq!(step(pointer(id, Down, [150.0, 10.0])), id.is_some());
         assert!(!step(pointer(id, Up, [150.0, 10.0])));
@@ -388,7 +388,7 @@ fn tapping_unregistered_background_clears_focus() {
 
 #[test]
 fn clipping() {
-    let (mut frame, mut context) = frame(Size::new(5.0, 1.0));
+    let (mut kernel, mut context) = kernel(Size::new(5.0, 1.0));
     let build = |ui: Ui<'_>| {
         ui.layout(Overlay)
             .child()
@@ -402,10 +402,10 @@ fn clipping() {
                 (seen, wheel)
             })
     };
-    render(&mut frame, &mut context, &build);
+    render(&mut kernel, &mut context, &build);
     for (phase, x, inside) in [(Down, 4.5, false), (Up, 4.5, false), (Down, 2.5, true)] {
         let (seen, _) = render_inputs(
-            &mut frame,
+            &mut kernel,
             &mut context,
             Duration::ZERO,
             [pointer(None, phase, [x, 0.5])],
@@ -414,7 +414,7 @@ fn clipping() {
         assert_eq!(seen, inside);
     }
     let (seen, wheel) = render_inputs(
-        &mut frame,
+        &mut kernel,
         &mut context,
         Duration::ZERO,
         [Input::Scroll {
@@ -445,7 +445,7 @@ fn clip_shapes() {
         }
     }
 
-    let (mut frame, mut context) = frame(Size::uniform(4.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(4.0));
     let rect = Rect::new(0.0, 0.0, 4.0, 4.0);
     for shape in [
         ClipShape::Unbounded,
@@ -462,7 +462,7 @@ fn clip_shapes() {
             child.insert(Fill('C', Size::uniform(1.0)));
             child.interact(WATCH)[0].is_some()
         };
-        render(&mut frame, &mut context, &build);
+        render(&mut kernel, &mut context, &build);
         let child = Rect::new(3.0, 3.0, 1.0, 1.0);
         assert_eq!(
             context.commands,
@@ -478,7 +478,7 @@ fn clip_shapes() {
         );
         for (position, inside) in [([3.1, 3.1], true), ([3.9, 3.9], shape == ClipShape::Unbounded)] {
             let seen = render_inputs(
-                &mut frame,
+                &mut kernel,
                 &mut context,
                 Duration::ZERO,
                 [pointer(None, Down, position), pointer(None, Up, position)],
@@ -491,7 +491,7 @@ fn clip_shapes() {
 
 #[test]
 fn input_settles_against_its_layout() {
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(200.0));
     let offset = Cell::new(0.0);
     let build = |ui: Ui<'_>| {
         // scrolling moves the row under a still pointer
@@ -502,7 +502,7 @@ fn input_settles_against_its_layout() {
         let mut row = root.child().item(Rect::new(offset.get(), 0.0, 100.0, 200.0));
         row.interact(Hover)
     };
-    render(&mut frame, &mut context, &build);
+    render(&mut kernel, &mut context, &build);
     let scroll = Input::Scroll {
         position: Point::new(150.0, 10.0),
         delta_x: 0.0,
@@ -513,20 +513,20 @@ fn input_settles_against_its_layout() {
     };
     // the scrolled build still sees the layout from before it
     assert!(!render_inputs(
-        &mut frame,
+        &mut kernel,
         &mut context,
         Duration::ZERO,
         [scroll],
         &build
     ));
-    assert!(frame.has_pending_redraw());
-    assert!(render(&mut frame, &mut context, &build));
-    assert!(!frame.has_pending_redraw());
+    assert!(kernel.has_pending_redraw());
+    assert!(render(&mut kernel, &mut context, &build));
+    assert!(!kernel.has_pending_redraw());
 }
 
 #[test]
 fn removed_scroll_owner_keeps_its_sequence() {
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(200.0));
     let owner = Cell::new("first");
     let build = |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
@@ -534,7 +534,7 @@ fn removed_scroll_owner_keeps_its_sequence() {
         list.insert(Fill('L', Size::uniform(200.0)));
         list.interact(Wheel)
     };
-    render(&mut frame, &mut context, &build);
+    render(&mut kernel, &mut context, &build);
     let mut scroll = |phase| {
         let input = Input::Scroll {
             position: Point::new(10.0, 10.0),
@@ -544,7 +544,7 @@ fn removed_scroll_owner_keeps_its_sequence() {
             phase,
             modifiers: Modifiers::NONE,
         };
-        render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build)
+        render_inputs(&mut kernel, &mut context, Duration::ZERO, [input], &build)
     };
     assert!(scroll(ScrollPhase::Started).is_some());
     // another widget takes the owner's node while the gesture continues
@@ -556,7 +556,7 @@ fn removed_scroll_owner_keeps_its_sequence() {
 
 #[test]
 fn focus_within_reads_the_previous_layout() {
-    let (mut frame, mut context) = frame(Size::uniform(100.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(100.0));
     let focus = Cell::new(false);
     let child = Cell::new(None);
     let seen = Cell::new(None);
@@ -571,17 +571,17 @@ fn focus_within_reads_the_previous_layout() {
             field.focus();
         }
     };
-    render(&mut frame, &mut context, &build);
+    render(&mut kernel, &mut context, &build);
     focus.set(true);
-    render(&mut frame, &mut context, &build);
+    render(&mut kernel, &mut context, &build);
     focus.set(false);
-    render(&mut frame, &mut context, &build);
+    render(&mut kernel, &mut context, &build);
     assert!(seen.get().is_some() && seen.get() == child.get());
 }
 
 #[test]
 fn focused_descendant_scrolls_into_view() {
-    let (mut frame, mut context) = frame(Size::uniform(100.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(100.0));
     let offset = Cell::new(0.0);
     let request = Cell::new(None);
     let last = Cell::new(None);
@@ -607,22 +607,22 @@ fn focused_descendant_scrolls_into_view() {
     // the user scrolls first, which a focus that stays put must not undo
     for (scrolled, index, expected) in [(0.0, 8, 170.0), (0.0, 1, 0.0), (200.0, 2, 60.0)] {
         offset.set(scrolled);
-        render(&mut frame, &mut context, &build);
+        render(&mut kernel, &mut context, &build);
         assert_eq!(offset.get(), scrolled);
         request.set(Some(index));
-        render(&mut frame, &mut context, &build);
+        render(&mut kernel, &mut context, &build);
         request.set(None);
-        render(&mut frame, &mut context, &build);
+        render(&mut kernel, &mut context, &build);
         assert_eq!(offset.get(), expected);
-        render(&mut frame, &mut context, &build);
+        render(&mut kernel, &mut context, &build);
         let y = index as f32 * 30.0 - expected;
-        assert_eq!(frame.area(index), Some(Rect::new(0.0, y, 100.0, 30.0)));
+        assert_eq!(kernel.area(index), Some(Rect::new(0.0, y, 100.0, 30.0)));
     }
 }
 
 #[test]
 fn unmounted_target_cancels_pending_contact() {
-    let (mut frame, mut context) = frame(Size::uniform(200.0));
+    let (mut kernel, mut context) = kernel(Size::uniform(200.0));
     let mounted = Cell::new(true);
     let build = |mut ui: Ui<'_>| {
         let root = ui.interact(WATCH)[0];
@@ -634,8 +634,8 @@ fn unmounted_target_cancels_pending_contact() {
         }
         root
     };
-    render(&mut frame, &mut context, &build);
-    let mut step = |input| render_inputs(&mut frame, &mut context, Duration::ZERO, [input], &build);
+    render(&mut kernel, &mut context, &build);
+    let mut step = |input| render_inputs(&mut kernel, &mut context, Duration::ZERO, [input], &build);
     assert!(step(pointer(Some(1), Down, [10.0, 10.0])).is_some());
     mounted.set(false);
     step(Input::None);
