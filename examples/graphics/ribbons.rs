@@ -3,7 +3,6 @@ use std::ops::Range;
 use blit::{LogicalRect, Paint, Widget};
 use blit_cpu::{Pixel, PixelBuffer, PremultipliedRgbaColor, Render, RenderContext, RenderStrategy, Renderer};
 use blit_gui::{
-    clip::BoundsClip,
     color::Color,
     damage::DamageTracker,
     rectangle::Rectangle,
@@ -101,7 +100,7 @@ impl View {
                         .height(96.0),
                 )
                 .layout(flex::column().justify(Justify::End))
-                .clip(BoundsClip)
+                .clip(0.0)
                 .pad(sz::LG);
             panel.insert(blit_gui::blur::BackdropBlur::new(5.0));
             panel.insert(Rectangle::new().border(Border::solid(1.0, colors::TEXT_DIM)));

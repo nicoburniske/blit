@@ -42,6 +42,22 @@ impl Backend {
 
 impl blit::Context for Backend {
     type Scalar = f32;
+
+    fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
+        self.gpu
+            .as_mut()
+            .expect("GPU renderer is not initialized")
+            .renderer
+            .push_clip(area, radius);
+    }
+
+    fn pop_clip(&mut self) {
+        self.gpu
+            .as_mut()
+            .expect("GPU renderer is not initialized")
+            .renderer
+            .pop_clip();
+    }
 }
 
 impl blit::HasFrameStore for Backend {
@@ -82,22 +98,6 @@ impl blit_gui::Context for Backend {
         } else {
             &mut self.pending.as_mut().expect("GPU renderer config").0
         }
-    }
-
-    fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
-        self.gpu
-            .as_mut()
-            .expect("GPU renderer is not initialized")
-            .renderer
-            .push_clip(area, radius);
-    }
-
-    fn pop_clip(&mut self) {
-        self.gpu
-            .as_mut()
-            .expect("GPU renderer is not initialized")
-            .renderer
-            .pop_clip();
     }
 }
 

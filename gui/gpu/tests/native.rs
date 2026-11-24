@@ -2,11 +2,10 @@
 
 use std::{sync::mpsc, time::Duration};
 
-use blit::{Clip, HasFrameStore, LogicalRect, Paint, Rect, Size};
+use blit::{Context as _, HasFrameStore, LogicalRect, Paint, Rect, Size};
 use blit_gpu::{Renderer, RendererConfig};
 use blit_gui::{
     Context,
-    clip::BoundsClip,
     color::Color,
     image::{Image, ImageData, ImageFormat, ImagePixels, ImageSampling, ImageTiling},
     mesh::{Mesh, MeshVertex},
@@ -90,7 +89,7 @@ fn renders_primitives_and_rebuilds_frames() {
 
     Rectangle::new()
         .background(Color::rgb(255, 0, 0))
-        .radius(BorderRadius::uniform(3.0))
+        .radius(BorderRadius::all(3.0))
         .paint(LogicalRect::new(0.0, 0.0, 7.0, 7.0), &mut renderer);
     Rectangle::new()
         .background(Color::rgba(0, 0, 255, 128))
@@ -168,13 +167,13 @@ fn renders_primitives_and_rebuilds_frames() {
         MeshVertex::new(60.0, 40.0, Color::rgb(255, 0, 0)),
         MeshVertex::new(40.0, 60.0, Color::rgb(255, 0, 0)),
     ];
-    BoundsClip.push(&mut renderer, LogicalRect::new(40.0, 40.0, 10.0, 20.0));
+    renderer.push_clip(LogicalRect::new(40.0, 40.0, 10.0, 20.0), BorderRadius::default());
     Mesh {
         vertices: &mesh_vertices,
         indices: &[0, 1, 2],
     }
     .paint(bounds, &mut renderer);
-    BoundsClip.pop(&mut renderer);
+    renderer.pop_clip();
 
     let stops = [
         GradientStop::new(0.0, Color::rgb(255, 0, 0)),
@@ -194,7 +193,7 @@ fn renders_primitives_and_rebuilds_frames() {
     Rectangle::new()
         .background(LinearGradient::new(&stops))
         .border(Border::gradient(1.0, LinearGradient::new(&border_stops).angle(90.0)))
-        .radius(BorderRadius::uniform(2.0))
+        .radius(BorderRadius::all(2.0))
         .paint(LogicalRect::new(40.0, 1.0, 8.0, 8.0), &mut renderer);
     let translucent_stops = [
         GradientStop::new(0.0, Color::rgba(255, 0, 0, 64)),
@@ -205,11 +204,11 @@ fn renders_primitives_and_rebuilds_frames() {
         .background(LinearGradient::new(&translucent_stops).angle(-45.0))
         .opacity(0.5)
         .paint(LogicalRect::new(48.0, 1.0, 8.0, 8.0), &mut renderer);
-    BoundsClip.push(&mut renderer, LogicalRect::new(58.0, 1.0, 6.0, 8.0));
+    renderer.push_clip(LogicalRect::new(58.0, 1.0, 6.0, 8.0), BorderRadius::default());
     Rectangle::new()
         .background(LinearGradient::new(&stops))
         .paint(LogicalRect::new(56.0, 1.0, 8.0, 8.0), &mut renderer);
-    BoundsClip.pop(&mut renderer);
+    renderer.pop_clip();
     renderer.push_clip(LogicalRect::new(12.5, 1.0, 3.5, 4.0), BorderRadius::default());
     renderer.push_clip(LogicalRect::new(12.0, 1.5, 3.5, 3.5), BorderRadius::default());
     Rectangle::new()

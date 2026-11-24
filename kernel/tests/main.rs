@@ -6,8 +6,8 @@ use std::{
 };
 
 use blit::{
-    Animation, AnimationOptions, Clip, ClipShape, Constraints, Contact, ContactId, ContactSource, Context, Easing,
-    FrameInfo, Id, Interact, InteractCx, Kernel, Layout, LayoutCx, Motion,
+    Animation, AnimationOptions, Constraints, Contact, ContactId, ContactSource, Context, Corners, Easing, FrameInfo,
+    Id, Interact, InteractCx, Kernel, Layout, LayoutCx, Motion,
     Phase::{Cancelled, Ended, Held, Started},
     Place, PlaceCx, Point, Rect, Scope, Size, Spring, Target, Tween, Widget,
     input::{
@@ -44,6 +44,14 @@ impl Context for TestContext {
 
     fn duplicate_id(&mut self, _: Id, location: &'static std::panic::Location<'static>) {
         self.duplicates.push(location.line());
+    }
+
+    fn push_clip(&mut self, area: Rect<f32>, _: Corners<f32>) {
+        self.commands.push(PushClip(area));
+    }
+
+    fn pop_clip(&mut self) {
+        self.commands.push(PopClip);
     }
 }
 
@@ -134,21 +142,6 @@ impl Widget<TestContext, blit::state::Insert> for Fill {
         ui.paint(move |cx, area| {
             cx.context_mut().commands.push(Command::Paint(self.0, area));
         });
-    }
-}
-
-struct TestClip;
-
-impl Clip<TestContext> for TestClip {
-    fn shape(&self, area: Rect<f32>) -> ClipShape<f32> {
-        ClipShape::Rect(area)
-    }
-
-    fn push(&self, context: &mut TestContext, area: Rect<f32>) {
-        context.commands.push(Command::PushClip(area));
-    }
-    fn pop(&self, context: &mut TestContext) {
-        context.commands.push(Command::PopClip);
     }
 }
 

@@ -362,31 +362,9 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
         self
     }
 
-    pub fn clip<X: Clip<C>>(self, clip: X) -> Self {
-        let kernel = &mut *self.inner.kernel;
-        let type_id = TypeId::of::<X>();
-        let clip = if type_id == TypeId::of::<()>() {
-            StoredClip::NONE
-        } else {
-            let kind = kernel
-                .clip_kinds
-                .iter()
-                .position(|kind| kind.type_id == type_id)
-                .unwrap_or_else(|| {
-                    kernel.clip_kinds.push(ClipKind {
-                        type_id,
-                        shape: |bump, id, area| bump.load::<X>(id).shape(area),
-                        push: |bump, id, context, area| bump.load::<X>(id).push(context, area),
-                        pop: |bump, id, context| bump.load::<X>(id).pop(context),
-                    });
-                    kernel.clip_kinds.len() - 1
-                });
-            StoredClip {
-                kind: u16::try_from(kind).expect("too many clip types"),
-                bump_id: kernel.bump.store(clip),
-            }
-        };
-        kernel.aux_mut(self.inner.node).clip = clip;
+    /// clips drawing and hit testing of this node and its visual descendants to its rounded area
+    pub fn clip(self, radius: impl Into<Corners<C::Scalar>>) -> Self {
+        self.inner.kernel.aux_mut(self.inner.node).clip = Some(radius.into());
         self
     }
 

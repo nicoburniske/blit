@@ -15,7 +15,7 @@ impl Widget<DesktopContext> for &mut View {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
-        let mut stage = ui.layout(()).clip(BoundsClip);
+        let mut stage = ui.layout(()).clip(0.0);
         stage.insert(Rectangle::new().background(colors::TRACK));
         stage.child().build(|ui: Ui<'_>| {
             self.dock.build(

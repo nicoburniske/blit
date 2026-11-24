@@ -210,7 +210,7 @@ mod tests {
             height: 48,
         };
         for radius in [8, 12, 20] {
-            let radii = Radii::new(BorderRadius::uniform(radius as f32), 1.0, area.width, area.height);
+            let radii = Radii::new(BorderRadius::all(radius as f32), 1.0, area.width, area.height);
             let top = RoundedLine::new(area, radii, 0).unwrap();
             let side = RoundedLine::new(area, radii, radius - 1).unwrap();
             assert!(top.coverage(radius - 1) >= 249);

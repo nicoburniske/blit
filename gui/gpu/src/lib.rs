@@ -81,6 +81,19 @@ pub struct Renderer {
 
 impl blit::Context for Renderer {
     type Scalar = f32;
+
+    fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
+        self.paint_clips.push(self.paint_clip);
+        self.paint_clip = self.list.push_clip(blit_gui::display_list::Clip {
+            parent: self.paint_clip,
+            area,
+            radius,
+        });
+    }
+
+    fn pop_clip(&mut self) {
+        self.paint_clip = self.paint_clips.pop().expect("no paint clip to pop");
+    }
 }
 
 impl blit::HasFrameStore for Renderer {
@@ -96,19 +109,6 @@ impl blit::HasFrameStore for Renderer {
 impl blit_gui::Context for Renderer {
     fn text(&mut self) -> &mut TextSystem {
         &mut self.text
-    }
-
-    fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
-        self.paint_clips.push(self.paint_clip);
-        self.paint_clip = self.list.push_clip(blit_gui::display_list::Clip {
-            parent: self.paint_clip,
-            area,
-            radius,
-        });
-    }
-
-    fn pop_clip(&mut self) {
-        self.paint_clip = self.paint_clips.pop().expect("no paint clip to pop");
     }
 }
 

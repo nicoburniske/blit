@@ -1,4 +1,4 @@
-use blit::{Animation, AnimationOptions, Axis, Clip, Rect, Scalar, Target, Ui, Widget};
+use blit::{Animation, AnimationOptions, Axis, Rect, Scalar, Target, Ui, Widget};
 
 use super::{CONTENT, Goal, Request, ScrollLayout, ScrollState, Scrollbar, animate, build_scroll, update};
 use crate::Context;
@@ -13,16 +13,12 @@ blit::builder! {
         inertia_friction: f32 = 2.5,
         scrollbar_thickness: T = T::from_f32(1.0),
         minimum_thumb_extent: T = T::from_f32(1.0),
-        clip<X = ()>: X = (),
     }
 }
 
-impl<T: Scalar, X> ScrollArea<'_, T, X> {
+impl<T: Scalar> ScrollArea<'_, T> {
     /// creates a widget without a scrollbar
-    pub fn build<C: Context<Scalar = T>>(self, content: impl FnOnce(Ui<'_, C>)) -> impl Widget<C, Response = ()>
-    where
-        X: Clip<C>,
-    {
+    pub fn build<C: Context<Scalar = T>>(self, content: impl FnOnce(Ui<'_, C>)) -> impl Widget<C, Response = ()> {
         move |ui: Ui<'_, C>| self.build_inner(ui, content, None::<fn(Ui<'_, C>)>, None::<fn(Ui<'_, C>, bool)>)
     }
 
@@ -32,10 +28,7 @@ impl<T: Scalar, X> ScrollArea<'_, T, X> {
         content: impl FnOnce(Ui<'_, C>),
         track: impl FnOnce(Ui<'_, C>),
         thumb: impl FnOnce(Ui<'_, C>, bool),
-    ) -> impl Widget<C, Response = ()>
-    where
-        X: Clip<C>,
-    {
+    ) -> impl Widget<C, Response = ()> {
         move |ui: Ui<'_, C>| self.build_inner(ui, content, Some(track), Some(thumb))
     }
 
@@ -45,9 +38,7 @@ impl<T: Scalar, X> ScrollArea<'_, T, X> {
         content: impl FnOnce(Ui<'_, C>),
         track: Option<impl FnOnce(Ui<'_, C>)>,
         thumb: Option<impl FnOnce(Ui<'_, C>, bool)>,
-    ) where
-        X: Clip<C>,
-    {
+    ) {
         let Self {
             state,
             axis,
@@ -55,7 +46,6 @@ impl<T: Scalar, X> ScrollArea<'_, T, X> {
             inertia_friction,
             scrollbar_thickness,
             minimum_thumb_extent,
-            clip,
         } = self;
         let (thumb_active, viewport_known) = update(state, &mut ui, axis, scroll_speed, inertia_friction);
         // a focus change reveals the focused node wherever it is
@@ -97,7 +87,6 @@ impl<T: Scalar, X> ScrollArea<'_, T, X> {
                     minimum: minimum_thumb_extent,
                 },
             },
-            clip,
             content,
             track,
             thumb,

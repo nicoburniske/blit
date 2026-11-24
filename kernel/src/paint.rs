@@ -132,7 +132,7 @@ pub fn resolve_order<C: Context>(kernel: &mut Kernel<C>, bump: &BumpArena) {
     debug_assert_eq!(pending, count);
 }
 
-pub fn resolve_clips<C: Context>(kernel: &mut Kernel<C>, bump: &BumpArena) {
+pub fn resolve_clips<C: Context>(kernel: &mut Kernel<C>) {
     kernel.interaction.clips.clear();
     let count = kernel.nodes.len();
     let nodes = &mut kernel.nodes[..count];
@@ -145,35 +145,15 @@ pub fn resolve_clips<C: Context>(kernel: &mut Kernel<C>, bump: &BumpArena) {
             nodes[visual_parent(aux, &nodes[index]).index()].resolved_clip
         };
         nodes[index].resolved_clip = parent;
-        let Some(stored) = nodes[index]
-            .aux
-            .index()
-            .map(|index| aux[index].clip)
-            .filter(|clip| clip.bump_id.offset().is_some())
-        else {
+        let Some(radius) = nodes[index].aux.index().and_then(|index| aux[index].clip) else {
             continue;
         };
         let area = placements[index].area;
-        let shape = (kernel.clip_kinds[stored.kind as usize].shape)(bump, stored.bump_id, area);
-        let parent_bounds = parent
+        let bounds = parent
             .index()
-            .map_or(kernel.screen, |clip| kernel.interaction.clips[clip].bounds);
-        let bounds = match shape {
-            ClipShape::Unbounded => parent_bounds,
-            ClipShape::Rect(rect) | ClipShape::RoundedRect { rect, .. } => {
-                parent_bounds.intersection(rect).unwrap_or_default()
-            }
-            ClipShape::Circle { center, radius } => {
-                let radius = radius.max(C::Scalar::ZERO);
-                let right = parent_bounds.x.endpoint(parent_bounds.width);
-                let bottom = parent_bounds.y.endpoint(parent_bounds.height);
-                let x = center.x.endpoint(-radius).clamp(parent_bounds.x, right);
-                let y = center.y.endpoint(-radius).clamp(parent_bounds.y, bottom);
-                let right = center.x.endpoint(radius).clamp(x, right);
-                let bottom = center.y.endpoint(radius).clamp(y, bottom);
-                Rect::new(x, y, right - x, bottom - y)
-            }
-        };
+            .map_or(kernel.screen, |clip| kernel.interaction.clips[clip].bounds)
+            .intersection(area)
+            .unwrap_or_default();
         let id = ResolvedClipId::new(kernel.interaction.clips.len());
         let depth = parent
             .index()
@@ -181,10 +161,9 @@ pub fn resolve_clips<C: Context>(kernel: &mut Kernel<C>, bump: &BumpArena) {
         kernel.interaction.clips.push(ResolvedClip {
             parent,
             depth,
-            clip: stored,
             area,
+            radius,
             bounds,
-            shape,
         });
         nodes[index].resolved_clip = id;
     }
@@ -203,12 +182,11 @@ pub fn paint<C: Context>(kernel: &Kernel<C>, bump: &BumpArena, context: &mut C) 
             paint_node(kernel, bump, context, &mut active, node);
         }
     }
-    set(kernel, bump, context, &mut active, ResolvedClipId::NONE);
+    set(kernel, context, &mut active, ResolvedClipId::NONE);
 }
 
 fn set<C: Context>(
     kernel: &Kernel<C>,
-    bump: &BumpArena,
     context: &mut C,
     active: &mut Scratch<'_, ResolvedClipId>,
     target: ResolvedClipId,
@@ -222,16 +200,13 @@ fn set<C: Context>(
         common = kernel.interaction.clips[index].parent;
     }
     while active.last().map_or(u32::MAX, |clip| clip.0) != common.0 {
-        let clip = active.pop().unwrap();
-        let stored = kernel.interaction.clips[clip.index().unwrap()];
-        let clip_data = stored.clip;
-        (kernel.clip_kinds[clip_data.kind as usize].pop)(bump, clip_data.bump_id, context);
+        active.pop();
+        context.pop_clip();
     }
-    push(kernel, bump, context, active, target, common.0);
+    push(kernel, context, active, target, common.0);
 
     fn push<C: Context>(
         kernel: &Kernel<C>,
-        bump: &BumpArena,
         context: &mut C,
         active: &mut Scratch<'_, ResolvedClipId>,
         clip: ResolvedClipId,
@@ -241,9 +216,8 @@ fn set<C: Context>(
             return;
         }
         let stored = kernel.interaction.clips[clip.index().unwrap()];
-        push(kernel, bump, context, active, stored.parent, common);
-        let clip_data = stored.clip;
-        (kernel.clip_kinds[clip_data.kind as usize].push)(bump, clip_data.bump_id, context, stored.area);
+        push(kernel, context, active, stored.parent, common);
+        context.push_clip(stored.area, stored.radius);
         active.push(clip);
     }
 }
@@ -267,7 +241,7 @@ fn paint_node<C: Context>(
     if bounds.width <= C::Scalar::ZERO || bounds.height <= C::Scalar::ZERO {
         return;
     }
-    set(kernel, bump, context, active, resolved_clip);
+    set(kernel, context, active, resolved_clip);
     let mut index = kernel.paints[last].next.0 as usize;
     loop {
         let stored = kernel.paints[index];

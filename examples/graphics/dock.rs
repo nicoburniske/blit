@@ -41,7 +41,7 @@ impl Dock {
         toolbar.interact(interact::press());
         toolbar.insert(
             blit_gui::shadow::Shadow::new(Color::rgba(0, 0, 0, 88))
-                .radius(BorderRadius::uniform(16.0))
+                .radius(BorderRadius::all(16.0))
                 .offset(0.0, 3.0)
                 .blur(12.0),
         );
@@ -49,7 +49,7 @@ impl Dock {
             Rectangle::new()
                 .background(LinearGradient::new(&colors::BUTTON).angle(90.0))
                 .border(Border::gradient(1.0, LinearGradient::new(&colors::RIM).angle(90.0)))
-                .radius(BorderRadius::uniform(16.0)),
+                .radius(BorderRadius::all(16.0)),
         );
         toolbar
             .child()
@@ -80,7 +80,7 @@ impl Dock {
                             1.0,
                             if press.hovered { Color::WHITE } else { stops[0].color },
                         ))
-                        .radius(BorderRadius::uniform(10.0)),
+                        .radius(BorderRadius::all(10.0)),
                 );
                 let running = self.running;
                 let pressed = press.active;
@@ -92,7 +92,7 @@ impl Dock {
                         for offset in [-7.0, 1.0] {
                             Rectangle::new()
                                 .background(Color::WHITE)
-                                .radius(BorderRadius::uniform(1.5))
+                                .radius(BorderRadius::all(1.5))
                                 .paint(LogicalRect::new(x + offset, y - 8.0, 6.0, 16.0), context);
                         }
                     } else {

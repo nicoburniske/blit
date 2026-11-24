@@ -8,7 +8,6 @@ use blit_desktop::cpu;
 use blit_desktop::gpu;
 use blit_desktop::{Application, Config, EventLoopProxy, Scope};
 use blit_gui::{
-    clip::BoundsClip,
     color::Color,
     mesh::{Mesh, MeshVertex},
     rectangle::Rectangle,
@@ -192,7 +191,7 @@ impl Application for App {
                             Rectangle::new()
                                 .background(colors::SURFACE)
                                 .border(Border::solid(sz::BORDER, colors::ACCENT))
-                                .radius(BorderRadius::uniform(sz::XS)),
+                                .radius(BorderRadius::all(sz::XS)),
                         );
                         if popup
                             .child()
@@ -237,7 +236,7 @@ impl Application for App {
                         .muted_color(colors::TEXT_DIM)
                         .accent(colors::ACCENT)
                         .border(Border::solid(1.0, colors::BORDER))
-                        .radius(BorderRadius::uniform(2.0)),
+                        .radius(BorderRadius::all(2.0)),
                 );
         }
     }
@@ -277,7 +276,7 @@ impl Widget<DesktopContext> for &mut AnimationPage {
             split_state,
             sz::SIDEBAR,
             |ui: Ui<'_>| {
-                let mut sidebar = ui.layout(flex::column().gap(sz::XS)).clip(BoundsClip).pad(sz::LG);
+                let mut sidebar = ui.layout(flex::column().gap(sz::XS)).clip(0.0).pad(sz::LG);
                 sidebar.insert(panel(colors::SURFACE));
                 sidebar
                     .child()
@@ -308,7 +307,7 @@ impl Widget<DesktopContext> for &mut AnimationPage {
             },
             |ui: Ui<'_>| {
                 let spring = settings.get();
-                let mut preview = ui.layout(flex::column().gap(sz::SM)).clip(BoundsClip).pad(sz::LG);
+                let mut preview = ui.layout(flex::column().gap(sz::SM)).clip(0.0).pad(sz::LG);
                 preview.insert(panel(colors::SURFACE));
                 preview
                     .child()
@@ -338,7 +337,7 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                         .layout(flex::column().gap(sz::XXS));
                     row.child()
                         .insert(Text::new(label).style(TextStyle::new().size(sz::MD).color(colors::TEXT_MUTED)));
-                    let mut lane = row.child().item(flex::item().grow()).layout(()).clip(BoundsClip);
+                    let mut lane = row.child().item(flex::item().grow()).layout(()).clip(0.0);
                     lane.insert(panel(colors::CANVAS));
                     let mut track = lane
                         .child()
@@ -359,7 +358,7 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                     track.child().place(Target::PARENT, marker).insert(
                         Rectangle::new()
                             .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
-                            .radius(BorderRadius::uniform(sz::XXS)),
+                            .radius(BorderRadius::all(sz::XXS)),
                     );
                     track
                         .child_id(index)
@@ -368,7 +367,7 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                         .insert(
                             Rectangle::new()
                                 .background(colors::ACCENT)
-                                .radius(BorderRadius::uniform(sz::XXS)),
+                                .radius(BorderRadius::all(sz::XXS)),
                         );
                 }
             },
@@ -409,7 +408,7 @@ impl Widget<DesktopContext> for &mut DragPage {
                     ui.insert(
                         Rectangle::new()
                             .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
-                            .radius(BorderRadius::uniform(sz::XS)),
+                            .radius(BorderRadius::all(sz::XS)),
                     );
                     return;
                 };
@@ -421,7 +420,7 @@ impl Widget<DesktopContext> for &mut DragPage {
                             sz::BORDER,
                             if dragging { Color::WHITE } else { colors::BORDER },
                         ))
-                        .radius(BorderRadius::uniform(sz::XS)),
+                        .radius(BorderRadius::all(sz::XS)),
                 );
                 ui.child().insert(
                     Text::new(format_args!("card {card}")).style(TextStyle::new().size(sz::MD).color(Color::WHITE)),
@@ -588,11 +587,11 @@ impl Widget<DesktopContext> for &mut TextPage {
                     .child()
                     .insert(Text::new("text").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
                 preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
-                    let mut viewport = ui.layout(flex::column()).clip(BoundsClip).pad(sz::SM);
+                    let mut viewport = ui.layout(flex::column()).clip(0.0).pad(sz::SM);
                     viewport.insert(
                         Rectangle::new()
                             .background(colors::TRACK)
-                            .radius(BorderRadius::uniform(sz::XS)),
+                            .radius(BorderRadius::all(sz::XS)),
                     );
                     viewport.child().build(
                         Resize::new(resize)
@@ -601,12 +600,12 @@ impl Widget<DesktopContext> for &mut TextPage {
                             .maximum(screen)
                             .grip_size(Size::uniform(sz::MD))
                             .content(|ui: Ui<'_>| {
-                                let mut paragraph = ui.layout(()).clip(BoundsClip).pad(sz::LG);
+                                let mut paragraph = ui.layout(()).clip(0.0).pad(sz::LG);
                                 paragraph.insert(
                                     Rectangle::new()
                                         .background(colors::CANVAS)
                                         .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
-                                        .radius(BorderRadius::uniform(sz::XS)),
+                                        .radius(BorderRadius::all(sz::XS)),
                                 );
                                 paragraph.child().insert(
                                     RichText::new(text, spans)
@@ -655,7 +654,7 @@ impl Widget<DesktopContext> for &mut InputPage {
                 Rectangle::new()
                     .background(LinearGradient::new(&colors::INPUT).angle(90.0))
                     .border(border)
-                    .radius(BorderRadius::uniform(6.0)),
+                    .radius(BorderRadius::all(6.0)),
             );
             field.build(
                 TextInput::new(&mut self.state, &mut self.value)
@@ -822,11 +821,11 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                     .child()
                     .insert(Text::new("LIVE VIEW").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
                 preview.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
-                    let mut viewport = ui.layout(flex::column()).clip(BoundsClip).pad(sz::SM);
+                    let mut viewport = ui.layout(flex::column()).clip(0.0).pad(sz::SM);
                     viewport.insert(
                         Rectangle::new()
                             .background(colors::TRACK)
-                            .radius(BorderRadius::uniform(sz::XS)),
+                            .radius(BorderRadius::all(sz::XS)),
                     );
                     let initial =
                         (screen - sz::CANVAS_INITIAL_OFFSET).max(sz::CANVAS_INITIAL_MIN) * sz::CANVAS_INITIAL_SCALE;
@@ -912,7 +911,7 @@ impl Widget<DesktopContext> for &mut ScrollPage {
             tile.insert(
                 Rectangle::new()
                     .background(background)
-                    .radius(BorderRadius::uniform(sz::XXS)),
+                    .radius(BorderRadius::all(sz::XXS)),
             );
             tile.child()
                 .insert(Text::new(format_args!("{index}")).style(TextStyle::new().color(colors::TEXT_MUTED)));
@@ -932,7 +931,6 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                     .inertia_friction(3.0)
                     .scrollbar_thickness(sz::XS)
                     .minimum_thumb_extent(sz::XXL)
-                    .clip(BoundsClip)
                     .build_scrollbar(row, scroll_track, scroll_thumb),
             );
         } else {
@@ -943,7 +941,6 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                     .inertia_friction(3.0)
                     .scrollbar_thickness(sz::XS)
                     .minimum_thumb_extent(sz::XS)
-                    .clip(BoundsClip)
                     .build_scrollbar(row, scroll_track, scroll_thumb),
             );
         }
@@ -971,7 +968,7 @@ fn split(
                 .insert(
                     Rectangle::new()
                         .background(if active { colors::ACCENT } else { colors::BORDER })
-                        .radius(BorderRadius::uniform(sz::BORDER)),
+                        .radius(BorderRadius::all(sz::BORDER)),
                 );
         })
         .leading(leading)
@@ -998,7 +995,7 @@ fn draw_grip(ui: Ui<'_>, grip: ResizeGrip) {
         .insert(
             Rectangle::new()
                 .background(color)
-                .radius(BorderRadius::uniform(marker.width.min(marker.height) / 2.0)),
+                .radius(BorderRadius::all(marker.width.min(marker.height) / 2.0)),
         );
 }
 
@@ -1043,7 +1040,7 @@ fn draw_button(ui: Ui<'_>, label: impl AsRef<str>, selected: bool, press: intera
         Rectangle::new()
             .background(LinearGradient::new(stops).angle(if press.active { 270.0 } else { 90.0 }))
             .border(border)
-            .radius(BorderRadius::uniform(4.0)),
+            .radius(BorderRadius::all(4.0)),
     );
     button.child().insert(Text::new(label.as_ref()).style(TextStyle {
         size: sz::MD,
@@ -1080,7 +1077,7 @@ impl Widget<DesktopContext> for Canvas {
         let background = Rectangle::new()
             .background(colors::CANVAS)
             .border(Border::solid(sz::BORDER_STRONG, colors::CANVAS_BORDER))
-            .radius(BorderRadius::uniform(sz::XS));
+            .radius(BorderRadius::all(sz::XS));
         let mut shell = ui.layout(());
         let ui = shell.child_in(blit::Scope::ROOT, "canvas");
         match self.config.layout {
@@ -1092,7 +1089,7 @@ impl Widget<DesktopContext> for Canvas {
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
-                    .clip(BoundsClip)
+                    .clip(0.0)
                     .pad(self.config.padding(self.unit));
                 canvas.insert(background);
                 for (index, spec) in ITEMS.into_iter().enumerate() {
@@ -1118,7 +1115,7 @@ impl Widget<DesktopContext> for Canvas {
                             .align(self.config.align)
                             .justify(self.config.justify),
                     )
-                    .clip(BoundsClip)
+                    .clip(0.0)
                     .pad(self.config.padding(self.unit));
                 canvas.insert(background);
                 for (index, spec) in ITEMS.into_iter().enumerate() {
@@ -1135,7 +1132,7 @@ impl Widget<DesktopContext> for Canvas {
                 let grid = grid::new(5)
                     .column_gap(self.config.gap(Axis::Horizontal, self.unit))
                     .row_gap(self.config.gap(Axis::Vertical, self.unit));
-                let mut canvas = ui.layout(grid).clip(BoundsClip).pad(self.config.padding(self.unit));
+                let mut canvas = ui.layout(grid).clip(0.0).pad(self.config.padding(self.unit));
                 canvas.insert(background);
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
@@ -1179,7 +1176,7 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     item.insert(
         Rectangle::new()
             .background(LinearGradient::new(&stops).angle(45.0))
-            .radius(BorderRadius::uniform(sz::XXS)),
+            .radius(BorderRadius::all(sz::XXS)),
     );
     if let Some(motion) = config.transition.motion() {
         item = item.motion(motion);
@@ -1208,7 +1205,7 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
                     Rectangle::new()
                         .background(colors::BACKGROUND)
                         .border(Border::solid(sz::BORDER, Color::WHITE))
-                        .radius(BorderRadius::uniform(sz::XXS)),
+                        .radius(BorderRadius::all(sz::XXS)),
                 );
                 badge.child().insert(Text::new("ABS").style(TextStyle {
                     size: (sz::XS * config.zoom).max(sz::XS),
@@ -1221,7 +1218,6 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
 
 fn scroll_area(state: &mut ScrollState, content: impl FnOnce(Ui<'_>)) -> impl Widget<DesktopContext> {
     ScrollArea::new(state)
-        .clip(BoundsClip)
         .scroll_speed(2.0)
         .inertia_friction(3.0)
         .scrollbar_thickness(sz::XS)
@@ -1233,7 +1229,7 @@ fn scroll_track(mut ui: Ui<'_>) {
     ui.insert(
         Rectangle::new()
             .background(colors::SCROLL_TRACK)
-            .radius(BorderRadius::uniform(sz::XXS)),
+            .radius(BorderRadius::all(sz::XXS)),
     );
 }
 
@@ -1241,7 +1237,7 @@ fn scroll_thumb(mut ui: Ui<'_>, active: bool) {
     ui.insert(
         Rectangle::new()
             .background(if active { colors::TEXT_DIM } else { colors::BORDER })
-            .radius(BorderRadius::uniform(sz::XXS)),
+            .radius(BorderRadius::all(sz::XXS)),
     );
 }
 
@@ -1252,7 +1248,7 @@ fn panel(background: Color) -> Rectangle<'static> {
             sz::BORDER,
             LinearGradient::new(&colors::RIM).angle(90.0),
         ))
-        .radius(BorderRadius::uniform(2.0))
+        .radius(BorderRadius::all(2.0))
 }
 
 mod sz {

@@ -119,26 +119,7 @@ impl<'a> Border<'a> {
     }
 }
 
-blit::builder! {
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct BorderRadius {
-        new(),
-        top_left: f32 = 0.0,
-        top_right: f32 = 0.0,
-        bottom_right: f32 = 0.0,
-        bottom_left: f32 = 0.0,
-    }
-}
-impl BorderRadius {
-    pub fn uniform(radius: f32) -> Self {
-        Self {
-            top_left: radius,
-            top_right: radius,
-            bottom_right: radius,
-            bottom_left: radius,
-        }
-    }
-}
+pub type BorderRadius = blit::Corners<f32>;
 
 blit::builder! {
     #[derive(Clone, Copy, Debug, PartialEq)]

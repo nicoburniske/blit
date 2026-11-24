@@ -18,13 +18,13 @@
 //! | [`Widget`]   | build         | describes nodes, layouts, content and children |
 //! | [`Layout`]   | layout        | sizes and positions a node's children          |
 //! | [`Place`]    | layout        | positions a node outside its parent's flow     |
-//! | [`Clip`]     | paint, input  | clips drawing and hit testing to a shape       |
 //! | [`Interact`] | build         | turns input into a response for a widget       |
 //!
 //! # context
 //!
 //! everything is generic over a [`Context`], usually your renderer. it opts into capabilities
 //!
+//! - [`Context::push_clip`] clips drawing for nodes built with [`Ui::clip`]
 //! - [`Paint<T>`](Paint) draws command `T`. paint callbacks send commands through it
 //! - [`HasFrameStore`] stores drawing inputs in a [`FrameStore`] until the context renders
 //!
@@ -43,11 +43,10 @@ extern crate alloc;
 
 pub use self::{
     animation::{Animation, AnimationOptions, Easing, Motion, MotionProps, Spring, Tween},
-    clip::{Clip, ClipShape},
     frame_store::{FrameSlice, FrameSliceBuilder, FrameStore},
     geometry::{
-        Constraints, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point, Rect,
-        Scalar, Scale2, Sides, Size,
+        Constraints, Corners, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point,
+        Rect, Scalar, Scale2, Sides, Size,
     },
     graph::NodeId,
     interact::{Contact, ContactId, ContactSource, Contacts, Interact, InteractCx, KeyboardEvent, Phase, ScrollEvent},
@@ -60,7 +59,6 @@ pub use self::{
 
 mod animation;
 mod arena;
-mod clip;
 mod frame_store;
 mod geometry;
 mod graph;
@@ -109,6 +107,12 @@ pub trait Context {
 
     /// the node built at `location` repeats a key in its parent or scope, reported a frame later
     fn duplicate_id(&mut self, _id: Id, _location: &'static Location<'static>) {}
+
+    /// clips drawing to a rounded rectangle until the matching pop
+    fn push_clip(&mut self, _area: Rect<Self::Scalar>, _radius: Corners<Self::Scalar>) {}
+
+    /// restores the clip from before the matching push
+    fn pop_clip(&mut self) {}
 }
 
 impl Context for () {
@@ -260,7 +264,6 @@ pub struct Kernel<C: Context> {
     // node kinds
     //
     layout_kinds: Vec<LayoutKind<C>>,
-    clip_kinds: Vec<ClipKind<C>>,
 
     //
     // frame inputs
@@ -301,7 +304,6 @@ impl<C: Context> Default for Kernel<C> {
             focus: FocusRequest::Keep,
 
             layout_kinds: Vec::new(),
-            clip_kinds: Vec::new(),
 
             input: Input::None,
             time: Duration::ZERO,
@@ -422,7 +424,7 @@ impl<C: Context> Kernel<C> {
             }
         }
         paint::resolve_order(self, &bump);
-        paint::resolve_clips(self, &bump);
+        paint::resolve_clips(self);
         // interactions bind against this build
         let nodes = &self.nodes;
         self.watch = self.laid_out.rebuild(nodes.len(), |index| nodes[index].widget_id);
@@ -514,7 +516,7 @@ impl<C: Context> Kernel<C> {
                 stored.aux = AuxId::new(self.aux.len());
                 self.aux.push(Aux {
                     visual_parent: stored.parent,
-                    clip: StoredClip::NONE,
+                    clip: None,
                     limits: Constraints::loose(Size::uniform(C::Scalar::UNBOUNDED)),
                     padding: Sides::all(C::Scalar::ZERO),
                     hit: Sides::all(C::Scalar::ZERO),

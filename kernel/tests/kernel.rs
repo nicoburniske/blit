@@ -58,7 +58,7 @@ fn layout_and_paint() {
             transparent.child().insert(Fill('A', Size::new(2.0, 1.0)));
         }
         column.child().item(1.0).build(|ui: Ui<'_>| {
-            let mut panel = ui.layout(Overlay).clip(TestClip);
+            let mut panel = ui.layout(Overlay).clip(0.0);
             panel.child().insert(Fill('b', Size::new(5.0, 3.0)));
             panel.child().insert(Fill('C', Size::uniform(1.0)));
         });
@@ -163,13 +163,9 @@ fn owned_values_and_culling() {
             .insert(Probe {
                 result: results[0].clone(),
             });
-        root.child()
-            .layout(Fixed(Size::ZERO))
-            .clip(TestClip)
-            .child()
-            .insert(Probe {
-                result: results[1].clone(),
-            });
+        root.child().layout(Fixed(Size::ZERO)).clip(0.0).child().insert(Probe {
+            result: results[1].clone(),
+        });
     });
     assert_eq!(
         results
@@ -203,7 +199,7 @@ fn anchors_and_clip_parents() {
     for escape in [true, false] {
         render(&mut kernel, &mut context, |ui: Ui<'_>| {
             let mut root = ui.layout(Overlay);
-            let mut panel = root.child_id("panel").layout(Fixed(Size::uniform(3.0))).clip(TestClip);
+            let mut panel = root.child_id("panel").layout(Fixed(Size::uniform(3.0))).clip(0.0);
             panel.insert(Fill('p', Size::ZERO));
             panel
                 .child()
@@ -236,12 +232,12 @@ fn visual_parent_and_hit_order() {
                     .z_index(1)
                     .insert(Fill('M', Size::ZERO));
             }
-            root.child().clip(TestClip).build(|ui: Ui<'_>| {
+            root.child().clip(0.0).build(|ui: Ui<'_>| {
                 let outer = ui.node_id();
                 ui.place(Target::PARENT, At(|_| Point::new(1.0, 0.0)))
                     .layout(Fixed(Size::uniform(5.0)))
                     .child()
-                    .clip(TestClip)
+                    .clip(0.0)
                     .build(|ui: Ui<'_>| {
                         ui.place(Target::PARENT, At(|_| Point::new(2.0, 2.0)))
                             .layout(Fixed(Size::uniform(1.0)))

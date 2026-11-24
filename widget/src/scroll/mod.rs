@@ -5,8 +5,8 @@ pub mod virtual_list;
 use std::time::Duration;
 
 use blit::{
-    Animation, AnimationOptions, Axis, Clip, Constraints, Id, Layout, LayoutCx, NodeId, Point, Scalar, Size, Ui,
-    Widget, internal::animator::Animator, state::Local,
+    Animation, AnimationOptions, Axis, Constraints, Id, Layout, LayoutCx, NodeId, Point, Scalar, Size, Ui, Widget,
+    internal::animator::Animator, state::Local,
 };
 
 use crate::{Context, interact};
@@ -519,10 +519,9 @@ fn move_by<T: Scalar>(state: &mut ScrollState<T>, amount: f32) {
     }
 }
 
-fn build_scroll<'a, C: Context, W, X, T, H, L>(
+fn build_scroll<'a, C: Context, W, T, H, L>(
     ui: Ui<'a, C>,
     layout: L,
-    clip: X,
     content: W,
     track: Option<T>,
     thumb: Option<H>,
@@ -531,11 +530,10 @@ fn build_scroll<'a, C: Context, W, X, T, H, L>(
 where
     L: Layout<C, Item = ScrollItem>,
     W: Widget<C>,
-    X: Clip<C>,
     T: FnOnce(Ui<'_, C>),
     H: FnOnce(Ui<'_, C>, bool),
 {
-    let mut viewport = ui.layout(layout).clip(clip);
+    let mut viewport = ui.layout(layout).clip(C::Scalar::ZERO);
     viewport.child_id(CONTENT).item(ScrollItem::Content).build(content);
     if let Some(track) = track {
         viewport.child_id(TRACK).item(ScrollItem::Track).build(track);

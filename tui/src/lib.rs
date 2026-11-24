@@ -22,7 +22,7 @@ pub mod widgets;
 pub use blit_widget::{interact, layout};
 
 pub use self::{
-    context::{BoundsClip, TuiContext},
+    context::TuiContext,
     image::Image,
     renderer::{RendererConfig, TuiRenderer, cell},
 };

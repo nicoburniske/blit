@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Axis, Clip, Constraints, Id, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget};
+use blit::{Axis, Constraints, Id, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget};
 
 use super::{
     CONTENT, Scrollbar, ScrollbarInput, THUMB, TRACK, ThumbProgress, content_input, content_motion, scrollbar_input,
@@ -24,11 +24,10 @@ blit::builder! {
         minimum_thumb_extent: T = T::from_f32(1.0),
         #[bounds(FnMut(usize) -> Id)]
         id<K = fn(usize) -> Id>: K = Id::from,
-        clip<X = ()>: X = (),
     }
 }
 
-impl<T: Scalar, K, X> VirtualList<'_, T, K, X>
+impl<T: Scalar, K> VirtualList<'_, T, K>
 where
     K: FnMut(usize) -> Id,
 {
@@ -36,10 +35,7 @@ where
     pub fn build<C: Context<Scalar = T>>(
         self,
         item: impl FnMut(Ui<'_, C>, usize),
-    ) -> impl Widget<C, Response = Response>
-    where
-        X: Clip<C>,
-    {
+    ) -> impl Widget<C, Response = Response> {
         move |ui: Ui<'_, C>| self.build_inner(ui, item, None::<fn(Ui<'_, C>)>, None::<fn(Ui<'_, C>, bool)>)
     }
 
@@ -49,10 +45,7 @@ where
         item: impl FnMut(Ui<'_, C>, usize),
         track: impl FnOnce(Ui<'_, C>),
         thumb: impl FnOnce(Ui<'_, C>, bool),
-    ) -> impl Widget<C, Response = Response>
-    where
-        X: Clip<C>,
-    {
+    ) -> impl Widget<C, Response = Response> {
         move |ui: Ui<'_, C>| self.build_inner(ui, item, Some(track), Some(thumb))
     }
 
@@ -62,10 +55,7 @@ where
         mut item: impl FnMut(Ui<'_, C>, usize),
         track: Option<impl FnOnce(Ui<'_, C>)>,
         thumb: Option<impl FnOnce(Ui<'_, C>, bool)>,
-    ) -> Response
-    where
-        X: Clip<C>,
-    {
+    ) -> Response {
         const VIEWPORTS: usize = 2;
 
         let Self {
@@ -76,7 +66,6 @@ where
             scrollbar_thickness,
             minimum_thumb_extent,
             id: mut item_id,
-            clip,
         } = self;
         let viewport = ui.area();
         let size = viewport.map_or(ui.screen().size(), |area| area.size());
@@ -181,7 +170,7 @@ where
             min: Size::new(width, C::Scalar::ZERO),
             max: Size::new(width, C::Scalar::UNBOUNDED),
         };
-        let mut content = ui.clip(clip).layout(VirtualLayout {
+        let mut content = ui.clip(C::Scalar::ZERO).layout(VirtualLayout {
             scrollbar: Scrollbar {
                 thickness: scrollbar_thickness,
                 minimum: minimum_thumb_extent,

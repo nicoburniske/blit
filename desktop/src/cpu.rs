@@ -32,6 +32,14 @@ impl Backend {
 
 impl blit::Context for Backend {
     type Scalar = f32;
+
+    fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
+        self.renderer.push_clip(area, radius);
+    }
+
+    fn pop_clip(&mut self) {
+        self.renderer.pop_clip();
+    }
 }
 
 impl blit::HasFrameStore for Backend {
@@ -56,14 +64,6 @@ where
 impl blit_gui::Context for Backend {
     fn text(&mut self) -> &mut TextSystem {
         self.renderer.text()
-    }
-
-    fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
-        self.renderer.push_clip(area, radius);
-    }
-
-    fn pop_clip(&mut self) {
-        self.renderer.pop_clip();
     }
 }
 

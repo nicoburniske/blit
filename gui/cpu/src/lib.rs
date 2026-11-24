@@ -367,22 +367,6 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> blit::Context for Renderer<B, S, D> {
     type Scalar = f32;
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> blit::HasFrameStore for Renderer<B, S, D> {
-    fn store(&self) -> &blit::FrameStore {
-        self.context.list.store()
-    }
-
-    fn store_mut(&mut self) -> &mut blit::FrameStore {
-        self.context.list.store_mut()
-    }
-}
-
-impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Context for Renderer<B, S, D> {
-    fn text(&mut self) -> &mut TextSystem {
-        &mut self.context.text.system
-    }
 
     fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
         self.paint_clips.push(self.paint_clip);
@@ -399,6 +383,22 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Context for Rendere
 
     fn pop_clip(&mut self) {
         self.paint_clip = self.paint_clips.pop().expect("no paint clip to pop");
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> blit::HasFrameStore for Renderer<B, S, D> {
+    fn store(&self) -> &blit::FrameStore {
+        self.context.list.store()
+    }
+
+    fn store_mut(&mut self) -> &mut blit::FrameStore {
+        self.context.list.store_mut()
+    }
+}
+
+impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Context for Renderer<B, S, D> {
+    fn text(&mut self) -> &mut TextSystem {
+        &mut self.context.text.system
     }
 }
 

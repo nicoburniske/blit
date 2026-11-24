@@ -1,10 +1,9 @@
-use blit::{LogicalRect, Paint, PhysicalRect};
+use blit::{Context, LogicalRect, Paint, PhysicalRect};
 use blit_cpu::{
     Direct, Pixel, PixelBuffer, PremultipliedRgbaColor, Render, RenderContext, RenderStrategy, Renderer,
     RendererConfig, Scanline, VecBuffer, Xrgb8888,
 };
 use blit_gui::{
-    Context,
     blur::BackdropBlur,
     color::Color,
     damage::{DamageTracker, command::CommandDiff, tile::TileDamage},
@@ -90,7 +89,7 @@ fn pass_barriers_read_current_frame_and_respect_nested_clips() {
         renderer.paint(source_area, &Shift);
         source.paint(source_area, &mut renderer);
         renderer.paint(LogicalRect::new(0.0, 1.0, 12.0, 1.0), &Shift);
-        renderer.push_clip(LogicalRect::new(1.0, 0.0, 9.0, 8.0), BorderRadius::uniform(3.0));
+        renderer.push_clip(LogicalRect::new(1.0, 0.0, 9.0, 8.0), BorderRadius::all(3.0));
         renderer.push_clip(LogicalRect::new(2.0, 0.0, 6.0, 8.0), BorderRadius::default());
         renderer.paint(LogicalRect::new(0.0, 2.0, 12.0, 1.0), &Shift);
         renderer.pop_clip();
@@ -121,7 +120,7 @@ where
     Rectangle::new()
         .background(Color::WHITE)
         .paint(LogicalRect::new(12.0 + frame as f32 * 4.0, 18.0, 4.0, 8.0), renderer);
-    renderer.push_clip(LogicalRect::new(3.0, 2.0, 90.0, 60.0), BorderRadius::uniform(8.0));
+    renderer.push_clip(LogicalRect::new(3.0, 2.0, 90.0, 60.0), BorderRadius::all(8.0));
     if frame != 3 {
         renderer.paint(LogicalRect::new(8.0, 8.0, 48.0, 32.0), &BackdropBlur::new(3.0));
         renderer.paint(LogicalRect::new(32.0, 20.0, 40.0, 28.0), &BackdropBlur::new(2.0));

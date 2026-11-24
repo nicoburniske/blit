@@ -468,6 +468,35 @@ impl<T: Add<Output = T>> Sides<T> {
     }
 }
 
+crate::builder! {
+    /// radii of a rounded rectangle
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Corners<T: Scalar> {
+        new(),
+        top_left: T = T::ZERO,
+        top_right: T = T::ZERO,
+        bottom_right: T = T::ZERO,
+        bottom_left: T = T::ZERO,
+    }
+}
+
+impl<T: Scalar> Corners<T> {
+    pub const fn all(value: T) -> Self {
+        Self {
+            top_left: value,
+            top_right: value,
+            bottom_right: value,
+            bottom_left: value,
+        }
+    }
+}
+
+impl<T: Scalar> From<T> for Corners<T> {
+    fn from(value: T) -> Self {
+        Self::all(value)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Constraints<T> {
     pub min: Size<T>,

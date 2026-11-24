@@ -1,4 +1,4 @@
-use blit::{Clip, ClipShape, Paint, PhysicalRect};
+use blit::{Corners, Paint, PhysicalRect};
 use blit_widget::performance::FrameProfiler;
 
 use crate::{RendererConfig, TuiRenderer, image::Image, text::FrameText};
@@ -18,6 +18,15 @@ impl Default for TuiContext {
 
 impl blit::Context for TuiContext {
     type Scalar = i32;
+
+    // cells cannot show rounded corners
+    fn push_clip(&mut self, area: PhysicalRect, _: Corners<i32>) {
+        self.renderer.push_clip(area);
+    }
+
+    fn pop_clip(&mut self) {
+        self.renderer.pop_clip();
+    }
 }
 
 impl blit_widget::Context for TuiContext {
@@ -43,26 +52,6 @@ impl TuiContext {
             renderer,
             should_quit: false,
         }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct BoundsClip;
-
-impl<C> Clip<C> for BoundsClip
-where
-    C: crate::Context,
-{
-    fn shape(&self, area: PhysicalRect) -> ClipShape<i32> {
-        ClipShape::Rect(area)
-    }
-
-    fn push(&self, context: &mut C, area: PhysicalRect) {
-        context.as_mut().renderer.push_clip(area);
-    }
-
-    fn pop(&self, context: &mut C) {
-        context.as_mut().renderer.pop_clip();
     }
 }
 

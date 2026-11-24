@@ -312,7 +312,7 @@ impl<'a, T: Scalar> Iterator for Contacts<'a, T> {
 const UNRESOLVED: u32 = u32::MAX;
 
 #[derive(Default)]
-pub struct InteractionState<T> {
+pub struct InteractionState<T: Scalar> {
     pub clips: Vec<ResolvedClip<T>>,
     pub deadline: Option<Duration>,
     pub focused: Option<Id>,
@@ -774,11 +774,30 @@ fn hit<T: Scalar>(hits: &[HitItem<T>], clips: &[ResolvedClip<T>], position: Poin
             }
             let mut clip = hit.clip;
             while let Some(index) = clip.index() {
-                let stored = &clips[index];
-                if !stored.shape.contains(position) {
+                let ResolvedClip {
+                    area, radius, parent, ..
+                } = clips[index];
+                if !area.contains(position) {
                     return false;
                 }
-                clip = stored.parent;
+                let left = (position.x - area.x).to_f32();
+                let right = (area.x.endpoint(area.width) - position.x).to_f32();
+                let top = (position.y - area.y).to_f32();
+                let bottom = (area.y.endpoint(area.height) - position.y).to_f32();
+                // the corner of the quadrant holding the position
+                let radius = match (left < right, top < bottom) {
+                    (true, true) => radius.top_left,
+                    (false, true) => radius.top_right,
+                    (false, false) => radius.bottom_right,
+                    (true, false) => radius.bottom_left,
+                };
+                let radius = radius.to_f32().min(area.width.min(area.height).to_f32() * 0.5).max(0.0);
+                let x = (radius - left.min(right)).max(0.0);
+                let y = (radius - top.min(bottom)).max(0.0);
+                if x * x + y * y > radius * radius {
+                    return false;
+                }
+                clip = parent;
             }
             true
         })

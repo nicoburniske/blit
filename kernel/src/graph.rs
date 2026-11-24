@@ -47,16 +47,16 @@ pub struct StoredNode {
 
 // settings most nodes leave unset, kept apart so nodes stay small
 #[derive(Clone, Copy)]
-pub struct Aux<T> {
+pub struct Aux<T: Scalar> {
     pub visual_parent: NodeId,
-    pub clip: StoredClip,
+    pub clip: Option<Corners<T>>,
     pub limits: Constraints<T>,
     pub padding: Sides<T>,
     pub hit: Sides<T>,
 }
 
 // the parent a node stacks, clips and contains its size within
-pub fn visual_parent<T>(aux: &[Aux<T>], stored: &StoredNode) -> NodeId {
+pub fn visual_parent<T: Scalar>(aux: &[Aux<T>], stored: &StoredNode) -> NodeId {
     stored
         .aux
         .index()
@@ -76,13 +76,12 @@ pub struct NodeMotion {
 }
 
 #[derive(Clone, Copy)]
-pub struct ResolvedClip<T> {
+pub struct ResolvedClip<T: Scalar> {
     pub parent: ResolvedClipId,
     pub depth: u32,
-    pub clip: StoredClip,
     pub area: Rect<T>,
+    pub radius: Corners<T>,
     pub bounds: Rect<T>,
-    pub shape: ClipShape<T>,
 }
 
 pub struct StoredMeasure<C: Context> {
@@ -127,19 +126,6 @@ impl<C: Context> Clone for StoredPlace<C> {
 impl<C: Context> Copy for StoredPlace<C> {}
 
 #[derive(Clone, Copy)]
-pub struct StoredClip {
-    pub kind: u16,
-    pub bump_id: BumpId,
-}
-
-impl StoredClip {
-    pub const NONE: Self = Self {
-        kind: 0,
-        bump_id: BumpId::NONE,
-    };
-}
-
-#[derive(Clone, Copy)]
 pub struct Index<T>(pub u32, PhantomData<fn() -> T>);
 
 impl<T> Index<T> {
@@ -156,22 +142,15 @@ impl<T> Index<T> {
 
 pub type StoredMeasureId = Index<StoredMeasure<()>>;
 pub type StoredPaintId = Index<StoredPaint<()>>;
-pub type AuxId = Index<Aux<()>>;
+pub type AuxId = Index<Aux<f32>>;
 pub type PlaceId = Index<StoredPlace<()>>;
 pub type NodeMotionId = Index<NodeMotion>;
-pub type ResolvedClipId = Index<ResolvedClip<()>>;
+pub type ResolvedClipId = Index<ResolvedClip<f32>>;
 
 pub struct LayoutKind<C: Context> {
     pub type_id: TypeId,
     pub run: for<'a> fn(&mut LayoutCx<'a, C>, BumpId, Constraints<C::Scalar>) -> Size<C::Scalar>,
     pub default_item: BumpId,
-}
-
-pub struct ClipKind<C: Context> {
-    pub type_id: TypeId,
-    pub shape: fn(&BumpArena, BumpId, Rect<C::Scalar>) -> ClipShape<C::Scalar>,
-    pub push: fn(&BumpArena, BumpId, &mut C, Rect<C::Scalar>),
-    pub pop: fn(&BumpArena, BumpId, &mut C),
 }
 
 /// indices of items keyed by their id, open addressed

@@ -4,7 +4,7 @@ use core::{
     ops::Range,
 };
 
-use blit::{HasFrameStore, LogicalPoint, LogicalRect, Paint, PhysicalRect, Scale2};
+use blit::{Context as _, HasFrameStore, LogicalPoint, LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_gui::{
     clear::Clear,
     color::Color,
@@ -386,7 +386,7 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
                     reference.paint(area.to_logical(SCALE), &Under(Rc::default()));
                     let clip = match mode {
                         1 => Some((LogicalRect::new(16.0, 4.0, 24.0, 16.0), BorderRadius::default())),
-                        2 => Some((area.to_logical(SCALE), BorderRadius::uniform(6.0))),
+                        2 => Some((area.to_logical(SCALE), BorderRadius::all(6.0))),
                         _ => None,
                     };
                     if let Some((area, radius)) = clip {
@@ -657,7 +657,7 @@ fn widgets_record_into_the_renderer_context() {
     use core::time::Duration;
 
     use blit::{FrameInfo, Kernel, LogicalSize, input::Input};
-    use blit_gui::{clip::BoundsClip, rectangle::Rectangle, shadow::Shadow, text::Text};
+    use blit_gui::{rectangle::Rectangle, shadow::Shadow, text::Text};
 
     let mut renderer = Renderer::new(VecBuffer::<Xrgb8888>::new(64, 48), text_system(), renderer_config());
     let mut kernel = Kernel::default();
@@ -668,7 +668,7 @@ fn widgets_record_into_the_renderer_context() {
             Duration::ZERO,
             Input::None,
             |ui: blit::Ui<'_, _>| {
-                let mut panel = ui.layout(()).clip(BoundsClip);
+                let mut panel = ui.layout(()).clip(0.0);
                 panel.insert(Rectangle::new().background(Color::WHITE));
                 panel.insert(Shadow::new(Color::BLACK).blur(4.0).inset(true));
                 panel.insert(blit_gui::blur::BackdropBlur::new(2.0));
@@ -1022,7 +1022,7 @@ fn meshes_preserve_interpolation_shared_edges_and_order() {
             for split in [false, true] {
                 let target = if split { &mut reference } else { &mut renderer };
                 Rectangle::new().background(Color::BLACK).paint(bounds, target);
-                target.push_clip(bounds, BorderRadius::uniform(frame as f32 * 2.0));
+                target.push_clip(bounds, BorderRadius::all(frame as f32 * 2.0));
                 for indices in [&indices[..9], &indices[9..]] {
                     for indices in indices.chunks(if split { 3 } else { indices.len() }) {
                         Mesh {
@@ -1102,7 +1102,7 @@ fn mesh_occlusion_uses_screen_and_ancestor_clip_bounds() {
                     let screen = renderer.screen().to_logical(Scale2::uniform(scale));
                     renderer.paint(screen, &Clear);
                     let cover = if clipped {
-                        renderer.push_clip(LogicalRect::new(8.0, 8.0, 8.0, 8.0), BorderRadius::uniform(2.0));
+                        renderer.push_clip(LogicalRect::new(8.0, 8.0, 8.0, 8.0), BorderRadius::all(2.0));
                         renderer.push_clip(LogicalRect::new(4.0, 4.0, 16.0, 16.0), BorderRadius::default());
                         LogicalRect::new(8.0, 8.0, 8.0, 8.0)
                     } else {
@@ -1127,7 +1127,7 @@ fn mesh_occlusion_uses_screen_and_ancestor_clip_bounds() {
                     Rectangle::new()
                         .background(Color::BLACK)
                         .opacity(opacity)
-                        .radius(BorderRadius::uniform(radius))
+                        .radius(BorderRadius::all(radius))
                         .paint(cover, &mut renderer);
                     renderer.render(0);
                 }
@@ -1244,7 +1244,7 @@ fn paint_changes_invalidate_damage_without_changing_bounds() {
                     }
                     .paint(area, &mut renderer),
                     "clip" => {
-                        renderer.push_clip(area, BorderRadius::uniform(if frame == 0 { 0.0 } else { 4.0 }));
+                        renderer.push_clip(area, BorderRadius::all(if frame == 0 { 0.0 } else { 4.0 }));
                         Rectangle::new().background(Color::WHITE).paint(area, &mut renderer);
                         renderer.pop_clip();
                     }
@@ -1521,7 +1521,7 @@ fn clear_resets_stale_pixels_before_drawing() {
         let rectangle = Rectangle::new()
             .background(Color::rgba(40, 120, 220, 144))
             .border(Border::solid(2.0, Color::rgba(240, 80, 30, 192)))
-            .radius(BorderRadius::uniform(5.0));
+            .radius(BorderRadius::all(5.0));
 
         if clear {
             renderer.paint(screen.to_logical(SCALE), &Clear);
@@ -1819,7 +1819,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         .paint(area, &mut renderer);
     Rectangle::new()
         .background(Color::rgb(0, 255, 0))
-        .radius(BorderRadius::uniform(3.0))
+        .radius(BorderRadius::all(3.0))
         .paint(area, &mut renderer);
     Rectangle::new()
         .background(Color::rgba(0, 0, 255, 128))
@@ -1965,7 +1965,7 @@ fn scanline_skips_commands_behind_opaque_content() {
                 Rectangle::new()
                     .background(LinearGradient::new(&stops))
                     .opacity(opacity)
-                    .radius(BorderRadius::uniform(radius))
+                    .radius(BorderRadius::all(radius))
                     .paint(area, &mut renderer);
                 RECTANGLE_PIXELS.store(0, core::sync::atomic::Ordering::Relaxed);
                 renderer.render(0);
@@ -2018,12 +2018,12 @@ fn gradients_match_between_strategies_and_rounded_clips() {
                     Color::rgba(20, 24, 32, 210).into()
                 })
                 .border(Border::gradient(3.0, LinearGradient::new(&stops).angle(135.0)))
-                .radius(BorderRadius::uniform(9.0))
+                .radius(BorderRadius::all(9.0))
                 .paint(LogicalRect::new(4.0, 3.0, 40.0, 30.0), &mut renderer);
             Rectangle::new()
                 .background(ConicGradient::new(&stops).center([0.3, 0.65]).angle(-35.0))
                 .border(Border::gradient(2.0, ConicGradient::new(&stops).angle(75.0)))
-                .radius(BorderRadius::uniform(3.0))
+                .radius(BorderRadius::all(3.0))
                 .paint(LogicalRect::new(8.0, 8.0, 12.0, 12.0), &mut renderer);
             Rectangle::new()
                 .background(LinearGradient::new(&[]))
@@ -2330,7 +2330,7 @@ fn dirty_paths_match_full_redraws() {
                     ] {
                         Rectangle::new()
                             .background(Color::rgba(80 + frame * 30, 90, 90, 128))
-                            .radius(BorderRadius::uniform(3.0))
+                            .radius(BorderRadius::all(3.0))
                             .paint(area, renderer);
                     }
                 }

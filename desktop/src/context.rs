@@ -28,6 +28,14 @@ impl<G: GraphicsBackend> DesktopContext<G> {
 
 impl<G: GraphicsBackend> blit::Context for DesktopContext<G> {
     type Scalar = f32;
+
+    fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
+        self.graphics.push_clip(area, radius);
+    }
+
+    fn pop_clip(&mut self) {
+        self.graphics.pop_clip();
+    }
 }
 
 impl<G: GraphicsBackend> blit::HasFrameStore for DesktopContext<G> {
@@ -53,14 +61,6 @@ impl<G: GraphicsBackend + Paint<T>, T> Paint<T> for DesktopContext<G> {
 impl<G: GraphicsBackend> blit_gui::Context for DesktopContext<G> {
     fn text(&mut self) -> &mut TextSystem {
         self.graphics.text()
-    }
-
-    fn push_clip(&mut self, area: LogicalRect, radius: BorderRadius) {
-        self.graphics.push_clip(area, radius);
-    }
-
-    fn pop_clip(&mut self) {
-        self.graphics.pop_clip();
     }
 }
 

@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Axis, Clip, Constraints, Id, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget};
+use blit::{Axis, Constraints, Id, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget};
 
 use super::{Goal, Request, ScrollLayout, Scrollbar, animate, build_scroll, update};
 use crate::{Context, scroll::ScrollState};
@@ -22,11 +22,10 @@ blit::builder! {
         minimum_thumb_extent: T = T::from_f32(1.0),
         #[bounds(FnMut(usize, &I::Item) -> Id)]
         id<K = fn(usize, &<I as Iterator>::Item) -> Id>: K = |index, _| Id::from(index),
-        clip<X = ()>: X = (),
     }
 }
 
-impl<T: Scalar, I, K, X> UniformList<'_, T, I, K, X>
+impl<T: Scalar, I, K> UniformList<'_, T, I, K>
 where
     I: ExactSizeIterator + Clone,
     K: FnMut(usize, &I::Item) -> Id,
@@ -35,10 +34,7 @@ where
     pub fn build<C: Context<Scalar = T>>(
         self,
         item: impl FnMut(Ui<'_, C>, I::Item),
-    ) -> impl Widget<C, Response = Response>
-    where
-        X: Clip<C>,
-    {
+    ) -> impl Widget<C, Response = Response> {
         move |ui: Ui<'_, C>| self.build_inner(ui, item, None::<fn(Ui<'_, C>)>, None::<fn(Ui<'_, C>, bool)>)
     }
 
@@ -48,10 +44,7 @@ where
         item: impl FnMut(Ui<'_, C>, I::Item),
         track: impl FnOnce(Ui<'_, C>),
         thumb: impl FnOnce(Ui<'_, C>, bool),
-    ) -> impl Widget<C, Response = Response>
-    where
-        X: Clip<C>,
-    {
+    ) -> impl Widget<C, Response = Response> {
         move |ui: Ui<'_, C>| self.build_inner(ui, item, Some(track), Some(thumb))
     }
 
@@ -61,10 +54,7 @@ where
         mut item: impl FnMut(Ui<'_, C>, I::Item),
         track: Option<impl FnOnce(Ui<'_, C>)>,
         thumb: Option<impl FnOnce(Ui<'_, C>, bool)>,
-    ) -> Response
-    where
-        X: Clip<C>,
-    {
+    ) -> Response {
         let Self {
             state,
             items,
@@ -76,7 +66,6 @@ where
             scrollbar_thickness,
             minimum_thumb_extent,
             id: mut item_id,
-            clip,
         } = self;
         assert!(item_extent.is_finite() && item_extent > C::Scalar::ZERO);
         assert!(gap.is_finite() && gap >= C::Scalar::ZERO);
@@ -153,7 +142,6 @@ where
                     minimum: minimum_thumb_extent,
                 },
             },
-            clip,
             content,
             track,
             thumb,

@@ -393,7 +393,7 @@ fn clipping() {
         ui.layout(Overlay)
             .child()
             .layout(Fixed(Size::new(3.0, 1.0)))
-            .clip(TestClip)
+            .clip(0.0)
             .child()
             .build(|mut ui: Ui<'_>| {
                 let seen = ui.interact(WATCH)[0].is_some();
@@ -431,52 +431,24 @@ fn clipping() {
 }
 
 #[test]
-fn clip_shapes() {
-    struct ShapeClip(ClipShape<f32>);
-    impl Clip<TestContext> for ShapeClip {
-        fn shape(&self, _: Rect<f32>) -> ClipShape<f32> {
-            self.0
-        }
-        fn push(&self, context: &mut TestContext, area: Rect<f32>) {
-            context.commands.extend([PushClip(area), PushClip(area)]);
-        }
-        fn pop(&self, context: &mut TestContext) {
-            context.commands.extend([PopClip, PopClip]);
-        }
-    }
-
+fn rounded_clip() {
     let (mut kernel, mut context) = kernel(Size::uniform(4.0));
     let rect = Rect::new(0.0, 0.0, 4.0, 4.0);
-    for shape in [
-        ClipShape::Unbounded,
-        ClipShape::RoundedRect { rect, radius: 2.0 },
-        ClipShape::Circle {
-            center: Point::new(2.0, 2.0),
-            radius: 2.0,
-        },
-    ] {
+    let child = Rect::new(3.0, 3.0, 1.0, 1.0);
+    // full radii round every corner, a single radius leaves the bottom right square
+    for (radius, square) in [(Corners::all(2.0), false), (Corners::new().top_left(2.0), true)] {
         let build = |ui: Ui<'_>| {
-            let mut root = ui.clip(ShapeClip(shape)).layout(Rects);
-            let mut panel = root.child().item(Rect::new(0.0, 0.0, 1.0, 1.0)).clip(()).layout(Rects);
-            let mut child = panel.child().item(Rect::new(3.0, 3.0, 1.0, 1.0)).clip(TestClip);
+            let mut root = ui.clip(radius).layout(Rects);
+            let mut child = root.child().item(child).clip(0.0);
             child.insert(Fill('C', Size::uniform(1.0)));
             child.interact(WATCH)[0].is_some()
         };
         render(&mut kernel, &mut context, &build);
-        let child = Rect::new(3.0, 3.0, 1.0, 1.0);
         assert_eq!(
             context.commands,
-            [
-                PushClip(rect),
-                PushClip(rect),
-                PushClip(child),
-                Paint('C', child),
-                PopClip,
-                PopClip,
-                PopClip
-            ]
+            [PushClip(rect), PushClip(child), Paint('C', child), PopClip, PopClip]
         );
-        for (position, inside) in [([3.1, 3.1], true), ([3.9, 3.9], shape == ClipShape::Unbounded)] {
+        for (position, inside) in [([3.1, 3.1], true), ([3.9, 3.9], square)] {
             let seen = render_inputs(
                 &mut kernel,
                 &mut context,

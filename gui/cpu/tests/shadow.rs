@@ -1,7 +1,6 @@
-use blit::{LogicalRect, Paint};
+use blit::{Context, LogicalRect, Paint};
 use blit_cpu::{Direct, RenderStrategy, Renderer, RendererConfig, Scanline, VecBuffer, Xrgb8888, render::shadow};
 use blit_gui::{
-    Context,
     color::Color,
     damage::{DamageTracker, command::CommandDiff, tile::TileDamage},
     rectangle::Rectangle,
@@ -58,10 +57,10 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
                     Rectangle::new()
                         .background(Color::rgb(30, 45, 60))
                         .paint(LogicalRect::new(0.0, 0.0, 128.0 / scale, 96.0 / scale), &mut renderer);
-                    renderer.push_clip(LogicalRect::new(1.0, 2.0, 118.0, 88.0), BorderRadius::uniform(7.0));
+                    renderer.push_clip(LogicalRect::new(1.0, 2.0, 118.0, 88.0), BorderRadius::all(7.0));
                     renderer.push_clip(
                         LogicalRect::new(3.0, 1.0, if frame == 2 { 70.0 } else { 110.0 }, 90.0),
-                        BorderRadius::uniform(11.0),
+                        BorderRadius::all(11.0),
                     );
                     for index in 0..7 {
                         if frame == 3 && index % 2 == 0 {
