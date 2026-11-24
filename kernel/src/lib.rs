@@ -277,13 +277,6 @@ pub struct Kernel<C: Context> {
     focus: FocusRequest,
 
     //
-    // layout and paint scratch
-    //
-    /// animated sizes in the subtree being resolved
-    animated_sizes: Vec<MotionProps>,
-    active_clips: Vec<ResolvedClipId>,
-
-    //
     // node kinds
     //
     layout_kinds: Vec<LayoutKind<C>>,
@@ -326,9 +319,6 @@ impl<C: Context> Default for Kernel<C> {
             motions: Vec::new(),
             timers: Vec::new(),
             focus: FocusRequest::Keep,
-
-            animated_sizes: Vec::new(),
-            active_clips: Vec::new(),
 
             layout_kinds: Vec::new(),
             clip_kinds: Vec::new(),
@@ -386,7 +376,6 @@ impl<C: Context> Kernel<C> {
             kind.default_item = BumpId::NONE;
         }
         self.paint_order.clear();
-        self.active_clips.clear();
         self.input = input;
         self.time = time;
         let size = info.size;

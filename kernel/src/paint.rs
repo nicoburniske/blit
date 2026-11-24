@@ -190,51 +190,71 @@ pub fn resolve_clips<C: Context>(kernel: &mut Kernel<C>, bump: &BumpArena) {
     }
 }
 
-pub fn paint<C: Context>(kernel: &mut Kernel<C>, bump: &BumpArena, context: &mut C) {
-    kernel.active_clips.clear();
+pub fn paint<C: Context>(kernel: &Kernel<C>, bump: &BumpArena, context: &mut C) {
+    // the clips applied to the context, at most every clip deep
+    let mut active = bump.storage.slice(kernel.interaction.clips.len());
     if kernel.paint_order.is_empty() {
         for node in 0..kernel.nodes.len() {
-            paint_node(kernel, bump, context, node);
+            paint_node(kernel, bump, context, &mut active, node);
         }
     } else {
         for index in 0..kernel.paint_order.len() {
             let node = kernel.paint_order[index].index();
-            paint_node(kernel, bump, context, node);
+            paint_node(kernel, bump, context, &mut active, node);
         }
     }
-    set(kernel, bump, context, ResolvedClipId::NONE);
+    set(kernel, bump, context, &mut active, ResolvedClipId::NONE);
 }
 
-fn set<C: Context>(kernel: &mut Kernel<C>, bump: &BumpArena, context: &mut C, target: ResolvedClipId) {
+fn set<C: Context>(
+    kernel: &Kernel<C>,
+    bump: &BumpArena,
+    context: &mut C,
+    active: &mut Scratch<'_, ResolvedClipId>,
+    target: ResolvedClipId,
+) {
     let mut common = target;
     while let Some(index) = common.index() {
         let depth = kernel.interaction.clips[index].depth as usize;
-        if depth <= kernel.active_clips.len() && kernel.active_clips[depth - 1].0 == common.0 {
+        if depth <= active.len() && active[depth - 1].0 == common.0 {
             break;
         }
         common = kernel.interaction.clips[index].parent;
     }
-    while kernel.active_clips.last().map_or(u32::MAX, |clip| clip.0) != common.0 {
-        let clip = kernel.active_clips.pop().unwrap();
+    while active.last().map_or(u32::MAX, |clip| clip.0) != common.0 {
+        let clip = active.pop().unwrap();
         let stored = kernel.interaction.clips[clip.index().unwrap()];
         let clip_data = stored.clip;
         (kernel.clip_kinds[clip_data.kind as usize].pop)(bump, clip_data.bump_id, context);
     }
-    push(kernel, bump, context, target, common.0);
+    push(kernel, bump, context, active, target, common.0);
 
-    fn push<C: Context>(kernel: &mut Kernel<C>, bump: &BumpArena, context: &mut C, clip: ResolvedClipId, common: u32) {
+    fn push<C: Context>(
+        kernel: &Kernel<C>,
+        bump: &BumpArena,
+        context: &mut C,
+        active: &mut Scratch<'_, ResolvedClipId>,
+        clip: ResolvedClipId,
+        common: u32,
+    ) {
         if clip.0 == common {
             return;
         }
         let stored = kernel.interaction.clips[clip.index().unwrap()];
-        push(kernel, bump, context, stored.parent, common);
+        push(kernel, bump, context, active, stored.parent, common);
         let clip_data = stored.clip;
         (kernel.clip_kinds[clip_data.kind as usize].push)(bump, clip_data.bump_id, context, stored.area);
-        kernel.active_clips.push(clip);
+        active.push(clip);
     }
 }
 
-fn paint_node<C: Context>(kernel: &mut Kernel<C>, bump: &BumpArena, context: &mut C, node: usize) {
+fn paint_node<C: Context>(
+    kernel: &Kernel<C>,
+    bump: &BumpArena,
+    context: &mut C,
+    active: &mut Scratch<'_, ResolvedClipId>,
+    node: usize,
+) {
     let Some(last) = kernel.nodes[node].last_paint.index() else {
         return;
     };
@@ -247,7 +267,7 @@ fn paint_node<C: Context>(kernel: &mut Kernel<C>, bump: &BumpArena, context: &mu
     if bounds.width <= C::Scalar::ZERO || bounds.height <= C::Scalar::ZERO {
         return;
     }
-    set(kernel, bump, context, resolved_clip);
+    set(kernel, bump, context, active, resolved_clip);
     let mut index = kernel.paints[last].next.0 as usize;
     loop {
         let stored = kernel.paints[index];

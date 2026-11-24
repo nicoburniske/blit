@@ -77,7 +77,8 @@ pub struct LayoutCx<'a, C: Context, I = ()> {
     placements: &'a mut [Placement<C::Scalar>],
     context: &'a mut C,
     frame_requested: &'a mut bool,
-    animated_start: usize,
+    // size channels a motion animates, by node index
+    animated: &'a [MotionProps],
     node: NodeId,
     content_origin: Point<C::Scalar>,
     default_item: BumpId,
@@ -228,11 +229,7 @@ impl<'a, C: Context, I: 'static> LayoutCx<'a, C, I> {
     }
 
     fn size_overrides(&self, node: NodeId) -> Size<Option<C::Scalar>> {
-        let Some(&animated) = node
-            .index()
-            .checked_sub(self.animated_start)
-            .and_then(|index| self.kernel.animated_sizes.get(index))
-        else {
+        let Some(&animated) = self.animated.get(node.index()) else {
             return Size::new(None, None);
         };
         let current = self.placements[node.index()].area.size();
@@ -296,7 +293,7 @@ impl<'a, C: Context> LayoutCx<'a, C> {
                 placements: self.placements,
                 context: self.context,
                 frame_requested: self.frame_requested,
-                animated_start: self.animated_start,
+                animated: self.animated,
                 node,
                 content_origin: leading,
                 default_item: kind.default_item,
@@ -339,13 +336,15 @@ pub fn resolve<C: Context>(
     bounds: Constraints<C::Scalar>,
     commit: bool,
 ) -> Size<C::Scalar> {
-    let mut size = arrange(kernel, bump, context, root, bounds);
+    let mut size = arrange(kernel, bump, context, root, bounds, &[]);
     if kernel.node_motions.is_empty() {
         return size;
     }
     let start = root.index();
     let end = kernel.nodes[start].subtree_end as usize + 1;
     let nodes = &kernel.nodes[..end];
+    // size channels by node index, taken once a motion animates a size
+    let mut sizes = None;
     let mut index = start;
     while index < end {
         let stored = &nodes[index];
@@ -390,9 +389,11 @@ pub fn resolve<C: Context>(
         }
         let properties = animated.intersection(MotionProps::SIZE);
         if !properties.is_empty() {
-            if kernel.animated_sizes.is_empty() {
-                kernel.animated_sizes.resize(end - start, MotionProps::NONE);
-            }
+            let sizes = sizes.get_or_insert_with(|| {
+                let mut sizes = bump.storage.slice(end);
+                sizes.resize(end, MotionProps::NONE);
+                sizes
+            });
             let area = &mut kernel.placements[node.index()].area;
             if properties.intersects(MotionProps::WIDTH) {
                 area.width = values[2];
@@ -400,7 +401,7 @@ pub fn resolve<C: Context>(
             if properties.intersects(MotionProps::HEIGHT) {
                 area.height = values[3];
             }
-            kernel.animated_sizes[node.index() - start] = properties;
+            sizes[node.index()] = properties;
         }
         if let Err(index) = found
             && commit
@@ -408,9 +409,8 @@ pub fn resolve<C: Context>(
             kernel.motions.insert(index, initial);
         }
     }
-    if !kernel.animated_sizes.is_empty() {
-        size = arrange(kernel, bump, context, root, bounds);
-        kernel.animated_sizes.clear();
+    if let Some(sizes) = &sizes {
+        size = arrange(kernel, bump, context, root, bounds, sizes);
     }
     // settled position channels still override reflow from animated sizes
     if commit {
@@ -492,6 +492,7 @@ fn arrange<C: Context>(
     context: &mut C,
     node: NodeId,
     bounds: Constraints<C::Scalar>,
+    animated: &[MotionProps],
 ) -> Size<C::Scalar> {
     let mut placements = core::mem::take(&mut kernel.placements);
     let mut requested = kernel.frame_requested;
@@ -501,7 +502,7 @@ fn arrange<C: Context>(
         placements: &mut placements,
         context,
         frame_requested: &mut requested,
-        animated_start: node.index(),
+        animated,
         node,
         content_origin: Point::ZERO,
         default_item: BumpId::NONE,

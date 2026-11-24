@@ -93,6 +93,12 @@ impl<T: Copy> Scratch<'_, T> {
         self.len = len;
     }
 
+    pub fn pop(&mut self) -> Option<T> {
+        let value = *self.last()?;
+        self.len -= 1;
+        Some(value)
+    }
+
     pub fn clear(&mut self) {
         self.len = 0;
     }
