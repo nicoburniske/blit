@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use blit::{LogicalRect, Paint, PhysicalRect, internal::bump::Offset};
 use blit_gui::{
     damage::DamageTracker,
@@ -6,7 +8,7 @@ use blit_gui::{
 
 use super::image_patch::{AlphaRows, Prepared};
 use crate::{
-    PixelBuffer, RenderStrategy, Renderer,
+    PixelBuffer, RenderStrategy, Renderer, math,
     strategy::command::{Coverage, Payload},
 };
 
@@ -152,7 +154,7 @@ impl StoredImage {
     pub fn coverage(&self, request: &Image, patch: ImagePatch) -> Coverage {
         let source = patch.source;
         let texture = self.data.texture_rect;
-        if (request.opacity.clamp(0.0, 1.0) * 255.0).round() as u8 != 255
+        if math::roundf(request.opacity.clamp(0.0, 1.0) * 255.0) as u8 != 255
             || source.x < texture.x
             || source.y < texture.y
             || source.x + source.width > texture.x + texture.width

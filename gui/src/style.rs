@@ -1,6 +1,6 @@
 //! drawing fills and rectangle styling
 
-use std::hash::{Hash, Hasher};
+use core::hash::{Hash, Hasher};
 
 use crate::color::Color;
 
@@ -18,7 +18,8 @@ impl Fill<'_> {
             Self::Solid(_) => return self,
             Self::LinearGradient(mut gradient) => {
                 gradient.angle = if gradient.angle.is_finite() {
-                    gradient.angle.rem_euclid(360.0)
+                    let angle = gradient.angle % 360.0;
+                    if angle < 0.0 { angle + 360.0 } else { angle }
                 } else {
                     0.0
                 };
@@ -26,7 +27,8 @@ impl Fill<'_> {
             }
             Self::ConicGradient(mut gradient) => {
                 gradient.angle = if gradient.angle.is_finite() {
-                    gradient.angle.rem_euclid(360.0)
+                    let angle = gradient.angle % 360.0;
+                    if angle < 0.0 { angle + 360.0 } else { angle }
                 } else {
                     0.0
                 };
@@ -49,7 +51,7 @@ impl Fill<'_> {
 
 impl Hash for Fill<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
+        core::mem::discriminant(self).hash(state);
         let (stops, angle) = match *self {
             Fill::Solid(color) => return color.hash(state),
             Fill::LinearGradient(gradient) => (gradient.stops, gradient.angle),

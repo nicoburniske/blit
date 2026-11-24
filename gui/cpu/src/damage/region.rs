@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use blit::PhysicalRect;
 
 #[derive(Default)]
@@ -98,7 +100,7 @@ impl Region {
 
     pub fn rects(&self) -> impl Iterator<Item = PhysicalRect> + '_ {
         let mut next = 0;
-        std::iter::from_fn(move || {
+        core::iter::from_fn(move || {
             loop {
                 while next < self.tiles.len() && !self.tiles[next] {
                     next += 1;
@@ -144,7 +146,7 @@ impl Region {
         })
     }
 
-    pub fn line_ranges(&self, y: i32, bounds: PhysicalRect, ranges: &mut Vec<std::ops::Range<usize>>) -> i32 {
+    pub fn line_ranges(&self, y: i32, bounds: PhysicalRect, ranges: &mut Vec<core::ops::Range<usize>>) -> i32 {
         ranges.clear();
         let Some(bounds) = bounds.intersection(self.screen) else {
             return self.screen.height;

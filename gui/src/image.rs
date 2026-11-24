@@ -1,9 +1,7 @@
 //! image data, display options, and renderer resources
 
-use std::{
-    hash::{Hash, Hasher},
-    rc::Rc,
-};
+use alloc::{boxed::Box, rc::Rc};
+use core::hash::{Hash, Hasher};
 
 use blit::{
     Paint, Rect, Scale2, Size, Ui, Widget,
@@ -94,18 +92,18 @@ impl Image {
                 if first + second <= available {
                     (first, second)
                 } else {
-                    let first = (first as f32 * available as f32 / (first + second) as f32).round() as i32;
+                    let first = libm::roundf(first as f32 * available as f32 / (first + second) as f32) as i32;
                     (first, available - first)
                 }
             };
             let (left, right) = fit_borders(
-                (slice.left as f32 * scale_factor).round() as i32,
-                (slice.right as f32 * scale_factor).round() as i32,
+                libm::roundf(slice.left as f32 * scale_factor) as i32,
+                libm::roundf(slice.right as f32 * scale_factor) as i32,
                 geometry.width,
             );
             let (top, bottom) = fit_borders(
-                (slice.top as f32 * scale_factor).round() as i32,
-                (slice.bottom as f32 * scale_factor).round() as i32,
+                libm::roundf(slice.top as f32 * scale_factor) as i32,
+                libm::roundf(slice.bottom as f32 * scale_factor) as i32,
                 geometry.height,
             );
             let source_x = [
@@ -180,8 +178,8 @@ impl Image {
                     } else {
                         horizontal.max(vertical)
                     };
-                    let width = (source.width as f32 * scale).round().max(1.0) as i32;
-                    let height = (source.height as f32 * scale).round().max(1.0) as i32;
+                    let width = libm::roundf(source.width as f32 * scale).max(1.0) as i32;
+                    let height = libm::roundf(source.height as f32 * scale).max(1.0) as i32;
                     PhysicalRect {
                         x: geometry.x + (geometry.width - width) / 2,
                         y: geometry.y + (geometry.height - height) / 2,
@@ -210,10 +208,10 @@ impl Hash for Image {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.image.id().hash(state);
         (if self.opacity == 0.0 { 0 } else { self.opacity.to_bits() }).hash(state);
-        std::mem::discriminant(&self.fit).hash(state);
-        std::mem::discriminant(&self.sampling).hash(state);
-        std::mem::discriminant(&self.horizontal_tiling).hash(state);
-        std::mem::discriminant(&self.vertical_tiling).hash(state);
+        core::mem::discriminant(&self.fit).hash(state);
+        core::mem::discriminant(&self.sampling).hash(state);
+        core::mem::discriminant(&self.horizontal_tiling).hash(state);
+        core::mem::discriminant(&self.vertical_tiling).hash(state);
         self.colorize.hash(state);
         self.nine_slice
             .map(|slice| [slice.top, slice.right, slice.bottom, slice.left])

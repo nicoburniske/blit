@@ -1,7 +1,7 @@
 use blit::PhysicalRect;
 use blit_gui::color::Color;
 
-use crate::{Pixel, PixelSpan, PremultipliedRgbaColor};
+use crate::{Pixel, PixelSpan, PremultipliedRgbaColor, math};
 
 #[derive(Clone, Copy)]
 pub struct Prepared {
@@ -144,7 +144,7 @@ impl Prepared {
         ];
         let offset_x = x + left as f32 - first[0];
         let offset_y = y - first[1];
-        let color = std::array::from_fn::<_, 4, _>(|channel| {
+        let color = core::array::from_fn::<_, 4, _>(|channel| {
             base[channel] + self.color_step_x[channel] * offset_x + self.color_step_y[channel] * offset_y
         });
         if self.color_kind == ColorKind::Opaque && coverage == 255 {
@@ -160,9 +160,9 @@ impl Prepared {
 }
 
 pub fn bounds([first, second, third]: [[f32; 2]; 3]) -> PhysicalRect {
-    let left = first[0].min(second[0]).min(third[0]).floor() as i32;
-    let top = first[1].min(second[1]).min(third[1]).floor() as i32;
-    let right = first[0].max(second[0]).max(third[0]).ceil() as i32;
-    let bottom = first[1].max(second[1]).max(third[1]).ceil() as i32;
+    let left = math::floorf(first[0].min(second[0]).min(third[0])) as i32;
+    let top = math::floorf(first[1].min(second[1]).min(third[1])) as i32;
+    let right = math::ceilf(first[0].max(second[0]).max(third[0])) as i32;
+    let bottom = math::ceilf(first[1].max(second[1]).max(third[1])) as i32;
     PhysicalRect::new(left, top, right.saturating_sub(left), bottom.saturating_sub(top))
 }

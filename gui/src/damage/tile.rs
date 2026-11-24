@@ -10,7 +10,8 @@
 //! a summed area table supports constant time damage queries over command bounds
 //! rendering consumes disjoint horizontal runs of dirty tiles
 
-use std::{hash::Hash, ops::Range};
+use alloc::{vec, vec::Vec};
+use core::{hash::Hash, ops::Range};
 
 use blit::{PhysicalRect, Scale2, internal::hash::FxHasher};
 
@@ -91,7 +92,7 @@ impl DamageTracker for TileDamage {
             ]
             .into_iter()
             .fold(0.0f32, f32::max);
-            let inset = (radius * scale).ceil() as i32;
+            let inset = libm::ceilf(radius * scale) as i32;
             let inner = PhysicalRect::new(
                 area.x.saturating_add(inset),
                 area.y.saturating_add(inset),

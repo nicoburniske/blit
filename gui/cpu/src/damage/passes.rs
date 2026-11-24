@@ -1,4 +1,5 @@
-use std::ops::Range;
+use alloc::vec::Vec;
+use core::ops::Range;
 
 use blit::PhysicalRect;
 use blit_gui::{damage::DamageTracker, display_list::DisplayList};
@@ -12,7 +13,7 @@ pub struct PassDamage {
     pub stages: Vec<Region>,
     pub present: Region,
     pub preserve: Region,
-    pub ranges: Vec<std::ops::Range<usize>>,
+    pub ranges: Vec<core::ops::Range<usize>>,
 }
 
 #[derive(Default)]

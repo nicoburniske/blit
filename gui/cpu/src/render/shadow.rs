@@ -1,4 +1,5 @@
-use std::hash::Hash;
+use alloc::vec;
+use core::hash::Hash;
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_cache::{DeferredCache, Scale};
@@ -10,7 +11,7 @@ use blit_gui::{
 };
 
 use crate::{
-    DamageTracker, Pixel, PixelBuffer, RenderStrategy,
+    DamageTracker, Pixel, PixelBuffer, RenderStrategy, math,
     pixel::BAYER,
     raster::rounded::{Radii, RoundedLine},
 };
@@ -74,13 +75,11 @@ impl<P: Pixel> crate::Render<P> for Renderer {
                 KeyData {
                     width: shape.width,
                     height: shape.height,
-                    blur: (shadow.blur.max(0.0) * scale_factor)
-                        .ceil()
-                        .min(P::MAX_BLUR_RADIUS as f32) as i32,
+                    blur: math::ceilf(shadow.blur.max(0.0) * scale_factor).min(P::MAX_BLUR_RADIUS as f32) as i32,
                     radii: Radii::new(shadow.radius, scale_factor, shape.width, shape.height),
-                    offset_x: (shadow.offset_x * scale_factor).round() as i32,
-                    offset_y: (shadow.offset_y * scale_factor).round() as i32,
-                    spread: (shadow.spread * scale_factor).round() as i32,
+                    offset_x: math::roundf(shadow.offset_x * scale_factor) as i32,
+                    offset_y: math::roundf(shadow.offset_y * scale_factor) as i32,
+                    spread: math::roundf(shadow.spread * scale_factor) as i32,
                     inset: true,
                 },
                 shape,
@@ -105,9 +104,7 @@ impl<P: Pixel> crate::Render<P> for Renderer {
             if shape.width <= 0 || shape.height <= 0 {
                 return None;
             }
-            let blur = (shadow.blur.max(0.0) * scale_factor)
-                .ceil()
-                .min(P::MAX_BLUR_RADIUS as f32) as i32;
+            let blur = math::ceilf(shadow.blur.max(0.0) * scale_factor).min(P::MAX_BLUR_RADIUS as f32) as i32;
             let diameter = blur.checked_mul(2)?;
             (
                 KeyData {
@@ -310,7 +307,7 @@ impl<P: Pixel> crate::Render<P> for Renderer {
                     &mask[source + first - range.start..source + last - range.start]
                 };
                 let x = bounds.x + first as i32;
-                let rounding = std::array::from_fn(|i| {
+                let rounding = core::array::from_fn(|i| {
                     (u32::from(BAYER[(span.y as usize & 3) * 4 + ((x as usize + i) & 3)]) * 4096) + 2048
                 });
                 P::blend_mask_slice(

@@ -1,4 +1,5 @@
-use std::ops::Range;
+use alloc::vec::Vec;
+use core::ops::Range;
 
 use blit::geometry::PhysicalRect;
 
@@ -188,7 +189,7 @@ impl<B: PixelBuffer> RenderStrategy<B> for Scanline {
                         self.remaining.push(claimed.end..gap.end);
                     }
                 }
-                std::mem::swap(&mut self.uncovered, &mut self.remaining);
+                core::mem::swap(&mut self.uncovered, &mut self.remaining);
             }
 
             // resolve band wide colors in painter order since preparation fuses neighbors

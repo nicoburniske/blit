@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_gui::{
     path::{self, Cap, FillRule, Join, Verb},
@@ -6,7 +8,7 @@ use blit_gui::{
 use kurbo::{BezPath, Circle, PathEl, Point, Shape};
 
 use crate::{
-    DamageTracker, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderContext, RenderStrategy,
+    DamageTracker, Pixel, PixelBuffer, PremultipliedRgbaColor, RenderContext, RenderStrategy, math,
     raster::fill::PreparedFill,
 };
 
@@ -311,8 +313,8 @@ impl<P: Pixel> crate::Render<P> for Renderer {
                     }
                     let x0 = edge.x + edge.slope * (low - edge.top);
                     let x1 = edge.x + edge.slope * (cut - edge.top);
-                    let start = x0.min(x1).floor().clamp(0.0, width) as u32;
-                    let end = x0.max(x1).ceil().clamp(0.0, width) as u32;
+                    let start = math::floor(x0.min(x1)).clamp(0.0, width) as u32;
+                    let end = math::ceil(x0.max(x1)).clamp(0.0, width) as u32;
                     if end == 0 {
                         continue;
                     }
@@ -350,7 +352,7 @@ impl<P: Pixel> crate::Render<P> for Renderer {
             let mut coverage: f64 = 0.0;
             let mut cursor = 0;
             for &(x, delta) in &self.changes {
-                let alpha = (coverage.clamp(0.0, 1.0) * 255.0).round() as u8;
+                let alpha = math::round(coverage.clamp(0.0, 1.0) * 255.0) as u8;
                 if cursor < x && alpha != 0 {
                     if let Some(last) = self.spans[first_span..].last_mut()
                         && last.end == cursor

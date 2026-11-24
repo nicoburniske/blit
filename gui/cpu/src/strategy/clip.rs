@@ -1,4 +1,5 @@
-use std::ops::Range;
+use alloc::vec::Vec;
+use core::ops::Range;
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_gui::style::BorderRadius;

@@ -1,6 +1,8 @@
 use blit::PhysicalRect;
 use blit_gui::style::BorderRadius;
 
+use crate::math;
+
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Radii {
     pub top_left: i32,
@@ -13,20 +15,20 @@ impl Radii {
     #[inline]
     pub fn new(radius: BorderRadius, scale_factor: f32, width: i32, height: i32) -> Self {
         let mut radii = Self {
-            top_left: (radius.top_left * scale_factor).round().max(0.0) as i32,
-            top_right: (radius.top_right * scale_factor).round().max(0.0) as i32,
-            bottom_right: (radius.bottom_right * scale_factor).round().max(0.0) as i32,
-            bottom_left: (radius.bottom_left * scale_factor).round().max(0.0) as i32,
+            top_left: math::roundf(radius.top_left * scale_factor).max(0.0) as i32,
+            top_right: math::roundf(radius.top_right * scale_factor).max(0.0) as i32,
+            bottom_right: math::roundf(radius.bottom_right * scale_factor).max(0.0) as i32,
+            bottom_left: math::roundf(radius.bottom_left * scale_factor).max(0.0) as i32,
         };
         let scale = 1.0f32
             .min(width as f32 / (radii.top_left + radii.top_right).max(1) as f32)
             .min(width as f32 / (radii.bottom_left + radii.bottom_right).max(1) as f32)
             .min(height as f32 / (radii.top_left + radii.bottom_left).max(1) as f32)
             .min(height as f32 / (radii.top_right + radii.bottom_right).max(1) as f32);
-        radii.top_left = (radii.top_left as f32 * scale).round() as i32;
-        radii.top_right = (radii.top_right as f32 * scale).round() as i32;
-        radii.bottom_right = (radii.bottom_right as f32 * scale).round() as i32;
-        radii.bottom_left = (radii.bottom_left as f32 * scale).round() as i32;
+        radii.top_left = math::roundf(radii.top_left as f32 * scale) as i32;
+        radii.top_right = math::roundf(radii.top_right as f32 * scale) as i32;
+        radii.bottom_right = math::roundf(radii.bottom_right as f32 * scale) as i32;
+        radii.bottom_left = math::roundf(radii.bottom_left as f32 * scale) as i32;
         radii
     }
 
@@ -100,24 +102,24 @@ impl RoundedLine {
 
     #[inline]
     pub fn visible_start(&self) -> i32 {
-        self.x.saturating_add(self.left.start.floor() as i32)
+        self.x.saturating_add(math::floorf(self.left.start) as i32)
     }
 
     #[inline]
     pub fn visible_end(&self) -> i32 {
         self.x
-            .saturating_add(self.width.saturating_sub(self.right.start.floor() as i32))
+            .saturating_add(self.width.saturating_sub(math::floorf(self.right.start) as i32))
     }
 
     #[inline]
     pub fn full_start(&self) -> i32 {
-        self.x.saturating_add(self.left.end.ceil() as i32)
+        self.x.saturating_add(math::ceilf(self.left.end) as i32)
     }
 
     #[inline]
     pub fn full_end(&self) -> i32 {
         self.x
-            .saturating_add(self.width.saturating_sub(self.right.end.ceil() as i32))
+            .saturating_add(self.width.saturating_sub(math::ceilf(self.right.end) as i32))
     }
 
     #[inline]
@@ -163,7 +165,7 @@ impl Corner {
     fn new(radius: i32, y: i32) -> Self {
         let radius = radius as f32;
         let y = y as f32;
-        let [first, second] = [y, y + 1.0].map(|y| radius - (radius * radius - y * y).max(0.0).sqrt());
+        let [first, second] = [y, y + 1.0].map(|y| radius - math::sqrtf((radius * radius - y * y).max(0.0)));
         Self {
             radius,
             row: radius - (y + 0.5).abs() - 0.5,
@@ -190,7 +192,7 @@ fn outer_edges(radius: f32, y: f32) -> [f32; 8] {
     let mut edges = [0.0625, 0.1875, 0.3125, 0.4375, 0.5625, 0.6875, 0.8125, 0.9375];
     for edge in &mut edges {
         let y = y + *edge;
-        *edge = radius - (radius * radius - y * y).max(0.0).sqrt();
+        *edge = radius - math::sqrtf((radius * radius - y * y).max(0.0));
     }
     edges
 }

@@ -1,4 +1,4 @@
-use std::ops::Range;
+use core::ops::Range;
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2, internal::bump::Offset};
 use blit_gui::{
@@ -12,7 +12,7 @@ use super::{
     rounded::{Radii, RoundedLine},
 };
 use crate::{
-    Pixel, PixelBuffer, PixelSpan, PremultipliedRgbaColor, RenderStrategy, Renderer,
+    Pixel, PixelBuffer, PixelSpan, PremultipliedRgbaColor, RenderStrategy, Renderer, math,
     strategy::command::{Coverage, Payload},
 };
 
@@ -113,7 +113,7 @@ impl Prepared {
             PremultipliedRgbaColor::default(),
             gradients,
         );
-        let mut border_width = (rectangle.border.width * scale).round().max(0.0) as i32;
+        let mut border_width = math::roundf(rectangle.border.width * scale).max(0.0) as i32;
         let border = if border_width > 0 {
             let background = if let PreparedFill::Solid(color) = background {
                 color
@@ -166,7 +166,7 @@ impl Prepared {
             } else {
                 return 0;
             };
-            (radius - (radius * radius - (radius - y).powi(2)).max(0.0).sqrt()).ceil() as i32
+            math::ceilf(radius - math::sqrtf((radius * radius - (radius - y) * (radius - y)).max(0.0))) as i32
         };
         let start = self.geometry.x + inset(self.radii.top_left, self.radii.bottom_left);
         let end = self.geometry.x + self.geometry.width - inset(self.radii.top_right, self.radii.bottom_right);

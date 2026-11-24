@@ -1,4 +1,5 @@
-use std::hint::unreachable_unchecked;
+use alloc::vec::Vec;
+use core::hint::unreachable_unchecked;
 
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct LruList<T> {
@@ -146,7 +147,7 @@ impl<T> LruList<T> {
     pub fn remove(&mut self, index: usize) -> Option<T> {
         let removed = {
             let item = self.items.get_mut(index)?;
-            let Node::Value(value) = std::mem::replace(item, Node::Empty { next: self.free_first }) else {
+            let Node::Value(value) = core::mem::replace(item, Node::Empty { next: self.free_first }) else {
                 panic!("not a value")
             };
             value
@@ -188,6 +189,8 @@ impl<T> LruList<T> {
 
 #[cfg(test)]
 mod test {
+    use alloc::vec;
+
     use super::*;
 
     macro_rules! assert_lru {

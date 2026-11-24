@@ -1,7 +1,7 @@
 use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_gui::{blur::BackdropBlur, damage::DamageTracker};
 
-use crate::{Pixel, PixelBuffer, PremultipliedRgbaColor, RenderContext, RenderStrategy};
+use crate::{Pixel, PixelBuffer, PremultipliedRgbaColor, RenderContext, RenderStrategy, math};
 
 impl<B, S, D> Paint<BackdropBlur> for crate::Renderer<B, S, D>
 where
@@ -14,9 +14,7 @@ where
             return;
         }
         let mut recording = self.record(bounds);
-        let radius = (blur.radius * recording.scale)
-            .round()
-            .min(B::Pixel::MAX_BLUR_RADIUS as f32);
+        let radius = math::roundf(blur.radius * recording.scale).min(B::Pixel::MAX_BLUR_RADIUS as f32);
         if radius != 0.0 {
             recording.push_pass::<Renderer>(radius as usize);
         }

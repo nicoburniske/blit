@@ -32,13 +32,14 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::ops::Range;
+use alloc::vec::Vec;
+use core::ops::Range;
 
 use blit::PhysicalRect;
 use blit_gui::style::Fill;
 
 use crate::{
-    Pixel, PremultipliedRgbaColor,
+    Pixel, PremultipliedRgbaColor, math,
     pixel::{BAYER, interpolate_gradient},
 };
 
@@ -97,7 +98,7 @@ impl PreparedFill {
                     90.0 => (1.0, 0.0),
                     180.0 => (0.0, -1.0),
                     270.0 => (-1.0, 0.0),
-                    _ => gradient.angle.to_radians().sin_cos(),
+                    _ => math::sincosf(gradient.angle.to_radians()),
                 };
                 let extent = dx.abs() * bounds.width as f32 + dy.abs() * bounds.height as f32;
                 let minimum = dx.min(0.0) * bounds.width as f32 + dy.min(0.0) * bounds.height as f32;
@@ -150,7 +151,7 @@ impl PreparedFill {
                 ];
                 for (j, value) in values.into_iter().enumerate() {
                     exact &= value.abs() < (1_u64 << 52) as f64;
-                    color[j][i] = value.round() as i64 as i32;
+                    color[j][i] = math::round(value) as i64 as i32;
                 }
             }
             ramp = exact.then_some(color);
@@ -252,8 +253,8 @@ impl PreparedFill {
                             }
                             (0, pixels.len())
                         } else {
-                            let a = ((stops[0].position as f64 - position) * gradient.inverse).ceil();
-                            let b = ((stops[1].position as f64 - position) * gradient.inverse).ceil();
+                            let a = math::ceil((stops[0].position as f64 - position) * gradient.inverse);
+                            let b = math::ceil((stops[1].position as f64 - position) * gradient.inverse);
                             let begin = (a.min(b) - x as f64).clamp(0.0, pixels.len() as f64) as usize;
                             let end = (a.max(b) - x as f64).clamp(0.0, pixels.len() as f64) as usize;
                             let edges = if gradient.x < 0.0 {
@@ -266,12 +267,12 @@ impl PreparedFill {
                             (begin, end)
                         }
                     };
-                    let color = std::array::from_fn(|i| {
+                    let color = core::array::from_fn(|i| {
                         ramp[0][i]
                             .wrapping_add(ramp[1][i].wrapping_mul(x.wrapping_add(begin as i32)))
                             .wrapping_add(ramp[2][i].wrapping_mul(y))
                     });
-                    let rounding = std::array::from_fn(|i| {
+                    let rounding = core::array::from_fn(|i| {
                         BAYER[((y & 3) * 4 + ((((x + begin as i32) & 3) + i as i32) & 3)) as usize] as i32 * 65536
                             + 32768
                     });
@@ -347,5 +348,5 @@ fn conic_position(gradient: &Gradient, x: i32, y: i32) -> f32 {
         turn = 1.0 - turn;
     }
     let position = turn - gradient.offset;
-    position - position.floor()
+    position - math::floorf(position)
 }

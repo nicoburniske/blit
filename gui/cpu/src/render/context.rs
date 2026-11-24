@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use blit::{FrameStore, LogicalRect, PhysicalRect, ScratchBuffer};
 use blit_arena::Arena;
 use blit_gui::{
@@ -158,7 +160,7 @@ impl<P> Surface<P> {
     pub fn height(&self) -> usize {
         self.height
     }
-    pub fn row(&self, y: usize, range: std::ops::Range<usize>) -> &[P] {
+    pub fn row(&self, y: usize, range: core::ops::Range<usize>) -> &[P] {
         if range.is_empty() {
             return &[];
         }

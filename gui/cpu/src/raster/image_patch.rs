@@ -1,4 +1,5 @@
-use std::ops::Range;
+use alloc::boxed::Box;
+use core::ops::Range;
 
 use blit::{PhysicalRect, Rect};
 use blit_gui::{
@@ -6,7 +7,7 @@ use blit_gui::{
     image::{Image, ImageData, ImageFormat, ImageId, ImagePatch, ImageSampling, ImageTiling},
 };
 
-use crate::{Pixel, PremultipliedRgbaColor, Rgb8Pixel};
+use crate::{Pixel, PremultipliedRgbaColor, Rgb8Pixel, math};
 
 const FIXED_SHIFT: u32 = 16;
 const FIXED_ONE: u64 = 1 << FIXED_SHIFT;
@@ -82,7 +83,7 @@ impl Prepared {
             display,
             source,
             colorize: request.colorize,
-            opacity: (request.opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
+            opacity: math::roundf(request.opacity.clamp(0.0, 1.0) * 255.0) as u8,
             sampling: request.sampling,
             flags: (u8::from(wrap_x) * flag::WRAP_X) | (u8::from(wrap_y) * flag::WRAP_Y),
             step_x,
@@ -487,7 +488,7 @@ impl Prepared {
         y: i32,
     ) {
         let source_y = self.source_float_y(y);
-        let top = source_y.floor() as usize;
+        let top = math::floorf(source_y) as usize;
         let bottom = if top + 1 < self.source.height as usize {
             top + 1
         } else if self.flags & flag::WRAP_Y != 0 {
@@ -498,7 +499,7 @@ impl Prepared {
         let vertical = source_y - top as f32;
         for x in clipped.x..clipped.x + clipped.width {
             let source_x = self.source_float_x(x);
-            let left = source_x.floor() as usize;
+            let left = math::floorf(source_x) as usize;
             let right = if left + 1 < self.source.width as usize {
                 left + 1
             } else if self.flags & flag::WRAP_X != 0 {
@@ -534,7 +535,7 @@ impl Prepared {
             let interpolate = |top_left: u8, top_right: u8, bottom_left: u8, bottom_right: u8| {
                 let top = top_left as f32 + (top_right as f32 - top_left as f32) * horizontal;
                 let bottom = bottom_left as f32 + (bottom_right as f32 - bottom_left as f32) * horizontal;
-                (top + (bottom - top) * vertical).round() as u8
+                math::roundf(top + (bottom - top) * vertical) as u8
             };
             row[(x - screen_x) as usize].blend(PremultipliedRgbaColor {
                 red: interpolate(top_left.red, top_right.red, bottom_left.red, bottom_right.red),
@@ -567,7 +568,12 @@ impl Prepared {
     fn source_float_x(&self, x: i32) -> f32 {
         let source = ((x - self.display.x) as f32 + 0.5) * self.scale_x - 0.5;
         if self.flags & flag::WRAP_X != 0 {
-            source.rem_euclid(self.source.width as f32)
+            let wrapped = source % self.source.width as f32;
+            if wrapped < 0.0 {
+                wrapped + self.source.width as f32
+            } else {
+                wrapped
+            }
         } else {
             source.clamp(0.0, self.source.width as f32 - 1.0)
         }
@@ -576,7 +582,12 @@ impl Prepared {
     fn source_float_y(&self, y: i32) -> f32 {
         let source = ((y - self.display.y) as f32 + 0.5) * self.scale_y - 0.5;
         if self.flags & flag::WRAP_Y != 0 {
-            source.rem_euclid(self.source.height as f32)
+            let wrapped = source % self.source.height as f32;
+            if wrapped < 0.0 {
+                wrapped + self.source.height as f32
+            } else {
+                wrapped
+            }
         } else {
             source.clamp(0.0, self.source.height as f32 - 1.0)
         }
@@ -663,7 +674,7 @@ fn axis(source: u32, target: i32, tiling: ImageTiling, scale_factor: f32) -> (u6
             false,
         ),
         ImageTiling::Repeat => {
-            let tile = (f64::from(source) * f64::from(scale_factor)).round().max(1.0) as u64;
+            let tile = math::round(f64::from(source) * f64::from(scale_factor)).max(1.0) as u64;
             (
                 ((source as u64) << FIXED_SHIFT) / tile,
                 source as f32 / tile as f32,
@@ -672,7 +683,7 @@ fn axis(source: u32, target: i32, tiling: ImageTiling, scale_factor: f32) -> (u6
         }
         ImageTiling::Round => {
             let native = (f64::from(source) * f64::from(scale_factor)).max(1.0);
-            let count = (f64::from(target) / native).round().max(1.0) as u64;
+            let count = math::round(f64::from(target) / native).max(1.0) as u64;
             (
                 (((u128::from(source) * u128::from(count)) << FIXED_SHIFT) / target as u128) as u64,
                 source as f32 * count as f32 / target as f32,

@@ -41,4 +41,5 @@ blit-arrayvec = { path = "internal/arrayvec" }
 blit-arena = { path = "internal/arena" }
 blit-cache = { path = "internal/cache" }
 hashbrown = "0.17.1"
+libm = "0.2.16"
 wgpu = { version = "30.0.1", default-features = false }

@@ -1,4 +1,9 @@
-use std::{hash::Hash, ops::Range, sync::Arc};
+#![no_std]
+
+extern crate alloc;
+
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
+use core::{hash::Hash, ops::Range};
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, Point};
 
@@ -256,8 +261,8 @@ pub enum FontError {
     Unsupported,
 }
 
-impl std::fmt::Display for FontError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for FontError {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::NotFound => formatter.write_str("font not found"),
             Self::InvalidData => formatter.write_str("invalid font data"),
@@ -266,4 +271,4 @@ impl std::fmt::Display for FontError {
     }
 }
 
-impl std::error::Error for FontError {}
+impl core::error::Error for FontError {}

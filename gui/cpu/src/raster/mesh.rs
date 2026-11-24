@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use blit::{LogicalRect, Paint, PhysicalRect, internal::bump::Offset};
 use blit_gui::{
     damage::DamageTracker,

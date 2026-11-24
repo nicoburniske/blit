@@ -1,4 +1,5 @@
-use std::{ops::Range, ptr::NonNull};
+use alloc::vec::Vec;
+use core::{ops::Range, ptr::NonNull};
 
 use blit::{LogicalRect, Paint, PhysicalRect, Point, Scale2, internal::bump::Offset};
 use blit_gui::{
@@ -210,7 +211,7 @@ impl TextRenderer {
                     touched_end = 0;
                     // safety: rgba pixels have byte alignment and remain live until finish_frame
                     let pixels = unsafe {
-                        std::slice::from_raw_parts(
+                        core::slice::from_raw_parts(
                             glyph
                                 .pixels
                                 .as_ptr()
@@ -227,7 +228,7 @@ impl TextRenderer {
                     continue;
                 }
                 // safety: glyph pixels remain live until finish_frame
-                let alpha = unsafe { std::slice::from_raw_parts(glyph.pixels.as_ptr().add(source), len) };
+                let alpha = unsafe { core::slice::from_raw_parts(glyph.pixels.as_ptr().add(source), len) };
                 let destination_start = (left - row.x) as usize;
                 let destination_end = destination_start + len;
                 let overlap = touched_end.saturating_sub(destination_start).min(len);

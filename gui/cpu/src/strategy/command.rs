@@ -1,4 +1,5 @@
-use std::{ops::Range, ptr::NonNull};
+use alloc::vec::Vec;
+use core::{ops::Range, ptr::NonNull};
 
 use blit::{
     PhysicalRect, ScratchBuffer,

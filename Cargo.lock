@@ -161,6 +161,7 @@ dependencies = [
  "blit-text-parley",
  "fearless_simd",
  "kurbo",
+ "libm",
 ]
 
 [[package]]
@@ -227,6 +228,7 @@ dependencies = [
  "blit-cache",
  "blit-text",
  "hashbrown 0.17.1",
+ "libm",
 ]
 
 [[package]]
@@ -627,6 +629,9 @@ name = "fearless_simd"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3296eb97d869113eaf148a6bdf01884e90b3828ad7ae2340b0f93362fc158611"
+dependencies = [
+ "libm",
+]
 
 [[package]]
 name = "find-msvc-tools"
@@ -1036,6 +1041,7 @@ checksum = "4b60dfc32f652b926df6192e55525b16d186c69d47876c3ead4da5cc9f8450e2"
 dependencies = [
  "arrayvec",
  "euclid",
+ "libm",
  "polycool",
  "smallvec",
 ]
@@ -1691,6 +1697,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50596ddc09eb5ad5f75cacd40209568e66df71baf86e1499a0e99c4cff12a5a6"
 dependencies = [
  "arrayvec",
+ "libm",
 ]
 
 [[package]]

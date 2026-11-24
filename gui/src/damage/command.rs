@@ -1,4 +1,5 @@
-use std::{collections::VecDeque, ops::Range};
+use alloc::{collections::VecDeque, vec::Vec};
+use core::ops::Range;
 
 use blit::{PhysicalRect, Scale2};
 
@@ -166,8 +167,8 @@ impl DamageTracker for CommandDiff {
     }
 
     fn finish_frame(&mut self, rendered: &mut DisplayList) {
-        std::mem::swap(&mut self.previous, rendered);
-        self.history.push_front(std::mem::take(&mut self.current));
+        core::mem::swap(&mut self.previous, rendered);
+        self.history.push_front(core::mem::take(&mut self.current));
         if self.history.len() >= self.max_age as usize {
             self.current = self.history.pop_back().unwrap();
         }

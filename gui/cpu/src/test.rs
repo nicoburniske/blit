@@ -1,4 +1,5 @@
-use std::{
+use alloc::{string::String, vec, vec::Vec};
+use core::{
     hash::{Hash, Hasher},
     ops::Range,
 };
@@ -31,10 +32,10 @@ const SCALE: Scale2 = Scale2::IDENTITY;
 
 #[test]
 fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
-    use std::{
+    use alloc::rc::Rc;
+    use core::{
         cell::Cell,
         hash::{Hash, Hasher},
-        rc::Rc,
     };
 
     use blit_gui::display_list::Command;
@@ -89,7 +90,7 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
         }
     }
 
-    struct KeyedRenderer<T>(std::marker::PhantomData<T>);
+    struct KeyedRenderer<T>(core::marker::PhantomData<T>);
 
     impl<T> Default for KeyedRenderer<T> {
         fn default() -> Self {
@@ -169,7 +170,8 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
 
 #[test]
 fn renderers_keep_independent_state_and_configuration_invalidates_damage() {
-    use std::{cell::Cell, rc::Rc};
+    use alloc::rc::Rc;
+    use core::cell::Cell;
 
     struct Fill<const VALUE: u8>(u8, usize, Rc<Cell<usize>>);
 
@@ -261,7 +263,8 @@ fn pending_commands_prevent_renderer_replacement() {
 
 #[test]
 fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
-    use std::{cell::Cell, rc::Rc};
+    use alloc::rc::Rc;
+    use core::cell::Cell;
 
     #[derive(Clone)]
     struct Under(Rc<Cell<usize>>);
@@ -437,7 +440,8 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
 
 #[test]
 fn prepared_draws_capture_data_and_drop_results_once() {
-    use std::{cell::Cell, rc::Rc};
+    use alloc::rc::Rc;
+    use core::cell::Cell;
 
     use blit::FrameSlice;
 
@@ -561,7 +565,8 @@ fn prepared_draws_capture_data_and_drop_results_once() {
 
 #[test]
 fn builtin_preparation_follows_damage_and_occlusion() {
-    use std::{cell::Cell, rc::Rc};
+    use alloc::rc::Rc;
+    use core::cell::Cell;
 
     use crate::strategy::command::Payload;
 
@@ -649,7 +654,7 @@ fn shadow_masks_are_lazy_and_shared_until_frame_end() {
 
 #[test]
 fn widgets_record_into_the_renderer_context() {
-    use std::time::Duration;
+    use core::time::Duration;
 
     use blit::{Frame, FrameInfo, Input, LogicalSize};
     use blit_gui::{clip::BoundsClip, rectangle::Rectangle, shadow::Shadow, text::Text};
@@ -802,7 +807,7 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
         )
         .strategy(Scanline::default());
         let mut renderer = renderer.damage_tracker(damage);
-        let mut buffers: [_; COUNT] = std::array::from_fn(|_| VecBuffer::<Argb8888>::new(37, 21));
+        let mut buffers: [_; COUNT] = core::array::from_fn(|_| VecBuffer::<Argb8888>::new(37, 21));
         let mut presented = [None; COUNT];
         for frame in 0..270usize {
             let index = if !stale {
@@ -815,7 +820,7 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
             let age = presented[index]
                 .map(|last| u8::try_from(frame - last).unwrap_or(0))
                 .unwrap_or(0);
-            std::mem::swap(renderer.buffer_mut(), &mut buffers[index]);
+            core::mem::swap(renderer.buffer_mut(), &mut buffers[index]);
             let left = frame.min(19) % 5 * 7;
 
             renderer.paint((PhysicalRect::new(0, 0, 37, 21)).to_logical(SCALE), &Clear);
@@ -832,7 +837,7 @@ fn reused_buffers_receive_every_change_since_their_last_presentation() {
                 "buffers {COUNT} stale {stale} frame {frame} age {age}"
             );
 
-            std::mem::swap(renderer.buffer_mut(), &mut buffers[index]);
+            core::mem::swap(renderer.buffer_mut(), &mut buffers[index]);
             presented[index] = Some(frame);
         }
     }
@@ -1281,7 +1286,8 @@ fn text_placement_tracks_physical_clip_size() {
 
 #[test]
 fn text_cache_stages_are_independent() {
-    use std::{cell::Cell, rc::Rc};
+    use alloc::rc::Rc;
+    use core::cell::Cell;
 
     for (text_cache_capacity, layout_cache_capacity) in [(0, 0), (0, 1024), (1024, 0), (1024, 1024)] {
         let source_evicted = text_cache_capacity == 0;
@@ -1547,7 +1553,7 @@ fn clear_resets_stale_pixels_before_drawing() {
 
 #[test]
 fn images_keep_native_size_and_ownership_until_last_reference() {
-    use std::time::Duration;
+    use core::time::Duration;
 
     use blit::{Constraints, Frame, FrameInfo, Input, Size};
 
@@ -1602,7 +1608,7 @@ fn images_keep_native_size_and_ownership_until_last_reference() {
 
 #[test]
 fn image_alpha_rows_are_cached_and_used() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use core::sync::atomic::{AtomicUsize, Ordering};
 
     static BLENDED: AtomicUsize = AtomicUsize::new(0);
     static COPIED: AtomicUsize = AtomicUsize::new(0);
@@ -1654,7 +1660,7 @@ fn image_alpha_rows_are_cached_and_used() {
     renderer.render(0);
     let key = image.id();
     let rows = &renderer.context.images.get(key.into()).unwrap().alpha_rows;
-    let rows: [_; 4] = std::array::from_fn(|index| rows.get(ImageFormat::Rgba8Premultiplied, index).unwrap());
+    let rows: [_; 4] = core::array::from_fn(|index| rows.get(ImageFormat::Rgba8Premultiplied, index).unwrap());
     assert!(rows.iter().map(|row| row.visible_start).eq([1, 1, 0, 0]));
     assert!(rows.iter().map(|row| row.visible_end).eq([4, 4, 6, 6]));
     assert!(rows.iter().map(|row| row.opaque_start).eq([1, 1, 0, 0]));
@@ -1694,7 +1700,7 @@ fn image_alpha_rows_are_cached_and_used() {
     renderer.render(0);
     let key = image.id();
     let rows = &renderer.context.images.get(key.into()).unwrap().alpha_rows;
-    let rows: [_; 4] = std::array::from_fn(|index| rows.get(ImageFormat::Alpha8(Color::WHITE), index).unwrap());
+    let rows: [_; 4] = core::array::from_fn(|index| rows.get(ImageFormat::Alpha8(Color::WHITE), index).unwrap());
     assert!(rows.iter().map(|row| row.visible_start).eq([1, 0, 1, 0]));
     assert!(rows.iter().map(|row| row.visible_end).eq([3, 0, 4, 6]));
     assert!(rows.iter().all(|row| row.opaque_start == 0 && row.opaque_end == 0));
@@ -1731,8 +1737,8 @@ fn image_alpha_rows_are_cached_and_used() {
 
 #[test]
 fn scanline_skips_commands_behind_opaque_content() {
-    static RECTANGLE_PIXELS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    static SOLID_PAIRS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    static RECTANGLE_PIXELS: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+    static SOLID_PAIRS: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
     #[derive(Clone, Copy, Default)]
     struct CountingPixel {
@@ -1759,7 +1765,7 @@ fn scanline_skips_commands_behind_opaque_content() {
 
         fn blend_slice(pixels: &mut [Self], color: PremultipliedRgbaColor) {
             if color.alpha != 0 {
-                RECTANGLE_PIXELS.fetch_add(pixels.len(), std::sync::atomic::Ordering::Relaxed);
+                RECTANGLE_PIXELS.fetch_add(pixels.len(), core::sync::atomic::Ordering::Relaxed);
             }
             match color.alpha {
                 0 => {}
@@ -1772,7 +1778,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         }
 
         fn blend_solid_pair(pixels: &mut [Self], first: PremultipliedRgbaColor, second: PremultipliedRgbaColor) {
-            SOLID_PAIRS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            SOLID_PAIRS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             Self::blend_slice(pixels, first);
             Self::blend_slice(pixels, second);
         }
@@ -1797,7 +1803,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         .paint(area, &mut renderer);
     renderer.render(0);
 
-    assert_eq!(SOLID_PAIRS.load(std::sync::atomic::Ordering::Relaxed), 2);
+    assert_eq!(SOLID_PAIRS.load(core::sync::atomic::Ordering::Relaxed), 2);
     assert!(renderer.buffer().pixels().iter().all(|pixel| pixel.draws == 2));
 
     let mut renderer =
@@ -1841,7 +1847,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         ..LogicalRect::default()
     };
     let image = Image::new(&image);
-    RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
+    RECTANGLE_PIXELS.store(0, core::sync::atomic::Ordering::Relaxed);
 
     Rectangle::new()
         .background(Color::rgba(255, 0, 0, 128))
@@ -1852,7 +1858,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         .paint(area, &mut renderer);
     renderer.render(0);
 
-    assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 8);
+    assert_eq!(RECTANGLE_PIXELS.load(core::sync::atomic::Ordering::Relaxed), 8);
 
     static TRANSPARENT_IMAGE_PIXEL: [u8; 4] = [0, 255, 0, 254];
     let transparent_image = renderer.create_image(ImageData::new(
@@ -1862,7 +1868,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         1,
     ));
     let transparent_image = Image::new(transparent_image);
-    RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
+    RECTANGLE_PIXELS.store(0, core::sync::atomic::Ordering::Relaxed);
 
     Rectangle::new()
         .background(Color::rgba(255, 0, 0, 128))
@@ -1873,7 +1879,7 @@ fn scanline_skips_commands_behind_opaque_content() {
         .paint(area, &mut renderer);
     renderer.render(0);
 
-    assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 16);
+    assert_eq!(RECTANGLE_PIXELS.load(core::sync::atomic::Ordering::Relaxed), 16);
 
     static PARTIAL_IMAGE_PIXELS: [u8; 24] = [
         0, 0, 0, 0, 0, 128, 0, 128, 0, 255, 0, 255, 0, 255, 0, 255, 0, 128, 0, 128, 0, 0, 0, 0,
@@ -1898,14 +1904,14 @@ fn scanline_skips_commands_behind_opaque_content() {
     let partial_image = Image::new(&partial_image);
     let background = Rectangle::new().background(Color::rgba(255, 0, 0, 128));
     let overlay = Rectangle::new().background(Color::rgba(0, 0, 255, 128));
-    RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
+    RECTANGLE_PIXELS.store(0, core::sync::atomic::Ordering::Relaxed);
 
     background.paint(screen.to_logical(SCALE), &mut renderer);
     renderer.paint(screen.to_logical(SCALE), &underlay);
     renderer.paint(screen.to_logical(SCALE), &partial_image);
     overlay.paint(screen.to_logical(SCALE), &mut renderer);
     renderer.render(0);
-    assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 14);
+    assert_eq!(RECTANGLE_PIXELS.load(core::sync::atomic::Ordering::Relaxed), 14);
     for (rendered, source) in renderer
         .buffer()
         .pixels()
@@ -1925,22 +1931,22 @@ fn scanline_skips_commands_behind_opaque_content() {
         assert_eq!(rendered.color, expected);
     }
 
-    RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
+    RECTANGLE_PIXELS.store(0, core::sync::atomic::Ordering::Relaxed);
 
     background.paint(screen.to_logical(SCALE), &mut renderer);
     renderer.paint(screen.to_logical(SCALE), &underlay);
     renderer.paint(screen.to_logical(SCALE), &partial_image.clone().opacity(0.5));
     overlay.paint(screen.to_logical(SCALE), &mut renderer);
     renderer.render(0);
-    assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 18);
+    assert_eq!(RECTANGLE_PIXELS.load(core::sync::atomic::Ordering::Relaxed), 18);
 
-    RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
+    RECTANGLE_PIXELS.store(0, core::sync::atomic::Ordering::Relaxed);
 
     background.paint(screen.to_logical(SCALE), &mut renderer);
     renderer.paint(screen.to_logical(SCALE), &partial_image);
     overlay.paint(screen.to_logical(SCALE), &mut renderer);
     renderer.render(0);
-    assert_eq!(RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed), 10);
+    assert_eq!(RECTANGLE_PIXELS.load(core::sync::atomic::Ordering::Relaxed), 10);
 
     for radius in [0.0, 2.0] {
         for alpha in [255, 254] {
@@ -1961,9 +1967,9 @@ fn scanline_skips_commands_behind_opaque_content() {
                     .opacity(opacity)
                     .radius(BorderRadius::uniform(radius))
                     .paint(area, &mut renderer);
-                RECTANGLE_PIXELS.store(0, std::sync::atomic::Ordering::Relaxed);
+                RECTANGLE_PIXELS.store(0, core::sync::atomic::Ordering::Relaxed);
                 renderer.render(0);
-                let drawn = RECTANGLE_PIXELS.load(std::sync::atomic::Ordering::Relaxed);
+                let drawn = RECTANGLE_PIXELS.load(core::sync::atomic::Ordering::Relaxed);
                 if alpha == 255 && opacity == 1.0 {
                     assert!(drawn < 2048);
                     if radius == 0.0 {

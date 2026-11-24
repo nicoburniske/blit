@@ -1,13 +1,21 @@
+#![no_std]
+
+extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
+
 mod clear;
 mod damage;
 mod glyph;
+mod math;
 mod pixel;
 mod raster;
 pub mod render;
 mod strategy;
 mod text;
 
-use std::{any::TypeId, hash::Hasher, marker::PhantomData, mem::offset_of, ptr::NonNull};
+use alloc::{boxed::Box, vec::Vec};
+use core::{any::TypeId, hash::Hasher, marker::PhantomData, mem::offset_of, ptr::NonNull};
 
 use blit::{LogicalRect, PhysicalRect, Scale2, internal::bump::Offset};
 use blit_arena::Arena;
@@ -180,7 +188,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
                     dispatch.commands.source = index as u32;
                     // safety: recording pairs dispatch with this renderer's dispatch context
                     unsafe {
-                        command.dispatch(&context.list, std::ptr::NonNull::from(&mut dispatch).cast());
+                        command.dispatch(&context.list, core::ptr::NonNull::from(&mut dispatch).cast());
                     }
                 }
             }
@@ -305,7 +313,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         }
         context.raster.clear();
         // taken so a panicking tracker cannot leave a swapped in list behind
-        let mut list = std::mem::take(&mut context.list);
+        let mut list = core::mem::take(&mut context.list);
         self.damage.finish_frame(&mut list);
         context.list = list;
         for renderer in &mut self.renderers {

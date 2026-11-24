@@ -1,3 +1,7 @@
+#![no_std]
+
+extern crate alloc;
+
 pub mod blur;
 pub mod clear;
 pub mod clip;

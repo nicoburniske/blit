@@ -1,8 +1,11 @@
-use std::ops::Range;
+use alloc::{vec, vec::Vec};
+use core::ops::Range;
 
 use blit::ScratchBuffer;
 use blit_gui::color::Color;
 use fearless_simd::{Level, Simd, dispatch, f32x8, i32x8, prelude::*, u32x8};
+
+use crate::math;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
@@ -36,7 +39,7 @@ impl PremultipliedRgbaColor {
     }
 
     pub fn with_opacity(color: Color, opacity: f32) -> Self {
-        Self::new(color, (opacity.clamp(0.0, 1.0) * 255.0).round() as u8)
+        Self::new(color, math::roundf(opacity.clamp(0.0, 1.0) * 255.0) as u8)
     }
 
     pub fn coverage(self, coverage: u32) -> Self {
@@ -148,7 +151,7 @@ pub trait Pixel: Copy + 'static {
             let mut source = radius.min(length - 1);
             let mut position = radius;
             for output in 0..length {
-                pixels[start + output * step] = sum.map(|value| (value as f32 * scale).round() as u8);
+                pixels[start + output * step] = sum.map(|value| math::roundf(value as f32 * scale) as u8);
                 let leaving = (position + div - radius) % div;
                 source = (source + 1).min(length - 1);
                 let input = pixels[start + source * step].map(i32::from);
@@ -276,7 +279,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         let radius = radius.min(Self::MAX_BLUR_RADIUS) as usize;
         let mut stack = scratch.slice::<[i32; 8]>(radius * 2 + 1);
         stack.resize(radius * 2 + 1, [0; 8]);
-        dispatch!(Level::new(), simd => {
+        dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
             pass::<_, N, true>(simd, pixels, width, height, radius, &mut stack);
             pass::<_, N, false>(simd, pixels, width, height, radius, &mut stack);
         });
@@ -430,7 +433,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
             write_rgb_ramp_scalar(pixels, color, step);
             return;
         }
-        let fixed = |value: f32| (value * (1 << 20) as f32).round() as i32;
+        let fixed = |value: f32| math::roundf(value * (1 << 20) as f32) as i32;
         Self::write_ramp(pixels, color.map(fixed), step.map(fixed), [1 << 19; 4]);
     }
 
@@ -444,9 +447,9 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
             return;
         }
         let (chunks, tail) = pixels.as_chunks_mut::<8>();
-        dispatch!(Level::new(), simd => {
+        dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
             let lanes = f32x8::simd_from(simd, [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
-            let mut colors = std::array::from_fn::<_, 4, _>(|i| lanes * step[i] + color[i]);
+            let mut colors = core::array::from_fn::<_, 4, _>(|i| lanes * step[i] + color[i]);
             let increments = step.map(|step| f32x8::splat(simd, step * 8.0));
             let zero = f32x8::splat(simd, 0.0);
             let maximum = f32x8::splat(simd, 255.0);
@@ -467,7 +470,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
                 }
             }
         });
-        let color = std::array::from_fn(|i| color[i] + step[i] * (chunks.len() * 8) as f32);
+        let color = core::array::from_fn(|i| color[i] + step[i] * (chunks.len() * 8) as f32);
         blend_rgba_ramp_scalar(tail, color, step, coverage);
     }
 
@@ -478,7 +481,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         }
         if step == [0; 3] {
             let color = color.map(|value| value.clamp(0, 255 << 20));
-            let pattern = std::array::from_fn::<_, 4, _>(|i| {
+            let pattern = core::array::from_fn::<_, 4, _>(|i| {
                 let channel = |j: usize| ((color[j] + rounding[i]) >> 20) as u8;
                 Self::from_rgb(channel(0), channel(1), channel(2))
             });
@@ -488,10 +491,10 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
             return;
         }
         let (chunks, tail) = pixels.as_chunks_mut::<8>();
-        dispatch!(Level::new(), simd => {
+        dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
             let lanes = i32x8::simd_from(simd, [0, 1, 2, 3, 4, 5, 6, 7]);
-            let rounding = i32x8::simd_from(simd, std::array::from_fn(|i| rounding[i & 3]));
-            let mut colors = std::array::from_fn::<_, 3, _>(|i| lanes * step[i] + color[i] + rounding);
+            let rounding = i32x8::simd_from(simd, core::array::from_fn(|i| rounding[i & 3]));
+            let mut colors = core::array::from_fn::<_, 3, _>(|i| lanes * step[i] + color[i] + rounding);
             let increments = step.map(|step| i32x8::splat(simd, step.wrapping_mul(8)));
             let zero = i32x8::splat(simd, 0);
             let maximum = i32x8::splat(simd, 255 << 20);
@@ -504,7 +507,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
                 }
             }
         });
-        let color = std::array::from_fn(|i| color[i].wrapping_add(step[i].wrapping_mul((chunks.len() * 8) as i32)));
+        let color = core::array::from_fn(|i| color[i].wrapping_add(step[i].wrapping_mul((chunks.len() * 8) as i32)));
         write_ramp_scalar(tail, color, step, rounding);
     }
 
@@ -520,7 +523,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         }
 
         let (chunks, tail) = pixels.as_chunks_mut::<8>();
-        dispatch!(Level::new(), simd => {
+        dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
             let alpha = u32x8::splat(simd, color.alpha as u32);
             let red = u32x8::splat(simd, color.red as u32);
             let green = u32x8::splat(simd, color.green as u32);
@@ -543,7 +546,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         let len = pixels.len().min(alpha.len());
         let (pixel_chunks, pixel_tail) = pixels[..len].as_chunks_mut::<8>();
         let (alpha_chunks, alpha_tail) = alpha[..len].as_chunks::<8>();
-        dispatch!(Level::new(), simd => {
+        dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
             for (pixels, alpha) in pixel_chunks.iter_mut().zip(alpha_chunks) {
                 let coverage = u32x8::simd_from(simd, alpha.map(u32::from));
                 let source_alpha = if color.alpha == 255 {
@@ -576,9 +579,9 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         }
         let (pixel_chunks, pixel_tail) = pixels[..len].as_chunks_mut::<8>();
         let (source_chunks, source_tail) = source[..len * 4].as_chunks::<32>();
-        dispatch!(Level::new(), simd => {
+        dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
             for (pixels, source) in pixel_chunks.iter_mut().zip(source_chunks) {
-                let mut alpha = u32x8::simd_from(simd, std::array::from_fn(|i| u32::from(source[i * 4 + 3])));
+                let mut alpha = u32x8::simd_from(simd, core::array::from_fn(|i| u32::from(source[i * 4 + 3])));
                 if opacity != 255 {
                     alpha = divide_by_255(alpha * u32::from(opacity));
                 }
@@ -608,14 +611,14 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         };
         let (chunks, tail) = pixels[..len].as_chunks_mut::<8>();
         let opacity = (u32::from(color.alpha) * u32::from(coverage) * 65536 + 32512) / 65025;
-        dispatch!(Level::new(), simd => {
-            let rounding = u32x8::simd_from(simd, std::array::from_fn(|i| rounding[i & 3]));
+        dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
+            let rounding = u32x8::simd_from(simd, core::array::from_fn(|i| rounding[i & 3]));
             let constant_alpha = u32x8::splat(simd, (u32::from(mask[0]) * opacity + 127) / 255);
             for (index, pixels) in chunks.iter_mut().enumerate() {
                 let alpha = if solid {
                     constant_alpha
                 } else {
-                    let mask = u32x8::simd_from(simd, std::array::from_fn(|i| u32::from(mask[index * 8 + i])));
+                    let mask = u32x8::simd_from(simd, core::array::from_fn(|i| u32::from(mask[index * 8 + i])));
                     let alpha = mask * opacity + 128;
                     let alpha = alpha + (alpha >> 8);
                     (alpha + (alpha >> 16)) >> 8
@@ -648,7 +651,7 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         let len = pixels.len().min(source.len());
         let (pixel_chunks, pixel_tail) = pixels[..len].as_chunks_mut::<8>();
         let (source_chunks, source_tail) = source[..len].as_chunks::<8>();
-        dispatch!(Level::new(), simd => {
+        dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
             for (pixels, source) in pixel_chunks.iter_mut().zip(source_chunks) {
                 let mut alpha = u32x8::simd_from(simd, source.map(|pixel| pixel.alpha as u32));
                 let mut red = u32x8::simd_from(simd, source.map(|pixel| pixel.red as u32));
@@ -717,7 +720,7 @@ fn divide_by_255<S: Simd>(value: u32x8<S>) -> u32x8<S> {
 
 #[inline(always)]
 fn write_rgb_ramp_scalar<P: Pixel>(pixels: &mut [P], color: [f32; 3], step: [f32; 3]) {
-    let fixed = |value: f32| (value * (1 << 20) as f32).round() as i32;
+    let fixed = |value: f32| math::roundf(value * (1 << 20) as f32) as i32;
     let step = step.map(fixed);
     let mut color = color.map(fixed);
     for pixel in pixels.iter_mut() {
@@ -970,11 +973,11 @@ mod test {
 
     #[test]
     fn colorized_rgba_matches_scalar_for_tails_opacity_and_pixel_formats() {
-        fn check<P: Pixel + std::fmt::Debug + PartialEq>() {
-            let original: [P; 19] = std::array::from_fn(|i| {
+        fn check<P: Pixel + core::fmt::Debug + PartialEq>() {
+            let original: [P; 19] = core::array::from_fn(|i| {
                 P::from_rgba(PremultipliedRgbaColor::new(Color::rgba(120, 80, 40, 180), i as u8 * 13))
             });
-            let source: [u8; 79] = std::array::from_fn(|i| {
+            let source: [u8; 79] = core::array::from_fn(|i| {
                 if i % 4 == 3 {
                     [0, 1, 32, 64, 96, 127, 128, 160, 224, 254, 255][i / 4 % 11]
                 } else {
@@ -1016,11 +1019,11 @@ mod test {
 
     #[test]
     fn mask_spans_match_scalar_for_constant_masks_tails_and_pixel_formats() {
-        fn check<P: Pixel + std::fmt::Debug + PartialEq>() {
-            let original: [P; 19] = std::array::from_fn(|i| {
+        fn check<P: Pixel + core::fmt::Debug + PartialEq>() {
+            let original: [P; 19] = core::array::from_fn(|i| {
                 P::from_rgba(PremultipliedRgbaColor::new(Color::rgba(120, 80, 40, 180), i as u8 * 13))
             });
-            let mask: [u8; 19] = std::array::from_fn(|i| i as u8 * 13);
+            let mask: [u8; 19] = core::array::from_fn(|i| i as u8 * 13);
             for alpha in [0, 1, 88, 255] {
                 for coverage in [0, 127, 255] {
                     for mask in [&mask[..], &[0][..], &[128][..], &[255][..]] {
@@ -1042,8 +1045,8 @@ mod test {
 
     #[test]
     fn rgba_ramps_match_scalar_for_coverage_tails_and_formats() {
-        fn check<P: Pixel + std::fmt::Debug + PartialEq>() {
-            let original: [P; 1031] = std::array::from_fn(|index| {
+        fn check<P: Pixel + core::fmt::Debug + PartialEq>() {
+            let original: [P; 1031] = core::array::from_fn(|index| {
                 P::from_rgba(PremultipliedRgbaColor::new(Color::rgba(120, 80, 40, 180), index as u8))
             });
             for (color, step) in [
@@ -1086,8 +1089,8 @@ mod test {
 
     #[test]
     fn simd_blending_matches_scalar_blending_for_each_format() {
-        fn check<P: Pixel + std::fmt::Debug + PartialEq>() {
-            let mut actual: [P; 11] = std::array::from_fn(|index| {
+        fn check<P: Pixel + core::fmt::Debug + PartialEq>() {
+            let mut actual: [P; 11] = core::array::from_fn(|index| {
                 let mut pixel = P::background();
                 pixel.blend(PremultipliedRgbaColor::new(
                     Color::rgba(index as u8 * 17, 220 - index as u8 * 11, index as u8 * 7, 181),
@@ -1112,7 +1115,7 @@ mod test {
             }
             assert_eq!(actual, expected);
 
-            let source: [PremultipliedRgbaColor; 11] = std::array::from_fn(|index| {
+            let source: [PremultipliedRgbaColor; 11] = core::array::from_fn(|index| {
                 PremultipliedRgbaColor::new(
                     Color::rgba(230 - index as u8 * 13, index as u8 * 19, 40 + index as u8 * 7, 220),
                     20 + index as u8 * 21,

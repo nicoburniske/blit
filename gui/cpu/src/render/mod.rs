@@ -3,7 +3,7 @@ mod context;
 pub mod path;
 pub mod shadow;
 
-use std::ptr::NonNull;
+use core::ptr::NonNull;
 
 use blit::{
     PhysicalRect,

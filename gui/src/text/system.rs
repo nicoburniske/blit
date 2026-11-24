@@ -1,4 +1,5 @@
-use std::{
+use alloc::{boxed::Box, string::String, vec::Vec};
+use core::{
     fmt::Write as _,
     hash::{BuildHasher, Hash, Hasher},
     mem::size_of,
@@ -62,7 +63,7 @@ impl TextSystem {
             TextSource::Borrowed(text) => return self.rich_text(text, &[], style),
             TextSource::Formatted(arguments) => arguments,
         };
-        let mut text = std::mem::take(&mut self.formatted_text);
+        let mut text = core::mem::take(&mut self.formatted_text);
         text.clear();
         let _ = text.write_fmt(arguments);
         let run = self.rich_text(&text, &[], style);
@@ -324,7 +325,7 @@ impl TextSystem {
                     range: 0..cached.text.len(),
                     style: cached.style.as_style(),
                 };
-                std::slice::from_ref(&one)
+                core::slice::from_ref(&one)
             } else {
                 many = cached
                     .spans
@@ -481,7 +482,7 @@ struct CachedSource {
 }
 
 struct CachedSpan {
-    range: std::ops::Range<usize>,
+    range: core::ops::Range<usize>,
     style: CachedStyle,
 }
 

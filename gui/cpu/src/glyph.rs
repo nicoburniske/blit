@@ -1,4 +1,4 @@
-use std::mem::size_of;
+use core::mem::size_of;
 
 use blit_cache::{DeferredCache, Scale};
 use blit_gui::text::system::{GlyphImageId, ResolvedTextLayout, TextSystem};

@@ -1,4 +1,5 @@
-use std::{
+use alloc::vec::Vec;
+use core::{
     hash::{Hash, Hasher},
     ops::Deref,
 };
@@ -71,8 +72,8 @@ impl Path<'_> {
         // miters reach furthest and square caps reach half the width diagonally
         let outset = self.stroke.map_or(0.0, |stroke| {
             let reach = match stroke.join {
-                Join::Miter => stroke.miter_limit.max(std::f32::consts::SQRT_2),
-                Join::Bevel | Join::Round => std::f32::consts::SQRT_2,
+                Join::Miter => stroke.miter_limit.max(core::f32::consts::SQRT_2),
+                Join::Bevel | Join::Round => core::f32::consts::SQRT_2,
             };
             0.5 * stroke.width * reach
         });

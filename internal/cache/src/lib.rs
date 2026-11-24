@@ -2,9 +2,13 @@
 //!
 //! can have deferred weight trimming (wait until end of frame)
 
+#![no_std]
+
+extern crate alloc;
+
 mod list;
 
-use std::hash::BuildHasher;
+use core::hash::BuildHasher;
 
 pub use hashbrown::Equivalent;
 
@@ -31,7 +35,7 @@ struct Entry<K, V> {
 
 impl<K, V, S, const TRIM_ON_INSERT: bool> LruCache<K, V, S, TRIM_ON_INSERT>
 where
-    K: std::hash::Hash,
+    K: core::hash::Hash,
     S: Scale<K, V>,
 {
     pub fn new(scale: S, max_weight: usize) -> Self {
@@ -47,7 +51,7 @@ where
 
     pub fn get<Q>(&mut self, query: &Q) -> Option<(&V, usize)>
     where
-        Q: Equivalent<K> + std::hash::Hash + ?Sized,
+        Q: Equivalent<K> + core::hash::Hash + ?Sized,
     {
         let hash = self.hash_builder.hash_one(query);
         let index = self.find(hash, |candidate, _| query.equivalent(candidate))?;
@@ -111,12 +115,12 @@ where
 
 impl<K, V, S> LruCache<K, V, S, false>
 where
-    K: std::hash::Hash,
+    K: core::hash::Hash,
     S: Scale<K, V>,
 {
     pub fn get_or_insert<Q>(&mut self, query: Q, insert: impl FnOnce(Q) -> (K, V)) -> (&V, usize)
     where
-        Q: Equivalent<K> + std::hash::Hash,
+        Q: Equivalent<K> + core::hash::Hash,
     {
         match self.get_or_insert_inner(query, insert) {
             Ok(entry) => entry,
@@ -127,12 +131,12 @@ where
 
 impl<K, V, S> LruCache<K, V, S, true>
 where
-    K: std::hash::Hash,
+    K: core::hash::Hash,
     S: Scale<K, V>,
 {
     pub fn get_or_insert<Q>(&mut self, query: Q, insert: impl FnOnce(Q) -> (K, V)) -> Result<(&V, usize), V>
     where
-        Q: Equivalent<K> + std::hash::Hash,
+        Q: Equivalent<K> + core::hash::Hash,
     {
         self.get_or_insert_inner(query, insert)
     }
@@ -140,12 +144,12 @@ where
 
 impl<K, V, S, const TRIM_ON_INSERT: bool> LruCache<K, V, S, TRIM_ON_INSERT>
 where
-    K: std::hash::Hash,
+    K: core::hash::Hash,
     S: Scale<K, V>,
 {
     fn get_or_insert_inner<Q>(&mut self, query: Q, insert: impl FnOnce(Q) -> (K, V)) -> Result<(&V, usize), V>
     where
-        Q: Equivalent<K> + std::hash::Hash,
+        Q: Equivalent<K> + core::hash::Hash,
     {
         let hash = self.hash_builder.hash_one(&query);
         if let Some(index) = self.find(hash, |key, _| query.equivalent(key)) {
