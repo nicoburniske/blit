@@ -1,10 +1,17 @@
 //! float math missing from core
 
-// the sin_cos polynomials and the pi / 2 and ln 2 splits come from fdlibm
+// the sin_cos polynomials and the pi / 2 and ln 2 splits are adapted from fdlibm by way of the rust libm crate
+// https://github.com/rust-lang/rust/tree/87e5904f5eb6398af6b22eac2802c78934260c48/library/compiler-builtins/libm/src/math
 //
 // Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
 //
 // Developed at SunSoft, a Sun Microsystems, Inc. business.
+// Permission to use, copy, modify, and distribute this
+// software is freely granted, provided that this notice
+// is preserved.
+//
+// Copyright (C) 2004 by Sun Microsystems, Inc. All rights reserved.
+//
 // Permission to use, copy, modify, and distribute this
 // software is freely granted, provided that this notice
 // is preserved.

@@ -1,4 +1,7 @@
 // adapted from etagere 0.3.0
+// https://github.com/nical/etagere/tree/2a178998597191e45631ea5f35d712352e15b0ef
+// Copyright (c) 2020 Nicolas Silva
+// SPDX-License-Identifier: MIT
 
 const SHELF_SPLIT_THRESHOLD: u16 = 8;
 const ITEM_SPLIT_THRESHOLD: u16 = 8;

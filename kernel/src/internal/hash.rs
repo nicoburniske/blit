@@ -1,4 +1,6 @@
-// adapted from rustc-hash 2.1.3, algorithm by Orson Peters
+// adapted from rustc-hash 2.1.3 by The Rust Project Developers, algorithm by Orson Peters
+// https://github.com/rust-lang/rustc-hash/tree/c13e7ccca705e6255387a2ebc6dca142d6881621
+// SPDX-License-Identifier: MIT
 
 use core::hash::Hasher;
 
