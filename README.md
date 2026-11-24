@@ -103,3 +103,14 @@ blit is a set of focused building blocks:
 - `blit-widgets` provides shared widgets and interactions like press and drag
 - `blit-gui` and `blit-tui` are graphical and terminal ui toolkits
 - `blit-desktop` runs graphical applications in native windows (macos + wayland)
+
+## acknowledgments
+
+blit wouldn't exist without the people who shared their work and ideas so openly.
+
+- [clay](https://github.com/nicbarker/clay) by nic barker, the biggest inspiration
+- [dear imgui](https://github.com/ocornut/imgui) by omar cornut
+- [egui](https://github.com/emilk/egui) by emil ernerfeldt
+- [hashless imgui](https://www.youtube.com/watch?v=h4GQfQmNi_4) by anton mikhailov
+
+thank you
