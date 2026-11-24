@@ -1,5 +1,4 @@
 pub mod area;
-pub mod uniform_list;
 pub mod virtual_list;
 
 use std::time::Duration;
@@ -307,9 +306,9 @@ enum ScrollbarInput {
     Idle,
 }
 
-fn scrollbar_input<C: Context>(
+fn scrollbar_input<C: Context, S: Local>(
     state: &mut Inertia,
-    ui: &mut Ui<'_, C>,
+    ui: &mut Ui<'_, C, S>,
     axis: Axis,
     viewport_extent: C::Scalar,
 ) -> (bool, Option<ScrollbarInput>) {
@@ -366,7 +365,7 @@ fn scrollbar_input<C: Context>(
 }
 
 /// wheel scrolling and touch panning over the content
-fn content_input<C: Context>(ui: &mut Ui<'_, C>, axis: Axis) -> interact::scroll::Response {
+fn content_input<C: Context, S: Local>(ui: &mut Ui<'_, C, S>, axis: Axis) -> interact::scroll::Response {
     let scroll = ui.interact(interact::scroll());
     let pan = ui.interact(interact::drag().axis(axis).touch_only(true));
     if !pan.active && !pan.deactivated {
@@ -383,9 +382,9 @@ fn content_input<C: Context>(ui: &mut Ui<'_, C>, axis: Axis) -> interact::scroll
     }
 }
 
-fn content_motion<C: Context>(
+fn content_motion<C: Context, S: Local>(
     state: &mut Inertia,
-    ui: &mut Ui<'_, C>,
+    ui: &mut Ui<'_, C, S>,
     axis: Axis,
     scroll_speed: f32,
     inertia_friction: f32,
@@ -541,10 +540,10 @@ where
     viewport
 }
 
-// children of a scroll node, so they only need to differ from each other
-const CONTENT: u8 = 0;
-const TRACK: u8 = 1;
-const THUMB: u8 = 2;
+// children of a scroll node, named so they never meet a list row's key
+const CONTENT: &str = "blit scroll content";
+const TRACK: &str = "blit scroll track";
+const THUMB: &str = "blit scroll thumb";
 const MIN_SCROLL_VELOCITY: f32 = 5.0;
 const MAX_SCROLL_VELOCITY: f32 = 12_000.0;
 

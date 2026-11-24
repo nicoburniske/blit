@@ -22,7 +22,11 @@ use blit_tui::{
         performance::{Performance, PerformanceState},
         popover::{Popover, PopoverClose, PopoverState},
         resize::{Resize, ResizeEdge, ResizeGrip, ResizeState},
-        scroll::{ScrollState, area::ScrollArea, uniform_list::UniformList},
+        scroll::{
+            ScrollState,
+            area::ScrollArea,
+            virtual_list::{VirtualList, VirtualListState},
+        },
         shadow::Shadow,
         sparkline::Sparkline,
         split::{Split, SplitDivider, SplitState},
@@ -1041,7 +1045,7 @@ impl Widget<TuiContext> for &mut WidgetsPage {
 
 struct ScrollPage {
     axis: Axis,
-    state: ScrollState,
+    state: VirtualListState,
     items: Vec<String>,
 }
 
@@ -1049,7 +1053,7 @@ impl Default for ScrollPage {
     fn default() -> Self {
         Self {
             axis: Axis::default(),
-            state: ScrollState::default(),
+            state: VirtualListState::default(),
             items: (1..=100).map(|index| index.to_string()).collect(),
         }
     }
@@ -1075,42 +1079,48 @@ impl Widget<TuiContext> for &mut ScrollPage {
                 flex::row().gap(1),
                 draw_button,
             )) {
-                *scroll = ScrollState::default();
+                *scroll = VirtualListState::default();
             }
         }
         let axis = *scroll_axis;
-        let item_extent = match axis {
+        // every tile shares one extent along the axis
+        let mut limits = Constraints {
+            min: Size::ZERO,
+            max: Size::uniform(i32::UNBOUNDED),
+        };
+        let extent = match axis {
             Axis::Horizontal => 12,
             Axis::Vertical => 3,
         };
-        UniformList::new(scroll, items.iter().enumerate())
-            .item_extent(item_extent)
+        axis.set_extent(&mut limits.min, extent);
+        axis.set_extent(&mut limits.max, extent);
+        let (layout, padding) = match axis {
+            Axis::Horizontal => (flex::column().align(Align::Center).justify(Justify::Center), 0),
+            Axis::Vertical => (flex::row().align(Align::Center), 1),
+        };
+        let mut list = VirtualList::new(scroll)
             .axis(axis)
+            .count(items.len())
             .minimum_thumb_extent(4)
-            .build(
-                body.child().item(flex::item().grow()),
-                move |ui, (index, item)| {
-                    let (layout, padding) = match axis {
-                        Axis::Horizontal => (flex::column().align(Align::Center).justify(Justify::Center), 0),
-                        Axis::Vertical => (flex::row().align(Align::Center), 1),
-                    };
-                    let background = if index.is_multiple_of(2) {
-                        colors::SURFACE_HIGH
-                    } else {
-                        colors::TRACK
-                    };
-                    let mut tile = ui.layout(layout).pad(padding);
-                    tile.insert(
-                        Block::new()
-                            .background(background)
-                            .border(Border::new(colors::CANVAS_BORDER)),
-                    );
-                    tile.child()
-                        .insert(Text::new(item).color(colors::TEXT).attributes(TextAttributes::BOLD));
-                },
-                scroll_track,
-                scroll_thumb,
+            .begin(body.child().item(flex::item().grow()), scroll_track, scroll_thumb);
+        while let Some((index, ui)) = list.next() {
+            let background = if index.is_multiple_of(2) {
+                colors::SURFACE_HIGH
+            } else {
+                colors::TRACK
+            };
+            let mut tile = ui.constrain(limits).layout(layout).pad(padding);
+            tile.insert(
+                Block::new()
+                    .background(background)
+                    .border(Border::new(colors::CANVAS_BORDER)),
             );
+            tile.child().insert(
+                Text::new(&items[index])
+                    .color(colors::TEXT)
+                    .attributes(TextAttributes::BOLD),
+            );
+        }
     }
 }
 

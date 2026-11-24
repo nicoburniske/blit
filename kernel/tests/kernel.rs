@@ -5,15 +5,15 @@ fn local_bounds_apply_to_content_and_layouts() {
     let (mut kernel, mut context) = kernel(Size::new(8.0, 6.0));
     for with_layout in [false, true] {
         let measured = render(&mut kernel, &mut context, |ui: Ui<'_>| {
-            ui.build_measured(Constraints::loose(Size::new(5.0, 6.0)), |ui: Ui<'_>| {
-                let mut ui = ui.constrain(Constraints::tight(Size::new(7.0, 2.0)));
-                if with_layout {
-                    ui.layout(()).insert(Fill('L', Size::uniform(1.0)));
-                } else {
-                    ui.insert(Fill('A', Size::uniform(1.0)));
-                }
-            })
-            .1
+            let mut root = ui.layout(());
+            let child = root.child().constrain(Constraints::tight(Size::new(7.0, 2.0)));
+            let node = child.node_id();
+            if with_layout {
+                child.layout(()).insert(Fill('L', Size::uniform(1.0)));
+            } else {
+                child.build(|mut ui: Ui<'_>| ui.insert(Fill('A', Size::uniform(1.0))));
+            }
+            root.layout_child(node, Constraints::loose(Size::new(5.0, 6.0)))
         });
         assert_eq!(measured, Size::new(7.0, 2.0));
         assert_eq!(
@@ -21,6 +21,22 @@ fn local_bounds_apply_to_content_and_layouts() {
             Paint(if with_layout { 'L' } else { 'A' }, Rect::new(0.0, 0.0, 7.0, 2.0))
         );
     }
+}
+
+#[test]
+fn key_identifies_a_child_like_child_id() {
+    let (mut kernel, mut context) = kernel(Size::uniform(4.0));
+    render(&mut kernel, &mut context, |ui: Ui<'_>| {
+        ui.layout(())
+            .child()
+            .key("keyed")
+            .constrain(Constraints::tight(Size::uniform(2.0)))
+            .insert(());
+    });
+    assert_eq!(
+        kernel.area(Target::ROOT.at("keyed")),
+        Some(Rect::new(0.0, 0.0, 2.0, 2.0))
+    );
 }
 
 #[test]

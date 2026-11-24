@@ -37,7 +37,7 @@ pub mod state {
     impl Local for Insert {}
 
     /// modes whose node has no layout yet
-    pub trait NoLayout {}
+    pub trait NoLayout: Owned + Local {}
 
     impl NoLayout for Build {}
     impl<I> NoLayout for Child<I> {}
@@ -389,27 +389,6 @@ impl<'ui, C: Context, S: state::NoLayout> Ui<'ui, C, S> {
         })
     }
 
-    /// builds a flow subtree and measures its current animated size under `bounds`
-    pub fn build_measured<W: Widget<C>>(
-        self,
-        bounds: Constraints<C::Scalar>,
-        widget: W,
-    ) -> (W::Response, Size<C::Scalar>) {
-        let mut inner = self.inner;
-        inner.owns_node = false;
-        let node = inner.node;
-        let response = widget.build(Ui::new(inner.kernel, inner.context, inner.scratch, node));
-        assert!(
-            inner.kernel.nodes[node.index()].place.index().is_none(),
-            "measured widgets must stay in flow"
-        );
-        let mut bump = core::mem::take(&mut inner.kernel.bump);
-        bump.storage.prepare();
-        let size = layout::resolve(inner.kernel, &bump, inner.context, node, bounds, false);
-        inner.kernel.bump = bump;
-        (response, size)
-    }
-
     /// establishes the current node's layout
     pub fn layout<L: Layout<C>>(self, layout: L) -> Ui<'ui, C, state::Open<L>> {
         let Ui { inner, .. } = self;
@@ -443,6 +422,25 @@ impl<'ui, C: Context, S: state::NoLayout> Ui<'ui, C, S> {
 }
 
 impl<'ui, C: Context, I: 'static> Ui<'ui, C, state::Child<I>> {
+    /// identifies this child among its siblings by `key`, as [`Ui::child_id`] would
+    ///
+    /// call it first, as anything added before stays with the previous identity
+    #[inline]
+    #[track_caller]
+    pub fn key(mut self, key: impl Into<Id>) -> Self {
+        let kernel = &mut *self.inner.kernel;
+        let parent = kernel.nodes[self.inner.node.index()].parent;
+        let id = kernel.nodes[parent.index()]
+            .widget_id
+            .child(TargetKey::Child(key.into()));
+        if kernel.watch == Some(id) {
+            self.inner.context.duplicate_id(id, Location::caller());
+        }
+        kernel.nodes[self.inner.node.index()].widget_id = id;
+        self.inner.target = id;
+        self
+    }
+
     /// sets this child's layout item
     #[inline]
     pub fn item(self, item: I) -> Self {
@@ -516,6 +514,22 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
         let kernel = &mut *self.inner.kernel;
         let node = kernel.push_node(self.inner.context, Some(self.inner.node), id);
         Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node)
+    }
+
+    /// lays out a built child now and returns its current animated size under `bounds`
+    ///
+    /// the layout pass lays it out again with whatever bounds this node's layout gives it
+    pub fn layout_child(&mut self, child: NodeId, bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
+        let kernel = &mut *self.inner.kernel;
+        assert!(
+            kernel.nodes[child.index()].place.index().is_none(),
+            "measured widgets must stay in flow"
+        );
+        let mut bump = core::mem::take(&mut kernel.bump);
+        bump.storage.prepare();
+        let size = layout::resolve(kernel, &bump, self.inner.context, child, bounds, false);
+        kernel.bump = bump;
+        size
     }
 
     /// insets this node's children while painted content keeps the full box

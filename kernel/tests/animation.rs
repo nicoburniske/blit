@@ -22,13 +22,13 @@ fn motions() {
                 let child = child
                     .item(gap)
                     .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).height().y());
-                let (_, measured) = child.build_measured(
+                let node = child.node_id();
+                child.layout(()).child().insert(Fill('X', Size::new(1.0, extent)));
+                let measured = column.layout_child(
+                    node,
                     Constraints {
                         min: Size::new(1.0, 0.0),
                         max: Size::new(1.0, f32::INFINITY),
-                    },
-                    |ui: Ui<'_>| {
-                        ui.layout(()).child().insert(Fill('X', Size::new(1.0, extent)));
                     },
                 );
                 assert_eq!(measured, area.size());
@@ -289,12 +289,13 @@ fn retargeted_motion_measurement() {
             [],
             |ui: Ui<'_>| {
                 let mut column = ui.layout(Column);
-                let (_, size) = column
+                let mut child = column
                     .child_id(id)
-                    .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).height())
-                    .build_measured(Constraints::loose(Size::uniform(100.0)), |mut ui: Ui<'_>| {
-                        ui.insert(Fill('X', Size::new(1.0, extent)));
-                    });
+                    .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).height());
+                let node = child.node_id();
+                child.insert(Fill('X', Size::new(1.0, extent)));
+                drop(child);
+                let size = column.layout_child(node, Constraints::loose(Size::uniform(100.0)));
                 assert_eq!(size.height, expected);
                 column.child().insert(Fill('Y', Size::uniform(1.0)));
             },
@@ -558,13 +559,12 @@ fn spring_motion_measurement_and_settling() {
     for (extent, millis) in [(1.0, 0), (3.0, 0), (3.0, 100), (3.0, 10_000)] {
         let time = Duration::from_millis(millis);
         let measured = render_inputs(&mut kernel, &mut context, time, [], |ui: Ui<'_>| {
-            ui.layout(Column)
-                .child_id(id)
-                .motion(Motion::new(spring).height())
-                .build_measured(Constraints::loose(Size::uniform(100.0)), |mut ui: Ui<'_>| {
-                    ui.insert(Fill('X', Size::new(1.0, extent)));
-                })
-                .1
+            let mut column = ui.layout(Column);
+            let mut child = column.child_id(id).motion(Motion::new(spring).height());
+            let node = child.node_id();
+            child.insert(Fill('X', Size::new(1.0, extent)));
+            drop(child);
+            column.layout_child(node, Constraints::loose(Size::uniform(100.0)))
         });
         let expected = if millis == 0 {
             1.0

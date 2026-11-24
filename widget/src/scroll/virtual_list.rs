@@ -1,21 +1,18 @@
 use std::ops::Range;
 
-use blit::{Axis, Constraints, Id, Layout, LayoutCx, Point, Scalar, Size, Ui, state::NoLayout};
+use blit::{Axis, Constraints, Layout, LayoutCx, NodeId, Point, Rect, Scalar, Size, Ui, state};
 
-use super::{
-    CONTENT, Scrollbar, ScrollbarInput, THUMB, TRACK, ThumbProgress, content_input, content_motion, scrollbar_input,
-};
+use super::{Scrollbar, ScrollbarInput, THUMB, TRACK, ThumbProgress, content_input, content_motion, scrollbar_input};
 use crate::Context;
 
 blit::builder! {
-    /// use for large vertical lists with variable or unknown row heights
-    /// measures a bounded viewport window and estimates remaining heights
-    /// rows must have positive finite heights
-    /// callbacks identify and build rows by index
-    /// row ids default to their indices
+    /// use for large lists with variable or unknown row extents
+    /// measures a bounded viewport window and estimates remaining extents
+    /// rows must have positive finite extents along the axis
     /// an absent count scrolls indefinitely with a thumb covering the explored range
     pub struct VirtualList<'a, T: Scalar> {
         new(state: &'a mut VirtualListState<T>),
+        axis: Axis = Axis::Vertical,
         #[into]
         count: Option<usize> = None,
         scroll_speed: f32 = 1.0,
@@ -23,304 +20,361 @@ blit::builder! {
         minimum_thumb_extent: T = T::from_f32(1.0),
         /// scrollbars cover the content instead of taking space beside it
         floating: bool = false,
-        #[bounds(FnMut(usize) -> Id)]
-        id<K = fn(usize) -> Id>: K = Id::from,
     }
 }
 
-impl<T: Scalar, K> VirtualList<'_, T, K>
-where
-    K: FnMut(usize) -> Id,
-{
-    pub fn build<C, S, F, R, H>(self, ui: Ui<'_, C, S>, mut item: F, track: R, thumb: H) -> Response
+impl<'a, T: Scalar> VirtualList<'a, T> {
+    /// starts the list in `ui`, whose rows then come from [`Rows::next`]
+    pub fn begin<C, S, R, H>(self, mut ui: Ui<'a, C, S>, track: R, thumb: H) -> Rows<'a, C, R, H>
     where
         C: Context<Scalar = T>,
-        S: NoLayout,
-        F: FnMut(Ui<'_, C>, usize),
+        S: state::NoLayout,
         R: FnOnce(Ui<'_, C>),
         H: FnOnce(Ui<'_, C>, bool),
     {
-        ui.build(|mut ui: Ui<'_, C>| {
-            const VIEWPORTS: usize = 2;
-
-            let Self {
-                state,
-                count,
+        let Self {
+            state,
+            axis,
+            count,
+            scroll_speed,
+            inertia_friction,
+            minimum_thumb_extent,
+            floating,
+        } = self;
+        let viewport = ui.area();
+        let size = viewport.map_or(ui.screen().size(), |area| area.size());
+        let extent = axis.extent(size);
+        let overscan = extent.repeat(VIEWPORTS);
+        let row = state.sample.get(state.visible.start);
+        let motion = content_input(&mut ui, axis);
+        let (thumb_active, scrollbar) = scrollbar_input(&mut state.inertia, &mut ui, axis, extent);
+        let movement = match scrollbar {
+            None => content_motion(
+                &mut state.inertia,
+                &mut ui,
+                axis,
                 scroll_speed,
                 inertia_friction,
-                minimum_thumb_extent,
-                floating,
-                id: mut item_id,
-            } = self;
-            let viewport = ui.area();
-            let size = viewport.map_or(ui.screen().size(), |area| area.size());
-            let overscan = size.height.repeat(VIEWPORTS);
-            let row = state.sample.get(state.visible.start);
-            let motion = content_input(&mut ui, Axis::Vertical);
-            let (thumb_active, scrollbar) = scrollbar_input(&mut state.inertia, &mut ui, Axis::Vertical, size.height);
-            let movement = match scrollbar {
-                None => content_motion(
-                    &mut state.inertia,
-                    &mut ui,
-                    Axis::Vertical,
-                    scroll_speed,
-                    inertia_friction,
-                    motion,
-                ),
-                Some(_) => 0.0,
-            };
-            if viewport.is_none() {
+                motion,
+            ),
+            Some(_) => 0.0,
+        };
+        if viewport.is_none() {
+            ui.request_frame();
+        }
+        // treat large offsets into an unmeasured window as movement so the existing seek logic estimates the row
+        if state.sample.is_empty() && state.within.to_f32().abs() > overscan.to_f32() {
+            state.scroll_delta = state.within.endpoint(state.scroll_delta);
+            state.within = T::ZERO;
+        }
+        let delta = {
+            let delta: T = state.inertia.pixel_delta(movement);
+            let delta = delta.endpoint(std::mem::take(&mut state.scroll_delta));
+            if delta.to_f32().abs() > overscan.to_f32() && state.average == 0.0 {
+                // wait for the initial extents before estimating a large jump
+                state.scroll_delta = delta;
                 ui.request_frame();
+                T::ZERO
+            } else {
+                delta
             }
-            // treat large offsets into an unmeasured window as movement so the existing seek logic estimates the row
-            if state.sample.is_empty() && state.within.to_f32().abs() > overscan.to_f32() {
-                state.scroll_delta = state.within.endpoint(state.scroll_delta);
-                state.within = C::Scalar::ZERO;
-            }
-            let delta = {
-                let delta: C::Scalar = state.inertia.pixel_delta(movement);
-                let delta = delta.endpoint(std::mem::take(&mut state.scroll_delta));
-                if delta.to_f32().abs() > overscan.to_f32() && state.average == 0.0 {
-                    // wait for the initial heights before estimating a large jump
-                    state.scroll_delta = delta;
-                    ui.request_frame();
-                    C::Scalar::ZERO
-                } else {
-                    delta
-                }
-            };
-            let current = state.first as f64
-                + row.map_or(0.0, |row| {
-                    (state.within.to_f32() / row.height.to_f32()).clamp(0.0, 1.0) as f64
-                });
-            let seek = match scrollbar {
-                None | Some(ScrollbarInput::Idle | ScrollbarInput::Thumb(0.0)) => {
-                    if delta.to_f32().abs() > overscan.to_f32()
-                        && state.average > 0.0
-                        && !row.zip(state.sample.last()).is_some_and(|(row, last)| {
-                            let offset = row.top.endpoint(state.within).endpoint(delta);
-                            offset >= C::Scalar::ZERO && offset <= last.top.endpoint(last.height)
-                        })
-                    {
-                        Some((current + delta.to_f32() as f64 / state.average as f64).max(0.0))
-                    } else {
-                        None
-                    }
-                }
-                Some(ScrollbarInput::Thumb(value) | ScrollbarInput::Track(value)) => {
-                    state.inertia.remainder = 0.0;
-                    let offset = row.map_or(C::Scalar::ZERO, |row| row.top.endpoint(state.within));
-                    let (position, visible) = metrics(state, count, size.height, offset);
-                    let total = count.map_or(state.scrollbar.explored, |count| count as f64);
-                    let maximum = (total - visible).max(0.0);
-                    let previous = if count.is_some() {
-                        position
-                    } else {
-                        state.scrollbar.position
-                    };
-                    let position = if matches!(scrollbar, Some(ScrollbarInput::Track(_))) {
-                        value as f64 * maximum
-                    } else {
-                        (previous + value as f64 * maximum).clamp(0.0, maximum)
-                    };
-                    Some(match count {
-                        Some(count) if position == maximum => count as f64,
-                        Some(_) => position,
-                        None if position == 0.0 => 0.0,
-                        None => (current + position - previous).max(0.0),
-                    })
-                }
-            };
-            let direction = seek.map_or(delta.to_f32() as f64, |position| position - current);
-            if let Some(position) = seek {
-                state.first = position as usize;
-                state.within = C::Scalar::ZERO;
-            }
-
-            let limit = count.unwrap_or(usize::MAX);
-            state.first = state.first.min(limit.saturating_sub(1));
-            let anchor = Anchor {
-                index: state.first,
-                within: state.within,
-                delta,
-                fraction: seek.map(|position| (position - state.first as f64).clamp(0.0, 1.0) as f32),
-            };
-            // the track sized the gutter last frame
-            let gutter = match floating {
-                true => C::Scalar::ZERO,
-                false => ui.at(TRACK).area().map_or(C::Scalar::ZERO, |area| area.width),
-            };
-            let width = (size.width - gutter).max(C::Scalar::ZERO);
-            let bounds = Constraints {
-                min: Size::new(width, C::Scalar::ZERO),
-                max: Size::new(width, C::Scalar::UNBOUNDED),
-            };
-            let mut content = ui.clip(C::Scalar::ZERO).layout(VirtualLayout {
-                scrollbar: Scrollbar {
-                    minimum: minimum_thumb_extent,
-                    floating,
-                },
+        };
+        let current = state.first as f64
+            + row.map_or(0.0, |row| {
+                (state.within.to_f32() / row.extent.to_f32()).clamp(0.0, 1.0) as f64
             });
-            state.sample.clear();
-            // measure rows while extending the window around the anchor
-            let window = {
-                // rows get their own node so their ids never meet the scrollbar's
-                let mut rows = content.child_id(CONTENT).layout(RowsLayout {
-                    anchor,
-                    count,
-                    size,
-                    row_bounds: bounds,
-                });
-                let mut window = Window {
-                    first: anchor.index,
-                    end: anchor.index,
-                    within: anchor.within,
-                    ..Window::default()
-                };
-                let mut read_row = |index, window: &mut Window<C::Scalar>| {
-                    let row_id = item_id(index);
-                    let (_, size) = rows
-                        .child_id(row_id)
-                        .item(index)
-                        .build_measured(bounds, |ui: Ui<'_, C>| item(ui, index));
-                    assert!(size.height.is_finite() && size.height > C::Scalar::ZERO);
-                    state.sample.push(Row {
-                        id: row_id,
-                        top: window.push(anchor, index, size.height),
-                        height: size.height,
-                    });
-                };
-                while window.end < limit
-                    && (window.end == anchor.index
-                        || window.after_anchor < window.within.endpoint(overscan).max(size.height))
+        let seek = match scrollbar {
+            None | Some(ScrollbarInput::Idle | ScrollbarInput::Thumb(0.0)) => {
+                if delta.to_f32().abs() > overscan.to_f32()
+                    && state.average > 0.0
+                    && !row.zip(state.sample.last()).is_some_and(|(row, last)| {
+                        let offset = row.top.endpoint(state.within).endpoint(delta);
+                        offset >= T::ZERO && offset <= last.top.endpoint(last.extent)
+                    })
                 {
-                    read_row(window.end, &mut window);
-                }
-                while window.first > 0
-                    && (-window.before_anchor > window.within
-                        || (window.end == limit && window.after_anchor.endpoint(window.before_anchor) < overscan))
-                {
-                    read_row(window.first - 1, &mut window);
-                }
-                window
-            };
-            let first = window.first;
-            if first < anchor.index {
-                state.sample.reverse();
-                state.sample[anchor.index - first..].reverse();
-                for row in &mut state.sample {
-                    row.top = row.top.endpoint(window.before_anchor);
+                    Some((current + delta.to_f32() as f64 / state.average as f64).max(0.0))
+                } else {
+                    None
                 }
             }
-            let extent = window.after_anchor.endpoint(window.before_anchor);
-            let offset = window.offset(size.height, count);
-            if (first == 0 && offset == C::Scalar::ZERO && movement < 0.0)
-                || (window.end == limit && offset == (extent - size.height).max(C::Scalar::ZERO) && movement > 0.0)
-            {
-                state.inertia.velocity = 0.0;
+            Some(ScrollbarInput::Thumb(value) | ScrollbarInput::Track(value)) => {
                 state.inertia.remainder = 0.0;
-            }
-            state.visible = state
-                .sample
-                .partition_point(|row| row.top.endpoint(row.height) <= offset)
-                ..state
-                    .sample
-                    .partition_point(|row| row.top < offset.endpoint(size.height));
-            if let Some(row) = state.sample.get(state.visible.start) {
-                state.first = first + state.visible.start;
-                state.within = offset - row.top;
-            } else {
-                state.first = first;
-                state.within = C::Scalar::ZERO;
-            }
-            if !state.sample.is_empty() {
-                state.average = extent.to_f32() / state.sample.len() as f32;
-                if state.scrollbar.scale == 0.0 {
-                    state.scrollbar.scale = state.average;
-                }
-            }
-            let (position, visible) = metrics(state, count, size.height, offset);
-            let progress = {
-                let scrollbar = &mut state.scrollbar;
-                if position == 0.0 {
-                    scrollbar.position = 0.0;
-                } else if direction > 0.0 || scrollbar.position == 0.0 {
-                    scrollbar.position = scrollbar.position.max(position);
-                } else if direction < 0.0 {
-                    scrollbar.position = scrollbar.position.min(position);
-                }
-                // publish measurement corrections only while scrolling in that direction
-                let position = if count.is_some() { position } else { scrollbar.position };
-                scrollbar.explored = scrollbar.explored.max(position + visible * VIEWPORTS as f64);
-                let total = count.map_or(scrollbar.explored, |count| count as f64);
-                let scrollable = total - visible;
-                ThumbProgress {
-                    position: if scrollable > 0.0 {
-                        (position / scrollable) as f32
-                    } else {
-                        0.0
-                    },
-                    visible_fraction: if total > 0.0 {
-                        (visible / total).clamp(0.0, 1.0) as f32
-                    } else {
-                        1.0
-                    },
-                }
-            };
-
-            let pointer_row = if let Some((pointer, viewport)) = content.mouse_position().zip(viewport)
-                && !state.sample.is_empty()
-            {
-                let target = offset.endpoint((pointer.y - viewport.y).clamp(C::Scalar::ZERO, viewport.height));
-                Some(
-                    first
-                        + state
-                            .sample
-                            .partition_point(|row| row.top.endpoint(row.height) <= target)
-                            .min(state.sample.len() - 1),
-                )
-            } else {
-                None
-            };
-            content.child_id(TRACK).item(Item::Track(progress)).build(track);
-            content
-                .child_id(THUMB)
-                .item(Item::Thumb)
-                .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
-            let visible_range = first + state.visible.start..first + state.visible.end;
-            if viewport.is_none() {
-                // preserve the anchor until the viewport is known
-                state.first = anchor.index;
-                state.within = anchor.within.endpoint(anchor.delta);
-                state.sample.clear();
-                state.visible = 0..0;
-                return Response {
-                    visible_range,
-                    ..Response::default()
+                let offset = row.map_or(T::ZERO, |row| row.top.endpoint(state.within));
+                let (position, visible) = metrics(state, count, extent, offset);
+                let total = count.map_or(state.scrollbar.explored, |count| count as f64);
+                let maximum = (total - visible).max(0.0);
+                let previous = if count.is_some() {
+                    position
+                } else {
+                    state.scrollbar.position
                 };
+                let position = if matches!(scrollbar, Some(ScrollbarInput::Track(_))) {
+                    value as f64 * maximum
+                } else {
+                    (previous + value as f64 * maximum).clamp(0.0, maximum)
+                };
+                Some(match count {
+                    Some(count) if position == maximum => count as f64,
+                    Some(_) => position,
+                    None if position == 0.0 => 0.0,
+                    None => (current + position - previous).max(0.0),
+                })
             }
-            Response {
-                pointer_row,
-                visible_range,
-                offset: position,
-                visible_extent: visible,
-                content_extent: count.map_or(state.scrollbar.explored, |count| count as f64),
-            }
-        })
+        };
+        let direction = seek.map_or(delta.to_f32() as f64, |position| position - current);
+        if let Some(position) = seek {
+            state.first = position as usize;
+            state.within = T::ZERO;
+        }
+        state.first = state.first.min(count.unwrap_or(usize::MAX).saturating_sub(1));
+        let anchor = Anchor {
+            index: state.first,
+            within: state.within,
+            delta,
+            fraction: seek.map(|position| (position - state.first as f64).clamp(0.0, 1.0) as f32),
+        };
+        // the track sized the gutter last frame
+        let cross = axis.other();
+        let gutter = match floating {
+            true => T::ZERO,
+            false => ui.at(TRACK).area().map_or(T::ZERO, |area| cross.extent(area.size())),
+        };
+        let mut bounds = Constraints {
+            min: Size::ZERO,
+            max: Size::uniform(T::UNBOUNDED),
+        };
+        let width = (cross.extent(size) - gutter).max(T::ZERO);
+        cross.set_extent(&mut bounds.min, width);
+        cross.set_extent(&mut bounds.max, width);
+        let content = ui.clip(T::ZERO).layout(VirtualLayout {
+            axis,
+            anchor,
+            count,
+            size,
+            row_bounds: bounds,
+            scrollbar: Scrollbar {
+                minimum: minimum_thumb_extent,
+                floating,
+            },
+        });
+        state.sample.clear();
+        Rows {
+            state,
+            content,
+            axis,
+            count,
+            anchor,
+            size,
+            bounds,
+            viewport,
+            movement,
+            direction,
+            thumb_active,
+            window: Window {
+                first: anchor.index,
+                end: anchor.index,
+                within: anchor.within,
+                ..Window::default()
+            },
+            pending: None,
+            phase: Phase::Down,
+            track: Some(track),
+            thumb: Some(thumb),
+        }
     }
 }
 
-#[derive(Default)]
-pub struct Response {
-    /// row indices intersecting the viewport excluding overscan
-    pub visible_range: Range<usize>,
-    /// row at the pointer y position clamped to the viewport edges
-    pub pointer_row: Option<usize>,
-    /// resolved position and visible extent in item coordinates
-    pub offset: f64,
-    pub visible_extent: f64,
-    /// item count for finite lists or explored extent for unbounded lists
-    pub content_extent: f64,
+/// the rows of a [`VirtualList`], measured as they are built
+///
+/// the scrollbar is built once the rows run out or this is dropped
+pub struct Rows<'a, C, R, H>
+where
+    C: Context,
+    R: FnOnce(Ui<'_, C>),
+    H: FnOnce(Ui<'_, C>, bool),
+{
+    state: &'a mut VirtualListState<C::Scalar>,
+    content: Ui<'a, C, state::Open<VirtualLayout<C::Scalar>>>,
+    axis: Axis,
+    count: Option<usize>,
+    anchor: Anchor<C::Scalar>,
+    size: Size<C::Scalar>,
+    bounds: Constraints<C::Scalar>,
+    viewport: Option<Rect<C::Scalar>>,
+    movement: f32,
+    direction: f64,
+    thumb_active: bool,
+    window: Window<C::Scalar>,
+    // the row handed out last, measured on the next call
+    pending: Option<(usize, NodeId)>,
+    phase: Phase,
+    // taken once the rows run out
+    track: Option<R>,
+    thumb: Option<H>,
+}
+
+impl<C, R, H> Rows<'_, C, R, H>
+where
+    C: Context,
+    R: FnOnce(Ui<'_, C>),
+    H: FnOnce(Ui<'_, C>, bool),
+{
+    /// the next row to build and its index, until the viewport is covered
+    ///
+    /// rows are keyed by their index unless given a key
+    pub fn next(&mut self) -> Option<(usize, Ui<'_, C, state::Child<ListItem>>)> {
+        if self.phase == Phase::Done {
+            return None;
+        }
+        self.measure();
+        let window = &self.window;
+        let limit = self.count.unwrap_or(usize::MAX);
+        let extent = self.axis.extent(self.size);
+        let overscan = extent.repeat(VIEWPORTS);
+        let index = if self.phase == Phase::Down
+            && window.end < limit
+            && (window.end == self.anchor.index || window.after_anchor < window.within.endpoint(overscan).max(extent))
+        {
+            window.end
+        } else if window.first > 0
+            && (-window.before_anchor > window.within
+                || (window.end == limit && window.after_anchor.endpoint(window.before_anchor) < overscan))
+        {
+            self.phase = Phase::Up;
+            window.first - 1
+        } else {
+            self.finish();
+            return None;
+        };
+        let row = self.content.child_id(index).item(ListItem(Kind::Row(index)));
+        self.pending = Some((index, row.node_id()));
+        Some((index, row))
+    }
+}
+
+impl<C, R, H> Rows<'_, C, R, H>
+where
+    C: Context,
+    R: FnOnce(Ui<'_, C>),
+    H: FnOnce(Ui<'_, C>, bool),
+{
+    // the row built since the last call joins the window
+    fn measure(&mut self) {
+        let Some((index, node)) = self.pending.take() else {
+            return;
+        };
+        let extent = self.axis.extent(self.content.layout_child(node, self.bounds));
+        assert!(
+            extent.is_finite() && extent > C::Scalar::ZERO,
+            "virtual list rows need a positive extent"
+        );
+        let top = self.window.push(self.anchor, index, extent);
+        self.state.sample.push(Row { top, extent });
+    }
+
+    fn finish(&mut self) {
+        self.measure();
+        self.phase = Phase::Done;
+        let (Some(track), Some(thumb)) = (self.track.take(), self.thumb.take()) else {
+            return;
+        };
+        let state = &mut *self.state;
+        let window = &self.window;
+        let anchor = self.anchor;
+        let count = self.count;
+        let extent = self.axis.extent(self.size);
+        let first = window.first;
+        if first < anchor.index {
+            state.sample.reverse();
+            state.sample[anchor.index - first..].reverse();
+            for row in &mut state.sample {
+                row.top = row.top.endpoint(window.before_anchor);
+            }
+        }
+        let content_extent = window.after_anchor.endpoint(window.before_anchor);
+        let offset = window.offset(extent, count);
+        if (first == 0 && offset == C::Scalar::ZERO && self.movement < 0.0)
+            || (count == Some(window.end)
+                && offset == (content_extent - extent).max(C::Scalar::ZERO)
+                && self.movement > 0.0)
+        {
+            state.inertia.velocity = 0.0;
+            state.inertia.remainder = 0.0;
+        }
+        state.visible = state
+            .sample
+            .partition_point(|row| row.top.endpoint(row.extent) <= offset)
+            ..state.sample.partition_point(|row| row.top < offset.endpoint(extent));
+        if let Some(row) = state.sample.get(state.visible.start) {
+            state.first = first + state.visible.start;
+            state.within = offset - row.top;
+        } else {
+            state.first = first;
+            state.within = C::Scalar::ZERO;
+        }
+        if !state.sample.is_empty() {
+            state.average = content_extent.to_f32() / state.sample.len() as f32;
+            if state.scrollbar.scale == 0.0 {
+                state.scrollbar.scale = state.average;
+            }
+        }
+        let (position, visible) = metrics(state, count, extent, offset);
+        let progress = {
+            let scrollbar = &mut state.scrollbar;
+            if position == 0.0 {
+                scrollbar.position = 0.0;
+            } else if self.direction > 0.0 || scrollbar.position == 0.0 {
+                scrollbar.position = scrollbar.position.max(position);
+            } else if self.direction < 0.0 {
+                scrollbar.position = scrollbar.position.min(position);
+            }
+            // publish measurement corrections only while scrolling in that direction
+            let position = if count.is_some() { position } else { scrollbar.position };
+            scrollbar.explored = scrollbar.explored.max(position + visible * VIEWPORTS as f64);
+            let total = count.map_or(scrollbar.explored, |count| count as f64);
+            let scrollable = total - visible;
+            ThumbProgress {
+                position: if scrollable > 0.0 {
+                    (position / scrollable) as f32
+                } else {
+                    0.0
+                },
+                visible_fraction: if total > 0.0 {
+                    (visible / total).clamp(0.0, 1.0) as f32
+                } else {
+                    1.0
+                },
+            }
+        };
+        // built after the rows so they draw and take input above them
+        self.content
+            .child_id(TRACK)
+            .item(ListItem(Kind::Track(progress)))
+            .build(track);
+        let thumb_active = self.thumb_active;
+        self.content
+            .child_id(THUMB)
+            .item(ListItem(Kind::Thumb))
+            .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
+        if self.viewport.is_none() {
+            // preserve the anchor until the viewport is known
+            state.first = anchor.index;
+            state.within = anchor.within.endpoint(anchor.delta);
+            state.sample.clear();
+            state.visible = 0..0;
+        }
+    }
+}
+
+impl<C, R, H> Drop for Rows<'_, C, R, H>
+where
+    C: Context,
+    R: FnOnce(Ui<'_, C>),
+    H: FnOnce(Ui<'_, C>, bool),
+{
+    fn drop(&mut self) {
+        self.finish();
+    }
 }
 
 #[derive(Default)]
@@ -352,7 +406,7 @@ impl<T: Scalar> VirtualListState<T> {
 
     /// scrolls to a list index and pixel offset
     /// - nearby offsets use exact row measurements
-    /// - large offscreen offsets use estimated row heights
+    /// - large offscreen offsets use estimated row extents
     pub fn scroll_to(&mut self, index: usize, offset: T) {
         self.first = index;
         self.scrollbar.position = index as f64;
@@ -367,16 +421,38 @@ impl<T: Scalar> VirtualListState<T> {
     pub fn position(&self) -> (usize, T) {
         (self.first, self.within)
     }
+}
 
-    pub fn is_visible(&self, id: Id) -> bool {
-        self.sample[self.visible.clone()].iter().any(|row| row.id == id)
+/// a child's role in a [`VirtualList`]
+#[derive(Clone, Copy)]
+pub struct ListItem(Kind);
+
+impl Default for ListItem {
+    fn default() -> Self {
+        Self(Kind::Row(0))
     }
 }
 
+#[derive(Clone, Copy)]
+enum Kind {
+    Row(usize),
+    Track(ThumbProgress),
+    Thumb,
+}
+
+const VIEWPORTS: usize = 2;
+
+// rows extend forward from the anchor, then backward above it
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    Down,
+    Up,
+    Done,
+}
+
 struct Row<T> {
-    id: Id,
     top: T,
-    height: T,
+    extent: T,
 }
 
 #[derive(Clone, Copy)]
@@ -398,21 +474,21 @@ struct Window<T> {
 
 impl<T: Scalar> Window<T> {
     // rows arrive forward from the anchor then backward
-    fn push(&mut self, anchor: Anchor<T>, index: usize, height: T) -> T {
+    fn push(&mut self, anchor: Anchor<T>, index: usize, extent: T) -> T {
         self.first = self.first.min(index);
         self.end = self.end.max(index + 1);
         if index == anchor.index {
             self.within = match anchor.fraction {
-                Some(fraction) => T::from_f32(height.to_f32() * fraction),
-                None => anchor.within.min(height).endpoint(anchor.delta),
+                Some(fraction) => T::from_f32(extent.to_f32() * fraction),
+                None => anchor.within.min(extent).endpoint(anchor.delta),
             };
         }
         if index < anchor.index {
-            self.before_anchor = self.before_anchor.endpoint(height);
+            self.before_anchor = self.before_anchor.endpoint(extent);
             -self.before_anchor
         } else {
             let top = self.after_anchor;
-            self.after_anchor = self.after_anchor.endpoint(height);
+            self.after_anchor = self.after_anchor.endpoint(extent);
             top
         }
     }
@@ -435,122 +511,109 @@ struct ScrollbarState {
     explored: f64,
 }
 
-#[derive(Clone, Copy, Default)]
-enum Item {
-    #[default]
-    Rows,
-    Track(ThumbProgress),
-    Thumb,
-}
-
 struct VirtualLayout<T> {
-    scrollbar: Scrollbar<T>,
-}
-
-impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for VirtualLayout<T> {
-    type Item = Item;
-
-    fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints<T>) -> Size<T> {
-        let mut size = Size::ZERO;
-        let mut scrollbar = None;
-        let mut thumb = None;
-        for child in cx.children() {
-            match *cx.item(child) {
-                Item::Rows => {
-                    size = cx.layout_child(child, constraints);
-                    cx.set_child_position(child, Point::ZERO);
-                }
-                Item::Track(progress) => scrollbar = Some((child, progress)),
-                Item::Thumb => thumb = Some(child),
-            }
-        }
-        let (track, progress) = scrollbar.expect("virtual list track is missing");
-        let thumb = thumb.expect("virtual list thumb is missing");
-        // the track's own size sets the scrollbar thickness
-        let thickness = cx
-            .layout_child(track, Constraints::loose(constraints.max))
-            .width
-            .min(size.width);
-        self.scrollbar
-            .layout(cx, Axis::Vertical, size, progress, thickness, track, thumb);
-        size
-    }
-}
-
-struct RowsLayout<T> {
+    axis: Axis,
     anchor: Anchor<T>,
     count: Option<usize>,
     size: Size<T>,
     row_bounds: Constraints<T>,
+    scrollbar: Scrollbar<T>,
 }
 
-impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for RowsLayout<T> {
-    type Item = usize;
+impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for VirtualLayout<T> {
+    type Item = ListItem;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints<T>) -> Size<T> {
-        let width = if constraints.max.width.is_finite() {
-            constraints.max.width
-        } else {
-            self.size.width
+        let axis = self.axis;
+        let cross = axis.other();
+        // rows keep the bounds they were measured with until the viewport geometry catches up
+        let mut window = Window {
+            first: self.anchor.index,
+            end: self.anchor.index,
+            ..Window::default()
         };
-        // both passes use the same row constraints until the viewport geometry catches up
-        let window = {
-            let mut window = Window {
-                first: self.anchor.index,
-                end: self.anchor.index,
-                ..Window::default()
-            };
-            for child in cx.children() {
-                let index = *cx.item(child);
-                let height = cx.layout_child(child, self.row_bounds).height;
-                window.push(self.anchor, index, height);
+        let mut track = None;
+        let mut thumb = None;
+        for child in cx.children() {
+            match cx.item(child).0 {
+                Kind::Row(index) => {
+                    let extent = axis.extent(cx.layout_child(child, self.row_bounds));
+                    window.push(self.anchor, index, extent);
+                }
+                Kind::Track(progress) => track = Some((child, progress)),
+                Kind::Thumb => thumb = Some(child),
             }
-            window
-        };
+        }
         let content_extent = window.after_anchor.endpoint(window.before_anchor);
-        let extent = content_extent.endpoint(if self.count == Some(window.end) {
-            T::ZERO
-        } else {
-            self.size.height
-        });
-        let size = constraints.constrain(Size::new(width, extent));
-        let offset = window.offset(size.height, self.count);
-        {
-            let mut positions = Window::default();
-            for child in cx.children() {
-                let index = *cx.item(child);
-                let height = cx.size(child).height;
-                let top = positions.push(self.anchor, index, height);
-                let top = top.endpoint(window.before_anchor);
-                cx.set_child_position(child, Point::new(T::ZERO, top - offset));
+        let mut size = Size::ZERO;
+        axis.set_extent(
+            &mut size,
+            content_extent.endpoint(if self.count == Some(window.end) {
+                T::ZERO
+            } else {
+                axis.extent(self.size)
+            }),
+        );
+        let width = cross.extent(constraints.max);
+        cross.set_extent(
+            &mut size,
+            if width.is_finite() {
+                width
+            } else {
+                cross.extent(self.size)
+            },
+        );
+        let size = constraints.constrain(size);
+        let offset = window.offset(axis.extent(size), self.count);
+        let mut positions = Window::default();
+        for child in cx.children() {
+            if let Kind::Row(index) = cx.item(child).0 {
+                let extent = axis.extent(cx.size(child));
+                let top = positions
+                    .push(self.anchor, index, extent)
+                    .endpoint(window.before_anchor)
+                    - offset;
+                let position = match axis {
+                    Axis::Horizontal => Point::new(top, T::ZERO),
+                    Axis::Vertical => Point::new(T::ZERO, top),
+                };
+                cx.set_child_position(child, position);
             }
         }
         if size != self.size
             || offset < T::ZERO
-            || content_extent - offset < size.height && self.count != Some(window.end)
+            || content_extent - offset < axis.extent(size) && self.count != Some(window.end)
         {
             cx.request_frame();
         }
+        let (track, progress) = track.expect("virtual list track is missing");
+        let thumb = thumb.expect("virtual list thumb is missing");
+        // the track's own size sets the scrollbar thickness
+        let thickness = cross
+            .extent(cx.layout_child(track, Constraints::loose(constraints.max)))
+            .min(cross.extent(size));
+        self.scrollbar.layout(cx, axis, size, progress, thickness, track, thumb);
         size
     }
 }
-fn metrics<T: Scalar>(state: &VirtualListState<T>, count: Option<usize>, height: T, offset: T) -> (f64, f64) {
+
+fn metrics<T: Scalar>(state: &VirtualListState<T>, count: Option<usize>, extent: T, offset: T) -> (f64, f64) {
     let position_at = |index, offset: T| {
         state.sample.get(index).map_or(state.first as f64, |row: &Row<T>| {
             state.first as f64 + index as f64 - state.visible.start as f64
-                + ((offset - row.top).to_f32() / row.height.to_f32()).clamp(0.0, 1.0) as f64
+                + ((offset - row.top).to_f32() / row.extent.to_f32()).clamp(0.0, 1.0) as f64
         })
     };
     let position = position_at(state.visible.start, offset);
     let visible = if count.is_some() {
-        position_at(state.visible.end.saturating_sub(1), offset.endpoint(height)) - position
+        position_at(state.visible.end.saturating_sub(1), offset.endpoint(extent)) - position
     } else {
         let scale = if state.scrollbar.scale > 0.0 {
             state.scrollbar.scale
         } else {
             state.average
         };
-        height.to_f32() as f64 / scale as f64
+        extent.to_f32() as f64 / scale as f64
     };
     (position, visible)
 }
@@ -560,7 +623,7 @@ mod tests {
     use std::time::Duration;
 
     use blit::{
-        FrameInfo, Kernel, Rect, Scope, Target,
+        FrameInfo, Id, Kernel, Scope, Target,
         input::{Input, TouchPhase},
     };
 
@@ -614,7 +677,6 @@ mod tests {
                 },
             );
             assert_eq!(state.position(), (500_001, 5.0));
-            assert!(state.is_visible(Id::new(500_000usize)));
             assert_eq!(area.unwrap().y, -5.0);
         }
     }
@@ -622,7 +684,7 @@ mod tests {
     #[test]
     fn thumb_end_seeks_the_finite_or_explored_boundary() {
         for id in [None, Some(1)] {
-            for (count, heights) in [
+            for (count, extents) in [
                 (Some(1), &[1_000.0][..]),
                 (Some(3), &[10.0, 10.0, 1_000.0]),
                 (Some(20), &[10.0; 20]),
@@ -632,26 +694,17 @@ mod tests {
             ] {
                 let mut kernel = Kernel::default();
                 let mut state = VirtualListState::default();
-                settle_frame(&mut kernel, &mut state, count, |index| {
-                    (Id::new(index), heights[index % heights.len()])
-                });
+                let row = |index: usize| (Id::new(index), extents[index % extents.len()]);
+                settle_frame(&mut kernel, &mut state, count, row);
                 for phase in [TouchPhase::Down, TouchPhase::Up] {
-                    render_frame(
-                        &mut kernel,
-                        &mut state,
-                        count,
-                        pointer(id, phase, 79.5, 49.999),
-                        |index| (Id::new(index), heights[index % heights.len()]),
-                    );
+                    render_frame(&mut kernel, &mut state, count, pointer(id, phase, 79.5, 49.999), row);
                 }
                 if kernel.has_pending_redraw() {
-                    settle_frame(&mut kernel, &mut state, count, |index| {
-                        (Id::new(index), heights[index % heights.len()])
-                    });
+                    settle_frame(&mut kernel, &mut state, count, row);
                 }
                 if let Some(count) = count {
                     let area = kernel.area(Target::ROOT.scoped(Id::new(count - 1))).unwrap();
-                    assert_eq!(area.y + area.height, heights.iter().sum::<f32>().min(50.0));
+                    assert_eq!(area.y + area.height, extents.iter().sum::<f32>().min(50.0));
                 } else {
                     assert_eq!(state.position().0, 5);
                     assert_eq!(state.within, 0.0);
@@ -707,6 +760,38 @@ mod tests {
         }
     }
 
+    #[test]
+    fn horizontal_rows_flow_along_x() {
+        let mut kernel = Kernel::default();
+        let mut state = VirtualListState::default();
+        for _ in 0..2 {
+            kernel.build(
+                &mut TestContext,
+                FrameInfo::new(Size::new(50.0, 20.0)),
+                Duration::ZERO,
+                Input::None,
+                |ui: Ui<'_, TestContext>| {
+                    let mut list =
+                        VirtualList::new(&mut state)
+                            .axis(Axis::Horizontal)
+                            .count(10)
+                            .begin(ui, |_| {}, |_, _| {});
+                    while let Some((index, row)) = list.next() {
+                        row.constrain(Constraints::tight(Size::new(10.0, 20.0)))
+                            .layout(())
+                            .child_in(Scope::ROOT, index)
+                            .insert(());
+                    }
+                },
+            );
+            kernel.layout(&mut TestContext);
+        }
+        assert_eq!(
+            kernel.area(Target::ROOT.scoped(2usize)),
+            Some(Rect::new(20.0, 0.0, 10.0, 20.0))
+        );
+    }
+
     fn settle_frame(
         kernel: &mut Kernel<TestContext>,
         state: &mut VirtualListState<f32>,
@@ -735,32 +820,28 @@ mod tests {
             Duration::ZERO,
             input,
             |ui: Ui<'_, TestContext>| {
-                VirtualList::new(state).count(count).id(|index| row(index).0).build(
-                    ui,
-                    |ui, index| {
-                        // a marker in the root scope covers the row so the frame can find it
-                        ui.constrain(Constraints::tight(Size::new(79.0, row(index).1)))
-                            .layout(())
-                            .child_in(Scope::ROOT, row(index).0)
-                            .insert(());
-                    },
-                    // a track at least one unit thick on the right edge
-                    |ui| {
-                        ui.constrain(Constraints {
-                            min: Size::uniform(1.0),
-                            max: Size::uniform(f32::INFINITY),
-                        });
-                    },
-                    |_, _| {},
-                );
+                // a track at least one unit thick on the right edge
+                let track = |ui: Ui<'_, TestContext>| {
+                    ui.constrain(Constraints {
+                        min: Size::uniform(1.0),
+                        max: Size::uniform(f32::INFINITY),
+                    });
+                };
+                let mut list = VirtualList::new(&mut *state).count(count).begin(ui, track, |_, _| {});
+                while let Some((index, ui)) = list.next() {
+                    let (id, extent) = row(index);
+                    // a marker in the root scope covers the row so the frame can find it
+                    ui.key(id)
+                        .constrain(Constraints::tight(Size::new(79.0, extent)))
+                        .layout(())
+                        .child_in(Scope::ROOT, id)
+                        .insert(());
+                }
             },
         );
         kernel.layout(&mut TestContext);
         (
-            state
-                .sample
-                .get(state.visible.start)
-                .and_then(|row| kernel.area(Target::ROOT.scoped(row.id))),
+            kernel.area(Target::ROOT.scoped(row(state.position().0).0)),
             kernel.area(THUMB).unwrap(),
         )
     }

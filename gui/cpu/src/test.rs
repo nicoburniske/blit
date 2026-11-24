@@ -1577,10 +1577,12 @@ fn images_keep_native_size_and_ownership_until_last_reference() {
             Duration::ZERO,
             Input::None,
             |ui: blit::Ui<'_, _>| {
-                let (_, size) = ui.build_measured(Constraints::loose(maximum), |mut ui: blit::Ui<'_, _>| {
-                    ui.insert(retained.clone());
-                });
-                assert_eq!(size, expected);
+                let mut root = ui.layout(());
+                let mut child = root.child();
+                let node = child.node_id();
+                child.insert(retained.clone());
+                drop(child);
+                assert_eq!(root.layout_child(node, Constraints::loose(maximum)), expected);
             },
         );
         kernel.layout(&mut renderer);

@@ -27,7 +27,6 @@ use blit_gui_widget::{
     scroll::{
         ScrollState,
         area::ScrollArea,
-        uniform_list::UniformList,
         virtual_list::{VirtualList, VirtualListState},
     },
     split::{Split, SplitDivider, SplitState},
@@ -857,8 +856,7 @@ impl Widget<DesktopContext> for &mut LayoutPage {
 #[derive(Default)]
 struct ScrollPage {
     mode: ScrollMode,
-    uniform: ScrollState,
-    measured: VirtualListState,
+    list: VirtualListState,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -873,11 +871,7 @@ impl Widget<DesktopContext> for &mut ScrollPage {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
-        let ScrollPage {
-            mode,
-            uniform,
-            measured,
-        } = self;
+        let ScrollPage { mode, list: state } = self;
         let mut section = ui.layout(flex::column().gap(sz::SM)).pad(sz::LG);
         section.insert(panel(colors::SURFACE));
         {
@@ -895,8 +889,7 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                 flex::row().gap(sz::XS),
                 draw_button,
             )) {
-                *uniform = ScrollState::default();
-                *measured = VirtualListState::default();
+                *state = VirtualListState::default();
             }
         }
         let horizontal = *mode == ScrollMode::Horizontal;
@@ -929,32 +922,28 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                 ..TextStyle::default()
             }));
         };
-        if horizontal {
-            UniformList::new(uniform, 0_usize..100)
-                .item_extent(sz::SCROLL_ITEM_WIDTH)
-                .axis(Axis::Horizontal)
-                .gap(sz::XS)
-                .scroll_speed(2.0)
-                .inertia_friction(3.0)
-                .minimum_thumb_extent(sz::XXL)
-                .build(
-                    section.child().item(flex::item().grow()),
-                    row,
-                    scroll_track,
-                    scroll_thumb,
-                );
-        } else {
-            VirtualList::new(measured)
-                .count((*mode == ScrollMode::Finite).then_some(100_000))
-                .scroll_speed(2.0)
-                .inertia_friction(3.0)
-                .minimum_thumb_extent(sz::XS)
-                .build(
-                    section.child().item(flex::item().grow()),
-                    row,
-                    scroll_track,
-                    scroll_thumb,
-                );
+        let mut list = VirtualList::new(state)
+            .axis(if horizontal { Axis::Horizontal } else { Axis::Vertical })
+            .count(match mode {
+                ScrollMode::Finite => Some(100_000),
+                ScrollMode::Infinite => None,
+                ScrollMode::Horizontal => Some(100),
+            })
+            .scroll_speed(2.0)
+            .inertia_friction(3.0)
+            .minimum_thumb_extent(if horizontal { sz::XXL } else { sz::XS })
+            .begin(section.child().item(flex::item().grow()), scroll_track, scroll_thumb);
+        while let Some((index, ui)) = list.next() {
+            // horizontal tiles share one width, vertical rows size to their content
+            let ui = if horizontal {
+                ui.constrain(Constraints {
+                    min: Size::new(sz::SCROLL_ITEM_WIDTH, 0.0),
+                    max: Size::new(sz::SCROLL_ITEM_WIDTH, f32::INFINITY),
+                })
+            } else {
+                ui
+            };
+            ui.build(|ui: Ui<'_>| row(ui, index));
         }
     }
 }
