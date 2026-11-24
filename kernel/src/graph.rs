@@ -186,19 +186,27 @@ pub struct IdTable {
 impl IdTable {
     const EMPTY: u32 = u32::MAX;
 
-    /// replaces the contents with `ids` at their positions
-    pub fn rebuild(&mut self, ids: impl ExactSizeIterator<Item = Id>) {
+    /// replaces the contents with the first `count` items and returns the first id an item repeats
+    pub fn rebuild(&mut self, count: usize, id_of: impl Fn(usize) -> Id) -> Option<Id> {
         // at most half full keeps probes short
-        let len = (ids.len() * 2).next_power_of_two();
+        let len = (count * 2).next_power_of_two();
         self.slots.clear();
         self.slots.resize(len, Self::EMPTY);
-        for (index, id) in ids.enumerate() {
+        let mut duplicate = None;
+        'ids: for index in 0..count {
+            let id = id_of(index);
             let mut slot = id.0.get() as usize & (len - 1);
             while self.slots[slot] != Self::EMPTY {
+                // only probes past an occupied slot compare, so unique ids cost nothing extra
+                if id_of(self.slots[slot] as usize) == id {
+                    duplicate.get_or_insert(id);
+                    continue 'ids;
+                }
                 slot = (slot + 1) & (len - 1);
             }
             self.slots[slot] = u32::try_from(index).expect("too many ids");
         }
+        duplicate
     }
 
     /// the index of `id`, compared against the caller's items through `id_of`

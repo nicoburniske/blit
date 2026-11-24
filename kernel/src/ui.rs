@@ -511,7 +511,7 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
                 first(&mut kernel.sites, self.inner.target, location)
             }
         };
-        let node = kernel.push_node(Some(self.inner.node), id);
+        let node = kernel.push_node(self.inner.context, Some(self.inner.node), id);
         Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node)
     }
 
@@ -519,9 +519,11 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
     ///
     /// [`Target::at`] addresses it
     #[inline]
+    #[track_caller]
     pub fn child_id(&mut self, key: impl Into<Id>) -> Ui<'_, C, state::Child<L::Item>> {
         let id = self.inner.target.child(TargetKey::Child(key.into()));
-        let node = self.inner.kernel.push_node(Some(self.inner.node), id);
+        let kernel = &mut *self.inner.kernel;
+        let node = kernel.push_node(self.inner.context, Some(self.inner.node), id);
         Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node)
     }
 
@@ -530,9 +532,11 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
     /// it keeps its state when it moves to another parent beneath the scope.
     /// [`Target::scoped`] and [`Scope::key`] address it.
     #[inline]
+    #[track_caller]
     pub fn child_in(&mut self, scope: Scope, key: impl Into<Id>) -> Ui<'_, C, state::Child<L::Item>> {
         let id = scope.0.child(TargetKey::Scoped(key.into()));
-        let node = self.inner.kernel.push_node(Some(self.inner.node), id);
+        let kernel = &mut *self.inner.kernel;
+        let node = kernel.push_node(self.inner.context, Some(self.inner.node), id);
         Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node)
     }
 

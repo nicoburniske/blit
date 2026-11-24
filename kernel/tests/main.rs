@@ -27,6 +27,7 @@ struct TestContext {
     info: FrameInfo<f32>,
     commands: Vec<Command>,
     prepared: usize,
+    duplicates: Vec<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -40,6 +41,10 @@ use Command::{Paint, PopClip, PushClip};
 
 impl Context for TestContext {
     type Scalar = f32;
+
+    fn duplicate_id(&mut self, _: Id, location: &'static std::panic::Location<'static>) {
+        self.duplicates.push(location.line());
+    }
 }
 
 /// reports up to two contacts this widget may use, capturing those its predicate accepts
@@ -87,6 +92,7 @@ fn kernel(size: Size<f32>) -> (Kernel<TestContext>, TestContext) {
             info: FrameInfo::new(size),
             commands: Vec::new(),
             prepared: 0,
+            duplicates: Vec::new(),
         },
     )
 }

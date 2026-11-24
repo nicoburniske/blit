@@ -126,6 +126,9 @@ use self::{
 pub trait Context {
     /// coordinate type for all frame geometry
     type Scalar: Scalar;
+
+    /// the node built at `location` repeats a key in its parent or scope, reported a frame later
+    fn duplicate_id(&mut self, _id: Id, _location: &'static Location<'static>) {}
 }
 
 impl Context for () {
@@ -238,6 +241,8 @@ impl<C: Context> Widget<C, state::Insert> for () {
 pub struct Kernel<C: Context> {
     nodes: Vec<StoredNode>,
     placements: Vec<Placement<C::Scalar>>,
+    // an id the latest layout found on several nodes, whose call sites this build reports
+    watch: Option<Id>,
     measures: Vec<StoredMeasure<C>>,
     paints: Vec<StoredPaint<C>>,
     aux: Vec<Aux<C::Scalar>>,
@@ -271,8 +276,6 @@ pub struct Kernel<C: Context> {
     frame_requested: bool,
     // the next frame updates interactions against this layout
     settle: bool,
-    #[cfg(debug_assertions)]
-    widget_ids: Vec<Id>,
 }
 
 impl<C: Context> Default for Kernel<C> {
@@ -280,6 +283,7 @@ impl<C: Context> Default for Kernel<C> {
         Self {
             nodes: Vec::new(),
             placements: Vec::new(),
+            watch: None,
             measures: Vec::new(),
             paints: Vec::new(),
             aux: Vec::new(),
@@ -307,8 +311,6 @@ impl<C: Context> Default for Kernel<C> {
             resized: false,
             frame_requested: true,
             settle: false,
-            #[cfg(debug_assertions)]
-            widget_ids: Default::default(),
         }
     }
 }
@@ -355,8 +357,6 @@ impl<C: Context> Kernel<C> {
         for kind in &mut self.layout_kinds {
             kind.default_item = BumpId::NONE;
         }
-        #[cfg(debug_assertions)]
-        self.widget_ids.clear();
         self.paint_order.clear();
         self.active_clips.clear();
         self.input = input;
@@ -374,21 +374,12 @@ impl<C: Context> Kernel<C> {
             timer.seen = false;
         }
 
-        let root = self.push_node(None, ROOT);
+        let root = self.push_node(context, None, ROOT);
         let mut scratch = core::mem::take(&mut self.scratch);
         scratch.prepare();
         let output = widget.build(Ui::new(self, context, &scratch, root));
         scratch.prepare();
         self.scratch = scratch;
-        #[cfg(debug_assertions)]
-        {
-            self.widget_ids.extend(self.nodes.iter().map(|node| node.widget_id));
-            self.widget_ids.sort_unstable();
-            assert!(
-                self.widget_ids.windows(2).all(|pair| pair[0] != pair[1]),
-                "widget ids must identify unique nodes"
-            );
-        }
         assert_eq!(
             self.nodes[0].subtree_end as usize,
             self.nodes.len() - 1,
@@ -436,7 +427,8 @@ impl<C: Context> Kernel<C> {
         paint::resolve_order(self, &bump);
         paint::resolve_clips(self, &bump);
         // interactions bind against this build
-        self.laid_out.rebuild(self.nodes.iter().map(|stored| stored.widget_id));
+        let nodes = &self.nodes;
+        self.watch = self.laid_out.rebuild(nodes.len(), |index| nodes[index].widget_id);
         interact::resolve(self);
         self.animations.retain(|animation| animation.seen);
         self.motions.retain(|state| state.seen);
@@ -488,7 +480,11 @@ impl<C: Context> Kernel<C> {
 //
 
 impl<C: Context> Kernel<C> {
-    fn push_node(&mut self, parent: Option<NodeId>, widget_id: Id) -> NodeId {
+    #[track_caller]
+    fn push_node(&mut self, context: &mut C, parent: Option<NodeId>, widget_id: Id) -> NodeId {
+        if self.watch == Some(widget_id) {
+            context.duplicate_id(widget_id, Location::caller());
+        }
         let id = NodeId::new(self.nodes.len());
         self.nodes.push(StoredNode {
             widget_id,

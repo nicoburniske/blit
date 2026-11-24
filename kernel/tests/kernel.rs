@@ -334,27 +334,28 @@ fn unbuilt_targets_keep_their_own_parent() {
     }
 }
 
-#[cfg(debug_assertions)]
 #[test]
-fn duplicate_keys_are_rejected() {
-    let cases: &[fn(Ui<'_>)] = &[
+fn duplicate_keys_are_reported() {
+    let cases: &[fn(Ui<'_>) -> u32] = &[
         |ui| {
             let mut root = ui.layout(Overlay);
             root.child_id("target").insert(());
             root.child_id("target").insert(());
+            line!() - 1
         },
         |ui| {
             let mut root = ui.layout(Overlay);
             root.child_in(Scope::ROOT, "target").insert(());
             root.child().layout(Overlay).child_in(Scope::ROOT, "target").insert(());
+            line!() - 1
         },
     ];
-    for (case, build) in cases.iter().enumerate() {
+    for build in cases {
         let (mut kernel, mut context) = kernel(Size::uniform(1.0));
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            render(&mut kernel, &mut context, build);
-        }));
-        assert!(result.is_err(), "case {case}");
+        render(&mut kernel, &mut context, build);
+        assert!(context.duplicates.is_empty());
+        let line = render(&mut kernel, &mut context, build);
+        assert_eq!(context.duplicates, [line - 1, line]);
     }
 }
 
