@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Axis, Constraints, Id, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget};
+use blit::{Axis, Constraints, Id, Layout, LayoutCx, Point, Scalar, Size, Ui, state::NoLayout};
 
 use super::{
     CONTENT, Scrollbar, ScrollbarInput, THUMB, TRACK, ThumbProgress, content_input, content_motion, scrollbar_input,
@@ -20,8 +20,9 @@ blit::builder! {
         count: Option<usize> = None,
         scroll_speed: f32 = 1.0,
         inertia_friction: f32 = 2.5,
-        scrollbar_thickness: T = T::from_f32(1.0),
         minimum_thumb_extent: T = T::from_f32(1.0),
+        /// scrollbars cover the content instead of taking space beside it
+        floating: bool = false,
         #[bounds(FnMut(usize) -> Id)]
         id<K = fn(usize) -> Id>: K = Id::from,
     }
@@ -31,300 +32,281 @@ impl<T: Scalar, K> VirtualList<'_, T, K>
 where
     K: FnMut(usize) -> Id,
 {
-    /// creates a widget without a scrollbar
-    pub fn build<C: Context<Scalar = T>>(
-        self,
-        item: impl FnMut(Ui<'_, C>, usize),
-    ) -> impl Widget<C, Response = Response> {
-        move |ui: Ui<'_, C>| self.build_inner(ui, item, None::<fn(Ui<'_, C>)>, None::<fn(Ui<'_, C>, bool)>)
-    }
+    pub fn build<C, S, F, R, H>(self, ui: Ui<'_, C, S>, mut item: F, track: R, thumb: H) -> Response
+    where
+        C: Context<Scalar = T>,
+        S: NoLayout,
+        F: FnMut(Ui<'_, C>, usize),
+        R: FnOnce(Ui<'_, C>),
+        H: FnOnce(Ui<'_, C>, bool),
+    {
+        ui.build(|mut ui: Ui<'_, C>| {
+            const VIEWPORTS: usize = 2;
 
-    /// creates a widget with a track and thumb
-    pub fn build_scrollbar<C: Context<Scalar = T>>(
-        self,
-        item: impl FnMut(Ui<'_, C>, usize),
-        track: impl FnOnce(Ui<'_, C>),
-        thumb: impl FnOnce(Ui<'_, C>, bool),
-    ) -> impl Widget<C, Response = Response> {
-        move |ui: Ui<'_, C>| self.build_inner(ui, item, Some(track), Some(thumb))
-    }
-
-    fn build_inner<C: Context<Scalar = T>>(
-        self,
-        mut ui: Ui<'_, C>,
-        mut item: impl FnMut(Ui<'_, C>, usize),
-        track: Option<impl FnOnce(Ui<'_, C>)>,
-        thumb: Option<impl FnOnce(Ui<'_, C>, bool)>,
-    ) -> Response {
-        const VIEWPORTS: usize = 2;
-
-        let Self {
-            state,
-            count,
-            scroll_speed,
-            inertia_friction,
-            scrollbar_thickness,
-            minimum_thumb_extent,
-            id: mut item_id,
-        } = self;
-        let viewport = ui.area();
-        let size = viewport.map_or(ui.screen().size(), |area| area.size());
-        let overscan = size.height.repeat(VIEWPORTS);
-        let row = state.sample.get(state.visible.start);
-        let motion = content_input(&mut ui, Axis::Vertical);
-        let (thumb_active, scrollbar) = scrollbar_input(&mut state.inertia, &mut ui, Axis::Vertical, size.height);
-        let movement = match scrollbar {
-            None => content_motion(
-                &mut state.inertia,
-                &mut ui,
-                Axis::Vertical,
+            let Self {
+                state,
+                count,
                 scroll_speed,
                 inertia_friction,
-                motion,
-            ),
-            Some(_) => 0.0,
-        };
-        if viewport.is_none() {
-            ui.request_frame();
-        }
-        // treat large offsets into an unmeasured window as movement so the existing seek logic estimates the row
-        if state.sample.is_empty() && state.within.to_f32().abs() > overscan.to_f32() {
-            state.scroll_delta = state.within.endpoint(state.scroll_delta);
-            state.within = C::Scalar::ZERO;
-        }
-        let delta = {
-            let delta: C::Scalar = state.inertia.pixel_delta(movement);
-            let delta = delta.endpoint(std::mem::take(&mut state.scroll_delta));
-            if delta.to_f32().abs() > overscan.to_f32() && state.average == 0.0 {
-                // wait for the initial heights before estimating a large jump
-                state.scroll_delta = delta;
+                minimum_thumb_extent,
+                floating,
+                id: mut item_id,
+            } = self;
+            let viewport = ui.area();
+            let size = viewport.map_or(ui.screen().size(), |area| area.size());
+            let overscan = size.height.repeat(VIEWPORTS);
+            let row = state.sample.get(state.visible.start);
+            let motion = content_input(&mut ui, Axis::Vertical);
+            let (thumb_active, scrollbar) = scrollbar_input(&mut state.inertia, &mut ui, Axis::Vertical, size.height);
+            let movement = match scrollbar {
+                None => content_motion(
+                    &mut state.inertia,
+                    &mut ui,
+                    Axis::Vertical,
+                    scroll_speed,
+                    inertia_friction,
+                    motion,
+                ),
+                Some(_) => 0.0,
+            };
+            if viewport.is_none() {
                 ui.request_frame();
-                C::Scalar::ZERO
-            } else {
-                delta
             }
-        };
-        let current = state.first as f64
-            + row.map_or(0.0, |row| {
-                (state.within.to_f32() / row.height.to_f32()).clamp(0.0, 1.0) as f64
-            });
-        let seek = match scrollbar {
-            None | Some(ScrollbarInput::Idle | ScrollbarInput::Thumb(0.0)) => {
-                if delta.to_f32().abs() > overscan.to_f32()
-                    && state.average > 0.0
-                    && !row.zip(state.sample.last()).is_some_and(|(row, last)| {
-                        let offset = row.top.endpoint(state.within).endpoint(delta);
-                        offset >= C::Scalar::ZERO && offset <= last.top.endpoint(last.height)
-                    })
-                {
-                    Some((current + delta.to_f32() as f64 / state.average as f64).max(0.0))
+            // treat large offsets into an unmeasured window as movement so the existing seek logic estimates the row
+            if state.sample.is_empty() && state.within.to_f32().abs() > overscan.to_f32() {
+                state.scroll_delta = state.within.endpoint(state.scroll_delta);
+                state.within = C::Scalar::ZERO;
+            }
+            let delta = {
+                let delta: C::Scalar = state.inertia.pixel_delta(movement);
+                let delta = delta.endpoint(std::mem::take(&mut state.scroll_delta));
+                if delta.to_f32().abs() > overscan.to_f32() && state.average == 0.0 {
+                    // wait for the initial heights before estimating a large jump
+                    state.scroll_delta = delta;
+                    ui.request_frame();
+                    C::Scalar::ZERO
                 } else {
-                    None
+                    delta
+                }
+            };
+            let current = state.first as f64
+                + row.map_or(0.0, |row| {
+                    (state.within.to_f32() / row.height.to_f32()).clamp(0.0, 1.0) as f64
+                });
+            let seek = match scrollbar {
+                None | Some(ScrollbarInput::Idle | ScrollbarInput::Thumb(0.0)) => {
+                    if delta.to_f32().abs() > overscan.to_f32()
+                        && state.average > 0.0
+                        && !row.zip(state.sample.last()).is_some_and(|(row, last)| {
+                            let offset = row.top.endpoint(state.within).endpoint(delta);
+                            offset >= C::Scalar::ZERO && offset <= last.top.endpoint(last.height)
+                        })
+                    {
+                        Some((current + delta.to_f32() as f64 / state.average as f64).max(0.0))
+                    } else {
+                        None
+                    }
+                }
+                Some(ScrollbarInput::Thumb(value) | ScrollbarInput::Track(value)) => {
+                    state.inertia.remainder = 0.0;
+                    let offset = row.map_or(C::Scalar::ZERO, |row| row.top.endpoint(state.within));
+                    let (position, visible) = metrics(state, count, size.height, offset);
+                    let total = count.map_or(state.scrollbar.explored, |count| count as f64);
+                    let maximum = (total - visible).max(0.0);
+                    let previous = if count.is_some() {
+                        position
+                    } else {
+                        state.scrollbar.position
+                    };
+                    let position = if matches!(scrollbar, Some(ScrollbarInput::Track(_))) {
+                        value as f64 * maximum
+                    } else {
+                        (previous + value as f64 * maximum).clamp(0.0, maximum)
+                    };
+                    Some(match count {
+                        Some(count) if position == maximum => count as f64,
+                        Some(_) => position,
+                        None if position == 0.0 => 0.0,
+                        None => (current + position - previous).max(0.0),
+                    })
+                }
+            };
+            let direction = seek.map_or(delta.to_f32() as f64, |position| position - current);
+            if let Some(position) = seek {
+                state.first = position as usize;
+                state.within = C::Scalar::ZERO;
+            }
+
+            let limit = count.unwrap_or(usize::MAX);
+            state.first = state.first.min(limit.saturating_sub(1));
+            let anchor = Anchor {
+                index: state.first,
+                within: state.within,
+                delta,
+                fraction: seek.map(|position| (position - state.first as f64).clamp(0.0, 1.0) as f32),
+            };
+            // the track sized the gutter last frame
+            let gutter = match floating {
+                true => C::Scalar::ZERO,
+                false => ui.at(TRACK).area().map_or(C::Scalar::ZERO, |area| area.width),
+            };
+            let width = (size.width - gutter).max(C::Scalar::ZERO);
+            let bounds = Constraints {
+                min: Size::new(width, C::Scalar::ZERO),
+                max: Size::new(width, C::Scalar::UNBOUNDED),
+            };
+            let mut content = ui.clip(C::Scalar::ZERO).layout(VirtualLayout {
+                scrollbar: Scrollbar {
+                    minimum: minimum_thumb_extent,
+                    floating,
+                },
+            });
+            state.sample.clear();
+            // measure rows while extending the window around the anchor
+            let window = {
+                // rows get their own node so their ids never meet the scrollbar's
+                let mut rows = content.child_id(CONTENT).layout(RowsLayout {
+                    anchor,
+                    count,
+                    size,
+                    row_bounds: bounds,
+                });
+                let mut window = Window {
+                    first: anchor.index,
+                    end: anchor.index,
+                    within: anchor.within,
+                    ..Window::default()
+                };
+                let mut read_row = |index, window: &mut Window<C::Scalar>| {
+                    let row_id = item_id(index);
+                    let (_, size) = rows
+                        .child_id(row_id)
+                        .item(index)
+                        .build_measured(bounds, |ui: Ui<'_, C>| item(ui, index));
+                    assert!(size.height.is_finite() && size.height > C::Scalar::ZERO);
+                    state.sample.push(Row {
+                        id: row_id,
+                        top: window.push(anchor, index, size.height),
+                        height: size.height,
+                    });
+                };
+                while window.end < limit
+                    && (window.end == anchor.index
+                        || window.after_anchor < window.within.endpoint(overscan).max(size.height))
+                {
+                    read_row(window.end, &mut window);
+                }
+                while window.first > 0
+                    && (-window.before_anchor > window.within
+                        || (window.end == limit && window.after_anchor.endpoint(window.before_anchor) < overscan))
+                {
+                    read_row(window.first - 1, &mut window);
+                }
+                window
+            };
+            let first = window.first;
+            if first < anchor.index {
+                state.sample.reverse();
+                state.sample[anchor.index - first..].reverse();
+                for row in &mut state.sample {
+                    row.top = row.top.endpoint(window.before_anchor);
                 }
             }
-            Some(ScrollbarInput::Thumb(value) | ScrollbarInput::Track(value)) => {
+            let extent = window.after_anchor.endpoint(window.before_anchor);
+            let offset = window.offset(size.height, count);
+            if (first == 0 && offset == C::Scalar::ZERO && movement < 0.0)
+                || (window.end == limit && offset == (extent - size.height).max(C::Scalar::ZERO) && movement > 0.0)
+            {
+                state.inertia.velocity = 0.0;
                 state.inertia.remainder = 0.0;
-                let offset = row.map_or(C::Scalar::ZERO, |row| row.top.endpoint(state.within));
-                let (position, visible) = metrics(state, count, size.height, offset);
-                let total = count.map_or(state.scrollbar.explored, |count| count as f64);
-                let maximum = (total - visible).max(0.0);
-                let previous = if count.is_some() {
-                    position
-                } else {
-                    state.scrollbar.position
-                };
-                let position = if matches!(scrollbar, Some(ScrollbarInput::Track(_))) {
-                    value as f64 * maximum
-                } else {
-                    (previous + value as f64 * maximum).clamp(0.0, maximum)
-                };
-                Some(match count {
-                    Some(count) if position == maximum => count as f64,
-                    Some(_) => position,
-                    None if position == 0.0 => 0.0,
-                    None => (current + position - previous).max(0.0),
-                })
             }
-        };
-        let direction = seek.map_or(delta.to_f32() as f64, |position| position - current);
-        if let Some(position) = seek {
-            state.first = position as usize;
-            state.within = C::Scalar::ZERO;
-        }
-
-        let limit = count.unwrap_or(usize::MAX);
-        state.first = state.first.min(limit.saturating_sub(1));
-        let anchor = Anchor {
-            index: state.first,
-            within: state.within,
-            delta,
-            fraction: seek.map(|position| (position - state.first as f64).clamp(0.0, 1.0) as f32),
-        };
-        let gutter = if track.is_some() {
-            scrollbar_thickness.max(C::Scalar::ZERO).min(size.width)
-        } else {
-            C::Scalar::ZERO
-        };
-        let width = (size.width - gutter).max(C::Scalar::ZERO);
-        let bounds = Constraints {
-            min: Size::new(width, C::Scalar::ZERO),
-            max: Size::new(width, C::Scalar::UNBOUNDED),
-        };
-        let mut content = ui.clip(C::Scalar::ZERO).layout(VirtualLayout {
-            scrollbar: Scrollbar {
-                thickness: scrollbar_thickness,
-                minimum: minimum_thumb_extent,
-            },
-        });
-        state.sample.clear();
-        // measure rows while extending the window around the anchor
-        let window = {
-            // rows get their own node so their ids never meet the scrollbar's
-            let mut rows = content.child_id(CONTENT).layout(RowsLayout {
-                anchor,
-                count,
-                size,
-                row_bounds: bounds,
-            });
-            let mut window = Window {
-                first: anchor.index,
-                end: anchor.index,
-                within: anchor.within,
-                ..Window::default()
-            };
-            let mut read_row = |index, window: &mut Window<C::Scalar>| {
-                let row_id = item_id(index);
-                let (_, size) = rows
-                    .child_id(row_id)
-                    .item(index)
-                    .build_measured(bounds, |ui: Ui<'_, C>| item(ui, index));
-                assert!(size.height.is_finite() && size.height > C::Scalar::ZERO);
-                state.sample.push(Row {
-                    id: row_id,
-                    top: window.push(anchor, index, size.height),
-                    height: size.height,
-                });
-            };
-            while window.end < limit
-                && (window.end == anchor.index
-                    || window.after_anchor < window.within.endpoint(overscan).max(size.height))
-            {
-                read_row(window.end, &mut window);
-            }
-            while window.first > 0
-                && (-window.before_anchor > window.within
-                    || (window.end == limit && window.after_anchor.endpoint(window.before_anchor) < overscan))
-            {
-                read_row(window.first - 1, &mut window);
-            }
-            window
-        };
-        let first = window.first;
-        if first < anchor.index {
-            state.sample.reverse();
-            state.sample[anchor.index - first..].reverse();
-            for row in &mut state.sample {
-                row.top = row.top.endpoint(window.before_anchor);
-            }
-        }
-        let extent = window.after_anchor.endpoint(window.before_anchor);
-        let offset = window.offset(size.height, count);
-        if (first == 0 && offset == C::Scalar::ZERO && movement < 0.0)
-            || (window.end == limit && offset == (extent - size.height).max(C::Scalar::ZERO) && movement > 0.0)
-        {
-            state.inertia.velocity = 0.0;
-            state.inertia.remainder = 0.0;
-        }
-        state.visible = state
-            .sample
-            .partition_point(|row| row.top.endpoint(row.height) <= offset)
-            ..state
+            state.visible = state
                 .sample
-                .partition_point(|row| row.top < offset.endpoint(size.height));
-        if let Some(row) = state.sample.get(state.visible.start) {
-            state.first = first + state.visible.start;
-            state.within = offset - row.top;
-        } else {
-            state.first = first;
-            state.within = C::Scalar::ZERO;
-        }
-        if !state.sample.is_empty() {
-            state.average = extent.to_f32() / state.sample.len() as f32;
-            if state.scrollbar.scale == 0.0 {
-                state.scrollbar.scale = state.average;
+                .partition_point(|row| row.top.endpoint(row.height) <= offset)
+                ..state
+                    .sample
+                    .partition_point(|row| row.top < offset.endpoint(size.height));
+            if let Some(row) = state.sample.get(state.visible.start) {
+                state.first = first + state.visible.start;
+                state.within = offset - row.top;
+            } else {
+                state.first = first;
+                state.within = C::Scalar::ZERO;
             }
-        }
-        let (position, visible) = metrics(state, count, size.height, offset);
-        let progress = {
-            let scrollbar = &mut state.scrollbar;
-            if position == 0.0 {
-                scrollbar.position = 0.0;
-            } else if direction > 0.0 || scrollbar.position == 0.0 {
-                scrollbar.position = scrollbar.position.max(position);
-            } else if direction < 0.0 {
-                scrollbar.position = scrollbar.position.min(position);
+            if !state.sample.is_empty() {
+                state.average = extent.to_f32() / state.sample.len() as f32;
+                if state.scrollbar.scale == 0.0 {
+                    state.scrollbar.scale = state.average;
+                }
             }
-            // publish measurement corrections only while scrolling in that direction
-            let position = if count.is_some() { position } else { scrollbar.position };
-            scrollbar.explored = scrollbar.explored.max(position + visible * VIEWPORTS as f64);
-            let total = count.map_or(scrollbar.explored, |count| count as f64);
-            let scrollable = total - visible;
-            ThumbProgress {
-                position: if scrollable > 0.0 {
-                    (position / scrollable) as f32
-                } else {
-                    0.0
-                },
-                visible_fraction: if total > 0.0 {
-                    (visible / total).clamp(0.0, 1.0) as f32
-                } else {
-                    1.0
-                },
-            }
-        };
+            let (position, visible) = metrics(state, count, size.height, offset);
+            let progress = {
+                let scrollbar = &mut state.scrollbar;
+                if position == 0.0 {
+                    scrollbar.position = 0.0;
+                } else if direction > 0.0 || scrollbar.position == 0.0 {
+                    scrollbar.position = scrollbar.position.max(position);
+                } else if direction < 0.0 {
+                    scrollbar.position = scrollbar.position.min(position);
+                }
+                // publish measurement corrections only while scrolling in that direction
+                let position = if count.is_some() { position } else { scrollbar.position };
+                scrollbar.explored = scrollbar.explored.max(position + visible * VIEWPORTS as f64);
+                let total = count.map_or(scrollbar.explored, |count| count as f64);
+                let scrollable = total - visible;
+                ThumbProgress {
+                    position: if scrollable > 0.0 {
+                        (position / scrollable) as f32
+                    } else {
+                        0.0
+                    },
+                    visible_fraction: if total > 0.0 {
+                        (visible / total).clamp(0.0, 1.0) as f32
+                    } else {
+                        1.0
+                    },
+                }
+            };
 
-        let pointer_row = if let Some((pointer, viewport)) = content.mouse_position().zip(viewport)
-            && !state.sample.is_empty()
-        {
-            let target = offset.endpoint((pointer.y - viewport.y).clamp(C::Scalar::ZERO, viewport.height));
-            Some(
-                first
-                    + state
-                        .sample
-                        .partition_point(|row| row.top.endpoint(row.height) <= target)
-                        .min(state.sample.len() - 1),
-            )
-        } else {
-            None
-        };
-        if let Some(track) = track {
+            let pointer_row = if let Some((pointer, viewport)) = content.mouse_position().zip(viewport)
+                && !state.sample.is_empty()
+            {
+                let target = offset.endpoint((pointer.y - viewport.y).clamp(C::Scalar::ZERO, viewport.height));
+                Some(
+                    first
+                        + state
+                            .sample
+                            .partition_point(|row| row.top.endpoint(row.height) <= target)
+                            .min(state.sample.len() - 1),
+                )
+            } else {
+                None
+            };
             content.child_id(TRACK).item(Item::Track(progress)).build(track);
-        }
-        if let Some(thumb) = thumb {
             content
                 .child_id(THUMB)
-                .item(Item::Thumb(progress))
+                .item(Item::Thumb)
                 .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
-        }
-        let visible_range = first + state.visible.start..first + state.visible.end;
-        if viewport.is_none() {
-            // preserve the anchor until the viewport is known
-            state.first = anchor.index;
-            state.within = anchor.within.endpoint(anchor.delta);
-            state.sample.clear();
-            state.visible = 0..0;
-            return Response {
+            let visible_range = first + state.visible.start..first + state.visible.end;
+            if viewport.is_none() {
+                // preserve the anchor until the viewport is known
+                state.first = anchor.index;
+                state.within = anchor.within.endpoint(anchor.delta);
+                state.sample.clear();
+                state.visible = 0..0;
+                return Response {
+                    visible_range,
+                    ..Response::default()
+                };
+            }
+            Response {
+                pointer_row,
                 visible_range,
-                ..Response::default()
-            };
-        }
-        Response {
-            pointer_row,
-            visible_range,
-            offset: position,
-            visible_extent: visible,
-            content_extent: count.map_or(state.scrollbar.explored, |count| count as f64),
-        }
+                offset: position,
+                visible_extent: visible,
+                content_extent: count.map_or(state.scrollbar.explored, |count| count as f64),
+            }
+        })
     }
 }
 
@@ -458,7 +440,7 @@ enum Item {
     #[default]
     Rows,
     Track(ThumbProgress),
-    Thumb(ThumbProgress),
+    Thumb,
 }
 
 struct VirtualLayout<T> {
@@ -469,24 +451,28 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for VirtualLayout<T> {
     type Item = Item;
 
     fn layout(&self, cx: &mut LayoutCx<'_, C, Self::Item>, constraints: Constraints<T>) -> Size<T> {
-        // rows are built first and size the viewport the scrollbar spans
         let mut size = Size::ZERO;
+        let mut scrollbar = None;
+        let mut thumb = None;
         for child in cx.children() {
             match *cx.item(child) {
                 Item::Rows => {
                     size = cx.layout_child(child, constraints);
                     cx.set_child_position(child, Point::ZERO);
                 }
-                Item::Track(progress) => {
-                    self.scrollbar
-                        .layout(cx, Axis::Vertical, size, progress, Some(child), None);
-                }
-                Item::Thumb(progress) => {
-                    self.scrollbar
-                        .layout(cx, Axis::Vertical, size, progress, None, Some(child));
-                }
+                Item::Track(progress) => scrollbar = Some((child, progress)),
+                Item::Thumb => thumb = Some(child),
             }
         }
+        let (track, progress) = scrollbar.expect("virtual list track is missing");
+        let thumb = thumb.expect("virtual list thumb is missing");
+        // the track's own size sets the scrollbar thickness
+        let thickness = cx
+            .layout_child(track, Constraints::loose(constraints.max))
+            .width
+            .min(size.width);
+        self.scrollbar
+            .layout(cx, Axis::Vertical, size, progress, thickness, track, thumb);
         size
     }
 }
@@ -749,21 +735,23 @@ mod tests {
             Duration::ZERO,
             input,
             |ui: Ui<'_, TestContext>| {
-                ui.build(
-                    VirtualList::new(state)
-                        .count(count)
-                        .id(|index| row(index).0)
-                        .build_scrollbar(
-                            |ui: Ui<'_, TestContext>, index| {
-                                // a marker in the root scope covers the row so the frame can find it
-                                ui.constrain(Constraints::tight(Size::new(79.0, row(index).1)))
-                                    .layout(())
-                                    .child_in(Scope::ROOT, row(index).0)
-                                    .insert(());
-                            },
-                            |_| {},
-                            |_, _| {},
-                        ),
+                VirtualList::new(state).count(count).id(|index| row(index).0).build(
+                    ui,
+                    |ui, index| {
+                        // a marker in the root scope covers the row so the frame can find it
+                        ui.constrain(Constraints::tight(Size::new(79.0, row(index).1)))
+                            .layout(())
+                            .child_in(Scope::ROOT, row(index).0)
+                            .insert(());
+                    },
+                    // a track at least one unit thick on the right edge
+                    |ui| {
+                        ui.constrain(Constraints {
+                            min: Size::uniform(1.0),
+                            max: Size::uniform(f32::INFINITY),
+                        });
+                    },
+                    |_, _| {},
                 );
             },
         );

@@ -1,4 +1,4 @@
-use blit::{InteractCx, Scalar, Sides, Target, Ui, Widget, input::Input};
+use blit::{InteractCx, Scalar, Sides, Target, Ui, input::Input, state::NoLayout};
 
 use crate::{
     Context, interact,
@@ -18,22 +18,19 @@ pub enum PopoverClose {
 }
 
 blit::builder! {
-    pub struct Popover<'a, C: Context> {
+    pub struct Popover<'a, T: Scalar> {
         new(state: &'a mut PopoverState),
-        #[bounds(FnOnce(Ui<'_, C>, interact::press::Response, bool))]
-        trigger<F = fn(Ui<'_, C>, interact::press::Response, bool)>: F = |_, _, _| (),
-        content<W = fn(Ui<'_, C>)>: W = |_| (),
         #[into]
         parent: Target = Target::ROOT,
         target_anchor: Anchor = Anchor::BottomLeft,
         child_anchor: Anchor = Anchor::TopLeft,
-        x: C::Scalar = C::Scalar::ZERO,
-        y: C::Scalar = C::Scalar::ZERO,
+        x: T = T::ZERO,
+        y: T = T::ZERO,
         #[into]
-        width: Sizing<C::Scalar> = Sizing::fit(),
+        width: Sizing<T> = Sizing::fit(),
         #[into]
-        height: Sizing<C::Scalar> = Sizing::fit(),
-        hit: Sides<C::Scalar> = Sides::all(C::Scalar::ZERO),
+        height: Sizing<T> = Sizing::fit(),
+        hit: Sides<T> = Sides::all(T::ZERO),
         open_on_hover: bool = false,
         close: PopoverClose = PopoverClose::Click,
     }
@@ -48,72 +45,71 @@ blit::builder! {
     }
 }
 
-impl<C: Context, F, W> Widget<C> for Popover<'_, C, F, W>
-where
-    F: FnOnce(Ui<'_, C>, interact::press::Response, bool),
-    W: Widget<C>,
-{
-    type Response = Option<W::Response>;
-    fn build(self, mut ui: Ui<'_, C>) -> Self::Response {
-        let state = self.state;
-        let trigger = self.trigger;
-        let content = self.content;
-        let (backdrop_id, trigger_id, content_id) = (0u8, 1u8, 2u8);
-        let press = ui.at(trigger_id).interact(interact::press());
-        if self.open_on_hover && press.hovered {
-            state.open = true;
-        } else if !self.open_on_hover && press.activated {
-            state.open = !state.open;
-        }
-        // requested while closed too so the opening frame knows where the trigger is
-        let areas = [trigger_id, content_id].map(|id| ui.at(id).area());
-        if state.open {
-            let backdrop = ui.at(backdrop_id).interact(interact::press());
-            ui.at(backdrop_id).interact(BlockInput);
-            let content_hovered = ui.at(content_id).interact(BlockInput);
-            let pointer_inside = content_hovered
-                || ui
-                    .mouse_position()
-                    .is_some_and(|position| areas.into_iter().flatten().any(|area| area.contains(position)));
-            if match (self.close, ui.input()) {
-                (PopoverClose::Click, _) => backdrop.activated,
-                (PopoverClose::Exit, Input::MouseMove { .. } | Input::MouseLeave) => !pointer_inside,
-                _ => false,
-            } {
-                state.open = false;
+impl<T: Scalar> Popover<'_, T> {
+    pub fn build<C, S, F, W>(self, ui: Ui<'_, C, S>, trigger: F, content: W)
+    where
+        C: Context<Scalar = T>,
+        S: NoLayout,
+        F: FnOnce(Ui<'_, C>, interact::press::Response, bool),
+        W: FnOnce(Ui<'_, C>),
+    {
+        ui.build(|mut ui: Ui<'_, C>| {
+            let state = self.state;
+            let (backdrop_id, trigger_id, content_id) = (0u8, 1u8, 2u8);
+            let press = ui.at(trigger_id).interact(interact::press());
+            if self.open_on_hover && press.hovered {
+                state.open = true;
+            } else if !self.open_on_hover && press.activated {
+                state.open = !state.open;
             }
-        }
+            // requested while closed too so the opening frame knows where the trigger is
+            let areas = [trigger_id, content_id].map(|id| ui.at(id).area());
+            if state.open {
+                let backdrop = ui.at(backdrop_id).interact(interact::press());
+                ui.at(backdrop_id).interact(BlockInput);
+                let content_hovered = ui.at(content_id).interact(BlockInput);
+                let pointer_inside = content_hovered
+                    || ui
+                        .mouse_position()
+                        .is_some_and(|position| areas.into_iter().flatten().any(|area| area.contains(position)));
+                if match (self.close, ui.input()) {
+                    (PopoverClose::Click, _) => backdrop.activated,
+                    (PopoverClose::Exit, Input::MouseMove { .. } | Input::MouseLeave) => !pointer_inside,
+                    _ => false,
+                } {
+                    state.open = false;
+                }
+            }
 
-        let mut root = ui.layout(flex::column().align(Align::Start));
-        if state.open && self.close != PopoverClose::Manual {
-            root.child_id(backdrop_id)
-                .parent(self.parent)
-                .z_index(1)
-                .place(
-                    self.parent,
-                    absolute::place().width(Sizing::full()).height(Sizing::full()),
-                )
-                .insert(());
-        }
-        root.child_id(trigger_id)
-            .hit(self.hit)
-            .layout(())
-            .child()
-            .build(|ui: Ui<'_, C>| trigger(ui, press, state.open));
-        if !state.open {
-            return None;
-        }
-        // stacks above the backdrop as its later sibling
-        Some(
+            let mut root = ui.layout(flex::column().align(Align::Start));
+            if state.open && self.close != PopoverClose::Manual {
+                root.child_id(backdrop_id)
+                    .parent(self.parent)
+                    .z_index(1)
+                    .place(
+                        self.parent,
+                        absolute::place().width(Sizing::full()).height(Sizing::full()),
+                    )
+                    .insert(());
+            }
+            root.child_id(trigger_id)
+                .hit(self.hit)
+                .layout(())
+                .child()
+                .build(|ui: Ui<'_, C>| trigger(ui, press, state.open));
+            if !state.open {
+                return;
+            }
+            // stacks above the backdrop as its later sibling
             root.child_id(content_id)
                 .parent(self.parent)
                 .z_index(1)
                 .hit(
                     Sides::new()
-                        .top(self.y.max(C::Scalar::ZERO))
-                        .right((-self.x).max(C::Scalar::ZERO))
-                        .bottom((-self.y).max(C::Scalar::ZERO))
-                        .left(self.x.max(C::Scalar::ZERO)),
+                        .top(self.y.max(T::ZERO))
+                        .right((-self.x).max(T::ZERO))
+                        .bottom((-self.y).max(T::ZERO))
+                        .left(self.x.max(T::ZERO)),
                 )
                 .place(
                     Target::PARENT.at(trigger_id),
@@ -127,8 +123,8 @@ where
                 )
                 .layout(())
                 .child()
-                .build(content),
-        )
+                .build(content);
+        })
     }
 }
 
@@ -170,11 +166,12 @@ mod tests {
         let mut next = |input| {
             step(&mut kernel, input, |mut ui: Ui<'_, TestContext>| {
                 let background = ui.interact(interact::scroll()).delta;
-                let content = ui
-                    .build(Popover::new(&mut state).width(100.0).height(100.0).content(
-                        |mut ui: Ui<'_, TestContext>| ui.interact(interact::scroll().axis(Axis::Horizontal)).delta,
-                    ))
-                    .unwrap();
+                let mut content = InputPoint::ZERO;
+                Popover::new(&mut state).width(100.0).height(100.0).build(
+                    ui,
+                    |_, _, _| (),
+                    |mut ui| content = ui.interact(interact::scroll().axis(Axis::Horizontal)).delta,
+                );
                 (background, content)
             })
         };
@@ -197,21 +194,21 @@ mod tests {
         }
     }
 
-    fn render(ui: Ui<'_, TestContext>, popover: Popover<'_, TestContext>) {
-        ui.build(
-            popover
-                .trigger(|ui, _, _| {
-                    ui.layout(())
-                        .child_in(blit::Scope::ROOT, "named trigger")
-                        .constrain(Constraints::tight(Size::new(2.0, 1.0)))
-                        .insert(())
-                })
-                .content(|ui: Ui<'_, TestContext>| {
-                    ui.layout(())
-                        .child_in(blit::Scope::ROOT, "named content")
-                        .constrain(Constraints::tight(Size::new(4.0, 3.0)))
-                        .insert(())
-                }),
+    fn render(ui: Ui<'_, TestContext>, popover: Popover<'_, f32>) {
+        popover.build(
+            ui,
+            |ui, _, _| {
+                ui.layout(())
+                    .child_in(blit::Scope::ROOT, "named trigger")
+                    .constrain(Constraints::tight(Size::new(2.0, 1.0)))
+                    .insert(())
+            },
+            |ui| {
+                ui.layout(())
+                    .child_in(blit::Scope::ROOT, "named content")
+                    .constrain(Constraints::tight(Size::new(4.0, 3.0)))
+                    .insert(())
+            },
         );
     }
 

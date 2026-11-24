@@ -1,19 +1,15 @@
-use blit::{Axis, Constraints, LayoutCx, Point, Scalar, Size, Ui, Widget};
+use blit::{Axis, Constraints, LayoutCx, Point, Scalar, Size, Ui, state::NoLayout};
 
 use crate::{Context, interact};
 
 blit::builder! {
-    pub struct Split<'a, C: Context> {
-        new(state: &'a mut SplitState<C::Scalar>),
-        leading<L = fn(Ui<'_, C>)>: L = |_| (),
-        trailing<R = fn(Ui<'_, C>)>: R = |_| (),
-        #[bounds(FnOnce(Ui<'_, C>, SplitDivider))]
-        divider<D = fn(Ui<'_, C>, SplitDivider)>: D = |_, _| (),
-        initial_extent: C::Scalar = C::Scalar::ZERO,
+    pub struct Split<'a, T: Scalar> {
+        new(state: &'a mut SplitState<T>),
+        initial_extent: T = T::ZERO,
         axis: Axis = Axis::Horizontal,
-        divider_extent: C::Scalar = C::Scalar::from_f32(1.0),
-        minimum_leading: C::Scalar = C::Scalar::ZERO,
-        minimum_trailing: C::Scalar = C::Scalar::ZERO,
+        divider_extent: T = T::from_f32(1.0),
+        minimum_leading: T = T::ZERO,
+        minimum_trailing: T = T::ZERO,
     }
 }
 
@@ -48,57 +44,57 @@ impl<T: Scalar> SplitState<T> {
     }
 }
 
-impl<C: Context, L, R, D> Widget<C> for Split<'_, C, L, R, D>
-where
-    L: Widget<C>,
-    R: Widget<C>,
-    D: FnOnce(Ui<'_, C>, SplitDivider),
-{
-    type Response = ();
-    fn build(self, mut ui: Ui<'_, C>) {
-        let state = self.state;
-        let leading = self.leading;
-        let trailing = self.trailing;
-        let divider = self.divider;
-        let axis = self.axis;
-        let (leading_id, divider_id) = (0u8, 1u8);
-        let press = ui.at(divider_id).interact(interact::press());
-        let measured = ui.at(leading_id).area().map(|area| axis.extent(area.size()));
-        let drag = ui.at(divider_id).interact(interact::drag());
-        let delta = match axis {
-            Axis::Horizontal => drag.delta.x,
-            Axis::Vertical => drag.delta.y,
-        };
-        if !state.changed
-            && let Some(measured) = measured
-        {
-            state.extent = Some(measured);
-        }
-        if delta != C::Scalar::ZERO {
+impl<T: Scalar> Split<'_, T> {
+    pub fn build<C, S, L, R, D>(self, ui: Ui<'_, C, S>, leading: L, trailing: R, divider: D)
+    where
+        C: Context<Scalar = T>,
+        S: NoLayout,
+        L: FnOnce(Ui<'_, C>),
+        R: FnOnce(Ui<'_, C>),
+        D: FnOnce(Ui<'_, C>, SplitDivider),
+    {
+        ui.build(|mut ui: Ui<'_, C>| {
+            let state = self.state;
+            let axis = self.axis;
+            let (leading_id, divider_id) = (0u8, 1u8);
+            let press = ui.at(divider_id).interact(interact::press());
+            let measured = ui.at(leading_id).area().map(|area| axis.extent(area.size()));
+            let drag = ui.at(divider_id).interact(interact::drag());
+            let delta = match axis {
+                Axis::Horizontal => drag.delta.x,
+                Axis::Vertical => drag.delta.y,
+            };
+            if !state.changed
+                && let Some(measured) = measured
+            {
+                state.extent = Some(measured);
+            }
+            if delta != T::ZERO {
+                let extent = state.extent.unwrap_or(self.initial_extent);
+                state.extent = Some(extent + delta);
+            }
             let extent = state.extent.unwrap_or(self.initial_extent);
-            state.extent = Some(extent + delta);
-        }
-        let extent = state.extent.unwrap_or(self.initial_extent);
-        state.changed = false;
-        let mut panes = ui.layout(Layout {
-            axis,
-            divider_extent: self.divider_extent,
-            extent,
-            minimum_leading: self.minimum_leading,
-            minimum_trailing: self.minimum_trailing,
-        });
-        panes.child_id(leading_id).build(leading);
-        panes.child_id(divider_id).build(|ui: Ui<'_, C>| {
-            divider(
-                ui,
-                SplitDivider {
-                    axis,
-                    hovered: press.hovered,
-                    active: press.active || drag.active,
-                },
-            )
-        });
-        panes.child().build(trailing);
+            state.changed = false;
+            let mut panes = ui.layout(Layout {
+                axis,
+                divider_extent: self.divider_extent,
+                extent,
+                minimum_leading: self.minimum_leading,
+                minimum_trailing: self.minimum_trailing,
+            });
+            panes.child_id(leading_id).build(leading);
+            panes.child_id(divider_id).build(|ui: Ui<'_, C>| {
+                divider(
+                    ui,
+                    SplitDivider {
+                        axis,
+                        hovered: press.hovered,
+                        active: press.active || drag.active,
+                    },
+                )
+            });
+            panes.child().build(trailing);
+        })
     }
 }
 

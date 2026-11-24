@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Axis, Constraints, Id, Layout, LayoutCx, Point, Scalar, Size, Ui, Widget};
+use blit::{Axis, Constraints, Id, Layout, LayoutCx, Point, Scalar, Size, Ui, state::NoLayout};
 
 use super::{Goal, Request, ScrollLayout, Scrollbar, animate, build_scroll, update};
 use crate::{Context, scroll::ScrollState};
@@ -18,8 +18,9 @@ blit::builder! {
         item_extent: T = T::from_f32(1.0),
         scroll_speed: f32 = 1.0,
         inertia_friction: f32 = 2.5,
-        scrollbar_thickness: T = T::from_f32(1.0),
         minimum_thumb_extent: T = T::from_f32(1.0),
+        /// scrollbars cover the content instead of taking space beside it
+        floating: bool = false,
         #[bounds(FnMut(usize, &I::Item) -> Id)]
         id<K = fn(usize, &<I as Iterator>::Item) -> Id>: K = |index, _| Id::from(index),
     }
@@ -30,124 +31,109 @@ where
     I: ExactSizeIterator + Clone,
     K: FnMut(usize, &I::Item) -> Id,
 {
-    /// creates a widget without a scrollbar
-    pub fn build<C: Context<Scalar = T>>(
-        self,
-        item: impl FnMut(Ui<'_, C>, I::Item),
-    ) -> impl Widget<C, Response = Response> {
-        move |ui: Ui<'_, C>| self.build_inner(ui, item, None::<fn(Ui<'_, C>)>, None::<fn(Ui<'_, C>, bool)>)
-    }
-
-    /// creates a widget with a track and thumb
-    pub fn build_scrollbar<C: Context<Scalar = T>>(
-        self,
-        item: impl FnMut(Ui<'_, C>, I::Item),
-        track: impl FnOnce(Ui<'_, C>),
-        thumb: impl FnOnce(Ui<'_, C>, bool),
-    ) -> impl Widget<C, Response = Response> {
-        move |ui: Ui<'_, C>| self.build_inner(ui, item, Some(track), Some(thumb))
-    }
-
-    fn build_inner<C: Context<Scalar = T>>(
-        self,
-        mut ui: Ui<'_, C>,
-        mut item: impl FnMut(Ui<'_, C>, I::Item),
-        track: Option<impl FnOnce(Ui<'_, C>)>,
-        thumb: Option<impl FnOnce(Ui<'_, C>, bool)>,
-    ) -> Response {
-        let Self {
-            state,
-            items,
-            axis,
-            gap,
-            item_extent,
-            scroll_speed,
-            inertia_friction,
-            scrollbar_thickness,
-            minimum_thumb_extent,
-            id: mut item_id,
-        } = self;
-        assert!(item_extent.is_finite() && item_extent > C::Scalar::ZERO);
-        assert!(gap.is_finite() && gap >= C::Scalar::ZERO);
-        let stride = item_extent.endpoint(gap);
-        let count = items.len();
-        let (thumb_active, viewport_known) = update(state, &mut ui, axis, scroll_speed, inertia_friction);
-        let total_extent = item_extent.repeat(count).endpoint(gap.repeat(count.saturating_sub(1)));
-        state.content_extent = total_extent;
-        // resolve offscreen rows by index before choosing which rows to build
-        if viewport_known && let Goal::Widget(target) = state.request.target {
-            match items
-                .clone()
-                .enumerate()
-                .position(|(index, value)| item_id(index, &value) == target)
-            {
-                Some(index) => {
-                    let start = stride.repeat(index);
-                    let end = start.endpoint(item_extent);
-                    let minimum = (end - state.viewport_extent).min(start);
-                    let maximum = start;
-                    // move only as far as needed to reveal the row
-                    state.request.target = Goal::Offset(state.offset.clamp(minimum, maximum));
-                }
-                None => state.request = Request::default(),
-            }
-        }
-        animate(state, &mut ui, viewport_known);
-        state.offset = state.offset.clamp(C::Scalar::ZERO, state.maximum_offset());
-        let viewport_extent = if viewport_known {
-            state.viewport_extent
-        } else {
-            ui.request_frame();
-            axis.extent(ui.screen().size())
-        };
-        let start = state.offset.index(stride).min(count);
-        let extent = state.offset.endpoint(viewport_extent);
-        let end = extent.index(stride);
-        let end = end.saturating_add(usize::from(stride.repeat(end) < extent)).min(count);
-        let start = start
-            .saturating_add(usize::from(stride.repeat(start).endpoint(item_extent) <= state.offset))
-            .min(end);
-        let visible_range = if viewport_extent > C::Scalar::ZERO {
-            start..end
-        } else {
-            start..start
-        };
-        let first = start.saturating_sub(1);
-        let end = end.saturating_add(1).min(count);
-        let layout = ListLayout {
-            axis,
-            item_extent,
-            stride,
-            total_extent,
-        };
-        let items = items.skip(first).take(end - first);
-        let content = move |ui: Ui<'_, C>| {
-            let mut list = ui.layout(layout);
-            for (offset, value) in items.enumerate() {
-                let row_id = item_id(first + offset, &value);
-                list.child_id(row_id)
-                    .item(first + offset)
-                    .build(|ui: Ui<'_, C>| item(ui, value));
-            }
-        };
-        let offset = state.offset;
-        build_scroll(
-            ui,
-            ScrollLayout {
+    pub fn build<C, S, F, R, H>(self, ui: Ui<'_, C, S>, mut item: F, track: R, thumb: H) -> Response
+    where
+        C: Context<Scalar = T>,
+        S: NoLayout,
+        F: FnMut(Ui<'_, C>, I::Item),
+        R: FnOnce(Ui<'_, C>),
+        H: FnOnce(Ui<'_, C>, bool),
+    {
+        ui.build(|mut ui: Ui<'_, C>| {
+            let Self {
+                state,
+                items,
                 axis,
-                offset,
-                viewport_extent: state.viewport_extent,
-                scrollbar: Scrollbar {
-                    thickness: scrollbar_thickness,
-                    minimum: minimum_thumb_extent,
+                gap,
+                item_extent,
+                scroll_speed,
+                inertia_friction,
+                minimum_thumb_extent,
+                floating,
+                id: mut item_id,
+            } = self;
+            assert!(item_extent.is_finite() && item_extent > C::Scalar::ZERO);
+            assert!(gap.is_finite() && gap >= C::Scalar::ZERO);
+            let stride = item_extent.endpoint(gap);
+            let count = items.len();
+            let (thumb_active, viewport_known) = update(state, &mut ui, axis, scroll_speed, inertia_friction);
+            let total_extent = item_extent.repeat(count).endpoint(gap.repeat(count.saturating_sub(1)));
+            state.content_extent = total_extent;
+            // resolve offscreen rows by index before choosing which rows to build
+            if viewport_known && let Goal::Widget(target) = state.request.target {
+                match items
+                    .clone()
+                    .enumerate()
+                    .position(|(index, value)| item_id(index, &value) == target)
+                {
+                    Some(index) => {
+                        let start = stride.repeat(index);
+                        let end = start.endpoint(item_extent);
+                        let minimum = (end - state.viewport_extent).min(start);
+                        let maximum = start;
+                        // move only as far as needed to reveal the row
+                        state.request.target = Goal::Offset(state.offset.clamp(minimum, maximum));
+                    }
+                    None => state.request = Request::default(),
+                }
+            }
+            animate(state, &mut ui, viewport_known);
+            state.offset = state.offset.clamp(C::Scalar::ZERO, state.maximum_offset());
+            let viewport_extent = if viewport_known {
+                state.viewport_extent
+            } else {
+                ui.request_frame();
+                axis.extent(ui.screen().size())
+            };
+            let start = state.offset.index(stride).min(count);
+            let extent = state.offset.endpoint(viewport_extent);
+            let end = extent.index(stride);
+            let end = end.saturating_add(usize::from(stride.repeat(end) < extent)).min(count);
+            let start = start
+                .saturating_add(usize::from(stride.repeat(start).endpoint(item_extent) <= state.offset))
+                .min(end);
+            let visible_range = if viewport_extent > C::Scalar::ZERO {
+                start..end
+            } else {
+                start..start
+            };
+            let first = start.saturating_sub(1);
+            let end = end.saturating_add(1).min(count);
+            let layout = ListLayout {
+                axis,
+                item_extent,
+                stride,
+                total_extent,
+            };
+            let items = items.skip(first).take(end - first);
+            let content = move |ui: Ui<'_, C>| {
+                let mut list = ui.layout(layout);
+                for (offset, value) in items.enumerate() {
+                    let row_id = item_id(first + offset, &value);
+                    list.child_id(row_id)
+                        .item(first + offset)
+                        .build(|ui: Ui<'_, C>| item(ui, value));
+                }
+            };
+            let offset = state.offset;
+            build_scroll(
+                ui,
+                ScrollLayout {
+                    axis,
+                    offset,
+                    viewport_extent: state.viewport_extent,
+                    scrollbar: Scrollbar {
+                        minimum: minimum_thumb_extent,
+                        floating,
+                    },
                 },
-            },
-            content,
-            track,
-            thumb,
-            thumb_active,
-        );
-        Response { visible_range }
+                content,
+                track,
+                thumb,
+                thumb_active,
+            );
+            Response { visible_range }
+        })
     }
 }
 

@@ -1,7 +1,6 @@
 use std::fmt::Write as _;
 
 use blit::{Paint, Sides, Widget};
-use blit_widget::interact;
 pub use blit_widget::performance::*;
 
 use crate::{
@@ -69,14 +68,15 @@ where
                 cached.push_str(value);
             }
         }
-        ui.build(
-            Popover::new(popover)
-                .target_anchor(self.popover_target_anchor)
-                .child_anchor(self.popover_child_anchor)
-                .x(self.popover_x)
-                .y(self.popover_y)
-                .close(PopoverClose::Manual)
-                .trigger(|ui: blit::Ui<'_, C>, press: interact::press::Response, open| {
+        Popover::new(popover)
+            .target_anchor(self.popover_target_anchor)
+            .child_anchor(self.popover_child_anchor)
+            .x(self.popover_x)
+            .y(self.popover_y)
+            .close(PopoverClose::Manual)
+            .build(
+                ui,
+                |ui, press, open| {
                     let mut badge = ui
                         .layout(flex::row().gap(self.gap).align(Align::Center))
                         .pad(self.badge_padding);
@@ -96,8 +96,8 @@ where
                     badge
                         .child()
                         .insert(Text::new(label).color(self.color).attributes(self.badge_attributes));
-                })
-                .content(|ui: blit::Ui<'_, C>| {
+                },
+                |ui| {
                     let profiler: &FrameProfiler = ui.context().as_ref();
                     let mut graph_values = ui.scratch().slice(columns);
                     graph_values.resize(columns, 0.0_f32);
@@ -163,8 +163,8 @@ where
                                 .insert(Block::new().background(self.accent));
                         }
                     }
-                }),
-        );
+                },
+            );
     }
 }
 

@@ -47,7 +47,7 @@ pub struct StoredNode {
 
 // settings most nodes leave unset, kept apart so nodes stay small
 #[derive(Clone, Copy)]
-pub struct Aux<T: Scalar> {
+pub struct Aux<T> {
     pub visual_parent: NodeId,
     pub clip: Option<Corners<T>>,
     pub limits: Constraints<T>,
@@ -56,7 +56,7 @@ pub struct Aux<T: Scalar> {
 }
 
 // the parent a node stacks, clips and contains its size within
-pub fn visual_parent<T: Scalar>(aux: &[Aux<T>], stored: &StoredNode) -> NodeId {
+pub fn visual_parent<T>(aux: &[Aux<T>], stored: &StoredNode) -> NodeId {
     stored
         .aux
         .index()
@@ -76,7 +76,7 @@ pub struct NodeMotion {
 }
 
 #[derive(Clone, Copy)]
-pub struct ResolvedClip<T: Scalar> {
+pub struct ResolvedClip<T> {
     pub parent: ResolvedClipId,
     pub depth: u32,
     pub area: Rect<T>,
@@ -142,10 +142,10 @@ impl<T> Index<T> {
 
 pub type StoredMeasureId = Index<StoredMeasure<()>>;
 pub type StoredPaintId = Index<StoredPaint<()>>;
-pub type AuxId = Index<Aux<f32>>;
+pub type AuxId = Index<Aux<()>>;
 pub type PlaceId = Index<StoredPlace<()>>;
 pub type NodeMotionId = Index<NodeMotion>;
-pub type ResolvedClipId = Index<ResolvedClip<f32>>;
+pub type ResolvedClipId = Index<ResolvedClip<()>>;
 
 pub struct LayoutKind<C: Context> {
     pub type_id: TypeId,

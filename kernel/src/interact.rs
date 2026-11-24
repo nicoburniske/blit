@@ -312,7 +312,7 @@ impl<'a, T: Scalar> Iterator for Contacts<'a, T> {
 const UNRESOLVED: u32 = u32::MAX;
 
 #[derive(Default)]
-pub struct InteractionState<T: Scalar> {
+pub struct InteractionState<T> {
     pub clips: Vec<ResolvedClip<T>>,
     pub deadline: Option<Duration>,
     pub focused: Option<Id>,

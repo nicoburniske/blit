@@ -30,7 +30,7 @@ use blit_gui_widget::{
         uniform_list::UniformList,
         virtual_list::{VirtualList, VirtualListState},
     },
-    split::{Split, SplitState},
+    split::{Split, SplitDivider, SplitState},
     text_input::{TextInput, TextInputState},
 };
 use blit_text::{Family, FontData, FontStyle};
@@ -175,17 +175,17 @@ impl Application for App {
                 draw_button,
             ));
             header.child().item(flex::item().grow()).insert(());
-            let reset = header.child().build(
-                Popover::new(&mut self.settings)
-                    .target_anchor(Anchor::BottomRight)
-                    .child_anchor(Anchor::TopRight)
-                    .y(sz::XXS)
-                    .open_on_hover(true)
-                    .close(PopoverClose::Exit)
-                    .trigger(|ui, press, open| {
-                        draw_button(ui, "settings", open, press);
-                    })
-                    .content(|ui: Ui<'_>| {
+            let mut reset = false;
+            Popover::new(&mut self.settings)
+                .target_anchor(Anchor::BottomRight)
+                .child_anchor(Anchor::TopRight)
+                .y(sz::XXS)
+                .open_on_hover(true)
+                .close(PopoverClose::Exit)
+                .build(
+                    header.child(),
+                    |ui, press, open| draw_button(ui, "settings", open, press),
+                    |ui| {
                         let mut popup = ui.layout(flex::column().gap(sz::SM)).pad(sz::MD);
                         popup.insert(
                             Rectangle::new()
@@ -199,10 +199,10 @@ impl Application for App {
                         {
                             self.show_performance = !self.show_performance;
                         }
-                        popup.child().build(Button::new("Reset", false))
-                    }),
-            );
-            if reset.unwrap_or(false) {
+                        reset = popup.child().build(Button::new("Reset", false));
+                    },
+                );
+            if reset {
                 *self = Self::default();
             }
         }
@@ -272,19 +272,17 @@ impl Widget<DesktopContext> for &mut AnimationPage {
         } = self;
         let settings = Cell::new(*spring);
         let mut body = ui.layout(flex::row());
-        body.child().item(flex::item().grow()).build(split(
-            split_state,
-            sz::SIDEBAR,
-            |ui: Ui<'_>| {
+        split(split_state).build(
+            body.child().item(flex::item().grow()),
+            |ui| {
                 let mut sidebar = ui.layout(flex::column().gap(sz::XS)).clip(0.0).pad(sz::LG);
                 sidebar.insert(panel(colors::SURFACE));
                 sidebar
                     .child()
                     .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-                sidebar
-                    .child()
-                    .item(flex::item().grow())
-                    .build(scroll_area(controls_scroll, |ui: Ui<'_>| {
+                scroll_area(controls_scroll).build(
+                    sidebar.child().item(flex::item().grow()),
+                    |ui| {
                         let mut controls = ui.layout(flex::column().gap(sz::LG));
                         controls.child().build(|ui: Ui<'_>| {
                             choices(
@@ -302,10 +300,13 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                                 &[("350ms", 0.35), ("650ms", 0.65), ("1000ms", 1.0), ("2000ms", 2.0)],
                             );
                         });
-                    }));
+                    },
+                    scroll_track,
+                    scroll_thumb,
+                );
                 settings.set(*spring);
             },
-            |ui: Ui<'_>| {
+            |ui| {
                 let spring = settings.get();
                 let mut preview = ui.layout(flex::column().gap(sz::SM)).clip(0.0).pad(sz::LG);
                 preview.insert(panel(colors::SURFACE));
@@ -371,7 +372,8 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                         );
                 }
             },
-        ));
+            split_divider,
+        );
     }
 }
 
@@ -518,10 +520,9 @@ impl Widget<DesktopContext> for &mut TextPage {
         };
         let screen = ui.screen().size();
         let mut body = ui.layout(flex::row());
-        body.child().item(flex::item().grow()).build(split(
-            split_state,
-            sz::SIDEBAR,
-            |ui: Ui<'_>| {
+        split(split_state).build(
+            body.child().item(flex::item().grow()),
+            |ui| {
                 let mut controls = ui.layout(flex::column().gap(sz::LG)).pad(sz::LG);
                 controls.insert(panel(colors::SURFACE));
                 controls
@@ -580,7 +581,7 @@ impl Widget<DesktopContext> for &mut TextPage {
                     );
                 });
             },
-            |ui: Ui<'_>| {
+            |ui| {
                 let mut preview = ui.layout(flex::column().gap(sz::SM)).pad(sz::LG);
                 preview.insert(panel(colors::SURFACE));
                 preview
@@ -593,13 +594,14 @@ impl Widget<DesktopContext> for &mut TextPage {
                             .background(colors::TRACK)
                             .radius(BorderRadius::all(sz::XS)),
                     );
-                    viewport.child().build(
-                        Resize::new(resize)
-                            .initial(Size::new(560.0, 360.0))
-                            .minimum(Size::new(260.0, 160.0))
-                            .maximum(screen)
-                            .grip_size(Size::uniform(sz::MD))
-                            .content(|ui: Ui<'_>| {
+                    Resize::new(resize)
+                        .initial(Size::new(560.0, 360.0))
+                        .minimum(Size::new(260.0, 160.0))
+                        .maximum(screen)
+                        .grip_size(Size::uniform(sz::MD))
+                        .build(
+                            viewport.child(),
+                            |ui| {
                                 let mut paragraph = ui.layout(()).clip(0.0).pad(sz::LG);
                                 paragraph.insert(
                                     Rectangle::new()
@@ -616,12 +618,13 @@ impl Widget<DesktopContext> for &mut TextPage {
                                         })
                                         .options(options),
                                 );
-                            })
-                            .grip(draw_grip),
-                    );
+                            },
+                            draw_grip,
+                        );
                 });
             },
-        ));
+            split_divider,
+        );
     }
 }
 
@@ -700,19 +703,17 @@ impl Widget<DesktopContext> for &mut LayoutPage {
         let unit = Size::uniform(sz::SM);
         let preview_config = *canvas;
         let mut body = ui.layout(flex::row());
-        body.child().item(flex::item().grow()).build(split(
-            split_state,
-            sz::SIDEBAR,
-            |ui: Ui<'_>| {
+        split(split_state).build(
+            body.child().item(flex::item().grow()),
+            |ui| {
                 let mut sidebar = ui.layout(flex::column().gap(sz::XS)).pad(sz::LG);
                 sidebar.insert(panel(colors::SURFACE));
                 sidebar
                     .child()
                     .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-                sidebar
-                    .child()
-                    .item(flex::item().grow())
-                    .build(scroll_area(controls_scroll, |ui: Ui<'_>| {
+                scroll_area(controls_scroll).build(
+                    sidebar.child().item(flex::item().grow()),
+                    |ui| {
                         let mut controls = ui.layout(flex::column().gap(sz::LG));
                         controls.child().build(|ui: Ui<'_>| {
                             choices(
@@ -812,9 +813,12 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                                 ],
                             );
                         });
-                    }));
+                    },
+                    scroll_track,
+                    scroll_thumb,
+                );
             },
-            |ui: Ui<'_>| {
+            |ui| {
                 let mut preview = ui.layout(flex::column().gap(sz::SM)).pad(sz::LG);
                 preview.insert(panel(colors::SURFACE));
                 preview
@@ -829,20 +833,24 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                     );
                     let initial =
                         (screen - sz::CANVAS_INITIAL_OFFSET).max(sz::CANVAS_INITIAL_MIN) * sz::CANVAS_INITIAL_SCALE;
-                    viewport.child().build(
-                        Resize::new(resize)
-                            .initial(initial)
-                            .minimum(sz::CANVAS_MIN)
-                            .grip_size(Size::uniform(sz::MD))
-                            .content(Canvas {
-                                config: preview_config,
-                                unit,
-                            })
-                            .grip(draw_grip),
-                    );
+                    Resize::new(resize)
+                        .initial(initial)
+                        .minimum(sz::CANVAS_MIN)
+                        .grip_size(Size::uniform(sz::MD))
+                        .build(
+                            viewport.child(),
+                            |ui| {
+                                ui.build(Canvas {
+                                    config: preview_config,
+                                    unit,
+                                })
+                            },
+                            draw_grip,
+                        );
                 });
             },
-        ));
+            split_divider,
+        );
     }
 }
 
@@ -922,57 +930,53 @@ impl Widget<DesktopContext> for &mut ScrollPage {
             }));
         };
         if horizontal {
-            section.child().item(flex::item().grow()).build(
-                UniformList::new(uniform, 0_usize..100)
-                    .item_extent(sz::SCROLL_ITEM_WIDTH)
-                    .axis(Axis::Horizontal)
-                    .gap(sz::XS)
-                    .scroll_speed(2.0)
-                    .inertia_friction(3.0)
-                    .scrollbar_thickness(sz::XS)
-                    .minimum_thumb_extent(sz::XXL)
-                    .build_scrollbar(row, scroll_track, scroll_thumb),
-            );
+            UniformList::new(uniform, 0_usize..100)
+                .item_extent(sz::SCROLL_ITEM_WIDTH)
+                .axis(Axis::Horizontal)
+                .gap(sz::XS)
+                .scroll_speed(2.0)
+                .inertia_friction(3.0)
+                .minimum_thumb_extent(sz::XXL)
+                .build(
+                    section.child().item(flex::item().grow()),
+                    row,
+                    scroll_track,
+                    scroll_thumb,
+                );
         } else {
-            section.child().item(flex::item().grow()).build(
-                VirtualList::new(measured)
-                    .count((*mode == ScrollMode::Finite).then_some(100_000))
-                    .scroll_speed(2.0)
-                    .inertia_friction(3.0)
-                    .scrollbar_thickness(sz::XS)
-                    .minimum_thumb_extent(sz::XS)
-                    .build_scrollbar(row, scroll_track, scroll_thumb),
-            );
+            VirtualList::new(measured)
+                .count((*mode == ScrollMode::Finite).then_some(100_000))
+                .scroll_speed(2.0)
+                .inertia_friction(3.0)
+                .minimum_thumb_extent(sz::XS)
+                .build(
+                    section.child().item(flex::item().grow()),
+                    row,
+                    scroll_track,
+                    scroll_thumb,
+                );
         }
     }
 }
 
-fn split(
-    state: &mut SplitState,
-    initial_extent: f32,
-    leading: impl Widget<DesktopContext>,
-    trailing: impl Widget<DesktopContext>,
-) -> impl Widget<DesktopContext> {
-    Split::new(state)
-        .initial_extent(initial_extent)
-        .divider_extent(sz::LG)
-        .divider(|ui, divider| {
-            let active = divider.hovered || divider.active;
-            let marker = match divider.axis {
-                Axis::Horizontal => Size::new(sz::BORDER_STRONG, sz::XXXL),
-                Axis::Vertical => Size::new(sz::XXXL, sz::BORDER_STRONG),
-            };
-            let mut row = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
-            row.child()
-                .item(flex::item().width(marker.width).height(marker.height))
-                .insert(
-                    Rectangle::new()
-                        .background(if active { colors::ACCENT } else { colors::BORDER })
-                        .radius(BorderRadius::all(sz::BORDER)),
-                );
-        })
-        .leading(leading)
-        .trailing(trailing)
+fn split(state: &mut SplitState) -> Split<'_, f32> {
+    Split::new(state).initial_extent(sz::SIDEBAR).divider_extent(sz::LG)
+}
+
+fn split_divider(ui: Ui<'_>, divider: SplitDivider) {
+    let active = divider.hovered || divider.active;
+    let marker = match divider.axis {
+        Axis::Horizontal => Size::new(sz::BORDER_STRONG, sz::XXXL),
+        Axis::Vertical => Size::new(sz::XXXL, sz::BORDER_STRONG),
+    };
+    let mut row = ui.layout(flex::row().align(Align::Center).justify(Justify::Center));
+    row.child()
+        .item(flex::item().width(marker.width).height(marker.height))
+        .insert(
+            Rectangle::new()
+                .background(if active { colors::ACCENT } else { colors::BORDER })
+                .radius(BorderRadius::all(sz::BORDER)),
+        );
 }
 
 fn draw_grip(ui: Ui<'_>, grip: ResizeGrip) {
@@ -1216,16 +1220,19 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     }
 }
 
-fn scroll_area(state: &mut ScrollState, content: impl FnOnce(Ui<'_>)) -> impl Widget<DesktopContext> {
+fn scroll_area(state: &mut ScrollState) -> ScrollArea<'_, f32> {
     ScrollArea::new(state)
         .scroll_speed(2.0)
         .inertia_friction(3.0)
-        .scrollbar_thickness(sz::XS)
         .minimum_thumb_extent(sz::XXL)
-        .build_scrollbar(content, scroll_track, scroll_thumb)
 }
 
-fn scroll_track(mut ui: Ui<'_>) {
+// its minimum size is the scrollbar thickness
+fn scroll_track(ui: Ui<'_>) {
+    let mut ui = ui.constrain(Constraints {
+        min: Size::uniform(sz::XS),
+        max: Size::uniform(f32::INFINITY),
+    });
     ui.insert(
         Rectangle::new()
             .background(colors::SCROLL_TRACK)

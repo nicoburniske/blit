@@ -5,7 +5,7 @@ pub mod virtual_list;
 use std::time::Duration;
 
 use blit::{
-    Animation, AnimationOptions, Axis, Constraints, Id, Layout, LayoutCx, NodeId, Point, Scalar, Size, Ui, Widget,
+    Animation, AnimationOptions, Axis, Constraints, Id, Layout, LayoutCx, NodeId, Point, Scalar, Size, Ui,
     internal::animator::Animator, state::Local,
 };
 
@@ -148,15 +148,17 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for ScrollLayout<T> {
             }
         }
         let content = content.expect("scroll area content is missing");
-        let thickness = if thumb.is_some() || track.is_some() {
-            let maximum = self.axis.other().extent(constraints.max);
-            self.scrollbar.thickness.max(T::ZERO).min(maximum.max(T::ZERO))
-        } else {
-            T::ZERO
-        };
-        let gutter = if track.is_some() { thickness } else { T::ZERO };
+        let track = track.expect("scroll area track is missing");
+        let thumb = thumb.expect("scroll area thumb is missing");
+        // the track's own size sets the scrollbar thickness
+        let cross = self.axis.other();
+        let thickness = cross
+            .extent(ui.layout_child(track, Constraints::loose(constraints.max)))
+            .min(cross.extent(constraints.max));
         let mut gutter_size = Size::ZERO;
-        self.axis.other().set_extent(&mut gutter_size, gutter);
+        if !self.scrollbar.floating {
+            cross.set_extent(&mut gutter_size, thickness);
+        }
         let viewport_constraints = constraints.shrink(gutter_size);
         let mut content_constraints = viewport_constraints;
         self.axis.set_extent(&mut content_constraints.min, T::ZERO);
@@ -193,6 +195,7 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for ScrollLayout<T> {
                     1.0
                 },
             },
+            thickness,
             track,
             thumb,
         );
@@ -202,8 +205,8 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for ScrollLayout<T> {
 
 #[derive(Clone, Copy)]
 struct Scrollbar<T> {
-    thickness: T,
     minimum: T,
+    floating: bool,
 }
 
 impl<T: Scalar> Scrollbar<T> {
@@ -213,52 +216,46 @@ impl<T: Scalar> Scrollbar<T> {
         axis: Axis,
         size: Size<T>,
         progress: ThumbProgress,
-        track: Option<NodeId>,
-        thumb: Option<NodeId>,
+        thickness: T,
+        track: NodeId,
+        thumb: NodeId,
     ) {
-        let thickness = self.thickness.max(T::ZERO).min(axis.other().extent(size));
         let viewport_extent = axis.extent(size);
         let scrollable = progress.visible_fraction < 1.0;
-        if let Some(track) = track {
-            let track_extent = if scrollable { viewport_extent } else { T::ZERO };
-            let track_size = match axis {
-                Axis::Horizontal => Size::new(track_extent, thickness),
-                Axis::Vertical => Size::new(thickness, track_extent),
-            };
-            ui.layout_child(track, Constraints::tight(track_size));
-            ui.set_child_position(
-                track,
-                match axis {
-                    Axis::Horizontal => Point::new(T::ZERO, size.height - thickness),
-                    Axis::Vertical => Point::new(size.width - thickness, T::ZERO),
-                },
-            );
-        }
-        if let Some(thumb) = thumb {
-            let minimum_extent = self.minimum.max(T::ZERO);
-            let visible_fraction = progress.visible_fraction;
-            let thumb_extent = if scrollable {
-                T::from_f32(viewport_extent.to_f32() * visible_fraction)
-                    .max(minimum_extent)
-                    .min(viewport_extent)
-            } else {
-                T::ZERO
-            };
-            let position = progress.position;
-            let thumb_offset = T::from_f32(position * (viewport_extent - thumb_extent).to_f32());
-            let thumb_size = match axis {
-                Axis::Horizontal => Size::new(thumb_extent, thickness),
-                Axis::Vertical => Size::new(thickness, thumb_extent),
-            };
-            ui.layout_child(thumb, Constraints::tight(thumb_size));
-            ui.set_child_position(
-                thumb,
-                match axis {
-                    Axis::Horizontal => Point::new(thumb_offset, size.height - thickness),
-                    Axis::Vertical => Point::new(size.width - thickness, thumb_offset),
-                },
-            );
-        }
+        let track_extent = if scrollable { viewport_extent } else { T::ZERO };
+        let track_size = match axis {
+            Axis::Horizontal => Size::new(track_extent, thickness),
+            Axis::Vertical => Size::new(thickness, track_extent),
+        };
+        ui.layout_child(track, Constraints::tight(track_size));
+        ui.set_child_position(
+            track,
+            match axis {
+                Axis::Horizontal => Point::new(T::ZERO, size.height - thickness),
+                Axis::Vertical => Point::new(size.width - thickness, T::ZERO),
+            },
+        );
+        let minimum_extent = self.minimum.max(T::ZERO);
+        let thumb_extent = if scrollable {
+            T::from_f32(viewport_extent.to_f32() * progress.visible_fraction)
+                .max(minimum_extent)
+                .min(viewport_extent)
+        } else {
+            T::ZERO
+        };
+        let thumb_offset = T::from_f32(progress.position * (viewport_extent - thumb_extent).to_f32());
+        let thumb_size = match axis {
+            Axis::Horizontal => Size::new(thumb_extent, thickness),
+            Axis::Vertical => Size::new(thickness, thumb_extent),
+        };
+        ui.layout_child(thumb, Constraints::tight(thumb_size));
+        ui.set_child_position(
+            thumb,
+            match axis {
+                Axis::Horizontal => Point::new(thumb_offset, size.height - thickness),
+                Axis::Vertical => Point::new(size.width - thickness, thumb_offset),
+            },
+        );
     }
 }
 
@@ -519,31 +516,28 @@ fn move_by<T: Scalar>(state: &mut ScrollState<T>, amount: f32) {
     }
 }
 
-fn build_scroll<'a, C: Context, W, T, H, L>(
+fn build_scroll<'a, C, L, W, R, H>(
     ui: Ui<'a, C>,
     layout: L,
     content: W,
-    track: Option<T>,
-    thumb: Option<H>,
+    track: R,
+    thumb: H,
     thumb_active: bool,
 ) -> Ui<'a, C, blit::state::Open<L>>
 where
+    C: Context,
     L: Layout<C, Item = ScrollItem>,
-    W: Widget<C>,
-    T: FnOnce(Ui<'_, C>),
+    W: FnOnce(Ui<'_, C>),
+    R: FnOnce(Ui<'_, C>),
     H: FnOnce(Ui<'_, C>, bool),
 {
     let mut viewport = ui.layout(layout).clip(C::Scalar::ZERO);
     viewport.child_id(CONTENT).item(ScrollItem::Content).build(content);
-    if let Some(track) = track {
-        viewport.child_id(TRACK).item(ScrollItem::Track).build(track);
-    }
-    if let Some(thumb) = thumb {
-        viewport
-            .child_id(THUMB)
-            .item(ScrollItem::Thumb)
-            .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
-    }
+    viewport.child_id(TRACK).item(ScrollItem::Track).build(track);
+    viewport
+        .child_id(THUMB)
+        .item(ScrollItem::Thumb)
+        .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
     viewport
 }
 
@@ -615,9 +609,14 @@ mod tests {
                         phase,
                     }),
                     |ui: Ui<'_, TestContext>| {
-                        ui.build(ScrollArea::new(&mut state).build(|mut ui: Ui<'_, TestContext>| {
-                            ui.measure(|_, bounds| bounds.constrain(Size::new(200.0, 4000.0)));
-                        }))
+                        ScrollArea::new(&mut state).build(
+                            ui,
+                            |mut ui| {
+                                ui.measure(|_, bounds| bounds.constrain(Size::new(200.0, 4000.0)));
+                            },
+                            |_| {},
+                            |_, _| {},
+                        )
                     },
                 );
                 kernel.layout(&mut TestContext);
@@ -642,6 +641,33 @@ mod tests {
     }
 
     #[test]
+    fn floating_scrollbars_leave_the_content_width() {
+        for (floating, width) in [(false, 199.0), (true, 200.0)] {
+            let mut kernel = Kernel::default();
+            let mut state = ScrollState::<f32>::new();
+            let mut step = || {
+                crate::test::step(&mut kernel, Input::None, |mut ui: Ui<'_, TestContext>| {
+                    let area = ui.at(CONTENT).area();
+                    ScrollArea::new(&mut state).floating(floating).build(
+                        ui,
+                        |mut ui| ui.measure(|_, bounds| Size::new(bounds.max.width, 400.0)),
+                        |ui| {
+                            ui.constrain(Constraints {
+                                min: Size::uniform(1.0),
+                                max: Size::uniform(f32::INFINITY),
+                            });
+                        },
+                        |_, _| {},
+                    );
+                    area
+                })
+            };
+            step();
+            assert_eq!(step().unwrap().width, width);
+        }
+    }
+
+    #[test]
     fn requests_and_focus_reveal_content() {
         use std::cell::Cell;
 
@@ -651,8 +677,9 @@ mod tests {
         let mut step = |state: &mut ScrollState<f32>| {
             for _ in 0..3 {
                 crate::test::step(&mut kernel, Input::None, |ui: Ui<'_, TestContext>| {
-                    ui.build(ScrollArea::new(state).build_scrollbar(
-                        |ui: Ui<'_, TestContext>| {
+                    ScrollArea::new(state).build(
+                        ui,
+                        |ui| {
                             let mut rows = ui.layout(crate::layout::flex::column());
                             for index in 10..20u8 {
                                 let mut row = rows.child_id(index);
@@ -663,9 +690,9 @@ mod tests {
                                 row.measure(|_, bounds| bounds.constrain(Size::new(200.0, 100.0)));
                             }
                         },
-                        |_: Ui<'_, TestContext>| {},
-                        |_: Ui<'_, TestContext>, _| {},
-                    ))
+                        |_| {},
+                        |_, _| {},
+                    )
                 });
             }
             state.offset
