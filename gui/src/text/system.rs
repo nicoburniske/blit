@@ -6,11 +6,13 @@ use core::{
 };
 
 use blit::{LogicalPoint, LogicalRect, LogicalSize};
-use blit_arena::Arena;
-use blit_cache::{DeferredCache, Equivalent, Scale};
 use blit_text::{
     Caret, Family, FontError, FontSettings, FontStackId, GlyphImage, GlyphRequest, LayoutRequest, OpticalSize,
     PreparedGlyph, TextLayout, TextLayoutEngine,
+};
+use blit_util::{
+    arena::Arena,
+    cache::{DeferredCache, Equivalent, Scale},
 };
 
 use super::{

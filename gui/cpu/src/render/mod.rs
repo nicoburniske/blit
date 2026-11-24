@@ -136,6 +136,6 @@ impl<P> ErasedCommand<P> {
 pub(crate) struct DispatchContext<'a, P: Pixel> {
     pub screen: PhysicalRect,
     pub clips: &'a ClipStack,
-    pub images: &'a blit_arena::Arena<StoredImage>,
+    pub images: &'a blit_util::arena::Arena<StoredImage>,
     pub commands: &'a mut RasterCommands<P>,
 }

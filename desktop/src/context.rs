@@ -4,7 +4,7 @@ use blit_gui::{
     style::BorderRadius,
     text::system::TextSystem,
 };
-use blit_widgets::performance::FrameProfiler;
+use blit_widget::performance::FrameProfiler;
 
 use crate::{GraphicsBackend, GraphicsError};
 
@@ -40,7 +40,7 @@ impl<G: GraphicsBackend> blit::HasFrameStore for DesktopContext<G> {
     }
 }
 
-impl<G: GraphicsBackend> blit_widgets::Context for DesktopContext<G> {
+impl<G: GraphicsBackend> blit_widget::Context for DesktopContext<G> {
     const SLOP: f32 = 6.0;
 }
 

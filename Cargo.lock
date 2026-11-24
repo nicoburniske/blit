@@ -135,30 +135,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "blit-arena"
-version = "0.1.0"
-
-[[package]]
-name = "blit-arrayvec"
-version = "0.1.0"
-
-[[package]]
-name = "blit-cache"
-version = "0.1.0"
-dependencies = [
- "hashbrown 0.17.1",
-]
-
-[[package]]
 name = "blit-cpu"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-arena",
- "blit-cache",
  "blit-gui",
  "blit-text",
  "blit-text-parley",
+ "blit-util",
  "fearless_simd",
  "kurbo",
  "libm",
@@ -173,12 +157,11 @@ dependencies = [
  "blit-desktop",
  "blit-gpu",
  "blit-gui",
- "blit-gui-widgets",
- "blit-layout",
+ "blit-gui-widget",
  "blit-text",
  "blit-text-parley",
  "blit-tui",
- "blit-widgets",
+ "blit-widget",
  "bytemuck",
  "wgpu",
 ]
@@ -192,7 +175,7 @@ dependencies = [
  "blit-executor",
  "blit-gpu",
  "blit-gui",
- "blit-widgets",
+ "blit-widget",
  "softbuffer",
  "wgpu",
  "winit",
@@ -202,7 +185,7 @@ dependencies = [
 name = "blit-executor"
 version = "0.1.0"
 dependencies = [
- "blit-arena",
+ "blit-util",
 ]
 
 [[package]]
@@ -210,11 +193,11 @@ name = "blit-gpu"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-arena",
  "blit-executor",
  "blit-gui",
  "blit-text",
  "blit-text-parley",
+ "blit-util",
  "bytemuck",
  "wgpu",
 ]
@@ -224,29 +207,19 @@ name = "blit-gui"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-arena",
- "blit-cache",
  "blit-text",
+ "blit-util",
  "hashbrown 0.17.1",
  "libm",
 ]
 
 [[package]]
-name = "blit-gui-widgets"
+name = "blit-gui-widget"
 version = "0.1.0"
 dependencies = [
  "blit",
  "blit-gui",
- "blit-layout",
- "blit-widgets",
-]
-
-[[package]]
-name = "blit-layout"
-version = "0.1.0"
-dependencies = [
- "blit",
- "divan",
+ "blit-widget",
 ]
 
 [[package]]
@@ -273,10 +246,8 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "blit",
- "blit-arrayvec",
- "blit-cache",
- "blit-layout",
- "blit-widgets",
+ "blit-util",
+ "blit-widget",
  "divan",
  "rustix 1.1.4",
  "signal-hook",
@@ -285,11 +256,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "blit-widgets"
+name = "blit-util"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.17.1",
+]
+
+[[package]]
+name = "blit-widget"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-layout",
+ "divan",
  "unicode-segmentation",
 ]
 

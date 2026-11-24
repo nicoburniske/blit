@@ -1,8 +1,8 @@
 use core::mem::size_of;
 
-use blit_cache::{DeferredCache, Scale};
 use blit_gui::text::system::{GlyphImageId, ResolvedTextLayout, TextSystem};
 use blit_text::{GlyphImage, GlyphMetrics, GlyphPixels};
+use blit_util::cache::{DeferredCache, Scale};
 
 pub struct CachedGlyph {
     pub metrics: GlyphMetrics,

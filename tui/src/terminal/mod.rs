@@ -7,7 +7,7 @@ use std::{
 };
 
 use blit::PhysicalSize;
-use blit_arrayvec::ArrayVec;
+use blit_util::arrayvec::ArrayVec;
 use rustix::{
     event::Timespec,
     termios::{self, OptionalActions, Termios},

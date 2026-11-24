@@ -72,7 +72,7 @@ impl<P: Pixel> RasterCommands<P> {
         id: CommandId,
         list: &DisplayList,
         clips: &ClipStack,
-        images: &mut blit_arena::Arena<StoredImage>,
+        images: &mut blit_util::arena::Arena<StoredImage>,
         text: &mut TextRenderer,
     ) -> &Payload {
         let command = &mut self.metadata[id as usize];
@@ -181,7 +181,7 @@ impl<P: Pixel> RasterCommands<P> {
         limit: i32,
         list: &DisplayList,
         clips: &ClipStack,
-        images: &mut blit_arena::Arena<StoredImage>,
+        images: &mut blit_util::arena::Arena<StoredImage>,
         text: &mut TextRenderer,
     ) -> (Range<i32>, i32) {
         let metadata = &self.metadata[id as usize];

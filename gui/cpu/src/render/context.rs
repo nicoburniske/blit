@@ -1,11 +1,11 @@
 use alloc::vec::Vec;
 
 use blit::{FrameStore, LogicalRect, PhysicalRect, ScratchBuffer};
-use blit_arena::Arena;
 use blit_gui::{
     display_list::DisplayList,
     image::{ImageData, ImageHandle},
 };
+use blit_util::arena::Arena;
 
 use crate::{
     Pixel, PixelBuffer, StoredImage,
@@ -181,7 +181,7 @@ impl Image {
         request: &blit_gui::image::Image,
         scale: f32,
         bounds: PhysicalRect,
-        images: &blit_arena::Arena<StoredImage>,
+        images: &blit_util::arena::Arena<StoredImage>,
     ) -> Option<Self> {
         let texture = images.get(request.image.id().into())?;
         let mut patches = [None; 9];

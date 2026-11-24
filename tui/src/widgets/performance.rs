@@ -1,8 +1,8 @@
 use std::fmt::Write as _;
 
 use blit::{Paint, Sides, Widget};
-use blit_widgets::interact;
-pub use blit_widgets::performance::*;
+use blit_widget::interact;
+pub use blit_widget::performance::*;
 
 use crate::{
     Context,

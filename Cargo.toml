@@ -5,18 +5,15 @@ members = [
     "examples",
     "executor",
     "gui",
-    "gui/widgets",
+    "gui/widget",
     "gui/cpu",
     "gui/gpu",
     "gui/text",
     "gui/text/parley",
-    "internal/cache",
-    "internal/arrayvec",
-    "internal/arena",
     "kernel",
-    "layout",
     "tui",
-    "widgets",
+    "util",
+    "widget",
 ]
 
 [workspace.package]
@@ -31,15 +28,12 @@ chunks_exact_to_as_chunks = "allow"
 blit = { path = "kernel" }
 blit-executor = { path = "executor" }
 blit-gui = { path = "gui" }
-blit-gui-widgets = { path = "gui/widgets" }
+blit-gui-widget = { path = "gui/widget" }
 blit-gpu = { path = "gui/gpu" }
-blit-layout = { path = "layout" }
-blit-widgets = { path = "widgets" }
+blit-widget = { path = "widget" }
 blit-text = { path = "gui/text" }
 blit-text-parley = { path = "gui/text/parley" }
-blit-arrayvec = { path = "internal/arrayvec" }
-blit-arena = { path = "internal/arena" }
-blit-cache = { path = "internal/cache" }
+blit-util = { path = "util" }
 hashbrown = "0.17.1"
 libm = "0.2.16"
 wgpu = { version = "30.0.1", default-features = false }

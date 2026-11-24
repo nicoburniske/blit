@@ -1,0 +1,20 @@
+[package]
+name = "blit-widget"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+blit.workspace = true
+unicode-segmentation = "1"
+
+[dev-dependencies]
+divan = "0.1"
+
+[[bench]]
+name = "layout"
+harness = false
+
+[lints]
+workspace = true

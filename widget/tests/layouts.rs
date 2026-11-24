@@ -1,0 +1,818 @@
+use std::time::Duration;
+
+use blit::{
+    Constraints, Context, Easing, Frame, FrameInfo, Input, Motion, Rect, Scalar, Sides, Size, Target, Tween, Ui,
+    Widget, state,
+};
+use blit_widget::layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, wrap};
+
+#[derive(Default)]
+struct TestContext;
+
+impl Context for TestContext {
+    type Scalar = f32;
+}
+
+struct Cells;
+
+impl Context for Cells {
+    type Scalar = i32;
+}
+
+fn layout_frame<C: Context, W: Widget<C>>(
+    frame: &mut Frame<C>,
+    context: &mut C,
+    info: FrameInfo<C::Scalar>,
+    widget: W,
+) -> W::Response {
+    let output = frame.build(context, info, Duration::ZERO, Input::None, widget);
+    frame.layout(context);
+    output
+}
+
+#[derive(Clone, Copy)]
+struct BoxContent<T>(Size<T>);
+
+impl<C: Context<Scalar = T>, T: Scalar> Widget<C, state::Insert> for BoxContent<T> {
+    type Response = ();
+
+    fn build(self, mut ui: Ui<'_, C, state::Insert>) {
+        ui.measure(move |_, constraints| constraints.constrain(self.0));
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ResponsiveContent;
+
+impl<C: Context> Widget<C, state::Insert> for ResponsiveContent {
+    type Response = ();
+
+    fn build(self, mut ui: Ui<'_, C, state::Insert>) {
+        ui.measure(|_, constraints| {
+            constraints.constrain(Size::new(
+                C::Scalar::from_f32(4.0),
+                if constraints.max.width < C::Scalar::from_f32(10.0) || !constraints.max.width.is_finite() {
+                    C::Scalar::from_f32(2.0)
+                } else {
+                    C::Scalar::from_f32(1.0)
+                },
+            ))
+        });
+    }
+}
+
+#[test]
+fn absolute_percentages_use_the_target() {
+    let mut frame = Frame::default();
+    let id = "absolute";
+    layout_frame(
+        &mut frame,
+        &mut TestContext,
+        FrameInfo::new(Size::new(10.0, 4.0)),
+        |ui: Ui<'_, TestContext>| {
+            let mut root = ui.layout(()).pad(Sides {
+                left: 2.0,
+                right: 2.0,
+                top: 1.0,
+                bottom: 1.0,
+            });
+            root.child_id(1).insert(BoxContent(Size::new(6.0, 2.0)));
+            root.child_id(id).place(
+                Target::PARENT.at(1),
+                absolute::place()
+                    .target_anchor(Anchor::BottomRight)
+                    .width(absolute::Sizing::percent(0.5))
+                    .height(absolute::Sizing::full()),
+            );
+        },
+    );
+    assert_eq!(frame.area(id), Some(Rect::new(8.0, 3.0, 3.0, 2.0)));
+}
+
+#[test]
+fn absolute_flips_then_clamps_into_the_screen() {
+    let popup = "popup";
+    let mut frame = Frame::default();
+    layout_frame(
+        &mut frame,
+        &mut Cells,
+        FrameInfo::new(Size::new(20, 10)),
+        |ui: Ui<'_, Cells>| {
+            let mut root = ui.layout(flex::column().justify(Justify::End));
+            root.child_id(1).insert(BoxContent(Size::new(6, 2)));
+            // flips above and clamps x
+            root.child_id(popup).place(
+                Target::PARENT.at(1),
+                absolute::place()
+                    .target_anchor(Anchor::BottomLeft)
+                    .x(18)
+                    .width(4)
+                    .height(4)
+                    .flip(true)
+                    .clamp(true),
+            );
+        },
+    );
+    assert_eq!(frame.area(popup), Some(Rect::new(16, 4, 4, 4)));
+}
+
+#[test]
+fn flex_remeasures_constraint_dependent_content() {
+    let mut frame = Frame::default();
+    let mut context = TestContext;
+    let child = "responsive";
+    layout_frame(
+        &mut frame,
+        &mut context,
+        FrameInfo::new(Size::new(5.0, 10.0)),
+        |ui: Ui<'_, TestContext>| {
+            let mut row = ui.layout(flex::row().align(Align::Start));
+            row.child_id(child)
+                .item(flex::item().width(Sizing::grow()))
+                .insert(ResponsiveContent);
+        },
+    );
+    assert_eq!(frame.area(child).unwrap().size(), Size::new(5.0, 2.0));
+}
+
+#[test]
+fn parent_items_allocate_and_component_bounds_constrain_each_axis() {
+    for wrapping in [false, true] {
+        let mut frame = Frame::default();
+        let inherited = "inherited";
+        let fixed = "fixed";
+        let fit = "fit";
+        let height = Constraints {
+            min: Size::new(0.0, 6.0),
+            max: Size::new(f32::INFINITY, 6.0),
+        };
+        layout_frame(
+            &mut frame,
+            &mut TestContext,
+            FrameInfo::new(Size::uniform(100.0)),
+            |ui: Ui<'_, TestContext>| {
+                if wrapping {
+                    let mut row = ui.layout(wrap::horizontal());
+                    row.child_id(inherited)
+                        .item(wrap::item().width(Sizing::grow()))
+                        .constrain(height)
+                        .layout(());
+                    row.child_id(fixed)
+                        .item(wrap::item().width(20.0).height(9.0))
+                        .constrain(height)
+                        .layout(());
+                    row.child_id(fit)
+                        .item(wrap::item().width(Sizing::fit()))
+                        .constrain(height)
+                        .layout(())
+                        .child()
+                        .insert(BoxContent(Size::uniform(10.0)));
+                } else {
+                    let mut row = ui.layout(flex::row());
+                    row.child_id(inherited)
+                        .item(flex::item().weight(2.0).width(Sizing::grow()))
+                        .constrain(height)
+                        .layout(());
+                    row.child_id(fixed)
+                        .item(flex::item().width(20.0).height(9.0))
+                        .constrain(height)
+                        .layout(());
+                    row.child_id(fit)
+                        .item(flex::item().width(Sizing::fit()))
+                        .constrain(height)
+                        .layout(())
+                        .child()
+                        .insert(BoxContent(Size::uniform(10.0)));
+                }
+            },
+        );
+        assert_eq!(frame.area(inherited).unwrap().size(), Size::new(70.0, 6.0));
+        assert_eq!(frame.area(fixed).unwrap().size(), Size::new(20.0, 6.0));
+        assert_eq!(frame.area(fit).unwrap().size(), Size::new(10.0, 6.0));
+    }
+}
+
+#[test]
+fn explicit_items_and_grid_accept_custom_layouts() {
+    struct Plain;
+
+    impl blit::Layout<TestContext> for Plain {
+        type Item = ();
+
+        fn layout(&self, _: &mut blit::LayoutCx<'_, TestContext>, bounds: Constraints<f32>) -> Size<f32> {
+            bounds.constrain(Size::uniform(10.0))
+        }
+    }
+
+    for use_grid in [false, true] {
+        let child = "custom layout";
+        let mut frame = Frame::default();
+        layout_frame(
+            &mut frame,
+            &mut TestContext,
+            FrameInfo::new(Size::uniform(100.0)),
+            |ui: Ui<'_, TestContext>| {
+                if use_grid {
+                    ui.layout(grid::new(1)).child_id(child).layout(Plain);
+                } else {
+                    ui.layout(flex::row())
+                        .child_id(child)
+                        .item(flex::item().width(10.0).height(10.0))
+                        .layout(Plain);
+                }
+            },
+        );
+        assert_eq!(
+            frame.area(child).unwrap().size(),
+            Size::new(if use_grid { 100.0 } else { 10.0 }, 10.0)
+        );
+    }
+}
+
+#[test]
+fn flex_cross_grow_uses_fit_siblings_under_loose_constraints() {
+    let mut frame = Frame::default();
+    let header = "header";
+    let body = "body";
+    layout_frame(
+        &mut frame,
+        &mut TestContext,
+        FrameInfo::new(Size::new(100.0, 100.0)),
+        |ui: Ui<'_, TestContext>| {
+            let mut column = ui.layout(flex::column());
+            column.child_id(header).build(|ui: Ui<'_, TestContext>| {
+                let mut row = ui.layout(flex::row());
+                row.child()
+                    .item(flex::item().grow())
+                    .insert(BoxContent(Size::uniform(10.0)));
+                row.child().insert(BoxContent(Size::uniform(10.0)));
+            });
+            column
+                .child_id(body)
+                .item(flex::item().height(Sizing::grow()))
+                .insert(BoxContent(Size::ZERO));
+        },
+    );
+    assert_eq!(frame.area(header).unwrap().height, 10.0);
+    assert_eq!(frame.area(body).unwrap().height, 90.0);
+}
+
+#[test]
+fn flex_defers_nested_grow_children_until_cross_size_is_known() {
+    use blit::{Axis, Layout, LayoutCx};
+
+    #[derive(Default)]
+    struct CountContext([usize; 3]);
+
+    impl Context for CountContext {
+        type Scalar = f32;
+    }
+
+    struct CountedFlex(flex::Layout<f32>, usize);
+
+    impl Layout<CountContext> for CountedFlex {
+        type Item = flex::Item<f32>;
+
+        fn layout(&self, cx: &mut LayoutCx<'_, CountContext, Self::Item>, bounds: Constraints<f32>) -> Size<f32> {
+            cx.context_mut().0[self.1] += 1;
+            self.0.layout(cx, bounds)
+        }
+    }
+
+    let leaf = "nested stretch leaf";
+    let sibling = "fixed cross sibling";
+    let branch_id = "deferred grow branch";
+    for axis in [Axis::Horizontal, Axis::Vertical] {
+        for cross_fixed in [false, true] {
+            let mut frame = Frame::default();
+            let mut context = CountContext::default();
+            let screen = Size::new(100.0, 80.0);
+            layout_frame(
+                &mut frame,
+                &mut context,
+                FrameInfo::new(screen),
+                |ui: Ui<'_, CountContext>| {
+                    let mut outer = ui.layout(flex::column().align(Align::Start));
+                    let mut root = outer
+                        .child()
+                        .layout(CountedFlex(flex::layout(axis).gap(4.0), 0))
+                        .pad(2.0);
+                    let grow_item = match (axis, cross_fixed) {
+                        (_, true) => flex::item().grow(),
+                        (Axis::Horizontal, false) => flex::item().width(Sizing::grow()),
+                        (Axis::Vertical, false) => flex::item().height(Sizing::grow()),
+                    };
+                    {
+                        let mut branch = root
+                            .child_in(blit::Scope::ROOT, branch_id)
+                            .item(grow_item)
+                            .layout(CountedFlex(flex::layout(axis), 1))
+                            .pad(1.0);
+                        let mut nested = branch
+                            .child()
+                            .item(grow_item)
+                            .layout(CountedFlex(
+                                flex::layout(axis).align(if cross_fixed { Align::Stretch } else { Align::Start }),
+                                2,
+                            ))
+                            .pad(1.0);
+                        nested
+                            .child_in(blit::Scope::ROOT, leaf)
+                            .insert(BoxContent(Size::uniform(10.0)));
+                    }
+                    let cross = if cross_fixed {
+                        Sizing::fixed(40.0)
+                    } else {
+                        Sizing::grow()
+                    };
+                    let item = match axis {
+                        Axis::Horizontal => flex::item().width(10.0).height(cross),
+                        Axis::Vertical => flex::item().width(cross).height(10.0),
+                    };
+                    root.child_in(blit::Scope::ROOT, sibling)
+                        .item(item)
+                        .insert(BoxContent(Size::ZERO));
+                },
+            );
+            assert_eq!(context.0, [1; 3]);
+            assert_eq!(
+                axis.other()
+                    .extent(frame.area(Target::ROOT.scoped(leaf)).unwrap().size()),
+                if cross_fixed { 36.0 } else { 10.0 }
+            );
+            assert_eq!(
+                axis.other()
+                    .extent(frame.area(Target::ROOT.scoped(sibling)).unwrap().size()),
+                if cross_fixed { 40.0 } else { 14.0 }
+            );
+            assert_eq!(
+                axis.extent(frame.area(Target::ROOT.scoped(branch_id)).unwrap().size()),
+                axis.extent(screen) - 18.0
+            );
+        }
+    }
+}
+
+#[test]
+fn flex_unbounded_cross_uses_content_or_zero_for_fill_children() {
+    use blit::{Axis, Layout, LayoutCx};
+
+    struct UnboundedCross(Axis, f32);
+
+    impl Layout<TestContext> for UnboundedCross {
+        type Item = ();
+
+        fn layout(&self, cx: &mut LayoutCx<'_, TestContext>, bounds: Constraints<f32>) -> Size<f32> {
+            let mut child_bounds = bounds;
+            match self.0 {
+                Axis::Horizontal => {
+                    child_bounds.min.height = self.1;
+                    child_bounds.max.height = f32::INFINITY;
+                }
+                Axis::Vertical => {
+                    child_bounds.min.width = self.1;
+                    child_bounds.max.width = f32::INFINITY;
+                }
+            }
+            let child = cx.children().next().unwrap();
+            bounds.constrain(cx.layout_child(child, child_bounds))
+        }
+    }
+
+    let fit = "unbounded cross fit";
+    let grow = "unbounded cross grow";
+    for axis in [Axis::Horizontal, Axis::Vertical] {
+        for minimum in [0.0, 40.0] {
+            for include_fit in [false, true] {
+                for main in [
+                    Sizing::fixed(10.0),
+                    Sizing::fit_range(0.0, 10.0),
+                    Sizing::percent(0.25),
+                    Sizing::grow(),
+                ] {
+                    let mut frame = Frame::default();
+                    layout_frame(
+                        &mut frame,
+                        &mut TestContext,
+                        FrameInfo::new(Size::new(100.0, 80.0)),
+                        |ui: Ui<'_, TestContext>| {
+                            let mut outer = ui.layout(UnboundedCross(axis, minimum));
+                            let mut flex = outer.child().layout(flex::layout(axis)).pad(2.0);
+                            for (id, main, sizing) in [
+                                (grow, main, Sizing::grow_range(0.0, 8.0)),
+                                (fit, Sizing::fixed(10.0), Sizing::fit_range(3.0, 12.0)),
+                            ] {
+                                if id == fit && !include_fit {
+                                    continue;
+                                }
+                                let item = match axis {
+                                    Axis::Horizontal => flex::item().width(main).height(sizing),
+                                    Axis::Vertical => flex::item().width(sizing).height(main),
+                                };
+                                flex.child_in(blit::Scope::ROOT, id)
+                                    .item(item)
+                                    .insert(BoxContent(Size::uniform(50.0)));
+                            }
+                        },
+                    );
+                    if include_fit {
+                        assert_eq!(
+                            axis.other()
+                                .extent(frame.area(Target::ROOT.scoped(fit)).unwrap().size()),
+                            12.0
+                        );
+                    }
+                    assert_eq!(
+                        axis.other()
+                            .extent(frame.area(Target::ROOT.scoped(grow)).unwrap().size()),
+                        if include_fit { 8.0 } else { 0.0 }
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn flex_distributes_growing_space() {
+    let mut frame = Frame::default();
+    let mut context = TestContext;
+    let fixed = "fixed";
+    let grow = "grow";
+    layout_frame(
+        &mut frame,
+        &mut context,
+        FrameInfo::new(Size::new(100.0, 20.0)),
+        |ui: Ui<'_, TestContext>| {
+            let mut row = ui.layout(flex::row().gap(4.0));
+            row.child_id(fixed)
+                .item(flex::item().width(20.0))
+                .insert(BoxContent(Size::new(1.0, 10.0)));
+            row.child_id(grow)
+                .item(flex::item().width(Sizing::grow()))
+                .insert(BoxContent(Size::new(1.0, 10.0)));
+        },
+    );
+    assert_eq!(frame.area(fixed).unwrap().width, 20.0);
+    assert_eq!(frame.area(grow).unwrap().width, 76.0);
+}
+
+#[test]
+fn flex_respects_growth_caps() {
+    let mut frame = Frame::default();
+    let ids = ["two", "four", "unbounded"];
+    layout_frame(
+        &mut frame,
+        &mut TestContext,
+        FrameInfo::new(Size::new(15.0, 1.0)),
+        |ui: Ui<'_, TestContext>| {
+            let mut row = ui.layout(flex::row().align(Align::Start));
+            let sizing = [
+                Sizing::grow_range(0.0, 2.0),
+                Sizing::grow_range(0.0, 4.0),
+                Sizing::grow(),
+            ];
+            for (id, sizing) in ids.into_iter().zip(sizing) {
+                row.child_id(id)
+                    .item(flex::item().width(sizing))
+                    .insert(BoxContent(Size::uniform(1.0)));
+            }
+        },
+    );
+    assert_eq!(ids.map(|id| frame.area(id).unwrap().width), [2.0, 4.0, 9.0]);
+}
+
+#[test]
+fn flex_size_motion_preserves_exact_overflow_and_reflows_siblings() {
+    let mut frame = Frame::default();
+    let animated = "animated flex child";
+    let sibling = "flex sibling";
+    let mut render = |extent, time| {
+        frame.build(
+            &mut TestContext,
+            FrameInfo::new(Size::new(4.0, 2.0)),
+            time,
+            Input::None,
+            |ui: Ui<'_, TestContext>| {
+                let mut row = ui.layout(flex::row());
+                row.child_id(animated)
+                    .item(flex::item().width(extent).height(extent))
+                    .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).size())
+                    .insert(BoxContent(Size::ZERO));
+                row.child_id(sibling)
+                    .item(flex::item().width(1.0).height(1.0))
+                    .insert(BoxContent(Size::ZERO));
+            },
+        );
+        frame.layout(&mut TestContext);
+        (frame.area(animated).unwrap().size(), frame.area(sibling).unwrap().x)
+    };
+
+    assert_eq!(render(1.0, Duration::ZERO), (Size::uniform(1.0), 1.0));
+    assert_eq!(render(5.0, Duration::ZERO), (Size::uniform(1.0), 1.0));
+    assert_eq!(render(5.0, Duration::from_millis(500)), (Size::uniform(3.0), 3.0));
+    assert_eq!(render(5.0, Duration::from_secs(1)), (Size::uniform(5.0), 5.0));
+}
+
+#[test]
+fn empty_layouts_keep_padding() {
+    let mut frame = Frame::default();
+    let ids = ["empty flex", "empty wrap", "empty grid"];
+    layout_frame(
+        &mut frame,
+        &mut Cells,
+        FrameInfo::new(Size::new(20, 10)),
+        |ui: Ui<'_, Cells>| {
+            let mut root = ui.layout(flex::row().align(Align::Start));
+            let padding = Sides::all(2);
+            root.child_id(ids[0]).layout(flex::row()).pad(padding);
+            root.child_id(ids[1]).layout(wrap::horizontal()).pad(padding);
+            root.child_id(ids[2]).layout(grid::new(2)).pad(padding);
+        },
+    );
+    assert_eq!(ids.map(|id| frame.area(id).unwrap().size()), [Size::uniform(4); 3]);
+}
+
+#[test]
+fn wrap_uses_exact_cell_boundaries() {
+    let mut frame = Frame::default();
+    let last = "last";
+    layout_frame(
+        &mut frame,
+        &mut Cells,
+        FrameInfo::new(Size::new(4096, 2)),
+        |ui: Ui<'_, Cells>| {
+            let mut wrap = ui.layout(wrap::horizontal());
+            for _ in 0..4096 {
+                wrap.child().insert(BoxContent(Size::uniform(1)));
+            }
+            wrap.child_id(last).insert(BoxContent(Size::uniform(1)));
+        },
+    );
+    assert_eq!(frame.area(last), Some(Rect::new(0, 1, 1, 1)));
+}
+
+#[test]
+fn wrap_grows_each_run_and_stretches_cross_grow() {
+    let mut frame = Frame::default();
+    let wrap_id = "wrap";
+    let ids = ["capped", "uncapped", "next run"];
+    layout_frame(
+        &mut frame,
+        &mut TestContext,
+        FrameInfo::new(Size::new(11.0, 10.0)),
+        |ui: Ui<'_, TestContext>| {
+            let mut root = ui.layout(flex::row().align(Align::Start));
+            let mut wrap = root
+                .child_id(wrap_id)
+                .item(flex::item().width(11.0))
+                .layout(wrap::horizontal().align(Align::Start));
+            wrap.child_in(blit::Scope::ROOT, ids[0])
+                .item(wrap::item().width(Sizing::grow_range(0.0, 5.0)).height(Sizing::grow()))
+                .insert(BoxContent(Size::new(4.0, 1.0)));
+            wrap.child_in(blit::Scope::ROOT, ids[1])
+                .item(wrap::item().width(Sizing::grow()))
+                .insert(BoxContent(Size::new(4.0, 3.0)));
+            wrap.child_in(blit::Scope::ROOT, ids[2])
+                .item(wrap::item().width(Sizing::grow()))
+                .insert(ResponsiveContent);
+        },
+    );
+    assert_eq!(frame.area(wrap_id).unwrap().size(), Size::new(11.0, 4.0));
+    assert_eq!(
+        frame.area(Target::ROOT.scoped(ids[0])),
+        Some(Rect::new(0.0, 0.0, 5.0, 3.0))
+    );
+    assert_eq!(
+        frame.area(Target::ROOT.scoped(ids[1])),
+        Some(Rect::new(5.0, 0.0, 5.5, 3.0))
+    );
+    assert_eq!(
+        frame.area(Target::ROOT.scoped(ids[2])),
+        Some(Rect::new(0.0, 3.0, 11.0, 1.0))
+    );
+}
+
+#[test]
+fn wrap_keeps_target_runs_during_size_motions() {
+    let mut frame = Frame::default();
+    let ids: [usize; 10] = std::array::from_fn(|index| index);
+    let mut render = |width, time| {
+        frame.build(
+            &mut Cells,
+            FrameInfo::new(Size::new(width, 2)),
+            time,
+            Input::None,
+            |ui: Ui<'_, Cells>| {
+                let mut wrap = ui.layout(wrap::horizontal().gap(1)).pad(1);
+                for id in ids {
+                    wrap.child_id(id)
+                        .item(wrap::item().width(Sizing::grow_range(2, i32::MAX)))
+                        .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).size())
+                        .insert(BoxContent(Size::uniform(1)));
+                }
+            },
+        );
+        frame.layout(&mut Cells);
+        frame.area(ids[9]).unwrap()
+    };
+
+    assert_eq!(render(40, Duration::ZERO).y, 1);
+    assert_eq!(render(38, Duration::ZERO).y, 1);
+    assert_eq!(render(37, Duration::from_millis(16)).y, 1);
+}
+
+#[test]
+fn wrap_shrinkwraps_animated_target_runs() {
+    let mut frame = Frame::default();
+    let wrap_id = "wrap";
+    let child_ids = ["first", "second"];
+    let mut render = |extent, time| {
+        frame.build(
+            &mut TestContext,
+            FrameInfo::new(Size::new(20.0, 2.0)),
+            time,
+            Input::None,
+            |ui: Ui<'_, TestContext>| {
+                let mut root = ui.layout(flex::column().align(Align::Start));
+                let mut wrap = root.child_id(wrap_id).layout(wrap::horizontal());
+                for id in child_ids {
+                    wrap.child_in(blit::Scope::ROOT, id)
+                        .item(wrap::item().width(extent).height(1.0))
+                        .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).size())
+                        .insert(BoxContent(Size::ZERO));
+                }
+            },
+        );
+        frame.layout(&mut TestContext);
+        let wrap = frame.area(wrap_id).unwrap();
+        let child = frame.area(Target::ROOT.scoped(child_ids[1])).unwrap();
+        [wrap.width, child.x, child.y]
+    };
+
+    assert_eq!(render(2.0, Duration::ZERO), [4.0, 2.0, 0.0]);
+    assert_eq!(render(5.0, Duration::ZERO), [4.0, 2.0, 0.0]);
+    assert_eq!(render(5.0, Duration::from_millis(500)), [7.0, 3.5, 0.0]);
+    assert_eq!(render(5.0, Duration::from_secs(1)), [10.0, 5.0, 0.0]);
+}
+
+#[test]
+fn percentage_children_share_rounded_space() {
+    let mut frame = Frame::default();
+    let ids = [0, 1, 2, 3];
+    layout_frame(
+        &mut frame,
+        &mut Cells,
+        FrameInfo::new(Size::new(3, 2)),
+        |ui: Ui<'_, Cells>| {
+            let mut column = ui.layout(flex::column());
+            {
+                let mut row = column.child().layout(flex::row().align(Align::Start));
+                for id in &ids[..2] {
+                    row.child_in(blit::Scope::ROOT, *id)
+                        .item(flex::item().width(Sizing::percent(0.5)).height(if *id == ids[0] {
+                            Sizing::grow()
+                        } else {
+                            Sizing::fit()
+                        }))
+                        .insert(BoxContent(Size::uniform(1)));
+                }
+            }
+            let mut row = column.child().layout(wrap::horizontal());
+            for id in &ids[2..] {
+                row.child_in(blit::Scope::ROOT, *id)
+                    .item(wrap::item().width(Sizing::percent(0.5)))
+                    .insert(BoxContent(Size::uniform(1)));
+            }
+        },
+    );
+    for index in [1, 3] {
+        assert_eq!(
+            frame.area(Target::ROOT.scoped(ids[index])),
+            Some(Rect::new(2, (index / 2) as i32, 1, 1))
+        );
+    }
+}
+
+#[test]
+fn parent_percentages_apply_once_before_padding() {
+    let mut frame = Frame::default();
+    let percent = "percentage child";
+    let container = "percentage container";
+    layout_frame(
+        &mut frame,
+        &mut TestContext,
+        FrameInfo::new(Size::new(20.0, 10.0)),
+        |ui: Ui<'_, TestContext>| {
+            let mut outer = ui.layout(flex::row());
+            let mut fit = outer
+                .child_id(container)
+                .item(flex::item().width(Sizing::percent(0.5)).height(Sizing::percent(0.5)))
+                .layout(())
+                .pad(1.0);
+            fit.child_in(blit::Scope::ROOT, percent)
+                .insert(BoxContent(Size::new(4.0, 2.0)));
+        },
+    );
+    assert_eq!(frame.area(container), Some(Rect::new(0.0, 0.0, 10.0, 5.0)));
+    assert_eq!(
+        frame.area(Target::ROOT.scoped(percent)),
+        Some(Rect::new(1.0, 1.0, 8.0, 3.0))
+    );
+}
+
+#[test]
+fn spanning_grid_sizes_spanning_items() {
+    let mut frame = Frame::default();
+    let wide = "wide";
+    let layout = grid::new(3).gap(2.0);
+    layout_frame(
+        &mut frame,
+        &mut TestContext,
+        FrameInfo::new(Size::new(100.0, 40.0)),
+        |ui: Ui<'_, TestContext>| {
+            let mut grid = ui.layout(layout);
+            grid.child_id(wide)
+                .item(grid::item().column_span(2).height(12.0))
+                .insert(BoxContent(Size::new(20.0, 10.0)));
+            grid.child().insert(BoxContent(Size::uniform(10.0)));
+        },
+    );
+    assert_eq!(frame.area(wide).unwrap().size(), Size::new(66.0, 12.0));
+}
+
+#[test]
+fn grid_intrinsic_width_preserves_integer_spans() {
+    let grid_id = "intrinsic grid";
+    let child = "spanning child";
+    for (columns, start, span, width, total, x) in [(7, 2, 3, 1, 3, 1), (18, 9, 6, 25, 75, 38), (7, 0, 7, 57, 57, 0)] {
+        let mut frame = Frame::default();
+        layout_frame(
+            &mut frame,
+            &mut Cells,
+            FrameInfo::new(Size::new(100, 20)),
+            |ui: Ui<'_, Cells>| {
+                let mut root = ui.layout(flex::column().align(Align::Start));
+                let mut grid = root.child_id(grid_id).layout(grid::new(columns));
+                if start != 0 {
+                    grid.child()
+                        .item(grid::item().column_span(start))
+                        .insert(BoxContent(Size::new(0, 1)));
+                }
+                grid.child_in(blit::Scope::ROOT, child)
+                    .item(grid::item().column_span(span))
+                    .insert(BoxContent(Size::new(width, 1)));
+            },
+        );
+        assert_eq!(frame.area(Target::ROOT.scoped(child)), Some(Rect::new(x, 0, width, 1)));
+        assert_eq!(frame.area(grid_id).unwrap().size(), Size::new(total, 1));
+    }
+}
+
+#[test]
+fn spanning_grid_fills_available_cell() {
+    let mut frame = Frame::default();
+    let hole = "hole";
+    layout_frame(
+        &mut frame,
+        &mut Cells,
+        FrameInfo::new(Size::new(28, 4)),
+        |ui: Ui<'_, Cells>| {
+            let mut grid = ui.layout(grid::new(3));
+            grid.child()
+                .item(grid::item().row_span(2).column_span(2))
+                .insert(BoxContent(Size::new(20, 2)));
+            grid.child().insert(ResponsiveContent);
+            grid.child_id(hole).insert(ResponsiveContent);
+        },
+    );
+    assert_eq!(frame.area(hole), Some(Rect::new(19, 2, 9, 2)));
+}
+
+#[test]
+fn grid_preserves_an_animated_child_extent_with_a_larger_sibling() {
+    let mut frame = Frame::default();
+    let id = "animated grid child";
+    let mut render = |extent, time| {
+        frame.build(
+            &mut Cells,
+            FrameInfo::new(Size::new(20, 10)),
+            time,
+            Input::None,
+            |ui: Ui<'_, Cells>| {
+                let mut grid = ui.layout(grid::new(2));
+                grid.child_id(id)
+                    .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).height())
+                    .insert(BoxContent(Size::new(1, extent)));
+                grid.child().insert(BoxContent(Size::new(1, extent)));
+            },
+        );
+        frame.layout(&mut Cells);
+        frame.area(id).unwrap().height
+    };
+
+    assert_eq!(render(1, Duration::ZERO), 1);
+    assert_eq!(render(4, Duration::ZERO), 1);
+    assert_eq!(render(4, Duration::from_millis(500)), 3);
+    assert_eq!(render(4, Duration::from_secs(1)), 4);
+}

@@ -99,8 +99,7 @@ fn main() -> std::io::Result<()> {
 blit is a set of focused building blocks:
 
 - `blit` provides the core ui model
-- `blit-layout` provides layouts for gui and tui
-- `blit-widgets` provides shared widgets and interactions like press and drag
+- `blit-widget` provides layouts, shared widgets and interactions like press and drag
 - `blit-gui` and `blit-tui` are graphical and terminal ui toolkits
 - `blit-desktop` runs graphical applications in native windows (macos + wayland)
 

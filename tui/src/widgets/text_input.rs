@@ -1,7 +1,7 @@
 use blit::{Axis, Input, KeyboardEvent, MouseButton, Paint, Sides, TouchPhase, Ui, Widget};
-use blit_widgets::interact::{self, keyboard::Handler};
-pub use blit_widgets::text_input::{Edit, Response as TextInputResponse, default_keymap};
-pub type TextInputState = blit_widgets::text_input::State<i32>;
+use blit_widget::interact::{self, keyboard::Handler};
+pub use blit_widget::text_input::{Edit, Response as TextInputResponse, default_keymap};
+pub type TextInputState = blit_widget::text_input::State<i32>;
 
 use crate::{
     Context,

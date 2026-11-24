@@ -1,6 +1,6 @@
 use blit::geometry::PhysicalRect;
-use blit_arena::Arena;
 use blit_gui::display_list::DisplayList;
+use blit_util::arena::Arena;
 
 use super::{
     clip::ClipStack,

@@ -16,7 +16,7 @@ mod present;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use blit::{PhysicalPoint, PhysicalRect, PhysicalSize};
-use blit_cache::{DeferredCache, Equivalent, Scale};
+use blit_util::cache::{DeferredCache, Equivalent, Scale};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 

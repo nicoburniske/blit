@@ -19,7 +19,7 @@ use blit_gui::{
         system::{FontStack, TextConfig, TextSystem},
     },
 };
-use blit_gui_widgets::{
+use blit_gui_widget::{
     interact,
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, wrap},
     performance::{Performance, PerformanceState},

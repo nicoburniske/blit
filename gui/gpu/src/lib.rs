@@ -12,7 +12,6 @@ mod text;
 use std::any::TypeId;
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
-use blit_arena::Arena;
 use blit_gui::{
     color::Color,
     display_list::DisplayList,
@@ -20,6 +19,7 @@ use blit_gui::{
     style::BorderRadius,
     text::system::TextSystem,
 };
+use blit_util::arena::Arena;
 use bytemuck::Zeroable;
 use pipeline::{
     Batch, Clip, DRAW_TEXT, Effects, Frame, GlyphInstance, GradientStop, INITIAL_CLIPS, INITIAL_DRAWS, INITIAL_GLYPHS,

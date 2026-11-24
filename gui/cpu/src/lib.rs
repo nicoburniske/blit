@@ -18,7 +18,6 @@ use alloc::{boxed::Box, vec::Vec};
 use core::{any::TypeId, hash::Hasher, marker::PhantomData, mem::offset_of, ptr::NonNull};
 
 use blit::{LogicalRect, PhysicalRect, Scale2, internal::bump::Offset};
-use blit_arena::Arena;
 use blit_gui::{
     Context,
     damage::{DamageTracker, tile::TileDamage},
@@ -27,6 +26,7 @@ use blit_gui::{
     style::BorderRadius,
     text::system::TextSystem,
 };
+use blit_util::arena::Arena;
 
 use self::{
     damage::passes::{PassDamage, StageDamage},
@@ -411,7 +411,7 @@ pub struct RecordContext<'a, P: Pixel> {
     marker: PhantomData<fn(P) -> P>,
     list: &'a mut DisplayList,
     reads_framebuffer: &'a mut bool,
-    images: &'a mut blit_arena::Arena<StoredImage>,
+    images: &'a mut blit_util::arena::Arena<StoredImage>,
 }
 
 impl<P: Pixel> RecordContext<'_, P> {

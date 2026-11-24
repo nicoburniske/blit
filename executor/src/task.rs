@@ -11,7 +11,7 @@ use std::{
     task::{Context, Poll, Wake, Waker},
 };
 
-use blit_arena::{Arena, Index};
+use blit_util::arena::{Arena, Index};
 
 use crate::ExecutorCore;
 

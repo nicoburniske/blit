@@ -19,8 +19,7 @@ mod renderer;
 mod terminal;
 pub mod text;
 pub mod widgets;
-pub use blit_layout as layout;
-pub use blit_widgets::interact;
+pub use blit_widget::{interact, layout};
 
 pub use self::{
     context::{BoundsClip, TuiContext},
@@ -30,9 +29,9 @@ pub use self::{
 
 pub type Ui<'a, S = blit::state::Build> = blit::Ui<'a, TuiContext, S>;
 
-pub trait Context: blit_widgets::Context<Scalar = i32> + AsMut<TuiContext> {}
+pub trait Context: blit_widget::Context<Scalar = i32> + AsMut<TuiContext> {}
 
-impl<C> Context for C where C: blit_widgets::Context<Scalar = i32> + AsMut<TuiContext> {}
+impl<C> Context for C where C: blit_widget::Context<Scalar = i32> + AsMut<TuiContext> {}
 
 use std::{
     io,
@@ -46,7 +45,7 @@ use blit::{
     Frame, FrameInfo, PhysicalPoint, PhysicalSize,
     input::{Input, Key, KeyInput, Modifiers, MouseButton, ScrollPhase},
 };
-use blit_widgets::performance::Stage;
+use blit_widget::performance::Stage;
 use terminal::{Size, Terminal};
 
 const MAX_EVENTS_PER_FRAME: usize = 32;

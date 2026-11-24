@@ -1,4 +1,4 @@
-use blit_arrayvec::ArrayVec;
+use blit_util::arrayvec::ArrayVec;
 
 use super::{Event, Key, KeyCode, KeyKind, Modifiers, MouseButton, MouseKind, PaletteSlot};
 

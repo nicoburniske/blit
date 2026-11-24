@@ -10,7 +10,7 @@ use blit_gui::{
     style::Border,
     text::{Text, TextStyle},
 };
-use blit_gui_widgets::{
+use blit_gui_widget::{
     interact,
     layout::{Justify, absolute, absolute::Anchor, flex},
 };

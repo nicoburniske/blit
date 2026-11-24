@@ -1,5 +1,5 @@
 use blit::{Clip, ClipShape, Paint, PhysicalRect};
-use blit_widgets::performance::FrameProfiler;
+use blit_widget::performance::FrameProfiler;
 
 use crate::{RendererConfig, TuiRenderer, image::Image, text::FrameText};
 
@@ -20,7 +20,7 @@ impl blit::Context for TuiContext {
     type Scalar = i32;
 }
 
-impl blit_widgets::Context for TuiContext {
+impl blit_widget::Context for TuiContext {
     const SLOP: i32 = 1;
 }
 

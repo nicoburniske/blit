@@ -1,0 +1,14 @@
+[package]
+name = "blit-gui-widget"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+
+[dependencies]
+blit.workspace = true
+blit-gui.workspace = true
+blit-widget.workspace = true
+
+[lints]
+workspace = true

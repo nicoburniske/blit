@@ -2,13 +2,13 @@ use alloc::vec;
 use core::hash::Hash;
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
-use blit_cache::{DeferredCache, Scale};
 use blit_gui::{
     color::Color,
     image::{ImageData, ImageFormat, ImageHandle, ImagePixels, NineSlice},
     shadow::Shadow,
     style::BorderRadius,
 };
+use blit_util::cache::{DeferredCache, Scale};
 
 use crate::{
     DamageTracker, Pixel, PixelBuffer, RenderStrategy, math,

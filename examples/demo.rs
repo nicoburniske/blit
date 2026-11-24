@@ -1,9 +1,10 @@
 use blit::{
     Animation, Axis, Easing, Layout, Motion, Scalar, Sides, Size, Spring, Target, Tween, Ui, Widget, state::Open,
 };
-pub use blit_layout::{Align, Justify};
-use blit_layout::{Sizing, absolute, absolute::Anchor, flex};
-use blit_widgets::{Context, interact};
+use blit_widget::{
+    Context, interact,
+    layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex},
+};
 
 /// applies selection changes before building any option's visuals
 pub fn select<'a, C: Context, T: Copy + PartialEq, D>(
