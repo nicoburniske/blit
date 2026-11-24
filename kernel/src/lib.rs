@@ -239,42 +239,65 @@ impl<C: Context> Widget<C, state::Insert> for () {
 }
 
 pub struct Kernel<C: Context> {
+    //
+    // current build
+    //
     nodes: Vec<StoredNode>,
     placements: Vec<Placement<C::Scalar>>,
-    // an id the latest layout found on several nodes, whose call sites this build reports
-    watch: Option<Id>,
     measures: Vec<StoredMeasure<C>>,
     paints: Vec<StoredPaint<C>>,
     aux: Vec<Aux<C::Scalar>>,
     places: Vec<StoredPlace<C>>,
     node_motions: Vec<NodeMotion>,
-    layout_kinds: Vec<LayoutKind<C>>,
-    clip_kinds: Vec<ClipKind<C>>,
+    /// nodes in paint order, empty when tree order
+    paint_order: Vec<NodeId>,
+    /// call sites of children under the open nodes
+    sites: Vec<Site>,
     bump: BumpArena,
     scratch: ScratchBuffer,
-    paint_order: Vec<NodeId>,
-    active_clips: Vec<ResolvedClipId>,
-    interaction: InteractionState<C::Scalar>,
-    // focus requested during this build, applied once it resolves
-    focus: FocusRequest,
-    // the latest layout, which the next build reads areas from
+
+    //
+    // latest layout
+    //
     old_nodes: Vec<StoredNode>,
     old_placements: Vec<Placement<C::Scalar>>,
-    // nodes of the latest layout by id
+    /// nodes by id
     laid_out: IdTable,
+    /// an id found on several nodes, whose call sites the next build reports
+    watch: Option<Id>,
+
+    //
+    // retained state
+    //
+    interaction: InteractionState<C::Scalar>,
     animations: Vec<AnimationState>,
     motions: Vec<MotionState<C::Scalar>>,
-    // animated sizes in the subtree being resolved
-    animated_sizes: Vec<MotionProps>,
     timers: Vec<TimerState>,
-    // call sites of children under the open nodes
-    sites: Vec<Site>,
+    /// focus requested during this build, applied once it resolves
+    focus: FocusRequest,
+
+    //
+    // layout and paint scratch
+    //
+    /// animated sizes in the subtree being resolved
+    animated_sizes: Vec<MotionProps>,
+    active_clips: Vec<ResolvedClipId>,
+
+    //
+    // node kinds
+    //
+    layout_kinds: Vec<LayoutKind<C>>,
+    clip_kinds: Vec<ClipKind<C>>,
+
+    //
+    // frame inputs
+    //
     input: Input<C::Scalar>,
     time: Duration,
     screen: Rect<C::Scalar>,
     resized: bool,
     frame_requested: bool,
-    // the next frame updates interactions against this layout
+    /// the next frame updates interactions against this layout
     settle: bool,
 }
 
@@ -283,28 +306,33 @@ impl<C: Context> Default for Kernel<C> {
         Self {
             nodes: Vec::new(),
             placements: Vec::new(),
-            watch: None,
             measures: Vec::new(),
             paints: Vec::new(),
             aux: Vec::new(),
             places: Vec::new(),
             node_motions: Vec::new(),
-            layout_kinds: Vec::new(),
-            clip_kinds: Vec::new(),
+            paint_order: Vec::new(),
+            sites: Vec::new(),
             bump: BumpArena::default(),
             scratch: ScratchBuffer::default(),
-            paint_order: Vec::new(),
-            active_clips: Vec::new(),
-            interaction: InteractionState::default(),
-            focus: FocusRequest::Keep,
+
             old_nodes: Vec::new(),
             old_placements: Vec::new(),
             laid_out: IdTable::default(),
+            watch: None,
+
+            interaction: InteractionState::default(),
             animations: Vec::new(),
             motions: Vec::new(),
-            animated_sizes: Vec::new(),
             timers: Vec::new(),
-            sites: Vec::new(),
+            focus: FocusRequest::Keep,
+
+            animated_sizes: Vec::new(),
+            active_clips: Vec::new(),
+
+            layout_kinds: Vec::new(),
+            clip_kinds: Vec::new(),
+
             input: Input::None,
             time: Duration::ZERO,
             screen: Rect::default(),
