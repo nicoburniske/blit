@@ -76,16 +76,20 @@ fn pipeline_is_valid() {
     for _ in 0..2 {
         let bounds = blit::LogicalRect::new(0.0, 0.0, 8.0, 8.0);
         let mut recording = renderer.record(bounds);
-        recording.push::<State<8>>(0u8);
-        recording.push::<State<16>>(0u16);
+        recording.push(0u8, |input, cx| cx.render::<State<8>>(input));
+        recording.push(0u16, |input, cx| cx.render::<State<16>>(input));
         renderer.render(&target);
         assert_eq!(renderer.renderers.len(), 2);
     }
     let bounds = blit::LogicalRect::new(0.0, 0.0, 8.0, 8.0);
-    renderer.record(bounds).push::<State<8>>(1u8);
+    renderer
+        .record(bounds)
+        .push(1u8, |input, cx| cx.render::<State<8>>(input));
     let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| renderer.render(&target)));
     assert!(failure.is_err());
-    renderer.record(bounds).push::<State<8>>(0u8);
+    renderer
+        .record(bounds)
+        .push(0u8, |input, cx| cx.render::<State<8>>(input));
     renderer.render(&target);
 }
 

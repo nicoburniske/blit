@@ -119,7 +119,7 @@ struct Ribbons {
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Ribbons> for Renderer<B, S, D> {
     fn paint(&mut self, area: LogicalRect, sculpture: &Ribbons) {
-        self.record(area).push::<RibbonsRenderer>(
+        self.record(area).push_render::<RibbonsRenderer>(
             (
                 [area.x, area.y, area.width, area.height].map(f32::to_bits),
                 sculpture.axis.map(f32::to_bits),

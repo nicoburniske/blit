@@ -1,6 +1,6 @@
 use blit::{Paint, Ui, Widget, state};
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Clear;
 
 impl<C: Paint<Clear, Scalar = f32>> Widget<C, state::Insert> for Clear {

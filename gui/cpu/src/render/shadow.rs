@@ -49,7 +49,7 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Paint<Shadow> for c
     fn paint(&mut self, area: LogicalRect, shadow: &Shadow) {
         let mut cx = self.record(area);
         cx.bounds = shadow.bounds(area).to_physical(Scale2::uniform(cx.scale));
-        cx.push::<Renderer>(*shadow, None);
+        cx.push_render::<Renderer>(*shadow, None);
     }
 }
 

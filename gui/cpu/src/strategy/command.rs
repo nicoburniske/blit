@@ -1,10 +1,7 @@
 use alloc::vec::Vec;
 use core::{ops::Range, ptr::NonNull};
 
-use blit::{
-    PhysicalRect, ScratchBuffer,
-    internal::bump::{Bump, Offset},
-};
+use blit::{FrameStore, PhysicalRect, ScratchBuffer};
 use blit_gui::display_list::DisplayList;
 
 use super::clip::{ClipId, ClipStack};
@@ -32,7 +29,7 @@ pub struct RasterCommands<P> {
     pub source: u32,
     pub metadata: Vec<Metadata>,
     pub entries: Vec<ErasedCommand<P>>,
-    pub prepared: Bump,
+    pub prepared: FrameStore,
     pub scratch: ScratchBuffer,
     pub range: Range<CommandId>,
     pub gradients: Gradients,
@@ -50,7 +47,7 @@ impl<P> Default for RasterCommands<P> {
             source: 0,
             metadata: Vec::new(),
             entries: Vec::new(),
-            prepared: Bump::default(),
+            prepared: FrameStore::default(),
             scratch: ScratchBuffer::default(),
             range: 0..0,
             gradients: Gradients::default(),
@@ -166,7 +163,7 @@ impl<P: Pixel> RasterCommands<P> {
             Coverage::Full => Some(metadata.bounds),
             Coverage::Rect => {
                 // safety: rectangular coverage stores the offset of its recorded PhysicalRect
-                let bounds = unsafe { list.data().get(self.entries[id as usize].opaque) };
+                let bounds = unsafe { list.store().get::<PhysicalRect>(self.entries[id as usize].opaque) };
                 bounds.intersection(metadata.bounds)
             }
             _ => None,
@@ -302,7 +299,7 @@ impl<P: Pixel> RasterCommands<P> {
             let clip = self.metadata[id as usize].clip;
             let mesh = &mut self.meshes[index];
             // safety: mesh recording stores an offset to blit_gui::mesh::FrameMesh in this list
-            let source = unsafe { list.data().get(mesh.source) };
+            let source = unsafe { list.store().get::<blit_gui::mesh::FrameMesh>(mesh.source) };
             let view = source.view(list);
             for (triangle_index, indices) in view.indices.as_chunks::<3>().0.iter().enumerate() {
                 let points = indices.map(|vertex_index| {
@@ -350,12 +347,12 @@ impl<P: Pixel> RasterCommands<P> {
         bounds: PhysicalRect,
         clip: ClipId,
         value: u32,
-        prepare: fn(NonNull<()>, u32, &mut Bump, &mut RenderContext<'_, P>) -> u32,
+        prepare: fn(NonNull<()>, u32, &mut FrameStore, &mut RenderContext<'_, P>) -> u32,
     ) -> &mut Metadata {
         let input = ErasedCommand {
             renderer: NonNull::dangling(),
             value,
-            opaque: Offset::new(0),
+            opaque: 0,
             render: None,
             reads: None,
             prepare: Some(prepare),

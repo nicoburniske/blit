@@ -1,9 +1,9 @@
 use std::{any::TypeId, ops::Range, ptr::NonNull};
 
-use blit::{FrameStore, LogicalRect, PhysicalRect, Scale2};
-use blit_gui::display_list::{Command, Compare, DisplayList};
+use blit::{FrameStore, LogicalRect, PhysicalRect};
+use blit_gui::display_list::{Compare, DisplayList};
 
-use crate::{Effects, Renderer};
+use crate::{Batch, Effects, Renderer};
 
 /// prepares GPU resources and encodes ordered drawing commands
 pub trait Render: Sized + 'static {
@@ -67,6 +67,88 @@ impl PrepareContext<'_> {
     pub fn source(&self) -> Option<&wgpu::TextureView> {
         self.reads
             .and_then(|_| self.renderer.effects.as_ref().map(|effect| &effect.source))
+    }
+}
+
+/// drawing facilities for a recorded input
+pub struct DrawContext<'a> {
+    pub scale: f32,
+    pub area: LogicalRect,
+    pub bounds: PhysicalRect,
+    pub clip: u32,
+    pub size: [u32; 2],
+    pub(crate) renderer: &'a mut Renderer,
+    pub(crate) list: &'a DisplayList,
+}
+
+impl DrawContext<'_> {
+    /// prepares and queues this input using a persistent renderer
+    pub fn render<R: Render>(&mut self, input: &R::Input) {
+        let bounds = self.bounds;
+        let screen = PhysicalRect::new(0, 0, self.size[0] as i32, self.size[1] as i32);
+        let mut context = PrepareContext {
+            scale: self.scale,
+            area: self.area,
+            bounds,
+            clip: self.clip,
+            size: self.size,
+            list: self.list,
+            renderer: self.renderer,
+            reads: None,
+        };
+        let kind = TypeId::of::<R>();
+        let index = context
+            .renderer
+            .renderers
+            .iter()
+            .position(|renderer| renderer.kind == kind)
+            .unwrap_or_else(|| {
+                let value = R::new(&context);
+                context.renderer.renderers.push(ErasedRenderer::new(value));
+                context.renderer.renderers.len() - 1
+            });
+        let renderer = context.renderer.renderers[index].value;
+        // safety: lookup selects the entry created for R
+        let state = unsafe { renderer.cast::<State<R>>().as_mut() };
+        context.reads = state
+            .value
+            .reads(input, bounds)
+            .map(|area| area.intersection(screen).unwrap_or_default());
+        if context.reads.is_some() {
+            context.renderer.effects(context.size);
+        }
+        if let Some(value) = state.value.prepare(input, &mut context) {
+            let start = state.prepared.len();
+            state.prepared.push(value);
+            let previous = context.renderer.batches.last().and_then(|batch| match batch {
+                Batch::Custom(index) => context.renderer.calls.get_mut(*index),
+                _ => None,
+            });
+            if let Some(previous) = previous
+                && context.reads.is_none()
+                && previous.reads.is_none()
+                && previous.renderer == index
+                && previous.clip == context.clip
+                && previous.range.end == start
+            {
+                previous.range.end += 1;
+                previous.bounds = previous.bounds.union(bounds);
+            } else {
+                let call = context.renderer.calls.len();
+                context.renderer.calls.push(Call {
+                    renderer: index,
+                    range: start..start + 1,
+                    bounds,
+                    clip: context.clip,
+                    reads: context.reads,
+                });
+                context.renderer.batches.push(Batch::Custom(call));
+            }
+        }
+    }
+
+    pub fn store(&self) -> &FrameStore {
+        self.list.store()
     }
 }
 
@@ -189,34 +271,6 @@ impl Drop for ErasedRenderer {
     }
 }
 impl Renderer {
-    /// bounds are the logical pixels touched which may extend past area
-    pub(crate) fn record_native<T, F>(
-        &mut self,
-        area: LogicalRect,
-        bounds: LogicalRect,
-        clip: u32,
-        value: T,
-        prepare: F,
-    ) where
-        T: Compare,
-        F: Fn(&T, &Command, &DisplayList, &mut Renderer, PhysicalRect) + 'static,
-    {
-        // safety: this renderer dispatches its list with DispatchContext
-        unsafe {
-            self.list.record(
-                area,
-                bounds.to_physical(Scale2::uniform(self.scale)),
-                clip,
-                value,
-                move |value: &T, _, command: &Command, list: &DisplayList, context: &mut DispatchContext<'_>| {
-                    if let Some(bounds) = context.bounds(command, list) {
-                        prepare(value, command, list, context.renderer, bounds);
-                    }
-                },
-            );
-        }
-    }
-
     pub(super) fn effects(&mut self, size: [u32; 2]) -> &Effects {
         let extent = wgpu::Extent3d {
             width: size[0],
@@ -306,20 +360,4 @@ impl Renderer {
     }
 }
 
-pub(crate) struct DispatchContext<'a> {
-    pub renderer: &'a mut Renderer,
-    pub screen: PhysicalRect,
-}
-
-impl DispatchContext<'_> {
-    pub(crate) fn bounds(&self, command: &blit_gui::display_list::Command, list: &DisplayList) -> Option<PhysicalRect> {
-        let mut bounds = command.bounds.intersection(self.screen)?;
-        let mut clip = command.clip;
-        while clip != 0 {
-            let node = &list.clips()[clip as usize - 1];
-            bounds = bounds.intersection(node.area.to_physical(Scale2::uniform(self.renderer.scale)))?;
-            clip = node.parent;
-        }
-        Some(bounds)
-    }
-}
+pub(crate) type Replay = fn(usize, &mut DrawContext<'_>);

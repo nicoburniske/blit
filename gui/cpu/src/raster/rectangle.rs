@@ -1,6 +1,6 @@
 use core::ops::Range;
 
-use blit::{LogicalRect, Paint, PhysicalRect, Scale2, internal::bump::Offset};
+use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_gui::{
     damage::DamageTracker,
     rectangle::{FrameRectangle, Rectangle},
@@ -13,6 +13,7 @@ use super::{
 };
 use crate::{
     Pixel, PixelBuffer, PixelSpan, PremultipliedRgbaColor, RenderStrategy, Renderer, math,
+    render::DrawContext,
     strategy::command::{Coverage, Payload},
 };
 
@@ -23,69 +24,55 @@ where
     D: DamageTracker,
 {
     fn paint(&mut self, area: LogicalRect, value: &FrameRectangle) {
-        let mut recording = self.record(area);
-        recording.record_input(
-            recording.bounds,
-            recording.clip,
-            *value,
-            |input, offset, record, list, context| {
-                let scale = context.commands.scale;
-                let target = &mut *context.commands;
-                let rectangle = input.view(list);
-                let Some(bounds) = record
-                    .area
-                    .to_physical(Scale2::uniform(scale))
-                    .intersection(record.bounds)
-                else {
-                    return;
-                };
-                if rectangle.opacity <= 0.0 || rectangle.opacity.is_nan() {
-                    return;
-                }
-                let opaque = match rectangle.background {
-                    Fill::Solid(color) => PremultipliedRgbaColor::with_opacity(color, rectangle.opacity).alpha == 255,
-                    Fill::LinearGradient(LinearGradient { stops, .. })
-                    | Fill::ConicGradient(ConicGradient { stops, .. }) => {
-                        !stops.is_empty()
-                            && stops.iter().all(|stop| {
-                                PremultipliedRgbaColor::with_opacity(stop.color, rectangle.opacity).alpha == 255
-                            })
-                    }
-                };
-                let coverage = if !opaque {
-                    Coverage::None
-                } else if rectangle.radius == Default::default() {
-                    Coverage::Full
-                } else {
-                    Coverage::Rounded
-                };
-                if record.clip == 0
-                    && coverage == Coverage::Full
-                    && let Some(previous) = target.metadata.last()
-                    && previous.clip == 0
-                    && previous.bounds == bounds
-                {
-                    target.metadata.pop();
-                    target.entries.pop();
-                }
-                target
-                    .record(bounds, record.clip, offset, |_, offset, prepared, cx| {
-                        // safety: recording stores this offset as FrameRectangle
-                        let input = unsafe { cx.list.data().get(Offset::<FrameRectangle>::new(offset)) };
-                        let value = crate::raster::rectangle::Prepared::new(
-                            cx.area,
-                            &input.view(cx.list),
-                            cx.scale,
-                            cx.gradients,
-                        )
-                        .map(Payload::Rectangle)
-                        .unwrap_or(Payload::Empty);
-                        prepared.push(value).byte()
-                    })
-                    .coverage = coverage;
-            },
-        );
+        self.record(area).push(*value, draw_rectangle::<B::Pixel>);
     }
+}
+
+fn draw_rectangle<P: Pixel>(input: &FrameRectangle, cx: &mut DrawContext<'_, P>) {
+    let scale = cx.scale;
+    let target = &mut *cx.commands;
+    let rectangle = input.view(cx.list);
+    let Some(bounds) = cx.area.to_physical(Scale2::uniform(scale)).intersection(cx.bounds) else {
+        return;
+    };
+    if rectangle.opacity <= 0.0 || rectangle.opacity.is_nan() {
+        return;
+    }
+    let opaque = match rectangle.background {
+        Fill::Solid(color) => PremultipliedRgbaColor::with_opacity(color, rectangle.opacity).alpha == 255,
+        Fill::LinearGradient(LinearGradient { stops, .. }) | Fill::ConicGradient(ConicGradient { stops, .. }) => {
+            !stops.is_empty()
+                && stops
+                    .iter()
+                    .all(|stop| PremultipliedRgbaColor::with_opacity(stop.color, rectangle.opacity).alpha == 255)
+        }
+    };
+    let coverage = if !opaque {
+        Coverage::None
+    } else if rectangle.radius == Default::default() {
+        Coverage::Full
+    } else {
+        Coverage::Rounded
+    };
+    if cx.clip == 0
+        && coverage == Coverage::Full
+        && let Some(previous) = target.metadata.last()
+        && previous.clip == 0
+        && previous.bounds == bounds
+    {
+        target.metadata.pop();
+        target.entries.pop();
+    }
+    target
+        .record(bounds, cx.clip, cx.offset, |_, offset, prepared, cx| {
+            // safety: recording stores this offset as FrameRectangle
+            let input = unsafe { cx.list.store().get::<FrameRectangle>(offset) };
+            let value = crate::raster::rectangle::Prepared::new(cx.area, &input.view(cx.list), cx.scale, cx.gradients)
+                .map(Payload::Rectangle)
+                .unwrap_or(Payload::Empty);
+            prepared.push(value)
+        })
+        .coverage = coverage;
 }
 
 #[derive(Clone, Copy)]

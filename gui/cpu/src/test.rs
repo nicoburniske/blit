@@ -112,7 +112,7 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
         D: DamageTracker,
     {
         fn paint(&mut self, bounds: LogicalRect, key: &Key) {
-            self.record(bounds).push::<KeyRenderer>(key.clone(), None);
+            self.record(bounds).push_render::<KeyRenderer>(key.clone(), None);
         }
     }
 
@@ -125,7 +125,7 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
     {
         fn paint(&mut self, bounds: LogicalRect, command: &(Key, T)) {
             self.record(bounds)
-                .push::<KeyedRenderer<T>>(Keyed(command.0.clone(), command.1.clone()), None);
+                .push_render::<KeyedRenderer<T>>(Keyed(command.0.clone(), command.1.clone()), None);
         }
     }
 
@@ -166,6 +166,29 @@ fn damage_compares_typed_inputs_and_hashes_only_visible_tiles() {
     assert!(!left.context.list.equivalent(0, &right.context.list, 0));
     assert_eq!(counts.comparisons.get(), 0);
     assert_eq!(size_of::<Command>(), 48);
+}
+
+#[test]
+fn draw_callbacks_rasterize_with_the_recorded_clip_and_track_changes() {
+    fn draw(color: &Color, cx: &mut DrawContext<'_, Xrgb8888>) {
+        let pixel = Xrgb8888::from_rgb(color.red, color.green, color.blue);
+        cx.rasterize(pixel, |color, cx| {
+            cx.for_each_span(|span| span.pixels.fill(*color));
+        });
+    }
+
+    let mut renderer = new_renderer(VecBuffer::new(2, 1), renderer_config());
+    let area = LogicalRect::new(0.0, 0.0, 2.0, 1.0);
+    let clip = LogicalRect::new(1.0, 0.0, 1.0, 1.0);
+    let black = Xrgb8888::from_rgb(0, 0, 0);
+    for color in [Color::rgb(255, 0, 0), Color::rgb(0, 255, 0)] {
+        renderer.push_clip(clip, BorderRadius::default());
+        renderer.record(area).push(color, draw);
+        renderer.pop_clip();
+        renderer.render(1);
+        let pixel = Xrgb8888::from_rgb(color.red, color.green, color.blue);
+        assert_eq!(renderer.buffer().pixels(), &[black, pixel]);
+    }
 }
 
 #[test]
@@ -211,15 +234,15 @@ fn renderers_keep_independent_state_and_configuration_invalidates_damage() {
         }
         renderer
             .record(LogicalRect::new(0.0, 0.0, 1.0, 1.0))
-            .push_ready::<Fill<0>>((), None);
+            .push_render::<Fill<0>>((), None);
         let mut recording = renderer.record(LogicalRect::default());
-        recording.push_ready::<Fill<1>>((), None);
-        recording.push_ready::<Fill<2>>((), None);
-        recording.push_ready::<Fill<3>>((), None);
-        recording.push_ready::<Fill<4>>((), None);
+        recording.push_render::<Fill<1>>((), None);
+        recording.push_render::<Fill<2>>((), None);
+        recording.push_render::<Fill<3>>((), None);
+        recording.push_render::<Fill<4>>((), None);
         renderer
             .record(LogicalRect::new(1.0, 0.0, 1.0, 1.0))
-            .push_ready::<Fill<16>>((), None);
+            .push_render::<Fill<16>>((), None);
         renderer.render(1);
         assert_eq!(
             renderer.buffer().pixels(),
@@ -238,7 +261,7 @@ fn renderers_keep_independent_state_and_configuration_invalidates_damage() {
         if pass {
             recording.push_pass::<Fill<16>>(());
         } else {
-            recording.push_ready::<Fill<16>>((), None);
+            recording.push_render::<Fill<16>>((), None);
         }
         renderer.render(1);
         assert_eq!(
@@ -281,7 +304,6 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
         area: PhysicalRect,
         value: u8,
         report: bool,
-        prepared: bool,
         prepares: Rc<Cell<usize>>,
     }
 
@@ -301,7 +323,7 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
         D: DamageTracker,
     {
         fn paint(&mut self, bounds: LogicalRect, under: &Under) {
-            self.record(bounds).push::<UnderRenderer>(under.clone(), None);
+            self.record(bounds).push_render::<UnderRenderer>(under.clone(), None);
         }
     }
 
@@ -331,11 +353,7 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
             let mut cx = self.record(bounds);
             let area = cover.area;
             let opaque = cover.report.then_some(area);
-            if cover.prepared {
-                cx.push::<CoverRenderer>(cover.clone(), opaque)
-            } else {
-                cx.push_ready::<CoverRenderer>(cover.clone(), opaque)
-            }
+            cx.push_render::<CoverRenderer>(cover.clone(), opaque);
         }
     }
 
@@ -367,67 +385,64 @@ fn custom_opaque_rectangles_skip_hidden_preparation_and_respect_clips() {
     }
 
     fn check<D: DamageTracker>(make_damage: fn() -> D) {
-        for prepared in [false, true] {
-            for mode in 0..4 {
-                let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(64, 24), renderer_config())
-                    .strategy(Scanline::default())
-                    .damage_tracker(make_damage());
-                let mut reference = new_renderer(VecBuffer::<Xrgb8888>::new(64, 24), renderer_config());
-                let under = Rc::new(Cell::new(0));
-                let cover = Rc::new(Cell::new(0));
-                let area = PhysicalRect::new(8, 4, 40, 16);
-                let screen = LogicalRect::new(0.0, 0.0, 64.0, 24.0);
-                for (frame, value) in [64, 128, 128].into_iter().enumerate() {
-                    under.set(0);
-                    cover.set(0);
-                    Rectangle::new().background(Color::BLACK).paint(screen, &mut renderer);
-                    Rectangle::new().background(Color::BLACK).paint(screen, &mut reference);
-                    renderer.paint(area.to_logical(SCALE), &Under(under.clone()));
-                    reference.paint(area.to_logical(SCALE), &Under(Rc::default()));
-                    let clip = match mode {
-                        1 => Some((LogicalRect::new(16.0, 4.0, 24.0, 16.0), BorderRadius::default())),
-                        2 => Some((area.to_logical(SCALE), BorderRadius::all(6.0))),
-                        _ => None,
-                    };
-                    if let Some((area, radius)) = clip {
-                        renderer.push_clip(area, radius);
-                        reference.push_clip(area, radius);
-                    }
-                    let bounds = if mode == 3 {
-                        LogicalRect::new(16.0, 4.0, 24.0, 16.0)
-                    } else {
-                        screen
-                    };
-                    let command = Cover {
-                        area,
-                        value,
-                        report: true,
-                        prepared,
-                        prepares: cover.clone(),
-                    };
-                    reference.paint(
-                        bounds,
-                        &Cover {
-                            report: false,
-                            prepares: Rc::default(),
-                            ..command.clone()
-                        },
-                    );
-                    renderer.paint(bounds, &command);
-                    if clip.is_some() {
-                        renderer.pop_clip();
-                        reference.pop_clip();
-                    }
-                    renderer.render(1);
-                    reference.render(0);
-                    assert_eq!(renderer.buffer().pixels(), reference.buffer().pixels());
-                    if mode == 0 || frame == 2 {
-                        assert_eq!(under.get(), 0);
-                    } else if frame == 0 {
-                        assert_eq!(under.get(), 1);
-                    }
-                    assert_eq!(cover.get(), usize::from(frame != 2 && prepared));
+        for mode in 0..4 {
+            let mut renderer = new_renderer(VecBuffer::<Xrgb8888>::new(64, 24), renderer_config())
+                .strategy(Scanline::default())
+                .damage_tracker(make_damage());
+            let mut reference = new_renderer(VecBuffer::<Xrgb8888>::new(64, 24), renderer_config());
+            let under = Rc::new(Cell::new(0));
+            let cover = Rc::new(Cell::new(0));
+            let area = PhysicalRect::new(8, 4, 40, 16);
+            let screen = LogicalRect::new(0.0, 0.0, 64.0, 24.0);
+            for (frame, value) in [64, 128, 128].into_iter().enumerate() {
+                under.set(0);
+                cover.set(0);
+                Rectangle::new().background(Color::BLACK).paint(screen, &mut renderer);
+                Rectangle::new().background(Color::BLACK).paint(screen, &mut reference);
+                renderer.paint(area.to_logical(SCALE), &Under(under.clone()));
+                reference.paint(area.to_logical(SCALE), &Under(Rc::default()));
+                let clip = match mode {
+                    1 => Some((LogicalRect::new(16.0, 4.0, 24.0, 16.0), BorderRadius::default())),
+                    2 => Some((area.to_logical(SCALE), BorderRadius::all(6.0))),
+                    _ => None,
+                };
+                if let Some((area, radius)) = clip {
+                    renderer.push_clip(area, radius);
+                    reference.push_clip(area, radius);
                 }
+                let bounds = if mode == 3 {
+                    LogicalRect::new(16.0, 4.0, 24.0, 16.0)
+                } else {
+                    screen
+                };
+                let command = Cover {
+                    area,
+                    value,
+                    report: true,
+                    prepares: cover.clone(),
+                };
+                reference.paint(
+                    bounds,
+                    &Cover {
+                        report: false,
+                        prepares: Rc::default(),
+                        ..command.clone()
+                    },
+                );
+                renderer.paint(bounds, &command);
+                if clip.is_some() {
+                    renderer.pop_clip();
+                    reference.pop_clip();
+                }
+                renderer.render(1);
+                reference.render(0);
+                assert_eq!(renderer.buffer().pixels(), reference.buffer().pixels());
+                if mode == 0 || frame == 2 {
+                    assert_eq!(under.get(), 0);
+                } else if frame == 0 {
+                    assert_eq!(under.get(), 1);
+                }
+                assert_eq!(cover.get(), usize::from(frame != 2));
             }
         }
     }
@@ -481,7 +496,7 @@ fn prepared_draws_capture_data_and_drop_results_once() {
         fn paint(&mut self, bounds: LogicalRect, samples: &Samples<'_>) {
             let mut cx = self.record(bounds);
             let values = cx.store_mut().slice_from(samples.0);
-            cx.push::<SamplesRenderer>(SamplesData(values, samples.1.clone()), None);
+            cx.push_render::<SamplesRenderer>(SamplesData(values, samples.1.clone()), None);
         }
     }
 

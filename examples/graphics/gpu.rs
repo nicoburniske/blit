@@ -43,7 +43,8 @@ struct Interference {
 
 impl Paint<Interference> for Renderer {
     fn paint(&mut self, bounds: LogicalRect, signal: &Interference) {
-        self.record(bounds).push::<SignalRenderer>(signal.phase.to_bits());
+        self.record(bounds)
+            .push(signal.phase.to_bits(), |phase, cx| cx.render::<SignalRenderer>(phase));
     }
 }
 

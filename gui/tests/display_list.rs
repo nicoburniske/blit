@@ -1,45 +1,31 @@
-use std::{any::TypeId, hash::Hash, panic::AssertUnwindSafe, ptr::NonNull, rc::Rc};
+use std::{panic::AssertUnwindSafe, rc::Rc};
 
-use blit::{LogicalRect, PhysicalRect, internal::bump::Offset};
+use blit::{LogicalRect, PhysicalRect};
 use blit_gui::{
     damage::{DamageTracker, command::CommandDiff, tile::TileDamage},
-    display_list::{DisplayList, Ops},
+    display_list::DisplayList,
 };
 
 #[test]
 fn damage_tracking_and_backend_dispatch_share_a_display_list() {
+    type Replay = fn(&DisplayList, usize, &mut usize);
+
+    fn draw(list: &DisplayList, index: usize, output: &mut usize) {
+        let (value, _) = list.input::<String>(index);
+        *output = value.len();
+    }
+
     fn check<D: DamageTracker>(mut damage: D) {
-        let ops = const {
-            &Ops {
-                kind: TypeId::of::<String>(),
-                equal: |left, a, right, b| {
-                    // safety: insertion pairs this table with String
-                    unsafe { left.data().get(Offset::<String>::new(a)) == right.data().get(Offset::<String>::new(b)) }
-                },
-                hash: |list, offset, state| {
-                    // safety: insertion pairs this table with String
-                    unsafe { list.data().get(Offset::<String>::new(offset)) }.hash(state);
-                },
-                dispatch: |command, list, context| {
-                    // safety: the test pairs String inputs with a usize output
-                    let value = unsafe { list.data().get(Offset::<String>::new(command.offset())) };
-                    unsafe { *context.cast::<usize>().as_mut() = value.len() };
-                },
-            }
-        };
         let bounds = PhysicalRect::new(0, 0, 8, 8);
         let mut list = DisplayList::default();
         for (value, changed) in [("same", true), ("same", false), ("changed", true)] {
-            // safety: the table describes the owned String and its comparison semantics
-            unsafe {
-                list.push(
-                    LogicalRect::new(0.0, 0.0, 8.0, 8.0),
-                    bounds,
-                    0,
-                    String::from(value),
-                    ops,
-                )
-            };
+            list.push(
+                LogicalRect::new(0.0, 0.0, 8.0, 8.0),
+                bounds,
+                0,
+                String::from(value),
+                draw as Replay,
+            );
             damage.update(&list, bounds, 1.0, 1);
             assert_eq!(damage.is_empty(), !changed);
             assert_eq!(damage.intersects(bounds, 0), changed);
@@ -50,8 +36,7 @@ fn damage_tracking_and_backend_dispatch_share_a_display_list() {
                 assert_eq!(ranges[0], 0..8);
             }
             let mut output = 0usize;
-            // safety: this command belongs to list and its dispatch expects a usize output
-            unsafe { list.commands()[0].dispatch(&list, NonNull::from(&mut output).cast()) };
+            list.replay::<Replay>(0)(&list, 0, &mut output);
             assert_eq!(output, value.len());
             damage.finish_frame(&mut list);
             list.clear();
@@ -66,26 +51,30 @@ fn damage_tracking_and_backend_dispatch_share_a_display_list() {
 fn values_and_slices_survive_growth_and_release_resources() {
     let resource: Rc<str> = Rc::from("retained for the frame");
     let mut list = DisplayList::default();
-    // safety: the table describes Rc<str> and does not access backend state
-    unsafe {
-        list.push(
-            LogicalRect::default(),
-            PhysicalRect::default(),
-            0,
-            resource.clone(),
-            ops::<Rc<str>>(),
-        )
-    };
+    list.push(LogicalRect::default(), PhysicalRect::default(), 0, resource.clone(), ());
     let mut points = list.store_mut().slice(10_000);
     points.extend((0..10_000).map(|index| [index, index + 1]));
     let points = points.finish();
-    // safety: the first command stores Rc<str>
-    let value = unsafe { list.data().get(Offset::<Rc<str>>::new(list.commands()[0].offset())) };
+    let (value, _) = list.input::<Rc<str>>(0);
     assert_eq!(value.as_ref(), resource.as_ref());
     assert_eq!(list.store().view(points)[9999], [9999, 10000]);
     assert_eq!(Rc::strong_count(&resource), 2);
     list.clear();
     assert_eq!(Rc::strong_count(&resource), 1);
+}
+
+#[test]
+fn input_and_replay_reject_wrong_types() {
+    let mut list = DisplayList::default();
+    list.push(
+        LogicalRect::default(),
+        PhysicalRect::default(),
+        0,
+        1_u32,
+        (|_: &mut usize| {}) as fn(&mut usize),
+    );
+    assert!(std::panic::catch_unwind(AssertUnwindSafe(|| list.input::<u64>(0))).is_err());
+    assert!(std::panic::catch_unwind(AssertUnwindSafe(|| list.replay::<fn(&mut u32)>(0))).is_err());
 }
 
 #[test]
@@ -117,6 +106,7 @@ fn foreign_and_expired_slices_are_rejected() {
 
 #[test]
 fn panicking_destructors_invalidate_slices_before_dropping_values() {
+    #[derive(PartialEq, Hash)]
     struct Resource;
     impl Drop for Resource {
         fn drop(&mut self) {
@@ -127,28 +117,8 @@ fn panicking_destructors_invalidate_slices_before_dropping_values() {
     let mut slice = list.store_mut().slice(1);
     slice.push(1u8);
     let slice = slice.finish();
-    // safety: the table describes Resource and does not access backend state
-    unsafe {
-        list.push(
-            LogicalRect::default(),
-            PhysicalRect::default(),
-            0,
-            Resource,
-            ops::<Resource>(),
-        )
-    };
+    list.push(LogicalRect::default(), PhysicalRect::default(), 0, Resource, ());
     assert!(std::panic::catch_unwind(AssertUnwindSafe(|| list.clear())).is_err());
     assert!(std::panic::catch_unwind(AssertUnwindSafe(|| list.store().view(slice))).is_err());
     list.clear();
-}
-
-fn ops<T: 'static>() -> &'static Ops {
-    const {
-        &Ops {
-            kind: TypeId::of::<T>(),
-            equal: |_, _, _, _| true,
-            hash: |_, _, _| {},
-            dispatch: |_, _, _| {},
-        }
-    }
 }

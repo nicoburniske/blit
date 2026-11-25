@@ -69,7 +69,7 @@ impl blit::HasFrameStore for Backend {
             .store()
     }
 
-    fn store_mut(&mut self) -> &mut blit::FrameStore {
+    fn store_mut(&mut self) -> blit::FrameStoreMut<'_> {
         self.gpu
             .as_mut()
             .expect("GPU renderer is not initialized")

@@ -9,12 +9,12 @@ pub mod render;
 mod shadow;
 mod text;
 
-use std::any::TypeId;
+use std::hash::Hasher;
 
 use blit::{LogicalRect, PhysicalRect, Scale2};
 use blit_gui::{
     color::Color,
-    display_list::DisplayList,
+    display_list::{Compare, DisplayList},
     image::{ImageData, ImageFormat, ImageHandle},
     style::BorderRadius,
     text::system::TextSystem,
@@ -27,8 +27,8 @@ use pipeline::{
     StoredImage, data_bind_group, grow_buffer, image_axis, image_flag, physical_radii, physical_rect, premultiplied,
     push_draw,
 };
-use render::{Call, DispatchContext, ErasedRenderer, State};
-pub use render::{PrepareContext, Render, RenderContext};
+use render::Replay;
+pub use render::{DrawContext, PrepareContext, Render, RenderContext};
 
 /// shared frame transform and rounded clip coverage for custom shaders
 pub const SHADER: &str = include_str!("clip.wgsl");
@@ -101,7 +101,7 @@ impl blit::HasFrameStore for Renderer {
         self.list.store()
     }
 
-    fn store_mut(&mut self) -> &mut blit::FrameStore {
+    fn store_mut(&mut self) -> blit::FrameStoreMut<'_> {
         self.list.store_mut()
     }
 }
@@ -369,15 +369,15 @@ impl Renderer {
         }
     }
 
-    /// begins recording inputs within bounds
-    #[inline]
     /// begins recording drawing inputs for a logical area
     /// bounds start as the physical area and may be widened for outsets
+    #[inline]
     pub fn record(&mut self, area: LogicalRect) -> RecordContext<'_> {
         RecordContext {
             scale: self.scale,
             area,
             bounds: area.to_physical(Scale2::uniform(self.scale)),
+            clip: self.paint_clip,
             renderer: self,
         }
     }
@@ -528,11 +528,27 @@ impl Renderer {
                 width: width.min(i32::MAX as u32) as i32,
                 height: height.min(i32::MAX as u32) as i32,
             };
-            let mut dispatch = render::DispatchContext { renderer: self, screen };
-            for command in display_list.commands() {
-                // safety: recording pairs dispatch with this renderer dispatch context
-                unsafe {
-                    command.dispatch(&display_list, std::ptr::NonNull::from(&mut dispatch).cast());
+            for (index, command) in display_list.commands().iter().enumerate() {
+                let mut bounds = command.bounds.intersection(screen);
+                let mut clip = command.clip;
+                while let Some(visible) = bounds
+                    && clip != 0
+                {
+                    let node = &display_list.clips()[clip as usize - 1];
+                    bounds = visible.intersection(node.area.to_physical(Scale2::uniform(scale)));
+                    clip = node.parent;
+                }
+                if let Some(bounds) = bounds {
+                    let mut draw = DrawContext {
+                        scale,
+                        area: command.area,
+                        bounds,
+                        clip: command.clip,
+                        size: [screen.width as u32, screen.height as u32],
+                        list: &display_list,
+                        renderer: self,
+                    };
+                    display_list.replay::<Replay>(index)(index, &mut draw);
                 }
             }
             for renderer in &self.renderers {
@@ -766,6 +782,7 @@ pub struct RecordContext<'a> {
     pub scale: f32,
     pub area: LogicalRect,
     pub bounds: PhysicalRect,
+    clip: u32,
     renderer: &'a mut Renderer,
 }
 
@@ -774,90 +791,48 @@ impl RecordContext<'_> {
         self.renderer.list.store()
     }
 
-    pub fn store_mut(&mut self) -> &mut blit::FrameStore {
+    pub fn store_mut(&mut self) -> blit::FrameStoreMut<'_> {
         self.renderer.list.store_mut()
     }
 
+    /// records an input and the function that draws it
     #[inline]
-    pub fn push<R>(&mut self, input: R::Input)
+    pub fn push<T, F>(&mut self, value: T, draw: F)
     where
-        R: Render,
+        T: Compare,
+        F: Fn(&T, &mut DrawContext<'_>) + 'static,
     {
-        let prepare = |input: &R::Input,
-                       _: u32,
-                       command: &blit_gui::display_list::Command,
-                       list: &DisplayList,
-                       dispatch: &mut DispatchContext<'_>| {
-            let Some(bounds) = dispatch.bounds(command, list) else {
-                return;
-            };
-            let scale = dispatch.renderer.scale;
-            let mut context = PrepareContext {
-                scale,
-                area: command.area,
-                bounds,
-                clip: command.clip,
-                size: [dispatch.screen.width as u32, dispatch.screen.height as u32],
-                list,
-                renderer: dispatch.renderer,
-                reads: None,
-            };
-            let kind = TypeId::of::<R>();
-            let index = context
-                .renderer
-                .renderers
-                .iter()
-                .position(|renderer| renderer.kind == kind)
-                .unwrap_or_else(|| {
-                    let value = R::new(&context);
-                    context.renderer.renderers.push(ErasedRenderer::new(value));
-                    context.renderer.renderers.len() - 1
-                });
-            let renderer = context.renderer.renderers[index].value;
-            // safety: lookup selects the entry created for R
-            let state = unsafe { renderer.cast::<State<R>>().as_mut() };
-            context.reads = state
-                .value
-                .reads(input, bounds)
-                .map(|area| area.intersection(dispatch.screen).unwrap_or_default());
-            if context.reads.is_some() {
-                context.renderer.effects(context.size);
-            }
-            if let Some(value) = state.value.prepare(input, &mut context) {
-                let start = state.prepared.len();
-                state.prepared.push(value);
-                let previous = context.renderer.batches.last().and_then(|batch| match batch {
-                    Batch::Custom(index) => context.renderer.calls.get_mut(*index),
-                    _ => None,
-                });
-                if let Some(previous) = previous
-                    && context.reads.is_none()
-                    && previous.reads.is_none()
-                    && previous.renderer == index
-                    && previous.clip == command.clip
-                    && previous.range.end == start
-                {
-                    previous.range.end += 1;
-                    previous.bounds = previous.bounds.union(bounds);
-                } else {
-                    let call = context.renderer.calls.len();
-                    context.renderer.calls.push(Call {
-                        renderer: index,
-                        range: start..start + 1,
-                        bounds,
-                        clip: command.clip,
-                        reads: context.reads,
-                    });
-                    context.renderer.batches.push(Batch::Custom(call));
-                }
-            }
-        };
-        // safety: dispatch uses this renderer's DispatchContext
-        unsafe {
-            self.renderer
-                .list
-                .record(self.area, self.bounds, self.renderer.paint_clip, input, prepare);
+        fn replay<T, F>(index: usize, cx: &mut DrawContext<'_>)
+        where
+            T: Compare,
+            F: Fn(&T, &mut DrawContext<'_>) + 'static,
+        {
+            let (recorded, _) = cx.list.input::<Recorded<T, F>>(index);
+            (recorded.draw)(&recorded.value, cx);
         }
+
+        self.renderer.list.push(
+            self.area,
+            self.bounds,
+            self.clip,
+            Recorded { value, draw },
+            replay::<T, F> as Replay,
+        );
+    }
+}
+
+struct Recorded<T, F> {
+    value: T,
+    draw: F,
+}
+
+impl<T: Compare, F: 'static> Compare for Recorded<T, F> {
+    fn equal(a: &Self, left: &DisplayList, b: &Self, right: &DisplayList) -> bool {
+        T::equal(&a.value, left, &b.value, right)
+    }
+
+    fn hash(input: &Self, list: &DisplayList, state: &mut impl Hasher) {
+        T::hash(&input.value, list, state);
     }
 }
 

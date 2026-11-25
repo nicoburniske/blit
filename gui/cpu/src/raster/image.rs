@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use blit::{LogicalRect, Paint, PhysicalRect, internal::bump::Offset};
+use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_gui::{
     damage::DamageTracker,
     image::{Image, ImageData, ImageFormat, ImageHandle, ImageId, ImagePatch, ImageSampling, ImageTiling},
@@ -8,7 +8,8 @@ use blit_gui::{
 
 use super::image_patch::{AlphaRows, Prepared};
 use crate::{
-    PixelBuffer, RenderStrategy, Renderer, math,
+    Pixel, PixelBuffer, RenderStrategy, Renderer, math,
+    render::DrawContext,
     strategy::command::{Coverage, Payload},
 };
 
@@ -19,36 +20,31 @@ where
     D: DamageTracker,
 {
     fn paint(&mut self, area: LogicalRect, request: &Image) {
-        let mut recording = self.record(area);
-        recording.record_input(
-            recording.bounds,
-            recording.clip,
-            request.clone(),
-            |request, offset, record, _, context| {
-                let scale = context.commands.scale;
-                let target = &mut *context.commands;
-                if let Some(texture) = context.images.get(request.image.id().into()) {
-                    request.for_each_patch(record.area, scale, |patch| {
-                        if let Some(bounds) = patch.bounds.intersection(record.bounds) {
-                            let value = target.prepared.push((offset, patch)).byte();
-                            target
-                                .record(bounds, record.clip, value, |_, offset, prepared, cx| {
-                                    // safety: recording stores the image input offset and patch together
-                                    let (offset, patch) =
-                                        *unsafe { prepared.get(Offset::<(u32, ImagePatch)>::new(offset)) };
-                                    // safety: recording stores this offset as image data
-                                    let image = unsafe { cx.list.data().get(Offset::<Image>::new(offset)) };
-                                    let value = crate::raster::image_patch::Prepared::new(image, patch, cx.scale)
-                                        .map(Payload::Image)
-                                        .unwrap_or(Payload::Empty);
-                                    prepared.push(value).byte()
-                                })
-                                .coverage = texture.coverage(request, patch);
-                        }
-                    });
-                }
-            },
-        );
+        self.record(area).push(request.clone(), draw_image::<B::Pixel>);
+    }
+}
+
+fn draw_image<P: Pixel>(request: &Image, cx: &mut DrawContext<'_, P>) {
+    let scale = cx.scale;
+    let target = &mut *cx.commands;
+    if let Some(texture) = cx.images.get(request.image.id().into()) {
+        request.for_each_patch(cx.area, scale, |patch| {
+            if let Some(bounds) = patch.bounds.intersection(cx.bounds) {
+                let value = target.prepared.push((cx.offset, patch));
+                target
+                    .record(bounds, cx.clip, value, |_, offset, prepared, cx| {
+                        // safety: recording stores the image input offset and patch together
+                        let (offset, patch) = *unsafe { prepared.get::<(u32, ImagePatch)>(offset) };
+                        // safety: recording stores this offset as image data
+                        let image = unsafe { cx.list.store().get::<Image>(offset) };
+                        let value = crate::raster::image_patch::Prepared::new(image, patch, cx.scale)
+                            .map(Payload::Image)
+                            .unwrap_or(Payload::Empty);
+                        prepared.push(value)
+                    })
+                    .coverage = texture.coverage(request, patch);
+            }
+        });
     }
 }
 

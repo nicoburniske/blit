@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use blit::{LogicalRect, Paint, PhysicalRect, internal::bump::Offset};
+use blit::{LogicalRect, Paint, PhysicalRect};
 use blit_gui::{
     damage::DamageTracker,
     display_list::DisplayList,
@@ -9,7 +9,9 @@ use blit_gui::{
 
 use super::triangle;
 use crate::{
-    Pixel, PixelBuffer, PixelSpan, RenderStrategy, Renderer, render::ErasedCommand, strategy::command::Payload,
+    Pixel, PixelBuffer, PixelSpan, RenderStrategy, Renderer,
+    render::{DrawContext, ErasedCommand},
+    strategy::command::Payload,
 };
 
 impl<B, S, D> Paint<mesh::FrameMesh> for Renderer<B, S, D>
@@ -18,43 +20,39 @@ where
     S: RenderStrategy<B>,
     D: DamageTracker,
 {
-    fn paint(&mut self, bounds: LogicalRect, value: &mesh::FrameMesh) {
-        let mut recording = self.record(bounds);
-        recording.record_input(
-            recording.bounds,
-            recording.clip,
-            *value,
-            |value, mesh_offset, record, list, context| {
-                let mesh = value.view(list);
-                if mesh.indices.is_empty() || !mesh.is_valid() {
-                    return;
-                }
-                let Some(bounds) = context
-                    .clips
-                    .bounds(record.clip, record.bounds)
-                    .and_then(|bounds| bounds.intersection(context.screen))
-                else {
-                    return;
-                };
-                let target = &mut *context.commands;
-                let index = target.mesh_count;
-                if index == target.meshes.len() {
-                    target
-                        .meshes
-                        .push(crate::raster::mesh::Prepared::new(Offset::new(mesh_offset)));
-                } else {
-                    target.meshes[index].source = Offset::new(mesh_offset);
-                }
-                target.mesh_count += 1;
-                let call = ErasedCommand::ready(&mut target.prepared, Payload::Mesh(index as u32));
-                target.push(call, bounds, record.clip);
-            },
-        );
+    fn paint(&mut self, area: LogicalRect, value: &mesh::FrameMesh) {
+        self.record(area).push(*value, draw_mesh::<B::Pixel>);
     }
 }
 
+fn draw_mesh<P: Pixel>(value: &mesh::FrameMesh, cx: &mut DrawContext<'_, P>) {
+    let mesh = value.view(cx.list);
+    if mesh.indices.is_empty() || !mesh.is_valid() {
+        return;
+    }
+    let Some(bounds) = cx
+        .clips
+        .bounds(cx.clip, cx.bounds)
+        .and_then(|bounds| bounds.intersection(cx.screen))
+    else {
+        return;
+    };
+    let target = &mut *cx.commands;
+    let index = target.mesh_count;
+    if index == target.meshes.len() {
+        target
+            .meshes
+            .push(crate::raster::mesh::Prepared::new(cx.offset));
+    } else {
+        target.meshes[index].source = cx.offset;
+    }
+    target.mesh_count += 1;
+    let call = ErasedCommand::ready(&mut target.prepared, Payload::Mesh(index as u32));
+    target.push(call, bounds, cx.clip);
+}
+
 pub struct Prepared {
-    pub source: Offset<mesh::FrameMesh>,
+    pub source: u32,
     pub triangles: Vec<(PhysicalRect, Triangle)>,
     pub starts: Vec<u32>,
     active: Vec<u32>,
@@ -63,7 +61,7 @@ pub struct Prepared {
 }
 
 impl Prepared {
-    pub fn new(source: Offset<mesh::FrameMesh>) -> Self {
+    pub fn new(source: u32) -> Self {
         Self {
             source,
             triangles: Vec::new(),
@@ -103,7 +101,7 @@ impl Prepared {
             self.line = line;
         }
         // safety: mesh recording stores an offset to blit_gui::mesh::FrameMesh in this list
-        let source = unsafe { list.data().get(self.source) };
+        let source = unsafe { list.store().get::<mesh::FrameMesh>(self.source) };
         let mesh = source.view(list);
         for &id in &self.active {
             let (bounds, triangle) = &mut self.triangles[id as usize];

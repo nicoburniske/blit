@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use core::{ops::Range, ptr::NonNull};
 
-use blit::{LogicalRect, Paint, PhysicalRect, Point, Scale2, internal::bump::Offset};
+use blit::{LogicalRect, Paint, PhysicalRect, Point, Scale2};
 use blit_gui::{
     color::Color,
     damage::DamageTracker,
@@ -11,7 +11,7 @@ use blit_gui::{
 use blit_text::GlyphRequest;
 
 use crate::{
-    Pixel, PixelBuffer, PixelSpan, RenderStrategy, Renderer, RendererConfig, glyph::GlyphCache,
+    Pixel, PixelBuffer, PixelSpan, RenderStrategy, Renderer, RendererConfig, glyph::GlyphCache, render::DrawContext,
     strategy::command::Payload,
 };
 
@@ -22,25 +22,21 @@ where
     D: DamageTracker,
 {
     fn paint(&mut self, area: LogicalRect, value: &FrameText) {
-        let mut recording = self.record(area);
-        recording.record_input(
-            recording.bounds,
-            recording.clip,
-            *value,
-            |_, offset, record, _, context| {
-                let scale = context.commands.scale;
-                let target = &mut *context.commands;
-                let area = record.area.to_physical(Scale2::uniform(scale));
-                if let Some(bounds) = area.intersection(record.bounds) {
-                    target.record(bounds, record.clip, offset, |_, offset, prepared, cx| {
-                        // safety: recording stores this offset as FrameText
-                        let input = unsafe { cx.list.data().get(Offset::<FrameText>::new(offset)) };
-                        let (text, bounds) = cx.text.prepare(cx.area, input, cx.list, cx.scale);
-                        prepared.push(Payload::Text(text, bounds)).byte()
-                    });
-                }
-            },
-        );
+        self.record(area).push(*value, draw_text::<B::Pixel>);
+    }
+}
+
+fn draw_text<P: Pixel>(_: &FrameText, cx: &mut DrawContext<'_, P>) {
+    let scale = cx.scale;
+    let target = &mut *cx.commands;
+    let area = cx.area.to_physical(Scale2::uniform(scale));
+    if let Some(bounds) = area.intersection(cx.bounds) {
+        target.record(bounds, cx.clip, cx.offset, |_, offset, prepared, cx| {
+            // safety: recording stores this offset as FrameText
+            let input = unsafe { cx.list.store().get::<FrameText>(offset) };
+            let (text, bounds) = cx.text.prepare(cx.area, input, cx.list, cx.scale);
+            prepared.push(Payload::Text(text, bounds))
+        });
     }
 }
 

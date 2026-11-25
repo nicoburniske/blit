@@ -43,7 +43,7 @@ impl<G: GraphicsBackend> blit::HasFrameStore for DesktopContext<G> {
         self.graphics.store()
     }
 
-    fn store_mut(&mut self) -> &mut blit::FrameStore {
+    fn store_mut(&mut self) -> blit::FrameStoreMut<'_> {
         self.graphics.store_mut()
     }
 }

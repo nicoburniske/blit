@@ -68,7 +68,7 @@ extern crate alloc;
 
 pub use self::{
     animation::{Animation, AnimationOptions, Easing, Motion, MotionProps, Spring, Tween},
-    frame_store::{FrameSlice, FrameSliceBuilder, FrameStore},
+    frame_store::{FrameSlice, FrameSliceBuilder, FrameStore, FrameStoreMut, HasFrameStore},
     geometry::{
         Constraints, Corners, LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, Point,
         Rect, Scalar, Scale2, Sides, Size,
@@ -147,12 +147,6 @@ impl Context for () {
 pub trait Paint<T>: Context {
     /// area supplies placement and dimensions while the operation defines any outsets
     fn paint(&mut self, area: Rect<Self::Scalar>, command: &T);
-}
-
-/// provides access to drawing inputs owned by a context
-pub trait HasFrameStore {
-    fn store(&self) -> &FrameStore;
-    fn store_mut(&mut self) -> &mut FrameStore;
 }
 
 builder! {

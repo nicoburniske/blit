@@ -3,23 +3,18 @@ use core::{
     any::TypeId,
     hash::{Hash, Hasher},
     mem::offset_of,
-    ptr::NonNull,
 };
 
-use blit::{
-    FrameStore, LogicalRect, PhysicalRect,
-    internal::bump::{Bump, Offset},
-};
+use blit::{FrameStore, FrameStoreMut, LogicalRect, PhysicalRect};
 use rustc_hash::FxHasher;
 
 use crate::style::BorderRadius;
 
-/// owned drawing inputs and their static backend operations
+/// owned drawing inputs and their replay callbacks
 #[derive(Default)]
 pub struct DisplayList {
     commands: Vec<Command>,
     clips: Vec<Clip>,
-    data: Bump,
     store: FrameStore,
 }
 
@@ -53,77 +48,72 @@ impl DisplayList {
         &self.clips
     }
 
-    pub fn data(&self) -> &Bump {
-        &self.data
-    }
-
     pub fn store(&self) -> &FrameStore {
         &self.store
     }
 
-    pub fn store_mut(&mut self) -> &mut FrameStore {
-        &mut self.store
+    pub fn store_mut(&mut self) -> FrameStoreMut<'_> {
+        self.store.as_mut()
     }
 
-    /// # Safety
-    /// the operations must match T and its backend interpretation
-    /// matching kinds must have the same representation and comparison semantics
-    /// all referenced storage must belong to this list
-    pub unsafe fn push<T: 'static>(
+    /// records a value and a callback with the backend's replay signature
+    ///
+    /// use distinct input types for commands with different rendering behavior
+    #[inline]
+    pub fn push<T: Compare, F: Copy + 'static>(
         &mut self,
         area: LogicalRect,
         bounds: PhysicalRect,
         clip: u32,
         value: T,
-        ops: &'static Ops,
+        replay: F,
     ) {
         assert!(clip as usize <= self.clips.len(), "invalid paint clip");
+        let ops = const {
+            &Ops {
+                kind: TypeId::of::<T>(),
+                replay: TypeId::of::<F>(),
+                input_offset: offset_of!((T, F), 0) as u32,
+                replay_offset: offset_of!((T, F), 1) as u32,
+                equal: |left, a, right, b| {
+                    // safety: equivalent checks both input types
+                    let a = unsafe { left.store.get::<T>(a) };
+                    let b = unsafe { right.store.get::<T>(b) };
+                    T::equal(a, left, b, right)
+                },
+                hash: |list, offset, state| {
+                    // safety: push pairs the input type and hash operation
+                    let value = unsafe { list.store.get::<T>(offset) };
+                    T::hash(value, list, state);
+                },
+            }
+        };
         self.commands.push(Command {
             area,
             bounds,
             clip,
-            value: self.data.push(value).byte(),
+            offset: self.store.push((value, replay)),
             ops,
         });
     }
 
-    /// records owned inputs with typed comparison and backend dispatch
-    ///
-    /// # Safety
-    /// commands must be dispatched with a context matching C
-    /// all referenced storage must belong to this list
-    pub unsafe fn record<T, F, C>(&mut self, area: LogicalRect, bounds: PhysicalRect, clip: u32, value: T, prepare: F)
-    where
-        T: Compare,
-        F: Fn(&T, u32, &Command, &DisplayList, &mut C) + 'static,
-    {
-        let ops = const {
-            &Ops {
-                kind: TypeId::of::<(T, F)>(),
-                equal: |left, a, right, b| {
-                    // safety: insertion pairs this table with the stored tuple
-                    let (a, _) = unsafe { left.data.get(Offset::<(T, F)>::new(a)) };
-                    let (b, _) = unsafe { right.data.get(Offset::<(T, F)>::new(b)) };
-                    T::equal(a, left, b, right)
-                },
-                hash: |list, offset, state| {
-                    // safety: insertion pairs this table with the stored tuple
-                    let (value, _) = unsafe { list.data.get(Offset::<(T, F)>::new(offset)) };
-                    T::hash(value, list, state);
-                },
-                dispatch: |command, list, context| {
-                    // safety: dispatch receives the tuple and backend context paired with this table
-                    let (value, prepare) = unsafe { list.data.get(Offset::<(T, F)>::new(command.value)) };
-                    let offset = command.value + offset_of!((T, F), 0) as u32;
-                    let context = unsafe { context.cast::<C>().as_mut() };
-                    prepare(value, offset, command, list, context);
-                },
-            }
-        };
-        // safety: the table matches this tuple and the caller guarantees the backend context
-        unsafe {
-            self.push(area, bounds, clip, (value, prepare), ops);
-        }
+    /// returns the recorded value and its offset in the list's store
+    #[inline]
+    pub fn input<T: 'static>(&self, index: usize) -> (&T, u32) {
+        let command = &self.commands[index];
+        assert_eq!(command.ops.kind, TypeId::of::<T>(), "wrong command input type");
+        let offset = command.offset + command.ops.input_offset;
+        // safety: push stores the value of the checked type at this offset
+        (unsafe { self.store.get::<T>(offset) }, offset)
+    }
+
+    /// returns the callback without erasing any of its arguments
+    #[inline]
+    pub fn replay<F: Copy + 'static>(&self, index: usize) -> F {
+        let command = &self.commands[index];
+        assert_eq!(command.ops.replay, TypeId::of::<F>(), "wrong command replay signature");
+        // safety: push stores the callback of the checked type at this offset
+        *unsafe { self.store.get::<F>(command.offset + command.ops.replay_offset) }
     }
 
     pub fn push_clip(&mut self, clip: Clip) -> u32 {
@@ -143,7 +133,7 @@ impl DisplayList {
             .map(|value| if value == 0.0 { 0 } else { value.to_bits() })
             .hash(state);
         // safety: insertion pairs the operations with their recorded data
-        unsafe { (operations.hash)(self, command.value, state) };
+        unsafe { (operations.hash)(self, command.offset + operations.input_offset, state) };
     }
 
     pub fn equivalent(&self, index: usize, other: &Self, other_index: usize) -> bool {
@@ -169,15 +159,21 @@ impl DisplayList {
             clip = left.parent;
             other_clip = right.parent;
         }
-        // safety: insertion pairs matching kinds with the same representation
-        unsafe { (operations.equal)(self, left.value, other, right.value) }
+        // safety: the matching input types identify the representation at each input offset
+        unsafe {
+            (operations.equal)(
+                self,
+                left.offset + operations.input_offset,
+                other,
+                right.offset + right.ops.input_offset,
+            )
+        }
     }
 
     pub fn clear(&mut self) {
-        self.store.clear();
         self.commands.clear();
         self.clips.clear();
-        self.data.clear();
+        self.store.clear();
     }
 }
 
@@ -187,30 +183,17 @@ pub struct Command {
     /// physical pixels the command may touch
     pub bounds: PhysicalRect,
     pub clip: u32,
-    value: u32,
+    offset: u32,
     ops: &'static Ops,
 }
 
-impl Command {
-    /// # Safety
-    /// list must contain this command and context must match its backend
-    #[inline]
-    pub unsafe fn dispatch(&self, list: &DisplayList, context: NonNull<()>) {
-        // safety: the caller provides this command's list and backend context
-        unsafe { (self.ops.dispatch)(self, list, context) };
-    }
-
-    pub fn offset(&self) -> u32 {
-        self.value
-    }
-}
-
-/// shared comparison operations and backend dispatch for one input type
-pub struct Ops {
-    pub kind: TypeId,
-    pub equal: unsafe fn(&DisplayList, u32, &DisplayList, u32) -> bool,
-    pub hash: unsafe fn(&DisplayList, u32, &mut FxHasher),
-    pub dispatch: unsafe fn(&Command, &DisplayList, NonNull<()>),
+struct Ops {
+    kind: TypeId,
+    replay: TypeId,
+    input_offset: u32,
+    replay_offset: u32,
+    equal: unsafe fn(&DisplayList, u32, &DisplayList, u32) -> bool,
+    hash: unsafe fn(&DisplayList, u32, &mut FxHasher),
 }
 
 #[derive(Clone, Copy)]

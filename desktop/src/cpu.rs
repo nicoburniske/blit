@@ -47,7 +47,7 @@ impl blit::HasFrameStore for Backend {
         self.renderer.store()
     }
 
-    fn store_mut(&mut self) -> &mut blit::FrameStore {
+    fn store_mut(&mut self) -> blit::FrameStoreMut<'_> {
         self.renderer.store_mut()
     }
 }

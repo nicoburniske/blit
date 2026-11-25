@@ -300,7 +300,7 @@ impl<'ui, C: Context, S: state::Local> Ui<'ui, C, S> {
         self.inner.context.store()
     }
 
-    pub fn store_mut(&mut self) -> &mut FrameStore
+    pub fn store_mut(&mut self) -> crate::FrameStoreMut<'_>
     where
         C: HasFrameStore,
     {
