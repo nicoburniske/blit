@@ -206,6 +206,10 @@ impl Easing {
     pub const EASE_IN: Self = Self::Bezier([0.42, 0.0, 1.0, 1.0]);
     pub const EASE_OUT: Self = Self::Bezier([0.0, 0.0, 0.58, 1.0]);
     pub const EASE_IN_OUT: Self = Self::Bezier([0.42, 0.0, 0.58, 1.0]);
+    pub const EASE_IN_CUBIC: Self = Self::Bezier([0.32, 0.0, 0.67, 0.0]);
+    pub const EASE_OUT_CUBIC: Self = Self::Bezier([0.33, 1.0, 0.68, 1.0]);
+    pub const EASE_IN_OUT_CUBIC: Self = Self::Bezier([0.65, 0.0, 0.35, 1.0]);
+    pub const EASE_OUT_EXPO: Self = Self::Bezier([0.16, 1.0, 0.3, 1.0]);
 
     /// returns the eased value and its derivative
     /// bezier slopes are capped at 1000 in either direction
