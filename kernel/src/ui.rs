@@ -446,14 +446,14 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
         Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node, old)
     }
 
-    /// creates the child `name` rather than one identified by where it is built
+    /// creates the child keyed `key` rather than one identified by where it is built
     ///
-    /// it keeps its state as its siblings change or it moves to another parent, as its name stays.
-    /// [`Ui::node`] with the same name refers to it before it is built
+    /// it keeps its state as its siblings change or it moves to another parent, as its key stays.
+    /// [`Ui::node`] with the same key refers to it before it is built
     #[inline]
     #[track_caller]
-    pub fn child_in(&mut self, name: Name) -> Ui<'_, C, state::Child<L::Item>> {
-        let (node, old) = self.inner.child_in(name.scope.0, name.key, Location::caller());
+    pub fn child_key(&mut self, key: Key) -> Ui<'_, C, state::Child<L::Item>> {
+        let (node, old) = self.inner.child_key(key.scope.0, key.value, Location::caller());
         Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node, old)
     }
 
@@ -613,7 +613,7 @@ impl<'ui, C: Context> UiInner<'ui, C> {
         )
     }
 
-    fn child_in(&mut self, scope: Id, key: Key, location: &'static Location<'static>) -> (NodeId, u32) {
+    fn child_key(&mut self, scope: Id, key: u64, location: &'static Location<'static>) -> (NodeId, u32) {
         let kernel = &mut *self.kernel;
         // a scope is kept by the build that made it, while one held from an older build names alone
         let keyed = kernel.slots.is_kept(scope);
@@ -638,7 +638,13 @@ impl<'ui, C: Context> UiInner<'ui, C> {
         };
         if kernel.slots.claimed(id) {
             // the repeat is named alone so the next build finds the first holder
-            self.context.duplicate_key(Scope(scope), key, location);
+            self.context.duplicate_key(
+                Key {
+                    scope: Scope(scope),
+                    value: key,
+                },
+                location,
+            );
             id = kernel.slots.alloc();
             old = Slots::NONE;
             mark = Mark::Named;

@@ -195,7 +195,7 @@ mod tests {
             let drag = ui.node(Scope::ROOT.key(handle)).interact(interact::drag());
             if mounted.get() {
                 ui.layout(())
-                    .child_in(Scope::ROOT.key(handle))
+                    .child_key(Scope::ROOT.key(handle))
                     .build(|_: Ui<'_, TestContext>| {});
             }
             drag

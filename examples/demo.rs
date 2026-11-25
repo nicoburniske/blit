@@ -23,7 +23,7 @@ pub fn select<'a, C: Context, T: Copy + PartialEq, D>(
         }
         let mut group = ui.layout(layout);
         for (index, (data, value)) in options.iter().enumerate() {
-            group.child_in(items.key(index)).build(|mut ui: Ui<'_, C>| {
+            group.child_key(items.key(index)).build(|mut ui: Ui<'_, C>| {
                 let press = ui.interact(interact::press());
                 render(ui, data, *selected == *value, press);
             });
@@ -49,13 +49,13 @@ pub fn board<'a, C: Context>(
         let mut dragged = None;
         for (index, (name, cards)) in columns.iter().enumerate() {
             let mut column = board
-                .child_in(lanes.key(index))
+                .child_key(lanes.key(index))
                 .item(flex::item().grow())
                 .layout(flex::column().gap(gap).align(Align::Stretch))
                 .pad(gap);
             decorate(&mut column, name);
             for &id in cards {
-                let mut node = column.child_in(tiles.key(id));
+                let mut node = column.child_key(tiles.key(id));
                 let response = node.interact(interact::drag());
                 if response.active {
                     dragged = Some((id, response.position));

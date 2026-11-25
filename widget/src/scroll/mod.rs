@@ -542,13 +542,16 @@ where
 {
     let mut viewport = ui.layout(layout).clip(C::Scalar::ZERO);
     viewport
-        .child_in(parts.key(CONTENT))
+        .child_key(parts.key(CONTENT))
         .item(ScrollItem::Content)
         .build(content);
     if shown {
-        viewport.child_in(parts.key(TRACK)).item(ScrollItem::Track).build(track);
         viewport
-            .child_in(parts.key(THUMB))
+            .child_key(parts.key(TRACK))
+            .item(ScrollItem::Track)
+            .build(track);
+        viewport
+            .child_key(parts.key(THUMB))
             .item(ScrollItem::Thumb)
             .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
     }
@@ -703,7 +706,7 @@ mod tests {
                         |ui| {
                             let mut rows = ui.layout(crate::layout::flex::column());
                             for index in 10..20u8 {
-                                let mut row = rows.child_in(Scope::ROOT.key(index));
+                                let mut row = rows.child_key(Scope::ROOT.key(index));
                                 row.interact(interact::focus());
                                 if focused.get() == Some(index) {
                                     row.focus();

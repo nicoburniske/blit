@@ -42,7 +42,7 @@ use Command::{Paint, PopClip, PushClip};
 impl Context for TestContext {
     type Scalar = f32;
 
-    fn duplicate_key(&mut self, _: Scope, _: Key, location: &'static std::panic::Location<'static>) {
+    fn duplicate_key(&mut self, _: Key, location: &'static std::panic::Location<'static>) {
         self.duplicates.push(location.line());
     }
 

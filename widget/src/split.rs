@@ -88,8 +88,8 @@ impl<T: Scalar> Split<'_, T> {
                 minimum_leading: self.minimum_leading,
                 minimum_trailing: self.minimum_trailing,
             });
-            panes.child_in(split.key(leading_id)).build(leading);
-            panes.child_in(split.key(divider_id)).build(|ui: Ui<'_, C>| {
+            panes.child_key(split.key(leading_id)).build(leading);
+            panes.child_key(split.key(divider_id)).build(|ui: Ui<'_, C>| {
                 divider(
                     ui,
                     SplitDivider {

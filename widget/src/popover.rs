@@ -92,7 +92,7 @@ impl<T: Scalar> Popover<'_, T> {
 
             let mut root = ui.layout(flex::column().align(Align::Start));
             if state.open && self.close != PopoverClose::Manual {
-                root.child_in(popover.key(backdrop_id))
+                root.child_key(popover.key(backdrop_id))
                     .parent(self.parent)
                     .z_index(1)
                     .place(
@@ -101,7 +101,7 @@ impl<T: Scalar> Popover<'_, T> {
                     )
                     .insert(());
             }
-            root.child_in(popover.key(trigger_id))
+            root.child_key(popover.key(trigger_id))
                 .hit(self.hit)
                 .layout(())
                 .child()
@@ -110,7 +110,7 @@ impl<T: Scalar> Popover<'_, T> {
                 return;
             }
             // stacks above the backdrop as its later sibling
-            root.child_in(popover.key(content_id))
+            root.child_key(popover.key(content_id))
                 .parent(self.parent)
                 .z_index(1)
                 .hit(
@@ -212,14 +212,14 @@ mod tests {
             ui,
             |ui, _, _| {
                 ui.layout(())
-                    .child_in(Scope::ROOT.key(named_trigger))
+                    .child_key(Scope::ROOT.key(named_trigger))
                     .constrain(Constraints::tight(Size::new(2.0, 1.0)))
                     .insert(())
             },
             |ui| {
                 part = Some(ui.parent_id());
                 ui.layout(())
-                    .child_in(Scope::ROOT.key(named_content))
+                    .child_key(Scope::ROOT.key(named_content))
                     .constrain(Constraints::tight(Size::new(4.0, 3.0)))
                     .insert(())
             },

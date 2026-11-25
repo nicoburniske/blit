@@ -16,7 +16,7 @@ fn motions() {
             let build = |ui: Ui<'_>| {
                 let mut column = ui.layout(Column);
                 let child = if named {
-                    column.child_in(Scope::ROOT.key(motion))
+                    column.child_key(Scope::ROOT.key(motion))
                 } else {
                     column.child()
                 };
@@ -291,7 +291,7 @@ fn retargeted_motion_measurement() {
             |ui: Ui<'_>| {
                 let mut column = ui.layout(Column);
                 let mut child = column
-                    .child_in(Scope::ROOT.key(id))
+                    .child_key(Scope::ROOT.key(id))
                     .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).height());
                 let node = child.id();
                 child.insert(Fill('X', Size::new(1.0, extent)));
@@ -562,7 +562,7 @@ fn spring_motion_measurement_and_settling() {
         let measured = render_inputs(&mut kernel, &mut context, time, [], |ui: Ui<'_>| {
             let mut column = ui.layout(Column);
             let mut child = column
-                .child_in(Scope::ROOT.key(id))
+                .child_key(Scope::ROOT.key(id))
                 .motion(Motion::new(spring).height());
             let node = child.id();
             child.insert(Fill('X', Size::new(1.0, extent)));
@@ -582,7 +582,7 @@ fn spring_motion_measurement_and_settling() {
     }
     render_inputs(&mut kernel, &mut context, Duration::from_secs(10), [], |ui: Ui<'_>| {
         ui.layout(Column)
-            .child_in(Scope::ROOT.key(id))
+            .child_key(Scope::ROOT.key(id))
             .motion(Motion::new(spring).height())
             .insert(Fill('X', Size::new(1.0, 3.0)));
     });
@@ -635,7 +635,7 @@ fn spring_sizes_stay_nonnegative_and_resize_snaps() {
     let build = |extent| {
         move |ui: Ui<'_>| {
             ui.layout(Column)
-                .child_in(Scope::ROOT.key(id))
+                .child_key(Scope::ROOT.key(id))
                 .motion(Motion::new(Spring::new(0.250, 0.4)).size())
                 .insert(Fill('X', Size::uniform(extent)));
         }
@@ -674,7 +674,7 @@ fn reparented_motion_continues_from_its_screen_position() {
                         .layout(Fixed(Size::uniform(10.0)));
                     if index == column {
                         parent
-                            .child_in(scope.key(card))
+                            .child_key(scope.key(card))
                             .motion(motion)
                             .insert(Fill('C', Size::uniform(2.0)));
                     }
@@ -740,7 +740,7 @@ fn lifted_motion_paints_above_while_moving() {
                     }
                     if index == column {
                         parent
-                            .child_in(scope.key(card))
+                            .child_key(scope.key(card))
                             .motion(motion)
                             .insert(Fill('C', Size::uniform(2.0)));
                     }

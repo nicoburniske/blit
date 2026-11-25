@@ -104,8 +104,8 @@ pub trait Context {
     /// coordinate type for all frame geometry
     type Scalar: Scalar;
 
-    /// the node built at `location` repeats `key` in `scope` and takes a fresh id instead
-    fn duplicate_key(&mut self, _scope: Scope, _key: Key, _location: &'static Location<'static>) {}
+    /// the node built at `location` repeats `key` and takes a fresh id instead
+    fn duplicate_key(&mut self, _key: Key, _location: &'static Location<'static>) {}
 
     /// clips drawing to a rounded rectangle until the matching pop
     fn push_clip(&mut self, _area: Rect<Self::Scalar>, _radius: Corners<Self::Scalar>) {}
@@ -176,27 +176,27 @@ impl Scope {
     /// the app's own scope, which widgets leave alone
     pub const ROOT: Self = Self(Id::ROOT);
 
-    /// names the node keyed `key` in this scope, which may be built later
-    pub fn key(self, key: impl Into<Key>) -> Name {
-        Name {
+    /// the node keyed `value` in this scope, which may be built later
+    pub fn key(self, value: impl KeyValue) -> Key {
+        Key {
             scope: self,
-            key: key.into(),
+            value: value.value(),
         }
     }
 }
 
-/// a node named by its key in a scope, built with [`Ui::child_in`]
+/// a node keyed by a value in a scope, built with [`Ui::child_key`] and compared exactly
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Name {
+pub struct Key {
     scope: Scope,
-    key: Key,
+    value: u64,
 }
 
-/// a node to point at, by its id or by its name before it is built
+/// a node to point at, by its id or by its key before it is built
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
     Node(Id),
-    Name(Name),
+    Key(Key),
 }
 
 impl From<Id> for Target {
@@ -205,41 +205,41 @@ impl From<Id> for Target {
     }
 }
 
-impl From<Name> for Target {
-    fn from(name: Name) -> Self {
-        Self::Name(name)
+impl From<Key> for Target {
+    fn from(key: Key) -> Self {
+        Self::Key(key)
     }
 }
 
-// lets optional settings such as a motion lift take an id or name directly
+// lets optional settings such as a motion lift take an id or key directly
 impl From<Id> for Option<Target> {
     fn from(id: Id) -> Self {
         Some(id.into())
     }
 }
 
-impl From<Name> for Option<Target> {
-    fn from(name: Name) -> Self {
-        Some(name.into())
+impl From<Key> for Option<Target> {
+    fn from(key: Key) -> Self {
+        Some(key.into())
     }
 }
 
-/// tells keyed nodes apart within a [`Scope`], compared exactly
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Key(u64);
+/// the value of a key, any integer widened so one value names one node whatever its type
+pub trait KeyValue: Copy {
+    fn value(self) -> u64;
+}
 
-// integers widen first so one key names one node whatever its type
-macro_rules! key_from_integer {
+macro_rules! key_value {
     ($($integer:ty),*) => {$(
-        impl From<$integer> for Key {
-            fn from(key: $integer) -> Self {
-                Self(key as u64)
+        impl KeyValue for $integer {
+            fn value(self) -> u64 {
+                self as u64
             }
         }
     )*};
 }
 
-key_from_integer!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
+key_value!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
 impl<C: Context, F, O> Widget<C> for F
 where
@@ -545,7 +545,7 @@ impl<C: Context> Kernel<C> {
     fn resolve(&mut self, target: Target) -> Id {
         let id = match target {
             Target::Node(id) => id,
-            Target::Name(name) => self.slots.name(name.scope.0, name.key),
+            Target::Key(key) => self.slots.name(key.scope.0, key.value),
         };
         self.slots.keep(id);
         id
@@ -555,7 +555,7 @@ impl<C: Context> Kernel<C> {
     fn find(&self, target: Target) -> Option<Id> {
         match target {
             Target::Node(id) => Some(id),
-            Target::Name(name) => self.slots.find(name.scope.0, name.key),
+            Target::Key(key) => self.slots.find(key.scope.0, key.value),
         }
     }
 

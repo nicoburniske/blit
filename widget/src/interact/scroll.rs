@@ -93,7 +93,7 @@ mod tests {
             let responses = [0, 1].map(|id| ui.node(Scope::ROOT.key(id)).interact(interact::scroll()));
             let mut root = ui.layout(rect::new());
             for id in order.get() {
-                root.child_in(Scope::ROOT.key(id))
+                root.child_key(Scope::ROOT.key(id))
                     .item(Rect::new(id as f32 * 100.0, 0.0, 100.0, 200.0));
             }
             responses
@@ -127,7 +127,7 @@ mod tests {
             let responses = [0, 1].map(|id| ui.node(Scope::ROOT.key(id)).interact(interact::scroll()));
             let mut root = ui.layout(rect::new());
             for id in [0, 1] {
-                root.child_in(Scope::ROOT.key(id))
+                root.child_key(Scope::ROOT.key(id))
                     .item(Rect::new(id as f32 * 100.0, 0.0, 100.0, 200.0));
             }
             responses
@@ -163,7 +163,8 @@ mod tests {
                 let response = ui.node(Scope::ROOT.key(owner)).interact(interact::scroll());
                 let mut root = ui.layout(());
                 if mounted.get() {
-                    root.child_in(Scope::ROOT.key(owner)).build(|_: Ui<'_, TestContext>| {});
+                    root.child_key(Scope::ROOT.key(owner))
+                        .build(|_: Ui<'_, TestContext>| {});
                 }
                 response
             };

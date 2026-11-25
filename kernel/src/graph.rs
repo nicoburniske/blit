@@ -275,7 +275,7 @@ impl Slots {
     }
 
     /// the id keyed `key` in `scope`, taking a slot when nothing holds the name yet
-    pub fn name(&mut self, scope: Id, key: Key) -> Id {
+    pub fn name(&mut self, scope: Id, key: u64) -> Id {
         let mut bucket = 0;
         if !self.names.table.is_empty() {
             bucket = self.names.probe(scope, key);
@@ -308,7 +308,7 @@ impl Slots {
     }
 
     /// the id keyed `key` in `scope`, if anything holds the name
-    pub fn find(&self, scope: Id, key: Key) -> Option<Id> {
+    pub fn find(&self, scope: Id, key: u64) -> Option<Id> {
         // entries of dead slots stay until the table fills
         let index = (!self.names.table.is_empty()).then(|| self.names.table[self.names.probe(scope, key)])?;
         let id = self.names.entries.get(index as usize)?.id;
@@ -363,7 +363,7 @@ pub enum Mark {
     /// built from a call site, repeats told apart by their order
     Site(&'static Location<'static>, u32),
     /// keyed in a scope already used in this build
-    Key(u32, Key),
+    Key(u32, u64),
     /// repeating a key or keyed in an unused scope, found by name alone
     Named,
 }
@@ -401,7 +401,7 @@ struct Names {
 #[derive(Clone, Copy)]
 struct Name {
     scope: Id,
-    key: Key,
+    key: u64,
     id: Id,
 }
 
@@ -424,9 +424,9 @@ impl Names {
     }
 
     // the bucket holding the name, or the empty one where it would go
-    fn probe(&self, scope: Id, key: Key) -> usize {
+    fn probe(&self, scope: Id, key: u64) -> usize {
         let mask = self.table.len() - 1;
-        let mixed = (key.0 ^ u64::from(scope.slot).rotate_left(32)).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        let mixed = (key ^ u64::from(scope.slot).rotate_left(32)).wrapping_mul(0x9e37_79b9_7f4a_7c15);
         let mut bucket = (mixed >> (64 - self.table.len().trailing_zeros())) as usize;
         loop {
             let index = self.table[bucket];

@@ -54,7 +54,7 @@ mod tests {
             }
             let mut ui = ui.layout(rect::new());
             let mut left = ui
-                .child_in(Scope::ROOT.key(left))
+                .child_key(Scope::ROOT.key(left))
                 .item(Rect::new(0.0, 0.0, 100.0, 200.0));
             let left_focused = left.interact(interact::focus());
             if change_focus.replace(false) {
@@ -62,7 +62,7 @@ mod tests {
             }
             drop(left);
             let mut right = ui
-                .child_in(Scope::ROOT.key(right))
+                .child_key(Scope::ROOT.key(right))
                 .item(Rect::new(100.0, 0.0, 100.0, 200.0));
             (left_focused, right.interact(interact::focus()))
         };

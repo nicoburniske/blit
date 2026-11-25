@@ -85,7 +85,7 @@ impl<T: Scalar> Resize<'_, T> {
                 (Item::Corner, 3, corner),
             ] {
                 shell
-                    .child_in(resize.key(grip_id))
+                    .child_key(resize.key(grip_id))
                     .item(item)
                     .build(|ui: Ui<'_, C>| grip(ui, handle));
             }

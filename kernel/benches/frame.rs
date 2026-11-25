@@ -69,7 +69,7 @@ fn build_explicit_ids(bencher: divan::Bencher, count: usize) {
             |ui: Ui<'_, ()>| {
                 let mut root = ui.layout(Stack::default());
                 for index in 0..count {
-                    root.child_in(Scope::ROOT.key(index)).insert(());
+                    root.child_key(Scope::ROOT.key(index)).insert(());
                 }
             },
         );
@@ -109,7 +109,7 @@ fn build_named_parent(bencher: divan::Bencher, count: usize) {
             Input::None,
             |ui: Ui<'_, ()>| {
                 let mut outer = ui.layout(Stack::default());
-                let mut root = outer.child_in(Scope::ROOT.key(bench_root)).layout(Stack::default());
+                let mut root = outer.child_key(Scope::ROOT.key(bench_root)).layout(Stack::default());
                 let target = Scope::ROOT.key(bench_root);
                 for _ in 0..count {
                     root.child().parent(target).insert(());
@@ -175,7 +175,7 @@ fn build_areas_and_layout(bencher: divan::Bencher, count: usize) {
                 }
                 let mut root = ui.layout(Stack::default());
                 for index in 0..count {
-                    root.child_in(Scope::ROOT.key(index)).insert(());
+                    root.child_key(Scope::ROOT.key(index)).insert(());
                 }
             },
         );
@@ -255,7 +255,7 @@ fn motions(bencher: divan::Bencher, count: usize, animation: Animation, size: bo
                     position: if size { Point::ZERO } else { Point::new(target, target) },
                 });
                 for index in 0..count {
-                    root.child_in(Scope::ROOT.key(index)).motion(config).insert(());
+                    root.child_key(Scope::ROOT.key(index)).motion(config).insert(());
                 }
             },
         );

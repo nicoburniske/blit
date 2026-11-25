@@ -1076,7 +1076,7 @@ impl Widget<DesktopContext> for Canvas {
             .border(Border::solid(sz::BORDER_STRONG, colors::CANVAS_BORDER))
             .radius(BorderRadius::all(sz::XS));
         let mut shell = ui.layout(());
-        let mut ui = shell.child_in(blit::Scope::ROOT.key(CANVAS_KEY));
+        let mut ui = shell.child_key(blit::Scope::ROOT.key(CANVAS_KEY));
         // items keep one key across layouts so they animate between them
         let items = ui.scope();
         match self.config.layout {
@@ -1094,7 +1094,7 @@ impl Widget<DesktopContext> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = self.config.item_sizing(index, self.unit);
                     canvas
-                        .child_in(items.key(index))
+                        .child_key(items.key(index))
                         .item(flex::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config);
@@ -1120,7 +1120,7 @@ impl Widget<DesktopContext> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = self.config.item_sizing(index, self.unit);
                     canvas
-                        .child_in(items.key(index))
+                        .child_key(items.key(index))
                         .item(wrap::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config);
@@ -1135,7 +1135,7 @@ impl Widget<DesktopContext> for Canvas {
                 canvas.insert(background);
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
-                        .child_in(items.key(index))
+                        .child_key(items.key(index))
                         .item(
                             grid::item()
                                 .row_span(spec.rows)
