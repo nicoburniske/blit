@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use blit::{Animation, Axis, Constraints, Easing, LogicalRect, Motion, Sides, Size, Spring, Target, Tween, Widget};
+use blit::{Animation, Axis, Constraints, Easing, LogicalRect, Motion, Sides, Size, Spring, Tween, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, Transition, board, select};
 #[cfg(not(feature = "gpu"))]
 use blit_desktop::cpu;
@@ -218,7 +218,7 @@ impl Application for App {
         if self.show_performance {
             root.child()
                 .place(
-                    Target::ROOT,
+                    blit::Id::ROOT,
                     absolute::place()
                         .target_anchor(Anchor::BottomRight)
                         .child_anchor(Anchor::BottomRight)
@@ -339,10 +339,11 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                         .insert(Text::new(label).style(TextStyle::new().size(sz::MD).color(colors::TEXT_MUTED)));
                     let mut lane = row.child().item(flex::item().grow()).layout(()).clip(0.0);
                     lane.insert(panel(colors::CANVAS));
+                    let lane_id = lane.id();
                     let mut track = lane
                         .child()
                         .place(
-                            Target::PARENT,
+                            lane_id,
                             absolute::place()
                                 .target_anchor(Anchor::Center)
                                 .child_anchor(Anchor::Center)
@@ -355,14 +356,15 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                         .child_anchor(Anchor::Center)
                         .width(20.0)
                         .height(20.0);
-                    track.child().place(Target::PARENT, marker).insert(
+                    let track_id = track.id();
+                    track.child().place(track_id, marker).insert(
                         Rectangle::new()
                             .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
                             .radius(BorderRadius::all(sz::XXS)),
                     );
                     track
                         .child_id(index)
-                        .place(Target::PARENT, marker)
+                        .place(track_id, marker)
                         .motion(Motion::new(animation).x().restart(restart))
                         .insert(
                             Rectangle::new()
@@ -1072,7 +1074,7 @@ impl Widget<DesktopContext> for Canvas {
             .border(Border::solid(sz::BORDER_STRONG, colors::CANVAS_BORDER))
             .radius(BorderRadius::all(sz::XS));
         let mut shell = ui.layout(());
-        let ui = shell.child_in(blit::Scope::ROOT, "canvas");
+        let ui = shell.child_in(blit::Id::ROOT, "canvas");
         match self.config.layout {
             CanvasLayout::Flex => {
                 let mut canvas = ui
@@ -1181,12 +1183,13 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     }));
     if let Some(anchor) = spec.badge {
         item.child()
-            .parent(Target::ROOT.scoped("canvas"))
+            .parent(blit::Id::ROOT.child("canvas"))
             .z_index(1)
             .build(|ui: Ui<'_>| {
+                let parent = ui.parent_id();
                 let mut badge = ui
                     .place(
-                        Target::PARENT,
+                        parent,
                         absolute::place()
                             .target_anchor(anchor)
                             .child_anchor(Anchor::Center)

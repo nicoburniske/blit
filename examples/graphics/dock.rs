@@ -26,10 +26,11 @@ impl Dock {
         if self.running {
             self.phase = ui.animate_loop(Tween::new(24.0, Easing::LINEAR));
         }
+        let parent = ui.parent_id();
         let mut toolbar = ui
             .z_index(1)
             .place(
-                blit::Target::PARENT,
+                parent,
                 absolute::place()
                     .target_anchor(Anchor::Bottom)
                     .child_anchor(Anchor::Bottom)

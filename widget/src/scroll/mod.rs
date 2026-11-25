@@ -273,7 +273,7 @@ fn update<C: Context>(
     } else {
         false
     };
-    if let Some(area) = ui.at(CONTENT).area() {
+    if let Some(area) = ui.node(ui.id().child(CONTENT)).area() {
         state.content_extent = axis.extent(area.size());
     }
 
@@ -312,12 +312,13 @@ fn scrollbar_input<C: Context, S: Local>(
     axis: Axis,
     viewport_extent: C::Scalar,
 ) -> (bool, Option<ScrollbarInput>) {
-    let thumb_area = ui.at(THUMB).area();
-    let track_area = ui.at(TRACK).area();
-    let thumb = ui.at(THUMB).interact(interact::press());
-    let track = ui.at(TRACK).interact(interact::press());
-    let thumb_drag = ui.at(THUMB).interact(interact::drag());
-    let track_drag = ui.at(TRACK).interact(interact::drag());
+    let scroll = ui.id();
+    let thumb_area = ui.node(scroll.child(THUMB)).area();
+    let track_area = ui.node(scroll.child(TRACK)).area();
+    let thumb = ui.node(scroll.child(THUMB)).interact(interact::press());
+    let track = ui.node(scroll.child(TRACK)).interact(interact::press());
+    let thumb_drag = ui.node(scroll.child(THUMB)).interact(interact::drag());
+    let track_drag = ui.node(scroll.child(TRACK)).interact(interact::drag());
     let active = thumb.active || track.active || thumb_drag.active || track_drag.active;
     // cancelled drags leave the offset alone
     let thumb_moved = thumb_drag.active || thumb_drag.released;
@@ -646,7 +647,7 @@ mod tests {
             let mut state = ScrollState::<f32>::new();
             let mut step = || {
                 crate::test::step(&mut kernel, Input::None, |mut ui: Ui<'_, TestContext>| {
-                    let area = ui.at(CONTENT).area();
+                    let area = ui.node(ui.id().child(CONTENT)).area();
                     ScrollArea::new(&mut state).floating(floating).build(
                         ui,
                         |mut ui| ui.measure(|_, bounds| Size::new(bounds.max.width, 400.0)),

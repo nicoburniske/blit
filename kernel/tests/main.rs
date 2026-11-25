@@ -9,7 +9,7 @@ use blit::{
     Animation, AnimationOptions, Constraints, Contact, ContactId, ContactSource, Context, Corners, Easing, FrameInfo,
     Id, Interact, InteractCx, Kernel, Layout, LayoutCx, Motion,
     Phase::{Cancelled, Ended, Held, Started},
-    Place, PlaceCx, Point, Rect, Scope, Size, Spring, Target, Tween, Widget,
+    Place, PlaceCx, Point, Rect, Size, Spring, Tween, Widget,
     input::{
         Input, Modifiers, MouseButton, ScrollPhase, TouchPhase,
         TouchPhase::{Cancel, Down, Move, Up},

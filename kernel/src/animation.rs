@@ -98,7 +98,7 @@ builder! {
         /// while moving to a new parent or anchor, paints above everything under this target,
         /// which is ignored unless it was built before the node
         #[into]
-        lift: Option<Target> = None,
+        lift: Option<Id> = None,
     }
 }
 

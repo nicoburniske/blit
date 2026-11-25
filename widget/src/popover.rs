@@ -1,4 +1,4 @@
-use blit::{InteractCx, Scalar, Sides, Target, Ui, input::Input, state::NoLayout};
+use blit::{Id, InteractCx, Scalar, Sides, Ui, input::Input, state::NoLayout};
 
 use crate::{
     Context, interact,
@@ -20,8 +20,7 @@ pub enum PopoverClose {
 blit::builder! {
     pub struct Popover<'a, T: Scalar> {
         new(state: &'a mut PopoverState),
-        #[into]
-        parent: Target = Target::ROOT,
+        parent: Id = Id::ROOT,
         target_anchor: Anchor = Anchor::BottomLeft,
         child_anchor: Anchor = Anchor::TopLeft,
         x: T = T::ZERO,
@@ -55,19 +54,20 @@ impl<T: Scalar> Popover<'_, T> {
     {
         ui.build(|mut ui: Ui<'_, C>| {
             let state = self.state;
+            let popover = ui.id();
             let (backdrop_id, trigger_id, content_id) = (0u8, 1u8, 2u8);
-            let press = ui.at(trigger_id).interact(interact::press());
+            let press = ui.node(popover.child(trigger_id)).interact(interact::press());
             if self.open_on_hover && press.hovered {
                 state.open = true;
             } else if !self.open_on_hover && press.activated {
                 state.open = !state.open;
             }
             // requested while closed too so the opening frame knows where the trigger is
-            let areas = [trigger_id, content_id].map(|id| ui.at(id).area());
+            let areas = [trigger_id, content_id].map(|id| ui.node(popover.child(id)).area());
             if state.open {
-                let backdrop = ui.at(backdrop_id).interact(interact::press());
-                ui.at(backdrop_id).interact(BlockInput);
-                let content_hovered = ui.at(content_id).interact(BlockInput);
+                let backdrop = ui.node(popover.child(backdrop_id)).interact(interact::press());
+                ui.node(popover.child(backdrop_id)).interact(BlockInput);
+                let content_hovered = ui.node(popover.child(content_id)).interact(BlockInput);
                 let pointer_inside = content_hovered
                     || ui
                         .mouse_position()
@@ -112,7 +112,7 @@ impl<T: Scalar> Popover<'_, T> {
                         .left(self.x.max(T::ZERO)),
                 )
                 .place(
-                    Target::PARENT.at(trigger_id),
+                    popover.child(trigger_id),
                     absolute::place()
                         .target_anchor(self.target_anchor)
                         .child_anchor(self.child_anchor)
@@ -199,13 +199,13 @@ mod tests {
             ui,
             |ui, _, _| {
                 ui.layout(())
-                    .child_in(blit::Scope::ROOT, "named trigger")
+                    .child_in(Id::ROOT, "named trigger")
                     .constrain(Constraints::tight(Size::new(2.0, 1.0)))
                     .insert(())
             },
             |ui| {
                 ui.layout(())
-                    .child_in(blit::Scope::ROOT, "named content")
+                    .child_in(Id::ROOT, "named content")
                     .constrain(Constraints::tight(Size::new(4.0, 3.0)))
                     .insert(())
             },
@@ -282,7 +282,7 @@ mod tests {
                 input,
                 |mut ui: Ui<'_, TestContext>| {
                     if let Input::MouseUp { .. } = input {
-                        content_area = ui.at(2u8).area();
+                        content_area = ui.node(ui.id().child(2u8)).area();
                     }
                     render(ui, Popover::new(&mut state).width(5.0).height(4.0));
                     assert_eq!(state.open, expected.next().unwrap());
@@ -291,11 +291,11 @@ mod tests {
             kernel.layout(&mut context);
             if let Input::MouseUp { .. } = input {
                 assert_eq!(
-                    kernel.area(Target::ROOT.scoped("named content")),
+                    kernel.area(Id::ROOT.child("named content")),
                     Some(Rect::new(0.0, 1.0, 4.0, 3.0))
                 );
                 assert_eq!(
-                    kernel.area(Target::ROOT.scoped("named trigger")),
+                    kernel.area(Id::ROOT.child("named trigger")),
                     Some(Rect::new(0.0, 0.0, 2.0, 1.0)),
                 );
             }

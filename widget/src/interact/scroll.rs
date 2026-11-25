@@ -90,7 +90,7 @@ mod tests {
         let mut kernel = Kernel::<TestContext>::default();
         let order = Cell::new([0, 1]);
         let build = |mut ui: Ui<'_, TestContext>| {
-            let responses = [0, 1].map(|id| ui.at(id).interact(interact::scroll()));
+            let responses = [0, 1].map(|id| ui.node(ui.id().child(id)).interact(interact::scroll()));
             let mut root = ui.layout(rect::new());
             for id in order.get() {
                 root.child_id(id).item(Rect::new(id as f32 * 100.0, 0.0, 100.0, 200.0));
@@ -123,7 +123,7 @@ mod tests {
     fn new_sequence_ends_the_held_one() {
         let mut kernel = Kernel::<TestContext>::default();
         let build = |mut ui: Ui<'_, TestContext>| {
-            let responses = [0, 1].map(|id| ui.at(id).interact(interact::scroll()));
+            let responses = [0, 1].map(|id| ui.node(ui.id().child(id)).interact(interact::scroll()));
             let mut root = ui.layout(rect::new());
             for id in [0, 1] {
                 root.child_id(id).item(Rect::new(id as f32 * 100.0, 0.0, 100.0, 200.0));
@@ -157,7 +157,7 @@ mod tests {
             let mut kernel = Kernel::<TestContext>::default();
             let mounted = Cell::new(true);
             let build = |mut ui: Ui<'_, TestContext>| {
-                let response = ui.at("owner").interact(interact::scroll());
+                let response = ui.node(ui.id().child("owner")).interact(interact::scroll());
                 let mut root = ui.layout(());
                 if mounted.get() {
                     root.child_id("owner").build(|_: Ui<'_, TestContext>| {});

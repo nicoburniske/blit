@@ -56,10 +56,14 @@ impl<T: Scalar> Split<'_, T> {
         ui.build(|mut ui: Ui<'_, C>| {
             let state = self.state;
             let axis = self.axis;
+            let split = ui.id();
             let (leading_id, divider_id) = (0u8, 1u8);
-            let press = ui.at(divider_id).interact(interact::press());
-            let measured = ui.at(leading_id).area().map(|area| axis.extent(area.size()));
-            let drag = ui.at(divider_id).interact(interact::drag());
+            let press = ui.node(split.child(divider_id)).interact(interact::press());
+            let measured = ui
+                .node(split.child(leading_id))
+                .area()
+                .map(|area| axis.extent(area.size()));
+            let drag = ui.node(split.child(divider_id)).interact(interact::drag());
             let delta = match axis {
                 Axis::Horizontal => drag.delta.x,
                 Axis::Vertical => drag.delta.y,

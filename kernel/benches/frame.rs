@@ -1,8 +1,8 @@
 use std::{hint::black_box, time::Duration};
 
 use blit::{
-    Animation, Constraints, Context, Easing, FrameInfo, Interact, InteractCx, Kernel, Layout, LayoutCx, Motion, Point,
-    Size, Spring, Target, Tween, Ui, input::Input, state,
+    Animation, Constraints, Context, Easing, FrameInfo, Id, Interact, InteractCx, Kernel, Layout, LayoutCx, Motion,
+    Point, Size, Spring, Tween, Ui, input::Input, state,
 };
 
 #[global_allocator]
@@ -109,7 +109,7 @@ fn build_named_parent(bencher: divan::Bencher, count: usize) {
             |ui: Ui<'_, ()>| {
                 let mut outer = ui.layout(Stack::default());
                 let mut root = outer.child_id("bench root").layout(Stack::default());
-                let target = Target::ROOT.at("bench root");
+                let target = Id::ROOT.child("bench root");
                 for _ in 0..count {
                     root.child().parent(target).insert(());
                 }
@@ -170,7 +170,7 @@ fn build_areas_and_layout(bencher: divan::Bencher, count: usize) {
             Input::None,
             |mut ui: Ui<'_, ()>| {
                 for index in 0..10 {
-                    black_box(ui.at(index).area());
+                    black_box(ui.node(ui.id().child(index)).area());
                 }
                 let mut root = ui.layout(Stack::default());
                 for index in 0..count {
@@ -210,7 +210,10 @@ fn animate(bencher: divan::Bencher, count: usize, animation: Animation) {
             Input::None,
             |mut ui: Ui<'_, ()>| {
                 for index in 0..count {
-                    black_box(ui.at(index).animate(target, animation, Default::default()));
+                    black_box(
+                        ui.node(ui.id().child(index))
+                            .animate(target, animation, Default::default()),
+                    );
                 }
             },
         );

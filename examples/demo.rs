@@ -1,6 +1,4 @@
-use blit::{
-    Animation, Axis, Easing, Layout, Motion, Scalar, Sides, Size, Spring, Target, Tween, Ui, Widget, state::Open,
-};
+use blit::{Animation, Axis, Easing, Id, Layout, Motion, Scalar, Sides, Size, Spring, Tween, Ui, Widget, state::Open};
 use blit_widget::{
     Context, interact,
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex},
@@ -16,7 +14,7 @@ pub fn select<'a, C: Context, T: Copy + PartialEq, D>(
     move |mut ui: Ui<'_, C>| {
         let mut clicked = false;
         for (index, (_, value)) in options.iter().enumerate() {
-            let press = ui.at(index).interact(interact::press());
+            let press = ui.node(ui.id().child(index)).interact(interact::press());
             if press.clicked {
                 *selected = *value;
                 clicked = true;
@@ -45,7 +43,7 @@ pub fn board<'a, C: Context>(
         let spring = Spring::new(0.350, 0.15);
         let item = || flex::item().height(height);
         let mut board = ui.layout(flex::row().gap(gap).align(Align::Stretch));
-        let scope = board.scope();
+        let scope = board.id();
         let mut dragged = None;
         for (name, cards) in columns.iter() {
             let mut column = board
@@ -63,19 +61,19 @@ pub fn board<'a, C: Context>(
                 // it stays lifted on the release frame and lands from there the next
                 let Some(area) = (response.active || response.released).then(|| node.area()).flatten() else {
                     node.item(item())
-                        .motion(Motion::new(spring).position().lift(Target::ROOT))
+                        .motion(Motion::new(spring).position().lift(Id::ROOT))
                         .build(|ui: Ui<'_, C>| card(ui, Some(id), false));
                     continue;
                 };
                 node.place(
-                    Target::ROOT,
+                    Id::ROOT,
                     absolute::place()
                         .x(area.x + response.delta.x)
                         .y(area.y + response.delta.y)
                         .width(area.width)
                         .height(area.height),
                 )
-                .parent(Target::ROOT)
+                .parent(Id::ROOT)
                 .z_index(1)
                 // no properties so it follows the pointer exactly and keeps its motion state
                 .motion(Motion::new(spring))
@@ -86,9 +84,12 @@ pub fn board<'a, C: Context>(
         }
         // the dragged card moves to the column under the pointer after the other cards above the pointer
         if let Some((id, pointer)) = dragged
-            && let Some(column) = columns
-                .iter()
-                .position(|(name, _)| board.at(*name).area().is_some_and(|area| area.contains(pointer)))
+            && let Some(column) = columns.iter().position(|(name, _)| {
+                board
+                    .node(board.id().child(*name))
+                    .area()
+                    .is_some_and(|area| area.contains(pointer))
+            })
         {
             let row = columns[column]
                 .1
@@ -96,7 +97,7 @@ pub fn board<'a, C: Context>(
                 .filter(|&&other| other != id)
                 .filter(|&&other| {
                     board
-                        .at(Target::THIS.scoped(other))
+                        .node(scope.child(other))
                         .area()
                         .is_some_and(|area| area.y.lerp(area.y + area.height, 0.5) < pointer.y)
                 })

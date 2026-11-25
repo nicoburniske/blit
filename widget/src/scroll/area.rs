@@ -1,4 +1,4 @@
-use blit::{Animation, AnimationOptions, Axis, Rect, Scalar, Target, Ui, state::NoLayout};
+use blit::{Animation, AnimationOptions, Axis, Rect, Scalar, Ui, state::NoLayout};
 
 use super::{CONTENT, Goal, Request, ScrollLayout, ScrollState, Scrollbar, animate, build_scroll, update};
 use crate::Context;
@@ -40,9 +40,9 @@ impl<T: Scalar> ScrollArea<'_, T> {
             if ui.focus_moved()
                 && let Some(focused) = ui.focus_within()
             {
-                let content = ui.at(CONTENT).area();
+                let content = ui.node(ui.id().child(CONTENT)).area();
                 if let Some(content) = content
-                    && let Some(node) = ui.at(focused).area()
+                    && let Some(node) = ui.node(focused).area()
                 {
                     let offset = reveal_offset(state, axis, content, node);
                     state.scroll_to(offset, Animation::default(), AnimationOptions::default());
@@ -60,7 +60,7 @@ impl<T: Scalar> ScrollArea<'_, T> {
             let mut revealed = None;
             let content = |mut ui: Ui<'_, C>| {
                 if let Some(id) = reveal {
-                    revealed = ui.area().zip(ui.at(Target::THIS.at(id)).area());
+                    revealed = ui.area().zip(ui.node(ui.id().child(id)).area());
                 }
                 content(ui)
             };

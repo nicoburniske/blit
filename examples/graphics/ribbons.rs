@@ -89,10 +89,11 @@ impl View {
         let axis = self.axis;
         stage.paint(move |cx, area| cx.context_mut().paint(area, &Ribbons { axis }));
         if self.blur {
+            let stage_id = stage.id();
             let mut panel = stage
                 .child()
                 .place(
-                    blit::Target::PARENT,
+                    stage_id,
                     absolute::place()
                         .target_anchor(Anchor::Center)
                         .child_anchor(Anchor::Center)

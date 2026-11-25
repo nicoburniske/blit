@@ -5,7 +5,7 @@ use std::{
 };
 
 use blit::{
-    Animation, Axis, Constraints, Easing, KeyboardEvent, Motion, Scalar, Sides, Size, Spring, Target, Tween, Widget,
+    Animation, Axis, Constraints, Easing, KeyboardEvent, Motion, Scalar, Sides, Size, Spring, Tween, Widget,
     input::{Input, Key},
 };
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, Transition, board, select};
@@ -164,7 +164,7 @@ impl Demo {
         if self.show_performance {
             root.child()
                 .place(
-                    blit::Target::ROOT,
+                    blit::Id::ROOT,
                     absolute::place()
                         .target_anchor(Anchor::BottomRight)
                         .child_anchor(Anchor::BottomRight)
@@ -283,10 +283,11 @@ impl Widget<TuiContext> for &mut AnimationPage {
                         .layout(())
                         .clip(0);
                     track.insert(Block::new().background(colors::SURFACE_HIGH));
+                    let track_id = track.id();
                     let mut range = track
                         .child()
                         .place(
-                            Target::PARENT,
+                            track_id,
                             absolute::place()
                                 .target_anchor(Anchor::Center)
                                 .child_anchor(Anchor::Center)
@@ -299,14 +300,15 @@ impl Widget<TuiContext> for &mut AnimationPage {
                         .child_anchor(Anchor::Center)
                         .width(3)
                         .height(1);
-                    range.child().place(Target::PARENT, marker).insert(
+                    let range_id = range.id();
+                    range.child().place(range_id, marker).insert(
                         Text::new("│")
                             .color(colors::TEXT)
                             .options(TextOptions::new().horizontal_align(HorizontalAlign::Center)),
                     );
                     range
                         .child_id(index)
-                        .place(Target::PARENT, marker)
+                        .place(range_id, marker)
                         .motion(Motion::new(animation).x().restart(restart))
                         .insert(Block::new().background(if restart { colors::ACCENT_DARK } else { colors::ACCENT }));
                 }
@@ -404,8 +406,8 @@ impl Widget<TuiContext> for &mut Modal {
             self.palette.open = false;
         }
         let backdrop_id = "backdrop";
-        let backdrop = Target::ROOT.scoped(backdrop_id);
-        if self.open && root.at(backdrop).interact(interact::press()).clicked {
+        let backdrop = blit::Id::ROOT.child(backdrop_id);
+        if self.open && root.node(backdrop).interact(interact::press()).clicked {
             self.open = false;
         }
         if !self.open {
@@ -419,11 +421,11 @@ impl Widget<TuiContext> for &mut Modal {
         let (_, accent) = palettes[self.accent];
         let panel_id = "panel";
         let mut modal = root
-            .child_in(blit::Scope::ROOT, backdrop_id)
-            .parent(blit::Target::ROOT)
+            .child_in(blit::Id::ROOT, backdrop_id)
+            .parent(blit::Id::ROOT)
             .z_index(1)
             .place(
-                blit::Target::ROOT,
+                blit::Id::ROOT,
                 absolute::place()
                     .width(absolute::Sizing::full())
                     .height(absolute::Sizing::full()),
@@ -432,9 +434,10 @@ impl Widget<TuiContext> for &mut Modal {
         modal.insert(Tint::new([0, 0, 0], if self.dim { 180 } else { 80 }));
         let mut panel = modal.child_id(panel_id);
         panel.interact(interact::press());
+        let parent = panel.parent_id();
         let mut panel = panel
             .place(
-                Target::PARENT,
+                parent,
                 absolute::place()
                     .target_anchor(Anchor::Center)
                     .child_anchor(Anchor::Center),
@@ -1222,7 +1225,7 @@ impl Widget<TuiContext> for Canvas {
         let gap = |axis| self.config.gap(axis, unit);
         let item_sizing = |index| self.config.item_sizing(index, unit);
         let mut shell = ui.layout(());
-        let ui = shell.child_in(blit::Scope::ROOT, "canvas");
+        let ui = shell.child_in(blit::Id::ROOT, "canvas");
         match self.config.layout {
             CanvasLayout::Flex => {
                 let mut canvas = ui
@@ -1308,12 +1311,13 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     );
     if let Some(anchor) = spec.badge {
         item.child()
-            .parent(Target::ROOT.scoped("canvas"))
+            .parent(blit::Id::ROOT.child("canvas"))
             .z_index(1)
             .build(|ui: Ui<'_>| {
+                let parent = ui.parent_id();
                 let mut badge = ui
                     .place(
-                        Target::PARENT,
+                        parent,
                         absolute::place()
                             .target_anchor(anchor)
                             .child_anchor(Anchor::Center)

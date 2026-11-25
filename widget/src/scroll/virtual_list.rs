@@ -137,7 +137,10 @@ impl<'a, T: Scalar> VirtualList<'a, T> {
         let cross = axis.other();
         let gutter = match floating {
             true => T::ZERO,
-            false => ui.at(TRACK).area().map_or(T::ZERO, |area| cross.extent(area.size())),
+            false => ui
+                .node(ui.id().child(TRACK))
+                .area()
+                .map_or(T::ZERO, |area| cross.extent(area.size())),
         };
         let mut bounds = Constraints {
             min: Size::ZERO,
@@ -623,7 +626,7 @@ mod tests {
     use std::time::Duration;
 
     use blit::{
-        FrameInfo, Id, Kernel, Scope, Target,
+        FrameInfo, Id, Kernel,
         input::{Input, TouchPhase},
     };
 
@@ -642,7 +645,7 @@ mod tests {
             settle_frame(&mut kernel, &mut state, count, |index| (Id::new(index), 1.0));
             assert!(state.sample.len() <= 101);
             assert_eq!(state.position().0, 1);
-            assert_eq!(kernel.area(Target::ROOT.scoped(Id::new(1usize))).unwrap().y, 0.0);
+            assert_eq!(kernel.area(Id::ROOT.child(Id::new(1usize))).unwrap().y, 0.0);
         }
     }
 
@@ -703,7 +706,7 @@ mod tests {
                     settle_frame(&mut kernel, &mut state, count, row);
                 }
                 if let Some(count) = count {
-                    let area = kernel.area(Target::ROOT.scoped(Id::new(count - 1))).unwrap();
+                    let area = kernel.area(Id::ROOT.child(Id::new(count - 1))).unwrap();
                     assert_eq!(area.y + area.height, extents.iter().sum::<f32>().min(50.0));
                 } else {
                     assert_eq!(state.position().0, 5);
@@ -747,15 +750,15 @@ mod tests {
                 state.scroll_to(20, 0.0);
                 settle_frame(&mut kernel, &mut state, count, row);
                 let key = Id::new(20usize);
-                let y = kernel.area(Target::ROOT.scoped(key)).unwrap().y;
+                let y = kernel.area(Id::ROOT.child(key)).unwrap().y;
                 state.scroll_by(-20.0);
                 render_frame(&mut kernel, &mut state, count, Input::None, row);
-                assert_eq!(kernel.area(Target::ROOT.scoped(key)).unwrap().y, y + 20.0);
+                assert_eq!(kernel.area(Id::ROOT.child(key)).unwrap().y, y + 20.0);
                 settle_frame(&mut kernel, &mut state, count, row);
-                assert_eq!(kernel.area(Target::ROOT.scoped(key)).unwrap().y, y + 20.0);
+                assert_eq!(kernel.area(Id::ROOT.child(key)).unwrap().y, y + 20.0);
                 state.scroll_by(40.0);
                 render_frame(&mut kernel, &mut state, count, Input::None, row);
-                assert_eq!(kernel.area(Target::ROOT.scoped(key)).unwrap().y, y - 20.0);
+                assert_eq!(kernel.area(Id::ROOT.child(key)).unwrap().y, y - 20.0);
             }
         }
     }
@@ -779,7 +782,7 @@ mod tests {
                     while let Some((index, row)) = list.next() {
                         row.constrain(Constraints::tight(Size::new(10.0, 20.0)))
                             .layout(())
-                            .child_in(Scope::ROOT, index)
+                            .child_in(Id::ROOT, index)
                             .insert(());
                     }
                 },
@@ -787,7 +790,7 @@ mod tests {
             kernel.layout(&mut TestContext);
         }
         assert_eq!(
-            kernel.area(Target::ROOT.scoped(2usize)),
+            kernel.area(Id::ROOT.child(2usize)),
             Some(Rect::new(20.0, 0.0, 10.0, 20.0))
         );
     }
@@ -834,15 +837,15 @@ mod tests {
                     ui.key(id)
                         .constrain(Constraints::tight(Size::new(79.0, extent)))
                         .layout(())
-                        .child_in(Scope::ROOT, id)
+                        .child_in(Id::ROOT, id)
                         .insert(());
                 }
             },
         );
         kernel.layout(&mut TestContext);
         (
-            kernel.area(Target::ROOT.scoped(row(state.position().0).0)),
-            kernel.area(THUMB).unwrap(),
+            kernel.area(Id::ROOT.child(row(state.position().0).0)),
+            kernel.area(Id::ROOT.child(THUMB)).unwrap(),
         )
     }
 }

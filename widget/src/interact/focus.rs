@@ -28,7 +28,7 @@ mod tests {
     use std::cell::Cell;
 
     use blit::{
-        Kernel, Rect, Target, Ui,
+        Id, Kernel, Rect, Ui,
         input::{
             Input,
             TouchPhase::{Down, Move, Up},
@@ -54,7 +54,7 @@ mod tests {
             let mut left = ui.child_id("left").item(Rect::new(0.0, 0.0, 100.0, 200.0));
             let left_focused = left.interact(interact::focus());
             if change_focus.replace(false) {
-                left.at(Target::PARENT.at("right")).focus();
+                left.node(Id::ROOT.child("right")).focus();
             }
             drop(left);
             let mut right = ui.child_id("right").item(Rect::new(100.0, 0.0, 100.0, 200.0));

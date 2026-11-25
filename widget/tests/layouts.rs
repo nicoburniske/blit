@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use blit::{
-    Constraints, Context, Easing, FrameInfo, Kernel, Motion, Rect, Scalar, Sides, Size, Target, Tween, Ui, Widget,
+    Constraints, Context, Easing, FrameInfo, Id, Kernel, Motion, Rect, Scalar, Sides, Size, Tween, Ui, Widget,
     input::Input, state,
 };
 use blit_widget::layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, wrap};
@@ -78,7 +78,7 @@ fn absolute_percentages_use_the_target() {
             });
             root.child_id(1).insert(BoxContent(Size::new(6.0, 2.0)));
             root.child_id(id).place(
-                Target::PARENT.at(1),
+                Id::ROOT.child(1),
                 absolute::place()
                     .target_anchor(Anchor::BottomRight)
                     .width(absolute::Sizing::percent(0.5))
@@ -86,7 +86,7 @@ fn absolute_percentages_use_the_target() {
             );
         },
     );
-    assert_eq!(kernel.area(id), Some(Rect::new(8.0, 3.0, 3.0, 2.0)));
+    assert_eq!(kernel.area(Id::ROOT.child(id)), Some(Rect::new(8.0, 3.0, 3.0, 2.0)));
 }
 
 #[test]
@@ -102,7 +102,7 @@ fn absolute_flips_then_clamps_into_the_screen() {
             root.child_id(1).insert(BoxContent(Size::new(6, 2)));
             // flips above and clamps x
             root.child_id(popup).place(
-                Target::PARENT.at(1),
+                Id::ROOT.child(1),
                 absolute::place()
                     .target_anchor(Anchor::BottomLeft)
                     .x(18)
@@ -113,7 +113,7 @@ fn absolute_flips_then_clamps_into_the_screen() {
             );
         },
     );
-    assert_eq!(kernel.area(popup), Some(Rect::new(16, 4, 4, 4)));
+    assert_eq!(kernel.area(Id::ROOT.child(popup)), Some(Rect::new(16, 4, 4, 4)));
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn flex_remeasures_constraint_dependent_content() {
                 .insert(ResponsiveContent);
         },
     );
-    assert_eq!(kernel.area(child).unwrap().size(), Size::new(5.0, 2.0));
+    assert_eq!(kernel.area(Id::ROOT.child(child)).unwrap().size(), Size::new(5.0, 2.0));
 }
 
 #[test]
@@ -186,9 +186,12 @@ fn parent_items_allocate_and_component_bounds_constrain_each_axis() {
                 }
             },
         );
-        assert_eq!(kernel.area(inherited).unwrap().size(), Size::new(70.0, 6.0));
-        assert_eq!(kernel.area(fixed).unwrap().size(), Size::new(20.0, 6.0));
-        assert_eq!(kernel.area(fit).unwrap().size(), Size::new(10.0, 6.0));
+        assert_eq!(
+            kernel.area(Id::ROOT.child(inherited)).unwrap().size(),
+            Size::new(70.0, 6.0)
+        );
+        assert_eq!(kernel.area(Id::ROOT.child(fixed)).unwrap().size(), Size::new(20.0, 6.0));
+        assert_eq!(kernel.area(Id::ROOT.child(fit)).unwrap().size(), Size::new(10.0, 6.0));
     }
 }
 
@@ -223,7 +226,7 @@ fn explicit_items_and_grid_accept_custom_layouts() {
             },
         );
         assert_eq!(
-            kernel.area(child).unwrap().size(),
+            kernel.area(Id::ROOT.child(child)).unwrap().size(),
             Size::new(if use_grid { 100.0 } else { 10.0 }, 10.0)
         );
     }
@@ -253,8 +256,8 @@ fn flex_cross_grow_uses_fit_siblings_under_loose_constraints() {
                 .insert(BoxContent(Size::ZERO));
         },
     );
-    assert_eq!(kernel.area(header).unwrap().height, 10.0);
-    assert_eq!(kernel.area(body).unwrap().height, 90.0);
+    assert_eq!(kernel.area(Id::ROOT.child(header)).unwrap().height, 10.0);
+    assert_eq!(kernel.area(Id::ROOT.child(body)).unwrap().height, 90.0);
 }
 
 #[test]
@@ -304,7 +307,7 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
                     };
                     {
                         let mut branch = root
-                            .child_in(blit::Scope::ROOT, branch_id)
+                            .child_in(Id::ROOT, branch_id)
                             .item(grow_item)
                             .layout(CountedFlex(flex::layout(axis), 1))
                             .pad(1.0);
@@ -316,9 +319,7 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
                                 2,
                             ))
                             .pad(1.0);
-                        nested
-                            .child_in(blit::Scope::ROOT, leaf)
-                            .insert(BoxContent(Size::uniform(10.0)));
+                        nested.child_in(Id::ROOT, leaf).insert(BoxContent(Size::uniform(10.0)));
                     }
                     let cross = if cross_fixed {
                         Sizing::fixed(40.0)
@@ -329,24 +330,23 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
                         Axis::Horizontal => flex::item().width(10.0).height(cross),
                         Axis::Vertical => flex::item().width(cross).height(10.0),
                     };
-                    root.child_in(blit::Scope::ROOT, sibling)
+                    root.child_in(Id::ROOT, sibling)
                         .item(item)
                         .insert(BoxContent(Size::ZERO));
                 },
             );
             assert_eq!(context.0, [1; 3]);
             assert_eq!(
-                axis.other()
-                    .extent(kernel.area(Target::ROOT.scoped(leaf)).unwrap().size()),
+                axis.other().extent(kernel.area(Id::ROOT.child(leaf)).unwrap().size()),
                 if cross_fixed { 36.0 } else { 10.0 }
             );
             assert_eq!(
                 axis.other()
-                    .extent(kernel.area(Target::ROOT.scoped(sibling)).unwrap().size()),
+                    .extent(kernel.area(Id::ROOT.child(sibling)).unwrap().size()),
                 if cross_fixed { 40.0 } else { 14.0 }
             );
             assert_eq!(
-                axis.extent(kernel.area(Target::ROOT.scoped(branch_id)).unwrap().size()),
+                axis.extent(kernel.area(Id::ROOT.child(branch_id)).unwrap().size()),
                 axis.extent(screen) - 18.0
             );
         }
@@ -409,7 +409,7 @@ fn flex_unbounded_cross_uses_content_or_zero_for_fill_children() {
                                     Axis::Horizontal => flex::item().width(main).height(sizing),
                                     Axis::Vertical => flex::item().width(sizing).height(main),
                                 };
-                                flex.child_in(blit::Scope::ROOT, id)
+                                flex.child_in(Id::ROOT, id)
                                     .item(item)
                                     .insert(BoxContent(Size::uniform(50.0)));
                             }
@@ -417,14 +417,12 @@ fn flex_unbounded_cross_uses_content_or_zero_for_fill_children() {
                     );
                     if include_fit {
                         assert_eq!(
-                            axis.other()
-                                .extent(kernel.area(Target::ROOT.scoped(fit)).unwrap().size()),
+                            axis.other().extent(kernel.area(Id::ROOT.child(fit)).unwrap().size()),
                             12.0
                         );
                     }
                     assert_eq!(
-                        axis.other()
-                            .extent(kernel.area(Target::ROOT.scoped(grow)).unwrap().size()),
+                        axis.other().extent(kernel.area(Id::ROOT.child(grow)).unwrap().size()),
                         if include_fit { 8.0 } else { 0.0 }
                     );
                 }
@@ -453,8 +451,8 @@ fn flex_distributes_growing_space() {
                 .insert(BoxContent(Size::new(1.0, 10.0)));
         },
     );
-    assert_eq!(kernel.area(fixed).unwrap().width, 20.0);
-    assert_eq!(kernel.area(grow).unwrap().width, 76.0);
+    assert_eq!(kernel.area(Id::ROOT.child(fixed)).unwrap().width, 20.0);
+    assert_eq!(kernel.area(Id::ROOT.child(grow)).unwrap().width, 76.0);
 }
 
 #[test]
@@ -479,7 +477,10 @@ fn flex_respects_growth_caps() {
             }
         },
     );
-    assert_eq!(ids.map(|id| kernel.area(id).unwrap().width), [2.0, 4.0, 9.0]);
+    assert_eq!(
+        ids.map(|id| kernel.area(Id::ROOT.child(id)).unwrap().width),
+        [2.0, 4.0, 9.0]
+    );
 }
 
 #[test]
@@ -505,7 +506,10 @@ fn flex_size_motion_preserves_exact_overflow_and_reflows_siblings() {
             },
         );
         kernel.layout(&mut TestContext);
-        (kernel.area(animated).unwrap().size(), kernel.area(sibling).unwrap().x)
+        (
+            kernel.area(Id::ROOT.child(animated)).unwrap().size(),
+            kernel.area(Id::ROOT.child(sibling)).unwrap().x,
+        )
     };
 
     assert_eq!(render(1.0, Duration::ZERO), (Size::uniform(1.0), 1.0));
@@ -530,7 +534,10 @@ fn empty_layouts_keep_padding() {
             root.child_id(ids[2]).layout(grid::new(2)).pad(padding);
         },
     );
-    assert_eq!(ids.map(|id| kernel.area(id).unwrap().size()), [Size::uniform(4); 3]);
+    assert_eq!(
+        ids.map(|id| kernel.area(Id::ROOT.child(id)).unwrap().size()),
+        [Size::uniform(4); 3]
+    );
 }
 
 #[test]
@@ -549,7 +556,7 @@ fn wrap_uses_exact_cell_boundaries() {
             wrap.child_id(last).insert(BoxContent(Size::uniform(1)));
         },
     );
-    assert_eq!(kernel.area(last), Some(Rect::new(0, 1, 1, 1)));
+    assert_eq!(kernel.area(Id::ROOT.child(last)), Some(Rect::new(0, 1, 1, 1)));
 }
 
 #[test]
@@ -567,28 +574,25 @@ fn wrap_grows_each_run_and_stretches_cross_grow() {
                 .child_id(wrap_id)
                 .item(flex::item().width(11.0))
                 .layout(wrap::horizontal().align(Align::Start));
-            wrap.child_in(blit::Scope::ROOT, ids[0])
+            wrap.child_in(Id::ROOT, ids[0])
                 .item(wrap::item().width(Sizing::grow_range(0.0, 5.0)).height(Sizing::grow()))
                 .insert(BoxContent(Size::new(4.0, 1.0)));
-            wrap.child_in(blit::Scope::ROOT, ids[1])
+            wrap.child_in(Id::ROOT, ids[1])
                 .item(wrap::item().width(Sizing::grow()))
                 .insert(BoxContent(Size::new(4.0, 3.0)));
-            wrap.child_in(blit::Scope::ROOT, ids[2])
+            wrap.child_in(Id::ROOT, ids[2])
                 .item(wrap::item().width(Sizing::grow()))
                 .insert(ResponsiveContent);
         },
     );
-    assert_eq!(kernel.area(wrap_id).unwrap().size(), Size::new(11.0, 4.0));
     assert_eq!(
-        kernel.area(Target::ROOT.scoped(ids[0])),
-        Some(Rect::new(0.0, 0.0, 5.0, 3.0))
+        kernel.area(Id::ROOT.child(wrap_id)).unwrap().size(),
+        Size::new(11.0, 4.0)
     );
+    assert_eq!(kernel.area(Id::ROOT.child(ids[0])), Some(Rect::new(0.0, 0.0, 5.0, 3.0)));
+    assert_eq!(kernel.area(Id::ROOT.child(ids[1])), Some(Rect::new(5.0, 0.0, 5.5, 3.0)));
     assert_eq!(
-        kernel.area(Target::ROOT.scoped(ids[1])),
-        Some(Rect::new(5.0, 0.0, 5.5, 3.0))
-    );
-    assert_eq!(
-        kernel.area(Target::ROOT.scoped(ids[2])),
+        kernel.area(Id::ROOT.child(ids[2])),
         Some(Rect::new(0.0, 3.0, 11.0, 1.0))
     );
 }
@@ -614,7 +618,7 @@ fn wrap_keeps_target_runs_during_size_motions() {
             },
         );
         kernel.layout(&mut Cells);
-        kernel.area(ids[9]).unwrap()
+        kernel.area(Id::ROOT.child(ids[9])).unwrap()
     };
 
     assert_eq!(render(40, Duration::ZERO).y, 1);
@@ -637,7 +641,7 @@ fn wrap_shrinkwraps_animated_target_runs() {
                 let mut root = ui.layout(flex::column().align(Align::Start));
                 let mut wrap = root.child_id(wrap_id).layout(wrap::horizontal());
                 for id in child_ids {
-                    wrap.child_in(blit::Scope::ROOT, id)
+                    wrap.child_in(Id::ROOT, id)
                         .item(wrap::item().width(extent).height(1.0))
                         .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).size())
                         .insert(BoxContent(Size::ZERO));
@@ -645,8 +649,8 @@ fn wrap_shrinkwraps_animated_target_runs() {
             },
         );
         kernel.layout(&mut TestContext);
-        let wrap = kernel.area(wrap_id).unwrap();
-        let child = kernel.area(Target::ROOT.scoped(child_ids[1])).unwrap();
+        let wrap = kernel.area(Id::ROOT.child(wrap_id)).unwrap();
+        let child = kernel.area(Id::ROOT.child(child_ids[1])).unwrap();
         [wrap.width, child.x, child.y]
     };
 
@@ -669,7 +673,7 @@ fn percentage_children_share_rounded_space() {
             {
                 let mut row = column.child().layout(flex::row().align(Align::Start));
                 for id in &ids[..2] {
-                    row.child_in(blit::Scope::ROOT, *id)
+                    row.child_in(Id::ROOT, *id)
                         .item(flex::item().width(Sizing::percent(0.5)).height(if *id == ids[0] {
                             Sizing::grow()
                         } else {
@@ -680,7 +684,7 @@ fn percentage_children_share_rounded_space() {
             }
             let mut row = column.child().layout(wrap::horizontal());
             for id in &ids[2..] {
-                row.child_in(blit::Scope::ROOT, *id)
+                row.child_in(Id::ROOT, *id)
                     .item(wrap::item().width(Sizing::percent(0.5)))
                     .insert(BoxContent(Size::uniform(1)));
             }
@@ -688,7 +692,7 @@ fn percentage_children_share_rounded_space() {
     );
     for index in [1, 3] {
         assert_eq!(
-            kernel.area(Target::ROOT.scoped(ids[index])),
+            kernel.area(Id::ROOT.child(ids[index])),
             Some(Rect::new(2, (index / 2) as i32, 1, 1))
         );
     }
@@ -710,13 +714,15 @@ fn parent_percentages_apply_once_before_padding() {
                 .item(flex::item().width(Sizing::percent(0.5)).height(Sizing::percent(0.5)))
                 .layout(())
                 .pad(1.0);
-            fit.child_in(blit::Scope::ROOT, percent)
-                .insert(BoxContent(Size::new(4.0, 2.0)));
+            fit.child_in(Id::ROOT, percent).insert(BoxContent(Size::new(4.0, 2.0)));
         },
     );
-    assert_eq!(kernel.area(container), Some(Rect::new(0.0, 0.0, 10.0, 5.0)));
     assert_eq!(
-        kernel.area(Target::ROOT.scoped(percent)),
+        kernel.area(Id::ROOT.child(container)),
+        Some(Rect::new(0.0, 0.0, 10.0, 5.0))
+    );
+    assert_eq!(
+        kernel.area(Id::ROOT.child(percent)),
         Some(Rect::new(1.0, 1.0, 8.0, 3.0))
     );
 }
@@ -738,7 +744,7 @@ fn spanning_grid_sizes_spanning_items() {
             grid.child().insert(BoxContent(Size::uniform(10.0)));
         },
     );
-    assert_eq!(kernel.area(wide).unwrap().size(), Size::new(66.0, 12.0));
+    assert_eq!(kernel.area(Id::ROOT.child(wide)).unwrap().size(), Size::new(66.0, 12.0));
 }
 
 #[test]
@@ -759,13 +765,16 @@ fn grid_intrinsic_width_preserves_integer_spans() {
                         .item(grid::item().column_span(start))
                         .insert(BoxContent(Size::new(0, 1)));
                 }
-                grid.child_in(blit::Scope::ROOT, child)
+                grid.child_in(Id::ROOT, child)
                     .item(grid::item().column_span(span))
                     .insert(BoxContent(Size::new(width, 1)));
             },
         );
-        assert_eq!(kernel.area(Target::ROOT.scoped(child)), Some(Rect::new(x, 0, width, 1)));
-        assert_eq!(kernel.area(grid_id).unwrap().size(), Size::new(total, 1));
+        assert_eq!(kernel.area(Id::ROOT.child(child)), Some(Rect::new(x, 0, width, 1)));
+        assert_eq!(
+            kernel.area(Id::ROOT.child(grid_id)).unwrap().size(),
+            Size::new(total, 1)
+        );
     }
 }
 
@@ -786,7 +795,7 @@ fn spanning_grid_fills_available_cell() {
             grid.child_id(hole).insert(ResponsiveContent);
         },
     );
-    assert_eq!(kernel.area(hole), Some(Rect::new(19, 2, 9, 2)));
+    assert_eq!(kernel.area(Id::ROOT.child(hole)), Some(Rect::new(19, 2, 9, 2)));
 }
 
 #[test]
@@ -808,7 +817,7 @@ fn grid_preserves_an_animated_child_extent_with_a_larger_sibling() {
             },
         );
         kernel.layout(&mut Cells);
-        kernel.area(id).unwrap().height
+        kernel.area(Id::ROOT.child(id)).unwrap().height
     };
 
     assert_eq!(render(1, Duration::ZERO), 1);

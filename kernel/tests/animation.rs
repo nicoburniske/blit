@@ -300,7 +300,7 @@ fn retargeted_motion_measurement() {
                 column.child().insert(Fill('Y', Size::uniform(1.0)));
             },
         );
-        assert_eq!(kernel.area(id).unwrap().height, expected);
+        assert_eq!(kernel.area(Id::ROOT.child(id)).unwrap().height, expected);
         assert_eq!(
             context.commands.last(),
             Some(&Paint('Y', Rect::new(0.0, expected, 1.0, 1.0)))
@@ -575,7 +575,7 @@ fn spring_motion_measurement_and_settling() {
             3.0
         };
         assert!((measured.height - expected).abs() < 0.00001);
-        assert_eq!(kernel.area(id).unwrap().height, measured.height);
+        assert_eq!(kernel.area(Id::ROOT.child(id)).unwrap().height, measured.height);
     }
     render_inputs(&mut kernel, &mut context, Duration::from_secs(10), [], |ui: Ui<'_>| {
         ui.layout(Column)
@@ -640,12 +640,12 @@ fn spring_sizes_stay_nonnegative_and_resize_snaps() {
     render_inputs(&mut kernel, &mut context, Duration::ZERO, [], build(1.0));
     render_inputs(&mut kernel, &mut context, Duration::ZERO, [], build(0.0));
     render_inputs(&mut kernel, &mut context, Duration::from_millis(125), [], build(0.0));
-    assert_eq!(kernel.area(id).unwrap().size(), Size::ZERO);
+    assert_eq!(kernel.area(Id::ROOT.child(id)).unwrap().size(), Size::ZERO);
     context.info = FrameInfo::new(Size::uniform(200.0));
     render_inputs(&mut kernel, &mut context, Duration::from_millis(130), [], build(3.0));
-    assert_eq!(kernel.area(id).unwrap().size(), Size::uniform(3.0));
+    assert_eq!(kernel.area(Id::ROOT.child(id)).unwrap().size(), Size::uniform(3.0));
     render_inputs(&mut kernel, &mut context, Duration::from_secs(1), [], build(3.0));
-    assert_eq!(kernel.area(id).unwrap().size(), Size::uniform(3.0));
+    assert_eq!(kernel.area(Id::ROOT.child(id)).unwrap().size(), Size::uniform(3.0));
     assert!(!kernel.has_pending_redraw());
 }
 
@@ -662,7 +662,7 @@ fn reparented_motion_continues_from_its_screen_position() {
             [],
             |ui: Ui<'_>| {
                 let mut board = ui.layout(Rects);
-                let scope = board.scope();
+                let scope = board.id();
                 for index in 0..2 {
                     let mut parent = board
                         .child()
@@ -677,7 +677,7 @@ fn reparented_motion_continues_from_its_screen_position() {
                 }
             },
         );
-        assert_eq!(kernel.area(Scope::ROOT.key("card")), Some(Rect::new(x, 0.0, 2.0, 2.0)));
+        assert_eq!(kernel.area(Id::ROOT.child("card")), Some(Rect::new(x, 0.0, 2.0, 2.0)));
     }
 }
 
@@ -714,9 +714,7 @@ fn intervals_count_and_reset() {
 #[test]
 fn lifted_motion_paints_above_while_moving() {
     let (mut kernel, mut context) = kernel(Size::uniform(40.0));
-    let motion = Motion::new(Tween::new(1.0, Easing::LINEAR))
-        .position()
-        .lift(Target::ROOT);
+    let motion = Motion::new(Tween::new(1.0, Easing::LINEAR)).position().lift(Id::ROOT);
     // the card moves into the first column, under the second until lifted
     for (millis, column, lifted) in [(0, 1, false), (0, 0, true), (1000, 0, false)] {
         render_inputs(
@@ -726,7 +724,7 @@ fn lifted_motion_paints_above_while_moving() {
             [],
             |ui: Ui<'_>| {
                 let mut board = ui.layout(Rects);
-                let scope = board.scope();
+                let scope = board.id();
                 for index in 0..2 {
                     let mut parent = board
                         .child()
@@ -764,9 +762,7 @@ fn lifted_motion_paints_above_while_moving() {
 #[test]
 fn motion_within_a_parent_does_not_lift() {
     let (mut kernel, mut context) = kernel(Size::uniform(40.0));
-    let motion = Motion::new(Tween::new(1.0, Easing::LINEAR))
-        .position()
-        .lift(Target::ROOT);
+    let motion = Motion::new(Tween::new(1.0, Easing::LINEAR)).position().lift(Id::ROOT);
     // the card slides down its column while the next column still paints over it
     for (millis, gap) in [(0, 0.0), (0, 5.0), (500, 5.0)] {
         render_inputs(

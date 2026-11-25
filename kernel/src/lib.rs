@@ -54,7 +54,7 @@ pub use self::{
     paint::PaintCx,
     scratch::{Scratch, ScratchBuffer},
     timer::Timer,
-    ui::{Scope, Target, Ui, state},
+    ui::{Ui, state},
 };
 
 mod animation;
@@ -97,7 +97,7 @@ use self::{
         bump::{Bump, Offset},
     },
     timer::TimerState,
-    ui::{ROOT, Site},
+    ui::Site,
 };
 
 /// resources shared by every widget, layout and painter in a frame
@@ -154,6 +154,9 @@ pub trait Widget<C: Context, S = state::Build> {
 pub struct Id(core::num::NonZeroU64);
 
 impl Id {
+    /// the frame root, the scope for keys unique across the frame
+    pub const ROOT: Self = Self::named(b"blit frame root");
+
     /// creates an absolute id from a stable value
     pub fn new(source: impl core::hash::Hash) -> Self {
         use core::num::NonZeroU64;
@@ -180,9 +183,9 @@ impl Id {
         }
     }
 
-    /// composes a stable child id without using the current ui node
-    pub fn child(self, source: impl core::hash::Hash) -> Self {
-        Self::new((self, source))
+    /// the id of the node keyed `key` in this scope
+    pub fn child(self, key: impl Into<Id>) -> Self {
+        Self::new((self, key.into()))
     }
 }
 
@@ -373,7 +376,7 @@ impl<C: Context> Kernel<C> {
             timer.seen = false;
         }
 
-        let root = self.push_node(context, None, ROOT);
+        let root = self.push_node(context, None, Id::ROOT);
         let mut scratch = core::mem::take(&mut self.scratch);
         scratch.prepare();
         let output = widget.build(Ui::new(self, context, &scratch, root));
@@ -463,11 +466,10 @@ impl<C: Context> Kernel<C> {
         self.frame_requested = true;
     }
 
-    /// returns the area of the node `target` names from the root in the latest layout
+    /// returns the area of the node with `id` in the latest layout
     ///
     /// valid after [`Self::layout`]
-    pub fn area(&self, target: impl Into<Target>) -> Option<Rect<C::Scalar>> {
-        let id = ui::target_id(self, NodeId::new(0), target.into());
+    pub fn area(&self, id: Id) -> Option<Rect<C::Scalar>> {
         self.laid_out
             .get(id, |index| self.nodes[index].widget_id)
             .map(|index| self.placements[index].area)

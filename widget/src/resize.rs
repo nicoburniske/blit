@@ -44,9 +44,10 @@ impl<T: Scalar> Resize<'_, T> {
         ui.build(|mut ui: Ui<'_, C>| {
             let state = self.state;
             let previous = ui.area();
+            let resize = ui.id();
             let mut grip_input = |key: u8, edge| {
-                let press = ui.at(key).interact(interact::press());
-                let drag = ui.at(key).interact(interact::drag());
+                let press = ui.node(resize.child(key)).interact(interact::press());
+                let drag = ui.node(resize.child(key)).interact(interact::drag());
                 let grip = ResizeGrip {
                     edge,
                     hovered: press.hovered,

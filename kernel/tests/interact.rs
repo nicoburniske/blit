@@ -25,7 +25,7 @@ fn keyboard_input_bubbles_until_claimed() {
     let focused = Cell::new(None);
     let build = |mut ui: Ui<'_>| {
         if let Some(key) = focused.get() {
-            ui.at(Target::ROOT.scoped(Id::new(key))).focus();
+            ui.node(Id::ROOT.child(Id::new(key))).focus();
         } else {
             ui.clear_focus();
         }
@@ -35,7 +35,7 @@ fn keyboard_input_bubbles_until_claimed() {
             let parent = branch.interact(Keyboard(parent, None));
             let child = branch
                 .layout(Overlay)
-                .child_in(Scope::ROOT, Id::new(child))
+                .child_in(Id::ROOT, Id::new(child))
                 .interact(Keyboard(child, Some(child)));
             [parent, child]
         };
@@ -166,7 +166,7 @@ fn deepest_gesture_captures_first() {
     let (mut kernel, mut context) = kernel(Size::uniform(200.0));
     let build = |mut ui: Ui<'_>| {
         // requested out of preorder and before the child node exists
-        let child = ui.at("child").interact(CAPTURE)[0];
+        let child = ui.node(ui.id().child("child")).interact(CAPTURE)[0];
         let parent = ui.interact(CAPTURE)[0];
         let mut root = ui.layout(Overlay);
         root.child_id("child").insert(Fill('C', Size::uniform(200.0)));
@@ -268,8 +268,9 @@ fn named_kinds_follow_reordered_nodes() {
     let order = Cell::new([Some(0), Some(1), Some(2)]);
     let build = |mut ui: Ui<'_>| {
         let responses = [0, 1, 2].map(|id| {
-            let pressed = ui.at(id).interact(WATCH)[0].is_some_and(|(contact, _)| contact.phase == Started);
-            (ui.at(id).interact(Hover), pressed)
+            let pressed =
+                ui.node(ui.id().child(id)).interact(WATCH)[0].is_some_and(|(contact, _)| contact.phase == Started);
+            (ui.node(ui.id().child(id)).interact(Hover), pressed)
         });
         let mut root = ui.layout(Rects);
         for (index, id) in order.get().into_iter().enumerate() {
@@ -352,7 +353,7 @@ fn kind_requested_twice_keeps_one_slot() {
             child.interact(Count);
         }
         for id in 0..64 {
-            root.at(id).interact(Count);
+            root.node(root.id().child(id)).interact(Count);
         }
     };
     for _ in 0..3 {
@@ -369,7 +370,7 @@ fn tapping_unregistered_background_clears_focus() {
         let focus = Cell::new(true);
         let build = |mut ui: Ui<'_>| {
             if focus.replace(false) {
-                ui.at("field").focus();
+                ui.node(ui.id().child("field")).focus();
             }
             let mut root = ui.layout(Rects);
             let mut field = root.child_id("field").item(Rect::new(0.0, 0.0, 100.0, 200.0));
@@ -570,7 +571,7 @@ fn focused_descendant_scrolls_into_view() {
         }
         let focus = list.focus_within();
         if focus != last.replace(focus)
-            && let Some(area) = focus.and_then(|id| list.at(id).area())
+            && let Some(area) = focus.and_then(|id| list.node(id).area())
         {
             let below = area.y + area.height - 100.0;
             offset.set(offset.get() + below.max(0.0) + area.y.min(0.0));
@@ -588,7 +589,7 @@ fn focused_descendant_scrolls_into_view() {
         assert_eq!(offset.get(), expected);
         render(&mut kernel, &mut context, &build);
         let y = index as f32 * 30.0 - expected;
-        assert_eq!(kernel.area(index), Some(Rect::new(0.0, y, 100.0, 30.0)));
+        assert_eq!(kernel.area(Id::ROOT.child(index)), Some(Rect::new(0.0, y, 100.0, 30.0)));
     }
 }
 
