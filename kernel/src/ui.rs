@@ -432,14 +432,13 @@ impl<'ui, C: Context, S: state::NoLayout> Ui<'ui, C, S> {
 impl<'ui, C: Context, I: 'static> Ui<'ui, C, state::Child<I>> {
     /// sets this child's layout item
     #[inline]
-    pub fn item(self, item: I) -> Self {
-        let node = &mut self.inner.kernel.nodes[self.inner.node.index()];
-        if node.item.offset().is_some() {
-            *self.inner.kernel.bump.load_mut(node.item) = item;
-        } else {
-            node.item = self.inner.kernel.bump.store(item);
+    pub fn item(self, item: I) -> Ui<'ui, C, state::Build> {
+        let Ui { inner, .. } = self;
+        inner.kernel.nodes[inner.node.index()].item = inner.kernel.bump.store(item);
+        Ui {
+            inner,
+            marker: PhantomData,
         }
-        self
     }
 }
 

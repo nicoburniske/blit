@@ -217,7 +217,7 @@ where
 {
     /// the next row to build and its index, until the viewport is covered
     #[allow(clippy::should_implement_trait)]
-    pub fn next<O: Key>(&mut self) -> Option<(usize, Ui<'_, C, state::Child<ListItem>>)>
+    pub fn next<O: Key>(&mut self) -> Option<(usize, Ui<'_, C>)>
     where
         K: FnMut(usize) -> O,
     {
@@ -269,7 +269,7 @@ where
     R: FnOnce(Ui<'_, C>),
     H: FnOnce(Ui<'_, C>, bool),
 {
-    fn next<K: Key>(&mut self, key: impl FnOnce(usize) -> K) -> Option<(usize, Ui<'_, C, state::Child<ListItem>>)> {
+    fn next<K: Key>(&mut self, key: impl FnOnce(usize) -> K) -> Option<(usize, Ui<'_, C>)> {
         if self.phase == Phase::Done {
             return None;
         }
@@ -468,9 +468,8 @@ impl<T: Scalar> VirtualListState<T> {
     }
 }
 
-/// a child's role in a [`VirtualList`]
 #[derive(Clone, Copy)]
-pub struct ListItem(Kind);
+struct ListItem(Kind);
 
 impl Default for ListItem {
     fn default() -> Self {

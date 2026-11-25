@@ -29,11 +29,6 @@ impl BumpArena {
         unsafe { &*self.pointer::<T>(id) }
     }
 
-    pub fn load_mut<T: 'static>(&mut self, id: BumpId) -> &mut T {
-        // safety: the mutable arena borrow makes this checked address exclusive
-        unsafe { &mut *self.pointer::<T>(id) }
-    }
-
     pub fn clear(&mut self) {
         self.storage.bump.clear();
     }
