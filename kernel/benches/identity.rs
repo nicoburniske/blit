@@ -25,7 +25,7 @@ fn sites(bencher: divan::Bencher) {
 fn keys(bencher: divan::Bencher) {
     frames(bencher, |mut root, _| {
         for index in 0..COUNT {
-            root.child_key(Scope::ROOT.key(index)).insert(());
+            root.child_in(Scope::ROOT, index).insert(());
         }
     });
 }
@@ -52,13 +52,13 @@ fn tree_keys(bencher: divan::Bencher) {
     frames(bencher, |mut root, _| {
         let scope = root.scope();
         for i in 0..10u32 {
-            let mut a = root.child_key(scope.key(i)).layout(Stack);
+            let mut a = root.child_in(scope, i).layout(Stack);
             let scope = a.scope();
             for j in 0..10u32 {
-                let mut b = a.child_key(scope.key(j)).layout(Stack);
+                let mut b = a.child_in(scope, j).layout(Stack);
                 let scope = b.scope();
                 for k in 0..10u32 {
-                    b.child_key(scope.key(k)).insert(());
+                    b.child_in(scope, k).insert(());
                 }
             }
         }
@@ -70,7 +70,7 @@ fn tree_keys(bencher: divan::Bencher) {
 fn keys_rotating(bencher: divan::Bencher) {
     frames(bencher, |mut root, frame| {
         for index in 0..COUNT {
-            root.child_key(Scope::ROOT.key((index + frame) % COUNT)).insert(());
+            root.child_in(Scope::ROOT, (index + frame) % COUNT).insert(());
         }
     });
 }
@@ -80,7 +80,7 @@ fn keys_rotating(bencher: divan::Bencher) {
 fn keys_scrolling(bencher: divan::Bencher) {
     frames(bencher, |mut root, frame| {
         for index in frame..frame + COUNT {
-            root.child_key(Scope::ROOT.key(index)).insert(());
+            root.child_in(Scope::ROOT, index).insert(());
         }
     });
 }
@@ -122,10 +122,11 @@ fn lookups(bencher: divan::Bencher) {
     frames(bencher, |mut root, _| {
         let scope = Scope::ROOT;
         for index in 0..COUNT {
-            black_box(root.node(scope.key(index)).area());
+            let id = root.resolve(scope, index);
+            black_box(root.node(id).area());
         }
         for index in 0..COUNT {
-            root.child_key(Scope::ROOT.key(index)).insert(());
+            root.child_in(Scope::ROOT, index).insert(());
         }
     });
 }
@@ -135,7 +136,7 @@ fn lookups(bencher: divan::Bencher) {
 fn interactive(bencher: divan::Bencher) {
     frames(bencher, |mut root, _| {
         for index in 0..COUNT {
-            black_box(root.child_key(Scope::ROOT.key(index)).interact(Hover));
+            black_box(root.child_in(Scope::ROOT, index).interact(Hover));
         }
     });
 }
@@ -149,7 +150,7 @@ fn reparenting(bencher: divan::Bencher) {
             for index in 0..COUNT {
                 let moved = index % 10 == 0 && frame % 2 == 1;
                 if (index % 2 == column) != moved {
-                    parent.child_key(Scope::ROOT.key(index)).insert(());
+                    parent.child_in(Scope::ROOT, index).insert(());
                 }
             }
         }
@@ -172,7 +173,7 @@ fn after_peak(bencher: divan::Bencher) {
 fn keys_beside_churn(bencher: divan::Bencher) {
     frames(bencher, |mut root, frame| {
         for index in 0..COUNT / 2 {
-            root.child_key(Scope::ROOT.key(index)).insert(());
+            root.child_in(Scope::ROOT, index).insert(());
         }
         if frame % 2 == 0 {
             for _ in 0..COUNT / 2 {

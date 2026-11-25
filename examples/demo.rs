@@ -15,7 +15,8 @@ pub fn select<'a, C: Context, T: Copy + PartialEq, D>(
         let mut clicked = false;
         let items = ui.scope();
         for (index, (_, value)) in options.iter().enumerate() {
-            let press = ui.node(items.key(index)).interact(interact::press());
+            let item = ui.resolve(items, index);
+            let press = ui.node(item).interact(interact::press());
             if press.clicked {
                 *selected = *value;
                 clicked = true;
@@ -23,7 +24,7 @@ pub fn select<'a, C: Context, T: Copy + PartialEq, D>(
         }
         let mut group = ui.layout(layout);
         for (index, (data, value)) in options.iter().enumerate() {
-            group.child_key(items.key(index)).build(|mut ui: Ui<'_, C>| {
+            group.child_in(items, index).build(|mut ui: Ui<'_, C>| {
                 let press = ui.interact(interact::press());
                 render(ui, data, *selected == *value, press);
             });
@@ -49,13 +50,13 @@ pub fn board<'a, C: Context>(
         let mut dragged = None;
         for (index, (name, cards)) in columns.iter().enumerate() {
             let mut column = board
-                .child_key(lanes.key(index))
+                .child_in(lanes, index)
                 .item(flex::item().grow())
                 .layout(flex::column().gap(gap).align(Align::Stretch))
                 .pad(gap);
             decorate(&mut column, name);
             for &id in cards {
-                let mut node = column.child_key(tiles.key(id));
+                let mut node = column.child_in(tiles, id);
                 let response = node.interact(interact::drag());
                 if response.active {
                     dragged = Some((id, response.position));
@@ -87,10 +88,8 @@ pub fn board<'a, C: Context>(
         // the dragged card moves to the column under the pointer after the other cards above the pointer
         if let Some((id, pointer)) = dragged
             && let Some(column) = (0..columns.len()).position(|index| {
-                board
-                    .node(lanes.key(index))
-                    .area()
-                    .is_some_and(|area| area.contains(pointer))
+                let lane = board.resolve(lanes, index);
+                board.node(lane).area().is_some_and(|area| area.contains(pointer))
             })
         {
             let row = columns[column]
@@ -98,8 +97,9 @@ pub fn board<'a, C: Context>(
                 .iter()
                 .filter(|&&other| other != id)
                 .filter(|&&other| {
+                    let tile = board.resolve(tiles, other);
                     board
-                        .node(tiles.key(other))
+                        .node(tile)
                         .area()
                         .is_some_and(|area| area.y.lerp(area.y + area.height, 0.5) < pointer.y)
                 })

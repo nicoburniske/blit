@@ -1076,7 +1076,7 @@ impl Widget<DesktopContext> for Canvas {
             .border(Border::solid(sz::BORDER_STRONG, colors::CANVAS_BORDER))
             .radius(BorderRadius::all(sz::XS));
         let mut shell = ui.layout(());
-        let mut ui = shell.child_key(blit::Scope::ROOT.key(CANVAS_KEY));
+        let mut ui = shell.child_in(blit::Scope::ROOT, CANVAS_KEY);
         // items keep one key across layouts so they animate between them
         let items = ui.scope();
         match self.config.layout {
@@ -1094,7 +1094,7 @@ impl Widget<DesktopContext> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = self.config.item_sizing(index, self.unit);
                     canvas
-                        .child_key(items.key(index))
+                        .child_in(items, index)
                         .item(flex::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config);
@@ -1120,7 +1120,7 @@ impl Widget<DesktopContext> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = self.config.item_sizing(index, self.unit);
                     canvas
-                        .child_key(items.key(index))
+                        .child_in(items, index)
                         .item(wrap::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config);
@@ -1135,7 +1135,7 @@ impl Widget<DesktopContext> for Canvas {
                 canvas.insert(background);
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
-                        .child_key(items.key(index))
+                        .child_in(items, index)
                         .item(
                             grid::item()
                                 .row_span(spec.rows)
@@ -1186,33 +1186,31 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
         ..TextStyle::default()
     }));
     if let Some(anchor) = spec.badge {
-        item.child()
-            .parent(blit::Scope::ROOT.key(CANVAS_KEY))
-            .z_index(1)
-            .build(|ui: Ui<'_>| {
-                let parent = ui.parent_id();
-                let mut badge = ui
-                    .place(
-                        parent,
-                        absolute::place()
-                            .target_anchor(anchor)
-                            .child_anchor(Anchor::Center)
-                            .width(sz::BADGE_WIDTH * config.zoom)
-                            .height(sz::LG * config.zoom),
-                    )
-                    .layout(flex::row().align(Align::Center).justify(Justify::Center));
-                badge.insert(
-                    Rectangle::new()
-                        .background(colors::BACKGROUND)
-                        .border(Border::solid(sz::BORDER, Color::WHITE))
-                        .radius(BorderRadius::all(sz::XXS)),
-                );
-                badge.child().insert(Text::new("ABS").style(TextStyle {
-                    size: (sz::XS * config.zoom).max(sz::XS),
-                    color: Color::WHITE,
-                    ..TextStyle::default()
-                }));
-            });
+        let canvas = item.resolve(blit::Scope::ROOT, CANVAS_KEY);
+        item.child().parent(canvas).z_index(1).build(|ui: Ui<'_>| {
+            let parent = ui.parent_id();
+            let mut badge = ui
+                .place(
+                    parent,
+                    absolute::place()
+                        .target_anchor(anchor)
+                        .child_anchor(Anchor::Center)
+                        .width(sz::BADGE_WIDTH * config.zoom)
+                        .height(sz::LG * config.zoom),
+                )
+                .layout(flex::row().align(Align::Center).justify(Justify::Center));
+            badge.insert(
+                Rectangle::new()
+                    .background(colors::BACKGROUND)
+                    .border(Border::solid(sz::BORDER, Color::WHITE))
+                    .radius(BorderRadius::all(sz::XXS)),
+            );
+            badge.child().insert(Text::new("ABS").style(TextStyle {
+                size: (sz::XS * config.zoom).max(sz::XS),
+                color: Color::WHITE,
+                ..TextStyle::default()
+            }));
+        });
     }
 }
 

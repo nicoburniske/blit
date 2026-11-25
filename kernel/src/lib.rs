@@ -104,8 +104,8 @@ pub trait Context {
     /// coordinate type for all frame geometry
     type Scalar: Scalar;
 
-    /// the node built at `location` repeats `key` and takes a fresh id instead
-    fn duplicate_key(&mut self, _key: Key, _location: &'static Location<'static>) {}
+    /// the node built at `location` repeats `key` in `scope` and takes a fresh id instead
+    fn duplicate_key(&mut self, _scope: Scope, _key: u64, _location: &'static Location<'static>) {}
 
     /// clips drawing to a rounded rectangle until the matching pop
     fn push_clip(&mut self, _area: Rect<Self::Scalar>, _radius: Corners<Self::Scalar>) {}
@@ -175,63 +175,16 @@ pub struct Scope(Id);
 impl Scope {
     /// the app's own scope, which widgets leave alone
     pub const ROOT: Self = Self(Id::ROOT);
-
-    /// the node keyed `value` in this scope, which may be built later
-    pub fn key(self, value: impl KeyValue) -> Key {
-        Key {
-            scope: self,
-            value: value.value(),
-        }
-    }
 }
 
-/// a node keyed by a value in a scope, built with [`Ui::child_key`] and compared exactly
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Key {
-    scope: Scope,
-    value: u64,
-}
-
-/// a node to point at, by its id or by its key before it is built
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Target {
-    Node(Id),
-    Key(Key),
-}
-
-impl From<Id> for Target {
-    fn from(id: Id) -> Self {
-        Self::Node(id)
-    }
-}
-
-impl From<Key> for Target {
-    fn from(key: Key) -> Self {
-        Self::Key(key)
-    }
-}
-
-// lets optional settings such as a motion lift take an id or key directly
-impl From<Id> for Option<Target> {
-    fn from(id: Id) -> Self {
-        Some(id.into())
-    }
-}
-
-impl From<Key> for Option<Target> {
-    fn from(key: Key) -> Self {
-        Some(key.into())
-    }
-}
-
-/// the value of a key, any integer widened so one value names one node whatever its type
-pub trait KeyValue: Copy {
+/// a key in a [`Scope`], any integer widened so one value names one node whatever its type
+pub trait Key: Copy {
     fn value(self) -> u64;
 }
 
-macro_rules! key_value {
+macro_rules! key {
     ($($integer:ty),*) => {$(
-        impl KeyValue for $integer {
+        impl Key for $integer {
             fn value(self) -> u64 {
                 self as u64
             }
@@ -239,7 +192,7 @@ macro_rules! key_value {
     )*};
 }
 
-key_value!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
+key!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
 impl<C: Context, F, O> Widget<C> for F
 where
@@ -504,12 +457,17 @@ impl<C: Context> Kernel<C> {
         self.frame_requested = true;
     }
 
-    /// returns the area of the node `target` in the latest layout
+    /// returns the area of the node with `id` in the latest layout
     ///
     /// valid after [`Self::layout`]
-    pub fn area(&self, target: impl Into<Target>) -> Option<Rect<C::Scalar>> {
-        let node = self.slots.node(self.find(target.into())?)?;
+    pub fn area(&self, id: Id) -> Option<Rect<C::Scalar>> {
+        let node = self.slots.node(id)?;
         self.placements.get(node.index()).map(|placement| placement.area)
+    }
+
+    /// the id keyed `key` in `scope`, if anything holds it
+    pub fn find(&self, scope: Scope, key: impl Key) -> Option<Id> {
+        self.slots.find(scope.0, key.value())
     }
 }
 
@@ -539,24 +497,6 @@ impl<C: Context> Kernel<C> {
             interactive: false,
         });
         node
-    }
-
-    /// the id of `target`, kept through this build and taking a slot for a key nothing holds yet
-    fn resolve(&mut self, target: Target) -> Id {
-        let id = match target {
-            Target::Node(id) => id,
-            Target::Key(key) => self.slots.name(key.scope.0, key.value),
-        };
-        self.slots.keep(id);
-        id
-    }
-
-    /// the id of `target`, if anything holds it
-    fn find(&self, target: Target) -> Option<Id> {
-        match target {
-            Target::Node(id) => Some(id),
-            Target::Key(key) => self.slots.find(key.scope.0, key.value),
-        }
     }
 
     fn aux_mut(&mut self, node: NodeId) -> &mut Aux<C::Scalar> {

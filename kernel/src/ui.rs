@@ -202,14 +202,22 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
 }
 
 impl<'ui, C: Context, S: state::Local> Ui<'ui, C, S> {
-    /// refers to the node `target`, which may be built later, and keeps its id through this build
+    /// refers to the node with `id`, which may be built later, and keeps its id through this build
     #[inline]
-    pub fn node(&mut self, target: impl Into<Target>) -> Ui<'_, C, state::Ref> {
-        let id = self.inner.kernel.resolve(target.into());
+    pub fn node(&mut self, id: Id) -> Ui<'_, C, state::Ref> {
+        self.inner.kernel.slots.keep(id);
         Ui {
             inner: self.inner.borrow(id),
             marker: PhantomData,
         }
+    }
+
+    /// resolves `key` in `scope` to its id, taking a slot if nothing holds it yet
+    #[inline]
+    pub fn resolve(&mut self, scope: Scope, key: impl Key) -> Id {
+        let id = self.inner.kernel.slots.name(scope.0, key.value());
+        self.inner.kernel.slots.keep(id);
+        id
     }
 
     /// a scope for keys of this node and call site, so keys of unrelated code never meet
@@ -319,9 +327,9 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
     /// places this node against the node with `target` outside its parent's flow
     ///
     /// a target not built before this node places it against its parent
-    pub fn place<P: Place<C>>(self, target: impl Into<Target>, place: P) -> Self {
+    pub fn place<P: Place<C>>(self, target: Id, place: P) -> Self {
         let kernel = &mut *self.inner.kernel;
-        let reference = resolve_target(kernel, self.inner.node, target.into());
+        let reference = resolve_target(kernel, self.inner.node, target);
         let id = PlaceId::new(kernel.places.len());
         kernel.places.push(StoredPlace {
             bump_id: kernel.bump.store(place),
@@ -353,8 +361,8 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
     ///
     /// positioning stays with its anchor. a target not built before this node leaves its own parent
     #[inline]
-    pub fn parent(self, target: impl Into<Target>) -> Self {
-        if let Some(parent) = resolve_target(self.inner.kernel, self.inner.node, target.into()) {
+    pub fn parent(self, target: Id) -> Self {
+        if let Some(parent) = resolve_target(self.inner.kernel, self.inner.node, target) {
             self.inner.kernel.aux_mut(self.inner.node).visual_parent = parent;
         }
         self
@@ -446,14 +454,14 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
         Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node, old)
     }
 
-    /// creates the child keyed `key` rather than one identified by where it is built
+    /// creates the child keyed `key` in `scope` rather than one identified by where it is built
     ///
     /// it keeps its state as its siblings change or it moves to another parent, as its key stays.
-    /// [`Ui::node`] with the same key refers to it before it is built
+    /// [`Ui::resolve`] with the same scope and key returns its id before it is built
     #[inline]
     #[track_caller]
-    pub fn child_key(&mut self, key: Key) -> Ui<'_, C, state::Child<L::Item>> {
-        let (node, old) = self.inner.child_key(key.scope.0, key.value, Location::caller());
+    pub fn child_in(&mut self, scope: Scope, key: impl Key) -> Ui<'_, C, state::Child<L::Item>> {
+        let (node, old) = self.inner.child_in(scope.0, key.value(), Location::caller());
         Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node, old)
     }
 
@@ -492,9 +500,10 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
 // internals
 //
 
-/// the node `name`, if it was built before `node`
-pub fn resolve_target<C: Context>(kernel: &Kernel<C>, node: NodeId, target: Target) -> Option<NodeId> {
-    let target = kernel.slots.node(kernel.find(target)?)?;
+/// the node with `target`, if it was built before `node`
+// keeps target and visual parent chains acyclic and ordered for single pass layout and paint
+pub fn resolve_target<C: Context>(kernel: &Kernel<C>, node: NodeId, target: Id) -> Option<NodeId> {
+    let target = kernel.slots.node(target)?;
     (target.index() < node.index()).then_some(target)
 }
 
@@ -613,7 +622,7 @@ impl<'ui, C: Context> UiInner<'ui, C> {
         )
     }
 
-    fn child_key(&mut self, scope: Id, key: u64, location: &'static Location<'static>) -> (NodeId, u32) {
+    fn child_in(&mut self, scope: Id, key: u64, location: &'static Location<'static>) -> (NodeId, u32) {
         let kernel = &mut *self.kernel;
         // a scope is kept by the build that made it, while one held from an older build names alone
         let keyed = kernel.slots.is_kept(scope);
@@ -638,13 +647,7 @@ impl<'ui, C: Context> UiInner<'ui, C> {
         };
         if kernel.slots.claimed(id) {
             // the repeat is named alone so the next build finds the first holder
-            self.context.duplicate_key(
-                Key {
-                    scope: Scope(scope),
-                    value: key,
-                },
-                location,
-            );
+            self.context.duplicate_key(Scope(scope), key, location);
             id = kernel.slots.alloc();
             old = Slots::NONE;
             mark = Mark::Named;

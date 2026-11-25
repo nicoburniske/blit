@@ -4,7 +4,7 @@ pub mod virtual_list;
 use std::time::Duration;
 
 use blit::{
-    Animation, AnimationOptions, Axis, Constraints, Layout, LayoutCx, NodeId, Point, Scalar, Scope, Size, Target, Ui,
+    Animation, AnimationOptions, Axis, Constraints, Id, Layout, LayoutCx, NodeId, Point, Scalar, Scope, Size, Ui,
     internal::animator::Animator, state::Local,
 };
 
@@ -54,14 +54,9 @@ impl<T: Scalar> ScrollState<T> {
     }
 
     /// queues a node of the scroll content to reveal within the viewport
-    pub fn scroll_to_widget(
-        &mut self,
-        target: impl Into<Target>,
-        animation: impl Into<Animation>,
-        options: AnimationOptions,
-    ) {
+    pub fn scroll_to_widget(&mut self, target: Id, animation: impl Into<Animation>, options: AnimationOptions) {
         self.inertia.stop();
-        self.request.target = Goal::Widget(target.into());
+        self.request.target = Goal::Widget(target);
         self.request.missed = false;
         self.request.animation = animation.into();
         self.request.options = options;
@@ -112,7 +107,7 @@ enum Goal<T> {
     #[default]
     None,
     Offset(T),
-    Widget(Target),
+    Widget(Id),
 }
 
 #[derive(Clone, Copy)]
@@ -270,7 +265,8 @@ fn update<C: Context>(
     } else {
         false
     };
-    if let Some(area) = ui.node(parts.key(CONTENT)).area() {
+    let content_id = ui.resolve(parts, CONTENT);
+    if let Some(area) = ui.node(content_id).area() {
         state.content_extent = axis.extent(area.size());
     }
 
@@ -310,8 +306,10 @@ fn scrollbar_input<C: Context, S: Local>(
     axis: Axis,
     viewport_extent: C::Scalar,
 ) -> (bool, Option<ScrollbarInput>) {
+    let thumb_id = ui.resolve(scroll, THUMB);
+    let track_id = ui.resolve(scroll, TRACK);
     let (thumb_area, thumb, thumb_drag) = {
-        let mut part = ui.node(scroll.key(THUMB));
+        let mut part = ui.node(thumb_id);
         (
             part.area(),
             part.interact(interact::press()),
@@ -319,7 +317,7 @@ fn scrollbar_input<C: Context, S: Local>(
         )
     };
     let (track_area, track, track_drag) = {
-        let mut part = ui.node(scroll.key(TRACK));
+        let mut part = ui.node(track_id);
         (
             part.area(),
             part.interact(interact::press()),
@@ -542,16 +540,13 @@ where
 {
     let mut viewport = ui.layout(layout).clip(C::Scalar::ZERO);
     viewport
-        .child_key(parts.key(CONTENT))
+        .child_in(parts, CONTENT)
         .item(ScrollItem::Content)
         .build(content);
     if shown {
+        viewport.child_in(parts, TRACK).item(ScrollItem::Track).build(track);
         viewport
-            .child_key(parts.key(TRACK))
-            .item(ScrollItem::Track)
-            .build(track);
-        viewport
-            .child_key(parts.key(THUMB))
+            .child_in(parts, THUMB)
             .item(ScrollItem::Thumb)
             .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
     }
@@ -698,6 +693,7 @@ mod tests {
         let mut kernel = Kernel::default();
         let mut state = ScrollState::<f32>::new();
         let focused = Cell::new(None);
+        let target = Cell::new(None);
         let mut step = |state: &mut ScrollState<f32>| {
             for _ in 0..3 {
                 crate::test::step(&mut kernel, Input::None, |ui: Ui<'_, TestContext>| {
@@ -706,7 +702,10 @@ mod tests {
                         |ui| {
                             let mut rows = ui.layout(crate::layout::flex::column());
                             for index in 10..20u8 {
-                                let mut row = rows.child_key(Scope::ROOT.key(index));
+                                let mut row = rows.child_in(Scope::ROOT, index);
+                                if index == 17 {
+                                    target.set(Some(row.id()));
+                                }
                                 row.interact(interact::focus());
                                 if focused.get() == Some(index) {
                                     row.focus();
@@ -722,7 +721,7 @@ mod tests {
             state.offset
         };
         step(&mut state);
-        state.scroll_to_widget(Scope::ROOT.key(17u8), Animation::default(), AnimationOptions::default());
+        state.scroll_to_widget(target.get().unwrap(), Animation::default(), AnimationOptions::default());
         assert_eq!(step(&mut state), 600.0);
         assert!(!state.is_moving());
         // a focus change reveals once, so scrolling away from a row that stays focused sticks

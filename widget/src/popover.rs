@@ -1,4 +1,4 @@
-use blit::{Id, InteractCx, Scalar, Sides, Target, Ui, input::Input, state::NoLayout};
+use blit::{Id, InteractCx, Scalar, Sides, Ui, input::Input, state::NoLayout};
 
 use crate::{
     Context, interact,
@@ -20,8 +20,7 @@ pub enum PopoverClose {
 blit::builder! {
     pub struct Popover<'a, T: Scalar> {
         new(state: &'a mut PopoverState),
-        #[into]
-        parent: Target = Id::ROOT.into(),
+        parent: Id = Id::ROOT,
         target_anchor: Anchor = Anchor::BottomLeft,
         child_anchor: Anchor = Anchor::TopLeft,
         x: T = T::ZERO,
@@ -55,11 +54,12 @@ impl<T: Scalar> Popover<'_, T> {
     {
         ui.build(|mut ui: Ui<'_, C>| {
             let state = self.state;
-            // key, id, scope
             let popover = ui.scope();
-            let (backdrop_id, trigger_id, content_id) = (0u8, 1u8, 2u8);
+            let (backdrop_key, trigger_key, content_key) = (0u8, 1u8, 2u8);
+            let trigger_id = ui.resolve(popover, trigger_key);
+            let content_id = ui.resolve(popover, content_key);
             let (press, trigger_area) = {
-                let mut part = ui.node(popover.key(trigger_id));
+                let mut part = ui.node(trigger_id);
                 (part.interact(interact::press()), part.area())
             };
             if self.open_on_hover && press.hovered {
@@ -68,15 +68,16 @@ impl<T: Scalar> Popover<'_, T> {
                 state.open = !state.open;
             }
             // requested while closed too so the opening frame knows where the trigger is
-            let areas = [trigger_area, ui.node(popover.key(content_id)).area()];
+            let areas = [trigger_area, ui.node(content_id).area()];
             if state.open {
+                let backdrop_id = ui.resolve(popover, backdrop_key);
                 let backdrop = {
-                    let mut part = ui.node(popover.key(backdrop_id));
+                    let mut part = ui.node(backdrop_id);
                     let backdrop = part.interact(interact::press());
                     part.interact(BlockInput);
                     backdrop
                 };
-                let content_hovered = ui.node(popover.key(content_id)).interact(BlockInput);
+                let content_hovered = ui.node(content_id).interact(BlockInput);
                 let pointer_inside = content_hovered
                     || ui
                         .mouse_position()
@@ -92,7 +93,7 @@ impl<T: Scalar> Popover<'_, T> {
 
             let mut root = ui.layout(flex::column().align(Align::Start));
             if state.open && self.close != PopoverClose::Manual {
-                root.child_key(popover.key(backdrop_id))
+                root.child_in(popover, backdrop_key)
                     .parent(self.parent)
                     .z_index(1)
                     .place(
@@ -101,7 +102,7 @@ impl<T: Scalar> Popover<'_, T> {
                     )
                     .insert(());
             }
-            root.child_key(popover.key(trigger_id))
+            root.child_in(popover, trigger_key)
                 .hit(self.hit)
                 .layout(())
                 .child()
@@ -110,7 +111,7 @@ impl<T: Scalar> Popover<'_, T> {
                 return;
             }
             // stacks above the backdrop as its later sibling
-            root.child_key(popover.key(content_id))
+            root.child_in(popover, content_key)
                 .parent(self.parent)
                 .z_index(1)
                 .hit(
@@ -121,7 +122,7 @@ impl<T: Scalar> Popover<'_, T> {
                         .left(self.x.max(T::ZERO)),
                 )
                 .place(
-                    popover.key(trigger_id),
+                    trigger_id,
                     absolute::place()
                         .target_anchor(self.target_anchor)
                         .child_anchor(self.child_anchor)
@@ -212,14 +213,14 @@ mod tests {
             ui,
             |ui, _, _| {
                 ui.layout(())
-                    .child_key(Scope::ROOT.key(named_trigger))
+                    .child_in(Scope::ROOT, named_trigger)
                     .constrain(Constraints::tight(Size::new(2.0, 1.0)))
                     .insert(())
             },
             |ui| {
                 part = Some(ui.parent_id());
                 ui.layout(())
-                    .child_key(Scope::ROOT.key(named_content))
+                    .child_in(Scope::ROOT, named_content)
                     .constrain(Constraints::tight(Size::new(4.0, 3.0)))
                     .insert(())
             },
@@ -300,11 +301,11 @@ mod tests {
             if let Input::MouseUp { .. } = input {
                 content_area = part.and_then(|id| kernel.area(id));
                 assert_eq!(
-                    kernel.area(Scope::ROOT.key(named_content)),
+                    kernel.find(Scope::ROOT, named_content).and_then(|id| kernel.area(id)),
                     Some(Rect::new(0.0, 1.0, 4.0, 3.0))
                 );
                 assert_eq!(
-                    kernel.area(Scope::ROOT.key(named_trigger)),
+                    kernel.find(Scope::ROOT, named_trigger).and_then(|id| kernel.area(id)),
                     Some(Rect::new(0.0, 0.0, 2.0, 1.0)),
                 );
             }

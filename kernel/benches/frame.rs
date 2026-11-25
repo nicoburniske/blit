@@ -69,7 +69,7 @@ fn build_explicit_ids(bencher: divan::Bencher, count: usize) {
             |ui: Ui<'_, ()>| {
                 let mut root = ui.layout(Stack::default());
                 for index in 0..count {
-                    root.child_key(Scope::ROOT.key(index)).insert(());
+                    root.child_in(Scope::ROOT, index).insert(());
                 }
             },
         );
@@ -109,8 +109,8 @@ fn build_named_parent(bencher: divan::Bencher, count: usize) {
             Input::None,
             |ui: Ui<'_, ()>| {
                 let mut outer = ui.layout(Stack::default());
-                let mut root = outer.child_key(Scope::ROOT.key(bench_root)).layout(Stack::default());
-                let target = Scope::ROOT.key(bench_root);
+                let mut root = outer.child_in(Scope::ROOT, bench_root).layout(Stack::default());
+                let target = root.id();
                 for _ in 0..count {
                     root.child().parent(target).insert(());
                 }
@@ -171,11 +171,12 @@ fn build_areas_and_layout(bencher: divan::Bencher, count: usize) {
             Input::None,
             |mut ui: Ui<'_, ()>| {
                 for index in 0..10 {
-                    black_box(ui.node(Scope::ROOT.key(index)).area());
+                    let id = ui.resolve(Scope::ROOT, index);
+                    black_box(ui.node(id).area());
                 }
                 let mut root = ui.layout(Stack::default());
                 for index in 0..count {
-                    root.child_key(Scope::ROOT.key(index)).insert(());
+                    root.child_in(Scope::ROOT, index).insert(());
                 }
             },
         );
@@ -211,10 +212,8 @@ fn animate(bencher: divan::Bencher, count: usize, animation: Animation) {
             Input::None,
             |mut ui: Ui<'_, ()>| {
                 for index in 0..count {
-                    black_box(
-                        ui.node(Scope::ROOT.key(index))
-                            .animate(target, animation, Default::default()),
-                    );
+                    let id = ui.resolve(Scope::ROOT, index);
+                    black_box(ui.node(id).animate(target, animation, Default::default()));
                 }
             },
         );
@@ -255,7 +254,7 @@ fn motions(bencher: divan::Bencher, count: usize, animation: Animation, size: bo
                     position: if size { Point::ZERO } else { Point::new(target, target) },
                 });
                 for index in 0..count {
-                    root.child_key(Scope::ROOT.key(index)).motion(config).insert(());
+                    root.child_in(Scope::ROOT, index).motion(config).insert(());
                 }
             },
         );

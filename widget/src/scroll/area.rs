@@ -41,7 +41,8 @@ impl<T: Scalar> ScrollArea<'_, T> {
             if ui.focus_moved()
                 && let Some(focused) = ui.focus_within()
             {
-                let content = ui.node(parts.key(CONTENT)).area();
+                let content_id = ui.resolve(parts, CONTENT);
+                let content = ui.node(content_id).area();
                 if let Some(content) = content
                     && let Some(node) = ui.node(focused).area()
                 {

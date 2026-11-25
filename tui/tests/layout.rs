@@ -25,13 +25,13 @@ fn three_columns_use_all_ten_cells_and_wrap_at_the_assigned_width() {
                         if use_grid {
                             let mut row = ui.layout(grid::new(3));
                             for column in 0..3 {
-                                row.child_key(Scope::ROOT.key(column))
+                                row.child_in(Scope::ROOT, column)
                                     .insert(Text::new("abcd").options(TextOptions::new().wrap(TextWrap::Character)));
                             }
                         } else {
                             let mut row = ui.layout(flex::row());
                             for column in 0..3 {
-                                row.child_key(Scope::ROOT.key(column))
+                                row.child_in(Scope::ROOT, column)
                                     .item(flex::item().width(Sizing::grow()))
                                     .insert(Text::new("abcd").options(TextOptions::new().wrap(TextWrap::Character)));
                             }
@@ -41,7 +41,11 @@ fn three_columns_use_all_ten_cells_and_wrap_at_the_assigned_width() {
         );
         kernel.layout(&mut context);
         assert_eq!(
-            [0, 1, 2].map(|column| kernel.area(Scope::ROOT.key(column)).unwrap().width),
+            [0, 1, 2].map(|column| kernel
+                .find(Scope::ROOT, column)
+                .and_then(|id| kernel.area(id))
+                .unwrap()
+                .width),
             [3, 4, 3]
         );
         context.renderer.begin_frame();

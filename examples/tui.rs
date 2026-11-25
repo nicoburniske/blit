@@ -407,8 +407,8 @@ impl Widget<TuiContext> for &mut Modal {
             self.open = true;
             self.palette.open = false;
         }
-        let backdrop_id = 0;
-        let backdrop = Scope::ROOT.key(backdrop_id);
+        let backdrop_key = 0;
+        let backdrop = root.resolve(Scope::ROOT, backdrop_key);
         if self.open && root.node(backdrop).interact(interact::press()).clicked {
             self.open = false;
         }
@@ -422,7 +422,7 @@ impl Widget<TuiContext> for &mut Modal {
         ];
         let (_, accent) = palettes[self.accent];
         let mut modal = root
-            .child_key(Scope::ROOT.key(backdrop_id))
+            .child_in(Scope::ROOT, backdrop_key)
             .parent(blit::Id::ROOT)
             .z_index(1)
             .place(
@@ -1225,7 +1225,7 @@ impl Widget<TuiContext> for Canvas {
         let gap = |axis| self.config.gap(axis, unit);
         let item_sizing = |index| self.config.item_sizing(index, unit);
         let mut shell = ui.layout(());
-        let mut ui = shell.child_key(Scope::ROOT.key(CANVAS_KEY));
+        let mut ui = shell.child_in(Scope::ROOT, CANVAS_KEY);
         // items keep one key across layouts so they animate between them
         let items = ui.scope();
         match self.config.layout {
@@ -1243,7 +1243,7 @@ impl Widget<TuiContext> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = item_sizing(index);
                     canvas
-                        .child_key(items.key(index))
+                        .child_in(items, index)
                         .item(flex::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config, unit);
@@ -1269,7 +1269,7 @@ impl Widget<TuiContext> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = item_sizing(index);
                     canvas
-                        .child_key(items.key(index))
+                        .child_in(items, index)
                         .item(wrap::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config, unit);
@@ -1284,7 +1284,7 @@ impl Widget<TuiContext> for Canvas {
                 canvas.insert(background);
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
-                        .child_key(items.key(index))
+                        .child_in(items, index)
                         .item(
                             grid::item()
                                 .row_span(spec.rows)
@@ -1312,24 +1312,22 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
             .attributes(TextAttributes::BOLD),
     );
     if let Some(anchor) = spec.badge {
-        item.child()
-            .parent(Scope::ROOT.key(CANVAS_KEY))
-            .z_index(1)
-            .build(|ui: Ui<'_>| {
-                let parent = ui.parent_id();
-                let mut badge = ui
-                    .place(
-                        parent,
-                        absolute::place()
-                            .target_anchor(anchor)
-                            .child_anchor(Anchor::Center)
-                            .width(unit.width * 2)
-                            .height(unit.height),
-                    )
-                    .layout(flex::row().align(Align::Center).justify(Justify::Center));
-                badge.insert(Block::new().background(colors::ACCENT_DARK));
-                badge.child().insert(Text::new("A").color(colors::TEXT));
-            });
+        let canvas = item.resolve(Scope::ROOT, CANVAS_KEY);
+        item.child().parent(canvas).z_index(1).build(|ui: Ui<'_>| {
+            let parent = ui.parent_id();
+            let mut badge = ui
+                .place(
+                    parent,
+                    absolute::place()
+                        .target_anchor(anchor)
+                        .child_anchor(Anchor::Center)
+                        .width(unit.width * 2)
+                        .height(unit.height),
+                )
+                .layout(flex::row().align(Align::Center).justify(Justify::Center));
+            badge.insert(Block::new().background(colors::ACCENT_DARK));
+            badge.child().insert(Text::new("A").color(colors::TEXT));
+        });
     }
 }
 

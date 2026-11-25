@@ -192,10 +192,11 @@ mod tests {
         let mut kernel = Kernel::<TestContext>::default();
         let mounted = Cell::new(true);
         let build = |mut ui: Ui<'_, TestContext>| {
-            let drag = ui.node(Scope::ROOT.key(handle)).interact(interact::drag());
+            let handle_id = ui.resolve(Scope::ROOT, handle);
+            let drag = ui.node(handle_id).interact(interact::drag());
             if mounted.get() {
                 ui.layout(())
-                    .child_key(Scope::ROOT.key(handle))
+                    .child_in(Scope::ROOT, handle)
                     .build(|_: Ui<'_, TestContext>| {});
             }
             drag
