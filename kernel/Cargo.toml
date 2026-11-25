@@ -17,5 +17,9 @@ path = "tests/main.rs"
 name = "frame"
 harness = false
 
+[[bench]]
+name = "identity"
+harness = false
+
 [lints]
 workspace = true

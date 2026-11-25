@@ -30,7 +30,7 @@ impl Timer<'_> {
 //
 
 pub struct TimerState {
-    pub id: Id,
+    pub call: Call,
     pub seen: bool,
     start: Duration,
     period: Duration,
@@ -40,20 +40,14 @@ pub struct TimerState {
 }
 
 impl TimerState {
-    pub fn update(timers: &mut Vec<Self>, site: Id, period: Duration, repeat: bool, now: Duration) -> Timer<'_> {
-        // sorted by id so lookups stay logarithmic
-        // calls from one site repeat within a frame, so their order is their key
-        let mut id = site;
-        let mut repeats = 0u32;
+    pub fn update(timers: &mut Vec<Self>, mut call: Call, period: Duration, repeat: bool, now: Duration) -> Timer<'_> {
+        // sorted by call so lookups stay logarithmic
         let index = loop {
-            match timers.binary_search_by_key(&id, |timer| timer.id) {
-                Ok(index) if timers[index].seen => {
-                    repeats += 1;
-                    id = site.child(repeats);
-                }
+            match timers.binary_search_by_key(&call, |timer| timer.call) {
+                Ok(index) if timers[index].seen => call.repeat += 1,
                 Ok(index) => break index,
                 Err(index) => {
-                    timers.insert(index, Self::new(id, period, repeat, now));
+                    timers.insert(index, Self::new(call, period, repeat, now));
                     break index;
                 }
             }
@@ -64,7 +58,7 @@ impl TimerState {
         if timer.period != period || timer.repeat != repeat {
             *timer = Self {
                 seen: true,
-                ..Self::new(id, period, repeat, now)
+                ..Self::new(call, period, repeat, now)
             };
         }
         let elapsed = now.saturating_sub(timer.start).as_nanos();
@@ -91,9 +85,9 @@ impl TimerState {
 }
 
 impl TimerState {
-    fn new(id: Id, period: Duration, repeat: bool, now: Duration) -> Self {
+    fn new(call: Call, period: Duration, repeat: bool, now: Duration) -> Self {
         Self {
-            id,
+            call,
             seen: false,
             start: now,
             period,

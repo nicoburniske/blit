@@ -7,9 +7,9 @@ use std::{
 
 use blit::{
     Animation, AnimationOptions, Constraints, Contact, ContactId, ContactSource, Context, Corners, Easing, FrameInfo,
-    Id, Interact, InteractCx, Kernel, Layout, LayoutCx, Motion,
+    Id, Interact, InteractCx, Kernel, Key, Layout, LayoutCx, Motion,
     Phase::{Cancelled, Ended, Held, Started},
-    Place, PlaceCx, Point, Rect, Size, Spring, Tween, Widget,
+    Place, PlaceCx, Point, Rect, Size, Spring, Target, Tween, Widget,
     input::{
         Input, Modifiers, MouseButton, ScrollPhase, TouchPhase,
         TouchPhase::{Cancel, Down, Move, Up},
@@ -42,7 +42,7 @@ use Command::{Paint, PopClip, PushClip};
 impl Context for TestContext {
     type Scalar = f32;
 
-    fn duplicate_id(&mut self, _: Id, location: &'static std::panic::Location<'static>) {
+    fn duplicate_key(&mut self, _: Id, _: Key, location: &'static std::panic::Location<'static>) {
         self.duplicates.push(location.line());
     }
 

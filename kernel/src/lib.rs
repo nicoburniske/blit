@@ -97,7 +97,6 @@ use self::{
         bump::{Bump, Offset},
     },
     timer::TimerState,
-    ui::Site,
 };
 
 /// resources shared by every widget, layout and painter in a frame
@@ -105,8 +104,8 @@ pub trait Context {
     /// coordinate type for all frame geometry
     type Scalar: Scalar;
 
-    /// the node built at `location` repeats a key in its parent or scope, reported a frame later
-    fn duplicate_id(&mut self, _id: Id, _location: &'static Location<'static>) {}
+    /// the node built at `location` repeats `key` in `scope` and takes a fresh id instead
+    fn duplicate_key(&mut self, _scope: Id, _key: Key, _location: &'static Location<'static>) {}
 
     /// clips drawing to a rounded rectangle until the matching pop
     fn push_clip(&mut self, _area: Rect<Self::Scalar>, _radius: Corners<Self::Scalar>) {}
@@ -149,62 +148,77 @@ pub trait Widget<C: Context, S = state::Build> {
     fn build(self, ui: Ui<'_, C, S>) -> Self::Response;
 }
 
-/// stable identity for widgets, animations and timers
+/// stable identity for widgets, animations and timers, handed out by the kernel
+///
+/// each build matches a node to the previous build by its parent and call site, or by its key,
+/// and the node keeps the id it matched. an id stops resolving once its node is gone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Id(core::num::NonZeroU64);
+pub struct Id {
+    slot: u32,
+    generation: NonZeroU32,
+}
 
 impl Id {
     /// the frame root, the scope for keys unique across the frame
-    pub const ROOT: Self = Self::named(b"blit frame root");
+    pub const ROOT: Self = Self {
+        slot: 0,
+        generation: NonZeroU32::MIN,
+    };
 
-    /// creates an absolute id from a stable value
-    pub fn new(source: impl core::hash::Hash) -> Self {
-        use core::num::NonZeroU64;
-
-        let mut hasher = internal::hash::FxHasher::default();
-        source.hash(&mut hasher);
-        Self(NonZeroU64::new(hasher.finish()).unwrap_or(NonZeroU64::MIN))
-    }
-
-    /// creates an absolute id from a name
-    ///
-    /// equivalent to hashing the byte slice with [`Self::new`]
-    ///
-    /// ```
-    /// const PANEL: blit::Id = blit::Id::named(b"panel");
-    /// ```
-    pub const fn named(source: &[u8]) -> Self {
-        let mut hasher = internal::hash::FxHasher::new();
-        hasher.write_usize(source.len());
-        hasher.write(source);
-        match core::num::NonZeroU64::new(hasher.finish()) {
-            Some(value) => Self(value),
-            None => Self(core::num::NonZeroU64::MIN),
+    /// the node keyed `key` in this scope, which may be built later
+    pub fn child(self, key: impl Into<Key>) -> Target {
+        Target {
+            scope: self,
+            key: Some(key.into()),
         }
-    }
-
-    /// the id of the node keyed `key` in this scope
-    pub fn child(self, key: impl Into<Id>) -> Self {
-        Self::new((self, key.into()))
     }
 }
 
-// integers widen first so one key names one id whatever its type
-macro_rules! id_from_integer {
+/// points at a node by its id, or by its key in a scope before it is built
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Target {
+    scope: Id,
+    key: Option<Key>,
+}
+
+impl From<Id> for Target {
+    fn from(id: Id) -> Self {
+        Self { scope: id, key: None }
+    }
+}
+
+// lets optional settings such as a motion lift take an id directly
+impl From<Id> for Option<Target> {
+    fn from(id: Id) -> Self {
+        Some(id.into())
+    }
+}
+
+/// tells keyed nodes apart within a scope, compared exactly
+///
+/// a scope is any node's id, usually the parent's or [`Id::ROOT`]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Key(u64);
+
+// integers widen first so one key names one node whatever its type
+macro_rules! key_from_integer {
     ($($integer:ty),*) => {$(
-        impl From<$integer> for Id {
+        impl From<$integer> for Key {
             fn from(key: $integer) -> Self {
-                Self::new(key as u64)
+                Self(key as u64)
             }
         }
     )*};
 }
 
-id_from_integer!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
+key_from_integer!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
-impl From<&str> for Id {
+/// strings are hashed, so two may share a key and report a duplicate
+impl From<&str> for Key {
     fn from(key: &str) -> Self {
-        Self::new(key)
+        let mut hasher = internal::hash::FxHasher::new();
+        hasher.write(key.as_bytes());
+        Self(hasher.finish())
     }
 }
 
@@ -231,6 +245,8 @@ pub struct Kernel<C: Context> {
     //
     nodes: Vec<StoredNode>,
     placements: Vec<Placement<C::Scalar>>,
+    // each node's clip, resolved after layout
+    resolved_clips: Vec<ResolvedClipId>,
     measures: Vec<StoredMeasure<C>>,
     paints: Vec<StoredPaint<C>>,
     aux: Vec<Aux<C::Scalar>>,
@@ -248,14 +264,11 @@ pub struct Kernel<C: Context> {
     //
     old_nodes: Vec<StoredNode>,
     old_placements: Vec<Placement<C::Scalar>>,
-    /// nodes by id
-    laid_out: IdTable,
-    /// an id found on several nodes, whose call sites the next build reports
-    watch: Option<Id>,
 
     //
     // retained state
     //
+    slots: Slots,
     interaction: InteractionState<C::Scalar>,
     animations: Vec<AnimationState>,
     motions: Vec<MotionState<C::Scalar>>,
@@ -285,6 +298,7 @@ impl<C: Context> Default for Kernel<C> {
         Self {
             nodes: Vec::new(),
             placements: Vec::new(),
+            resolved_clips: Vec::new(),
             measures: Vec::new(),
             paints: Vec::new(),
             aux: Vec::new(),
@@ -297,9 +311,8 @@ impl<C: Context> Default for Kernel<C> {
 
             old_nodes: Vec::new(),
             old_placements: Vec::new(),
-            laid_out: IdTable::default(),
-            watch: None,
 
+            slots: Slots::default(),
             interaction: InteractionState::default(),
             animations: Vec::new(),
             motions: Vec::new(),
@@ -349,6 +362,7 @@ impl<C: Context> Kernel<C> {
         core::mem::swap(&mut self.placements, &mut self.old_placements);
         self.nodes.clear();
         self.placements.clear();
+        self.slots.begin();
         self.focus = FocusRequest::Keep;
         self.measures.clear();
         self.paints.clear();
@@ -376,10 +390,11 @@ impl<C: Context> Kernel<C> {
             timer.seen = false;
         }
 
-        let root = self.push_node(context, None, Id::ROOT);
+        let root = self.push_node(None, Id::ROOT, Mark::Named);
         let mut scratch = core::mem::take(&mut self.scratch);
         scratch.prepare();
-        let output = widget.build(Ui::new(self, context, &scratch, root));
+        let old = self.slots.old(Id::ROOT).map_or(Slots::NONE, |node| node as u32);
+        let output = widget.build(Ui::new(self, context, &scratch, root, old));
         scratch.prepare();
         self.scratch = scratch;
         assert_eq!(
@@ -415,7 +430,7 @@ impl<C: Context> Kernel<C> {
             else {
                 continue;
             };
-            let id = self.nodes[node.index()].widget_id;
+            let id = self.nodes[node.index()].id;
             let flying = self
                 .motions
                 .binary_search_by_key(&id, |state| state.id)
@@ -429,8 +444,6 @@ impl<C: Context> Kernel<C> {
         paint::resolve_order(self, &bump);
         paint::resolve_clips(self);
         // interactions bind against this build
-        let nodes = &self.nodes;
-        self.watch = self.laid_out.rebuild(nodes.len(), |index| nodes[index].widget_id);
         interact::resolve(self);
         self.animations.retain(|animation| animation.seen);
         self.motions.retain(|state| state.seen);
@@ -466,13 +479,12 @@ impl<C: Context> Kernel<C> {
         self.frame_requested = true;
     }
 
-    /// returns the area of the node with `id` in the latest layout
+    /// returns the area of the node `target` in the latest layout
     ///
     /// valid after [`Self::layout`]
-    pub fn area(&self, id: Id) -> Option<Rect<C::Scalar>> {
-        self.laid_out
-            .get(id, |index| self.nodes[index].widget_id)
-            .map(|index| self.placements[index].area)
+    pub fn area(&self, target: impl Into<Target>) -> Option<Rect<C::Scalar>> {
+        let node = self.slots.node(self.find(target.into())?)?;
+        self.placements.get(node.index()).map(|placement| placement.area)
     }
 }
 
@@ -481,16 +493,16 @@ impl<C: Context> Kernel<C> {
 //
 
 impl<C: Context> Kernel<C> {
-    #[track_caller]
-    fn push_node(&mut self, context: &mut C, parent: Option<NodeId>, widget_id: Id) -> NodeId {
-        if self.watch == Some(widget_id) {
-            context.duplicate_id(widget_id, Location::caller());
-        }
-        let id = NodeId::new(self.nodes.len());
+    /// pushes a node and assigns `id` to it
+    #[inline(always)]
+    fn push_node(&mut self, parent: Option<NodeId>, id: Id, mark: Mark) -> NodeId {
+        let node = NodeId::new(self.nodes.len());
+        self.slots.set(id, node);
         self.nodes.push(StoredNode {
-            widget_id,
-            parent: parent.unwrap_or(id),
-            subtree_end: id.index() as u32,
+            mark,
+            id,
+            parent: parent.unwrap_or(node),
+            subtree_end: node.index() as u32,
             first_measure: StoredMeasureId::NONE,
             last_paint: StoredPaintId::NONE,
             layout: BumpId::NONE,
@@ -498,16 +510,28 @@ impl<C: Context> Kernel<C> {
             aux: AuxId::NONE,
             place: PlaceId::NONE,
             item: BumpId::NONE,
-            target: parent.unwrap_or(id),
+            target: parent.unwrap_or(node),
             interactive: false,
-            motion: NodeMotionId::NONE,
-            resolved_clip: ResolvedClipId::NONE,
         });
-        self.placements.push(Placement {
-            area: Rect::default(),
-            z_index: 0,
-        });
+        node
+    }
+
+    /// the id of `target`, kept through this build and taking a slot for a key nothing holds yet
+    fn resolve(&mut self, target: Target) -> Id {
+        let id = match target.key {
+            Some(key) => self.slots.name(target.scope, key),
+            None => target.scope,
+        };
+        self.slots.keep(id);
         id
+    }
+
+    /// the id of `target`, if anything holds it
+    fn find(&self, target: Target) -> Option<Id> {
+        match target.key {
+            Some(key) => self.slots.find(target.scope, key),
+            None => Some(target.scope),
+        }
     }
 
     fn aux_mut(&mut self, node: NodeId) -> &mut Aux<C::Scalar> {
@@ -522,6 +546,7 @@ impl<C: Context> Kernel<C> {
                     limits: Constraints::loose(Size::uniform(C::Scalar::UNBOUNDED)),
                     padding: Sides::all(C::Scalar::ZERO),
                     hit: Sides::all(C::Scalar::ZERO),
+                    motion: NodeMotionId::NONE,
                 });
                 self.aux.len() - 1
             }

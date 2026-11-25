@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use blit::{Constraints, FrameInfo, Id, Kernel, Size, input::Input};
+use blit::{Constraints, FrameInfo, Id, Kernel, Key, Size, input::Input};
 use blit_tui::{
     RendererConfig, TuiContext, TuiRenderer, Ui,
     layout::{Sizing, flex, grid},
@@ -25,13 +25,13 @@ fn three_columns_use_all_ten_cells_and_wrap_at_the_assigned_width() {
                         if use_grid {
                             let mut row = ui.layout(grid::new(3));
                             for column in 0..3 {
-                                row.child_in(Id::ROOT, Id::new(column))
+                                row.child_in(Id::ROOT, Key::from(column))
                                     .insert(Text::new("abcd").options(TextOptions::new().wrap(TextWrap::Character)));
                             }
                         } else {
                             let mut row = ui.layout(flex::row());
                             for column in 0..3 {
-                                row.child_in(Id::ROOT, Id::new(column))
+                                row.child_in(Id::ROOT, Key::from(column))
                                     .item(flex::item().width(Sizing::grow()))
                                     .insert(Text::new("abcd").options(TextOptions::new().wrap(TextWrap::Character)));
                             }
@@ -41,7 +41,7 @@ fn three_columns_use_all_ten_cells_and_wrap_at_the_assigned_width() {
         );
         kernel.layout(&mut context);
         assert_eq!(
-            [0, 1, 2].map(|column| kernel.area(Id::ROOT.child(Id::new(column))).unwrap().width),
+            [0, 1, 2].map(|column| kernel.area(Id::ROOT.child(Key::from(column))).unwrap().width),
             [3, 4, 3]
         );
         context.renderer.begin_frame();

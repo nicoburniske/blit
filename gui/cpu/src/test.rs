@@ -1579,7 +1579,7 @@ fn images_keep_native_size_and_ownership_until_last_reference() {
             |ui: blit::Ui<'_, _>| {
                 let mut root = ui.layout(());
                 let mut child = root.child();
-                let node = child.node_id();
+                let node = child.id();
                 child.insert(retained.clone());
                 drop(child);
                 assert_eq!(root.layout_child(node, Constraints::loose(maximum)), expected);

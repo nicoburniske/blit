@@ -60,10 +60,8 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     /// the target's area from the previous layout
     pub fn area(&self) -> Option<Rect<C::Scalar>> {
         let kernel = &*self.inner.kernel;
-        kernel
-            .laid_out
-            .get(self.inner.target, |index| kernel.old_nodes[index].widget_id)
-            .map(|index| kernel.old_placements[index].area)
+        let old = kernel.slots.old(self.inner.target)?;
+        kernel.old_placements.get(old).map(|placement| placement.area)
     }
 
     /// adds `interaction` to the target and returns its latest response
@@ -79,11 +77,11 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     /// animates toward `target`, keyed by the target and call site, then by call order within a frame
     #[track_caller]
     pub fn animate(&mut self, target: f32, animation: impl Into<Animation>, mut options: AnimationOptions) -> f32 {
-        let id = self.inner.target.child(Id::new(Location::caller()));
+        let call = Call::new(self.inner.target, Location::caller());
         let kernel = &mut *self.inner.kernel;
         // cleared so stored options stay equal across frames and do not retarget
         let initial = options.initial.take().unwrap_or(target);
-        let state = AnimationState::update(&mut kernel.animations, id, initial);
+        let state = AnimationState::update(&mut kernel.animations, call, initial);
         match &mut state.playback {
             Playback::Target(animator) => {
                 animator
@@ -107,9 +105,9 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
         if tween.duration == 0.0 {
             return self.animate(0.0, Animation::default(), AnimationOptions::default());
         }
-        let id = self.inner.target.child(Id::new(Location::caller()));
+        let call = Call::new(self.inner.target, Location::caller());
         let kernel = &mut *self.inner.kernel;
-        let state = AnimationState::update(&mut kernel.animations, id, 0.0);
+        let state = AnimationState::update(&mut kernel.animations, call, 0.0);
         let now = kernel.time.as_secs_f64();
         let time = match state.playback {
             Playback::Loop {
@@ -126,18 +124,18 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     /// fires once, `duration` after the target first calls it from this site or after a reset
     #[track_caller]
     pub fn timer(&mut self, duration: Duration) -> Timer<'_> {
-        let id = self.inner.target.child(Id::new(Location::caller()));
+        let call = Call::new(self.inner.target, Location::caller());
         let kernel = &mut *self.inner.kernel;
-        TimerState::update(&mut kernel.timers, id, duration, false, kernel.time)
+        TimerState::update(&mut kernel.timers, call, duration, false, kernel.time)
     }
 
     /// fires every `period`, counting from when the target first calls it from this site or from a reset
     #[track_caller]
     pub fn interval(&mut self, period: Duration) -> Timer<'_> {
         assert!(!period.is_zero(), "an interval must be nonzero");
-        let id = self.inner.target.child(Id::new(Location::caller()));
+        let call = Call::new(self.inner.target, Location::caller());
         let kernel = &mut *self.inner.kernel;
-        TimerState::update(&mut kernel.timers, id, period, true, kernel.time)
+        TimerState::update(&mut kernel.timers, call, period, true, kernel.time)
     }
 
     /// focuses the target from the next build while it requests an interaction
@@ -204,18 +202,12 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
 }
 
 impl<'ui, C: Context, S: state::Local> Ui<'ui, C, S> {
-    /// refers to the node with `id`, which may be built later
-    pub fn node(&mut self, id: Id) -> Ui<'_, C, state::Ref> {
+    /// refers to the node `target`, which may be built later, and keeps its id through this build
+    #[inline]
+    pub fn node(&mut self, target: impl Into<Target>) -> Ui<'_, C, state::Ref> {
+        let id = self.inner.kernel.resolve(target.into());
         Ui {
-            inner: UiInner {
-                kernel: self.inner.kernel,
-                context: self.inner.context,
-                scratch: self.inner.scratch,
-                node: self.inner.node,
-                target: id,
-                sites: self.inner.sites,
-                owns_node: false,
-            },
+            inner: self.inner.borrow(id),
             marker: PhantomData,
         }
     }
@@ -224,15 +216,7 @@ impl<'ui, C: Context, S: state::Local> Ui<'ui, C, S> {
     #[inline]
     pub fn insert<W: Widget<C, state::Insert>>(&mut self, widget: W) -> W::Response {
         widget.build(Ui {
-            inner: UiInner {
-                kernel: self.inner.kernel,
-                context: self.inner.context,
-                scratch: self.inner.scratch,
-                node: self.inner.node,
-                target: self.inner.target,
-                sites: self.inner.sites,
-                owns_node: false,
-            },
+            inner: self.inner.borrow(self.inner.target),
             marker: PhantomData,
         })
     }
@@ -262,21 +246,15 @@ impl<'ui, C: Context, S: state::Local> Ui<'ui, C, S> {
     pub fn focus_within(&self) -> Option<Id> {
         let kernel = &*self.inner.kernel;
         let focused = kernel.interaction.focused?;
-        let old_id = |index: usize| kernel.old_nodes[index].widget_id;
-        let node = kernel.laid_out.get(self.inner.target, old_id)?;
-        let inside = kernel.laid_out.get(focused, old_id)?;
+        let node = kernel.slots.old(self.inner.target)?;
+        let inside = kernel.slots.old(focused)?;
         (node < inside && inside <= kernel.old_nodes[node].subtree_end as usize).then_some(focused)
-    }
-
-    /// identifies this node for references within the current render
-    pub fn node_id(&self) -> NodeId {
-        self.inner.node
     }
 
     /// the id of this node's structural parent, or its own for the root
     pub fn parent_id(&self) -> Id {
         let nodes = &self.inner.kernel.nodes;
-        nodes[nodes[self.inner.node.index()].parent.index()].widget_id
+        nodes[nodes[self.inner.node.index()].parent.index()].id
     }
 
     /// temporary storage that stays usable while building this node
@@ -318,9 +296,9 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
     /// places this node against the node with `target` outside its parent's flow
     ///
     /// a target not built before this node places it against its parent
-    pub fn place<P: Place<C>>(self, target: Id, place: P) -> Self {
+    pub fn place<P: Place<C>>(self, target: impl Into<Target>, place: P) -> Self {
         let kernel = &mut *self.inner.kernel;
-        let reference = resolve_target(kernel, self.inner.node, target);
+        let reference = resolve_target(kernel, self.inner.node, target.into());
         let id = PlaceId::new(kernel.places.len());
         kernel.places.push(StoredPlace {
             bump_id: kernel.bump.store(place),
@@ -336,11 +314,10 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
     pub fn motion(self, motion: Motion) -> Self {
         // kept out of line so motion inlines without moving the ui through a call
         fn store<C: Context>(kernel: &mut Kernel<C>, node: NodeId, motion: Motion) {
-            let stored = &mut kernel.nodes[node.index()];
-            match stored.motion.index() {
+            match kernel.aux_mut(node).motion.index() {
                 Some(index) => kernel.node_motions[index].motion = motion,
                 None => {
-                    stored.motion = NodeMotionId::new(kernel.node_motions.len());
+                    kernel.aux_mut(node).motion = NodeMotionId::new(kernel.node_motions.len());
                     kernel.node_motions.push(NodeMotion { node, motion });
                 }
             }
@@ -353,8 +330,8 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
     ///
     /// positioning stays with its anchor. a target not built before this node leaves its own parent
     #[inline]
-    pub fn parent(self, target: Id) -> Self {
-        if let Some(parent) = resolve_target(self.inner.kernel, self.inner.node, target) {
+    pub fn parent(self, target: impl Into<Target>) -> Self {
+        if let Some(parent) = resolve_target(self.inner.kernel, self.inner.node, target.into()) {
             self.inner.kernel.aux_mut(self.inner.node).visual_parent = parent;
         }
         self
@@ -368,7 +345,9 @@ impl<'ui, C: Context, S: state::Owned> Ui<'ui, C, S> {
 
     /// sets this node's paint order among its visual siblings
     pub fn z_index(self, z_index: i16) -> Self {
-        self.inner.kernel.placements[self.inner.node.index()].z_index = z_index;
+        let kernel = &mut *self.inner.kernel;
+        kernel.placements.resize(kernel.nodes.len(), Placement::default());
+        kernel.placements[self.inner.node.index()].z_index = z_index;
         self
     }
 
@@ -420,23 +399,6 @@ impl<'ui, C: Context, S: state::NoLayout> Ui<'ui, C, S> {
 }
 
 impl<'ui, C: Context, I: 'static> Ui<'ui, C, state::Child<I>> {
-    /// identifies this child among its siblings by `key`, as [`Ui::child_id`] would
-    ///
-    /// call it first, as anything added before stays with the previous identity
-    #[inline]
-    #[track_caller]
-    pub fn key(mut self, key: impl Into<Id>) -> Self {
-        let kernel = &mut *self.inner.kernel;
-        let parent = kernel.nodes[self.inner.node.index()].parent;
-        let id = kernel.nodes[parent.index()].widget_id.child(key);
-        if kernel.watch == Some(id) {
-            self.inner.context.duplicate_id(id, Location::caller());
-        }
-        kernel.nodes[self.inner.node.index()].widget_id = id;
-        self.inner.target = id;
-        self
-    }
-
     /// sets this child's layout item
     #[inline]
     pub fn item(self, item: I) -> Self {
@@ -454,69 +416,39 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
     /// creates a child identified by where it is built
     ///
     /// children built from one place are told apart by the order they are built in
-    #[inline(always)]
+    #[inline]
     #[track_caller]
     pub fn child(&mut self) -> Ui<'_, C, state::Child<L::Item>> {
-        let location = Location::caller();
-        let kernel = &mut *self.inner.kernel;
-        let sites = &mut kernel.sites[self.inner.sites as usize..];
-        // copies of one call site may not share an address
-        let site = sites.iter_mut().find(|site| {
-            core::ptr::eq(site.location, location)
-                || (site.location.line() == location.line()
-                    && site.location.column() == location.column()
-                    && site.location.file() == location.file())
-        });
-        let id = match site {
-            Some(site) => {
-                site.count = site.count.checked_add(1).expect("too many children from one place");
-                site.id.child(site.count)
-            }
-            None => {
-                // out of line so repeated sites inline into the caller
-                #[cold]
-                fn first(sites: &mut Vec<Site>, parent: Id, location: &'static Location<'static>) -> Id {
-                    let id = parent.child(Id::new(location));
-                    sites.push(Site { location, id, count: 0 });
-                    id
-                }
-                first(&mut kernel.sites, self.inner.target, location)
-            }
-        };
-        let node = kernel.push_node(self.inner.context, Some(self.inner.node), id);
-        Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node)
+        let (node, old) = self.inner.child(Location::caller());
+        Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node, old)
     }
 
     /// creates a child identified among its siblings by `key` rather than where it is built
     ///
-    /// [`Ui::node`] with `self.id().child(key)` addresses it
+    /// [`Ui::node`] with `self.id().child(key)` refers to it before it is built
     #[inline]
     #[track_caller]
-    pub fn child_id(&mut self, key: impl Into<Id>) -> Ui<'_, C, state::Child<L::Item>> {
-        let id = self.inner.target.child(key);
-        let kernel = &mut *self.inner.kernel;
-        let node = kernel.push_node(self.inner.context, Some(self.inner.node), id);
-        Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node)
+    pub fn child_id(&mut self, key: impl Into<Key>) -> Ui<'_, C, state::Child<L::Item>> {
+        self.child_in(self.inner.target, key)
     }
 
     /// creates a child keyed `key` in the scope `scope`, usually an ancestor's id
     ///
-    /// it keeps its state when it moves to another parent beneath the scope.
-    /// [`Ui::node`] with `scope.child(key)` addresses it
+    /// it keeps its state when it moves to another parent, as its key in the scope names it.
+    /// [`Ui::node`] with `scope.child(key)` refers to it before it is built
     #[inline]
     #[track_caller]
-    pub fn child_in(&mut self, scope: Id, key: impl Into<Id>) -> Ui<'_, C, state::Child<L::Item>> {
-        let id = scope.child(key);
-        let kernel = &mut *self.inner.kernel;
-        let node = kernel.push_node(self.inner.context, Some(self.inner.node), id);
-        Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node)
+    pub fn child_in(&mut self, scope: Id, key: impl Into<Key>) -> Ui<'_, C, state::Child<L::Item>> {
+        let (node, old) = self.inner.child_in(scope, key.into(), Location::caller());
+        Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node, old)
     }
 
     /// lays out a built child now and returns its current animated size under `bounds`
     ///
     /// the layout pass lays it out again with whatever bounds this node's layout gives it
-    pub fn layout_child(&mut self, child: NodeId, bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
+    pub fn layout_child(&mut self, child: Id, bounds: Constraints<C::Scalar>) -> Size<C::Scalar> {
         let kernel = &mut *self.inner.kernel;
+        let child = kernel.slots.node(child).expect("a laid out child must be built first");
         assert!(
             kernel.nodes[child.index()].place.index().is_none(),
             "measured widgets must stay in flow"
@@ -546,38 +478,9 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
 // internals
 //
 
-// children built from one call site under the open node
-pub struct Site {
-    location: &'static Location<'static>,
-    id: Id,
-    count: u32,
-}
-
-/// the node with `id`, if it was built before `node`
-pub fn resolve_target<C: Context>(kernel: &Kernel<C>, node: NodeId, id: Id) -> Option<NodeId> {
-    // open ancestors are cheap to find on the parent chain
-    let mut ancestor = kernel.nodes[node.index()].parent;
-    let target = loop {
-        let stored = &kernel.nodes[ancestor.index()];
-        if stored.widget_id == id {
-            break ancestor;
-        }
-        if stored.parent == ancestor {
-            // the previous layout's index usually still holds
-            let hint = kernel
-                .laid_out
-                .get(id, |index| kernel.old_nodes[index].widget_id)
-                .filter(|&index| index < node.index() && kernel.nodes[index].widget_id == id);
-            // worst case after the fast paths miss, repeated lookups are n^2
-            let index = hint.or_else(|| {
-                kernel.nodes[..node.index()]
-                    .iter()
-                    .rposition(|stored| stored.widget_id == id)
-            })?;
-            break NodeId::new(index);
-        }
-        ancestor = stored.parent;
-    };
+/// the node `name`, if it was built before `node`
+pub fn resolve_target<C: Context>(kernel: &Kernel<C>, node: NodeId, target: Target) -> Option<NodeId> {
+    let target = kernel.slots.node(kernel.find(target)?)?;
     (target.index() < node.index()).then_some(target)
 }
 
@@ -588,9 +491,144 @@ struct UiInner<'ui, C: Context> {
     node: NodeId,
     // the node this ui acts on, its own unless made by `node`
     target: Id,
-    // where this node's call sites start in the frame's site stack
+    // where this node's call sites start in the frame's site stack or Slots::NONE when not owning a node
     sites: u32,
-    owns_node: bool,
+    // this node in the previous build, and its child to try next
+    cursor: Cursor,
+}
+
+impl<'ui, C: Context> UiInner<'ui, C> {
+    fn new(
+        kernel: &'ui mut Kernel<C>,
+        context: &'ui mut C,
+        scratch: &'ui ScratchBuffer,
+        node: NodeId,
+        old: u32,
+    ) -> Self {
+        Self {
+            target: kernel.nodes[node.index()].id,
+            sites: kernel.sites.len() as u32,
+            // wraps to zero for a node new to this build, which has no children to try
+            cursor: Cursor {
+                old,
+                next: old.wrapping_add(1),
+            },
+            kernel,
+            context,
+            scratch,
+            node,
+        }
+    }
+
+    #[inline]
+    fn borrow(&mut self, target: Id) -> UiInner<'_, C> {
+        UiInner {
+            kernel: self.kernel,
+            context: self.context,
+            scratch: self.scratch,
+            node: self.node,
+            target,
+            sites: Slots::NONE,
+            cursor: Cursor {
+                old: Slots::NONE,
+                next: 0,
+            },
+        }
+    }
+
+    // children return their node and its match in the previous build, which fit in one register
+    fn child(&mut self, location: &'static Location<'static>) -> (NodeId, u32) {
+        // out of line so the usual match stays small
+        #[cold]
+        fn search(
+            old_nodes: &[StoredNode],
+            old: u32,
+            end: u32,
+            location: &Location<'_>,
+            ordinal: u32,
+        ) -> Option<u32> {
+            let mut index = old + 1;
+            while index <= end {
+                if old_nodes[index as usize].mark.is_site(location, ordinal) {
+                    return Some(index);
+                }
+                index = old_nodes[index as usize].subtree_end + 1;
+            }
+            None
+        }
+
+        let kernel = &mut *self.kernel;
+        let start = self.sites as usize;
+        let (site, ordinal, scan) = match kernel.sites[start..]
+            .iter()
+            .rposition(|site| same_place(site.location, location))
+        {
+            Some(index) => {
+                let site = &mut kernel.sites[start + index];
+                site.ordinal = site.ordinal.checked_add(1).expect("too many children from one place");
+                (start + index, site.ordinal, site.scan)
+            }
+            None => {
+                kernel.sites.push(Site {
+                    location,
+                    ordinal: 0,
+                    scan: true,
+                });
+                (kernel.sites.len() - 1, 0, true)
+            }
+        };
+        let mut found = None;
+        if scan && self.cursor.old != Slots::NONE {
+            let end = kernel.old_nodes[self.cursor.old as usize].subtree_end;
+            if self.cursor.next <= end && kernel.old_nodes[self.cursor.next as usize].mark.is_site(location, ordinal) {
+                found = Some(self.cursor.next);
+            } else {
+                found = search(&kernel.old_nodes, self.cursor.old, end, location, ordinal);
+                kernel.sites[site].scan = found.is_some();
+            }
+        }
+        let (id, old) = match found {
+            Some(index) => {
+                let stored = &kernel.old_nodes[index as usize];
+                self.cursor.next = stored.subtree_end + 1;
+                (stored.id, index)
+            }
+            None => (kernel.slots.alloc(), Slots::NONE),
+        };
+        (kernel.push_node(Some(self.node), id, Mark::Site(location, ordinal)), old)
+    }
+
+    fn child_in(&mut self, scope: Id, key: Key, location: &'static Location<'static>) -> (NodeId, u32) {
+        let kernel = &mut *self.kernel;
+        let keyed = scope == self.target || kernel.slots.is_kept(scope);
+        let mut mark = if keyed { Mark::Key(scope.slot, key) } else { Mark::Named };
+        let (mut id, mut old) = if keyed
+            && self.cursor.old != Slots::NONE
+            && self.cursor.next <= kernel.old_nodes[self.cursor.old as usize].subtree_end
+            && matches!(kernel.old_nodes[self.cursor.next as usize].mark, Mark::Key(slot, other) if slot == scope.slot && other == key)
+        {
+            let index = self.cursor.next;
+            let stored = &kernel.old_nodes[index as usize];
+            self.cursor.next = stored.subtree_end + 1;
+            (stored.id, index)
+        } else {
+            let id = kernel.slots.name(scope, key);
+            let old = kernel.slots.old(id).map_or(Slots::NONE, |node| node as u32);
+            // a moved key among these siblings keeps the ones after it on the cursor
+            if old != Slots::NONE && kernel.old_nodes[old as usize].parent.index() as u32 == self.cursor.old {
+                self.cursor.next = kernel.old_nodes[old as usize].subtree_end + 1;
+            }
+            (id, old)
+        };
+        if kernel.slots.claimed(id) {
+            // the repeat is named alone so the next build finds the first holder
+            self.context.duplicate_key(scope, key, location);
+            id = kernel.slots.alloc();
+            old = Slots::NONE;
+            mark = Mark::Named;
+        }
+        (kernel.push_node(Some(self.node), id, mark), old)
+    }
 }
 
 impl<'ui, C: Context, S> Ui<'ui, C, S> {
@@ -599,17 +637,10 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
         context: &'ui mut C,
         scratch: &'ui ScratchBuffer,
         node: NodeId,
+        old: u32,
     ) -> Self {
         Self {
-            inner: UiInner {
-                target: kernel.nodes[node.index()].widget_id,
-                sites: kernel.sites.len() as u32,
-                kernel,
-                context,
-                scratch,
-                node,
-                owns_node: true,
-            },
+            inner: UiInner::new(kernel, context, scratch, node, old),
             marker: PhantomData,
         }
     }
@@ -617,7 +648,7 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
 
 impl<C: Context> Drop for UiInner<'_, C> {
     fn drop(&mut self) {
-        if !self.owns_node {
+        if self.sites == Slots::NONE {
             return;
         }
         self.kernel.nodes[self.node.index()].subtree_end = (self.kernel.nodes.len() - 1) as u32;

@@ -645,9 +645,9 @@ pub fn resolve<C: Context>(kernel: &mut Kernel<C>) {
     let retained = &mut kernel.interaction.kinds;
     for slot in &mut retained.slots {
         slot.node = kernel
-            .laid_out
-            .get(slot.id, |index| kernel.nodes[index].widget_id)
-            .map_or(UNRESOLVED, |index| index as u32);
+            .slots
+            .node(slot.id)
+            .map_or(UNRESOLVED, |node| node.index() as u32);
     }
     let Kinds {
         slots, kinds, state, ..
@@ -727,7 +727,7 @@ pub fn resolve<C: Context>(kernel: &mut Kernel<C>) {
         let mut collect = {
             #[inline(always)]
             |index: usize, stored: &StoredNode, area: Rect<C::Scalar>| {
-                let id = stored.widget_id;
+                let id = stored.id;
                 if !stored.interactive {
                     return;
                 }
@@ -741,14 +741,14 @@ pub fn resolve<C: Context>(kernel: &mut Kernel<C>) {
                     area.width + hit.left + hit.right,
                     area.height + hit.top + hit.bottom,
                 );
-                let clip_bounds = stored
-                    .resolved_clip
+                let clip = kernel.resolved_clips[index];
+                let clip_bounds = clip
                     .index()
                     .map_or(kernel.screen, |clip| kernel.interaction.clips[clip].bounds);
                 kernel.interaction.hits.push(HitItem {
                     id,
                     area: area.intersection(clip_bounds).unwrap_or_default(),
-                    clip: stored.resolved_clip,
+                    clip,
                     node: index as u32,
                 });
             }
@@ -927,7 +927,9 @@ impl<T> Kinds<T> {
 
     fn probe(&self, id: Id, kind: Option<u16>) -> usize {
         let mask = self.table.len() - 1;
-        let mut bucket = (id.0.get() as usize) >> (usize::BITS - self.table.len().trailing_zeros());
+        // dense slots with several kinds each would cluster, so the slot is mixed
+        let mixed = u64::from(id.slot).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        let mut bucket = (mixed >> (64 - self.table.len().trailing_zeros())) as usize;
         loop {
             let index = self.table[bucket];
             if index == UNRESOLVED {

@@ -135,16 +135,19 @@ pub fn resolve_order<C: Context>(kernel: &mut Kernel<C>, bump: &BumpArena) {
 pub fn resolve_clips<C: Context>(kernel: &mut Kernel<C>) {
     kernel.interaction.clips.clear();
     let count = kernel.nodes.len();
-    let nodes = &mut kernel.nodes[..count];
+    let nodes = &kernel.nodes[..count];
     let placements = &kernel.placements[..count];
     let aux = &kernel.aux;
+    kernel.resolved_clips.clear();
+    kernel.resolved_clips.resize(count, ResolvedClipId::NONE);
+    let resolved = &mut kernel.resolved_clips[..count];
     for index in 0..count {
         let parent = if index == 0 {
             ResolvedClipId::NONE
         } else {
-            nodes[visual_parent(aux, &nodes[index]).index()].resolved_clip
+            resolved[visual_parent(aux, &nodes[index]).index()]
         };
-        nodes[index].resolved_clip = parent;
+        resolved[index] = parent;
         let Some(radius) = nodes[index].aux.index().and_then(|index| aux[index].clip) else {
             continue;
         };
@@ -165,7 +168,7 @@ pub fn resolve_clips<C: Context>(kernel: &mut Kernel<C>) {
             radius,
             bounds,
         });
-        nodes[index].resolved_clip = id;
+        resolved[index] = id;
     }
 }
 
@@ -233,7 +236,7 @@ fn paint_node<C: Context>(
         return;
     };
     let area = kernel.placements[node].area;
-    let resolved_clip = kernel.nodes[node].resolved_clip;
+    let resolved_clip = kernel.resolved_clips[node];
     // painters may draw past their area so renderers cull by what they draw
     let bounds = resolved_clip
         .index()

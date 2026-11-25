@@ -25,17 +25,17 @@ fn keyboard_input_bubbles_until_claimed() {
     let focused = Cell::new(None);
     let build = |mut ui: Ui<'_>| {
         if let Some(key) = focused.get() {
-            ui.node(Id::ROOT.child(Id::new(key))).focus();
+            ui.node(Id::ROOT.child(Key::from(key as u32))).focus();
         } else {
             ui.clear_focus();
         }
         let mut root = ui.layout(Overlay);
         let mut branch = |parent, child| {
-            let mut branch = root.child_id(Id::new(parent));
+            let mut branch = root.child_id(Key::from(parent as u32));
             let parent = branch.interact(Keyboard(parent, None));
             let child = branch
                 .layout(Overlay)
-                .child_in(Id::ROOT, Id::new(child))
+                .child_in(Id::ROOT, Key::from(child as u32))
                 .interact(Keyboard(child, Some(child)));
             [parent, child]
         };
@@ -202,7 +202,7 @@ fn unmounted_owner_retires_contact() {
         let root = ui.interact(WATCH)[0];
         let mut layout = ui.layout(Overlay);
         let owned = mounted.get().then(|| {
-            let mut child = layout.child_id(Id::new("child"));
+            let mut child = layout.child_id(Key::from("child"));
             child.insert(Fill('B', Size::uniform(200.0)));
             child.interact(CAPTURE)[0]
         });
@@ -241,7 +241,7 @@ fn gesture_state_lives_while_requested() {
         let mut updates = [None; 4];
         let (start, end) = rows.get();
         for (row, updates) in updates.iter_mut().enumerate().take(end).skip(start) {
-            let mut child = root.child_id(Id::new(row));
+            let mut child = root.child_id(Key::from(row));
             child.interact(Hover);
             *updates = Some(child.interact(Count));
         }

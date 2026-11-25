@@ -22,7 +22,7 @@ fn motions() {
                 let child = child
                     .item(gap)
                     .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).height().y());
-                let node = child.node_id();
+                let node = child.id();
                 child.layout(()).child().insert(Fill('X', Size::new(1.0, extent)));
                 let measured = column.layout_child(
                     node,
@@ -292,7 +292,7 @@ fn retargeted_motion_measurement() {
                 let mut child = column
                     .child_id(id)
                     .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).height());
-                let node = child.node_id();
+                let node = child.id();
                 child.insert(Fill('X', Size::new(1.0, extent)));
                 drop(child);
                 let size = column.layout_child(node, Constraints::loose(Size::uniform(100.0)));
@@ -561,7 +561,7 @@ fn spring_motion_measurement_and_settling() {
         let measured = render_inputs(&mut kernel, &mut context, time, [], |ui: Ui<'_>| {
             let mut column = ui.layout(Column);
             let mut child = column.child_id(id).motion(Motion::new(spring).height());
-            let node = child.node_id();
+            let node = child.id();
             child.insert(Fill('X', Size::new(1.0, extent)));
             drop(child);
             column.layout_child(node, Constraints::loose(Size::uniform(100.0)))

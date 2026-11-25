@@ -7,7 +7,7 @@ fn local_bounds_apply_to_content_and_layouts() {
         let measured = render(&mut kernel, &mut context, |ui: Ui<'_>| {
             let mut root = ui.layout(());
             let child = root.child().constrain(Constraints::tight(Size::new(7.0, 2.0)));
-            let node = child.node_id();
+            let node = child.id();
             if with_layout {
                 child.layout(()).insert(Fill('L', Size::uniform(1.0)));
             } else {
@@ -21,22 +21,6 @@ fn local_bounds_apply_to_content_and_layouts() {
             Paint(if with_layout { 'L' } else { 'A' }, Rect::new(0.0, 0.0, 7.0, 2.0))
         );
     }
-}
-
-#[test]
-fn key_identifies_a_child_like_child_id() {
-    let (mut kernel, mut context) = kernel(Size::uniform(4.0));
-    render(&mut kernel, &mut context, |ui: Ui<'_>| {
-        ui.layout(())
-            .child()
-            .key("keyed")
-            .constrain(Constraints::tight(Size::uniform(2.0)))
-            .insert(());
-    });
-    assert_eq!(
-        kernel.area(Id::ROOT.child("keyed")),
-        Some(Rect::new(0.0, 0.0, 2.0, 2.0))
-    );
 }
 
 #[test]
@@ -216,7 +200,11 @@ fn anchors_and_clip_parents() {
             panel.insert(Fill('p', Size::ZERO));
             panel
                 .child()
-                .parent(if escape { Id::ROOT } else { Id::ROOT.child("panel") })
+                .parent(if escape {
+                    Target::from(Id::ROOT)
+                } else {
+                    Id::ROOT.child("panel")
+                })
                 .insert(Fill('L', Size::uniform(3.0)));
         });
         let area = Rect::new(0.0, 0.0, 3.0, 3.0);
@@ -362,10 +350,9 @@ fn duplicate_keys_are_reported() {
     ];
     for build in cases {
         let (mut kernel, mut context) = kernel(Size::uniform(1.0));
-        render(&mut kernel, &mut context, build);
-        assert!(context.duplicates.is_empty());
+        // the second holder is reported as it is built
         let line = render(&mut kernel, &mut context, build);
-        assert_eq!(context.duplicates, [line - 1, line]);
+        assert_eq!(context.duplicates, [line]);
     }
 }
 
@@ -474,4 +461,27 @@ fn keyed_children_resolve_ahead_and_keep_state_across_parents() {
         });
         assert_eq!(result, expected);
     }
+}
+
+#[test]
+fn ids_follow_their_node() {
+    let (mut kernel, mut context) = kernel(Size::uniform(1.0));
+    let mut build = |extra: bool, keys: [u32; 2]| {
+        render(&mut kernel, &mut context, |ui: Ui<'_>| {
+            let mut root = ui.layout(Overlay);
+            if extra {
+                root.child().insert(());
+            }
+            let site = root.child().id();
+            (site, keys.map(|key| root.child_id(key).id()))
+        })
+    };
+    let (site, [a, b]) = build(false, [1, 2]);
+    // a sibling from another call site and reordered keys leave every id in place
+    assert_eq!(build(true, [2, 1]), (site, [b, a]));
+    // a node that leaves frees its id, which never reaches the node reusing its slot
+    build(false, [3, 4]);
+    let (_, [c, d]) = build(false, [5, 6]);
+    assert!(kernel.area(a).is_none() && kernel.area(b).is_none());
+    assert!(![c, d].contains(&a) && ![c, d].contains(&b));
 }

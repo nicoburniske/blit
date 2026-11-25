@@ -4,7 +4,7 @@ pub mod virtual_list;
 use std::time::Duration;
 
 use blit::{
-    Animation, AnimationOptions, Axis, Constraints, Id, Layout, LayoutCx, NodeId, Point, Scalar, Size, Ui,
+    Animation, AnimationOptions, Axis, Constraints, Key, Layout, LayoutCx, NodeId, Point, Scalar, Size, Ui,
     internal::animator::Animator, state::Local,
 };
 
@@ -54,9 +54,14 @@ impl<T: Scalar> ScrollState<T> {
     }
 
     /// queues a direct child of the scroll content or a list row to reveal within the viewport
-    pub fn scroll_to_widget(&mut self, id: impl Into<Id>, animation: impl Into<Animation>, options: AnimationOptions) {
+    pub fn scroll_to_widget(
+        &mut self,
+        key: impl Into<Key>,
+        animation: impl Into<Animation>,
+        options: AnimationOptions,
+    ) {
         self.inertia.stop();
-        self.request.target = Goal::Widget(id.into());
+        self.request.target = Goal::Widget(key.into());
         self.request.missed = false;
         self.request.animation = animation.into();
         self.request.options = options;
@@ -107,7 +112,7 @@ enum Goal<T> {
     #[default]
     None,
     Offset(T),
-    Widget(Id),
+    Widget(Key),
 }
 
 #[derive(Clone, Copy)]

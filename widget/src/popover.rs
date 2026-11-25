@@ -1,4 +1,4 @@
-use blit::{Id, InteractCx, Scalar, Sides, Ui, input::Input, state::NoLayout};
+use blit::{Id, InteractCx, Scalar, Sides, Target, Ui, input::Input, state::NoLayout};
 
 use crate::{
     Context, interact,
@@ -20,7 +20,8 @@ pub enum PopoverClose {
 blit::builder! {
     pub struct Popover<'a, T: Scalar> {
         new(state: &'a mut PopoverState),
-        parent: Id = Id::ROOT,
+        #[into]
+        parent: Target = Id::ROOT.into(),
         target_anchor: Anchor = Anchor::BottomLeft,
         child_anchor: Anchor = Anchor::TopLeft,
         x: T = T::ZERO,

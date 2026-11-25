@@ -98,7 +98,7 @@ builder! {
         /// while moving to a new parent or anchor, paints above everything under this target,
         /// which is ignored unless it was built before the node
         #[into]
-        lift: Option<Id> = None,
+        lift: Option<Target> = None,
     }
 }
 
@@ -308,28 +308,22 @@ impl Default for Easing {
 //
 
 pub struct AnimationState {
-    pub id: Id,
+    pub call: Call,
     pub playback: Playback,
     pub seen: bool,
 }
 
 impl AnimationState {
-    pub fn update(animations: &mut Vec<Self>, site: Id, initial: f32) -> &mut Self {
-        // calls from one site repeat within a frame, so their order is their key
-        let mut id = site;
-        let mut repeats = 0u32;
+    pub fn update(animations: &mut Vec<Self>, mut call: Call, initial: f32) -> &mut Self {
         let index = loop {
-            match animations.binary_search_by_key(&id, |animation| animation.id) {
-                Ok(index) if animations[index].seen => {
-                    repeats += 1;
-                    id = site.child(repeats);
-                }
+            match animations.binary_search_by_key(&call, |animation| animation.call) {
+                Ok(index) if animations[index].seen => call.repeat += 1,
                 Ok(index) => break index,
                 Err(index) => {
                     animations.insert(
                         index,
                         Self {
-                            id,
+                            call,
                             playback: Playback::Target(Animator::new([initial], Animation::default())),
                             seen: false,
                         },

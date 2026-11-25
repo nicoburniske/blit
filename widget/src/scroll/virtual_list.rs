@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Axis, Constraints, Id, Layout, LayoutCx, NodeId, Point, Rect, Scalar, Size, Ui, state};
+use blit::{Axis, Constraints, Id, Key, Layout, LayoutCx, Point, Rect, Scalar, Size, Ui, state};
 
 use super::{Scrollbar, ScrollbarInput, THUMB, TRACK, ThumbProgress, content_input, content_motion, scrollbar_input};
 use crate::Context;
@@ -212,7 +212,7 @@ where
     H: FnOnce(Ui<'_, C>, bool),
 {
     /// the next row to build and its index, until the viewport is covered
-    pub fn next<O: Into<Id>>(&mut self) -> Option<(usize, Ui<'_, C, state::Child<ListItem>>)>
+    pub fn next<O: Into<Key>>(&mut self) -> Option<(usize, Ui<'_, C, state::Child<ListItem>>)>
     where
         K: FnMut(usize) -> O,
     {
@@ -223,7 +223,7 @@ where
     pub fn keys<F, O>(self, keys: F) -> Rows<'a, C, R, H, F>
     where
         F: FnMut(usize) -> O,
-        O: Into<Id>,
+        O: Into<Key>,
     {
         Rows { list: self.list, keys }
     }
@@ -249,7 +249,7 @@ where
     thumb_active: bool,
     window: Window<C::Scalar>,
     // the row handed out last, measured on the next call
-    pending: Option<(usize, NodeId)>,
+    pending: Option<(usize, Id)>,
     phase: Phase,
     // taken once the rows run out
     track: Option<R>,
@@ -262,7 +262,7 @@ where
     R: FnOnce(Ui<'_, C>),
     H: FnOnce(Ui<'_, C>, bool),
 {
-    fn next<K: Into<Id>>(
+    fn next<K: Into<Key>>(
         &mut self,
         key: impl FnOnce(usize) -> K,
     ) -> Option<(usize, Ui<'_, C, state::Child<ListItem>>)> {
@@ -290,7 +290,7 @@ where
             return None;
         };
         let row = self.content.child_id(key(index)).item(ListItem(Kind::Row(index)));
-        self.pending = Some((index, row.node_id()));
+        self.pending = Some((index, row.id()));
         Some((index, row))
     }
 
@@ -661,7 +661,7 @@ mod tests {
     use std::time::Duration;
 
     use blit::{
-        FrameInfo, Id, Kernel,
+        FrameInfo, Id, Kernel, Key,
         input::{Input, TouchPhase},
     };
 
@@ -673,14 +673,14 @@ mod tests {
         for count in [Some(1_000_000), None] {
             let mut kernel = Kernel::default();
             let mut state = VirtualListState::default();
-            let tall = |index| (Id::new(index), 10_000.0);
+            let tall = |index| (Key::from(index), 10_000.0);
             settle_frame(&mut kernel, &mut state, count, tall);
             state.scroll_by(5_000.0);
             settle_frame(&mut kernel, &mut state, count, tall);
-            settle_frame(&mut kernel, &mut state, count, |index| (Id::new(index), 1.0));
+            settle_frame(&mut kernel, &mut state, count, |index| (Key::from(index), 1.0));
             assert!(state.sample.len() <= 101);
             assert_eq!(state.position().0, 1);
-            assert_eq!(kernel.area(Id::ROOT.child(Id::new(1usize))).unwrap().y, 0.0);
+            assert_eq!(kernel.area(Id::ROOT.child(Key::from(1usize))).unwrap().y, 0.0);
         }
     }
 
@@ -690,12 +690,12 @@ mod tests {
             let mut kernel = Kernel::default();
             let mut state = VirtualListState::default();
             state.scroll_by(5_000_000.0);
-            settle_frame(&mut kernel, &mut state, count, |index| (Id::new(index), 10.0));
+            settle_frame(&mut kernel, &mut state, count, |index| (Key::from(index), 10.0));
             assert_eq!(state.position().0, 500_000);
             state.scroll_by(1.0);
             state.scroll_by(5.0);
             render_frame(&mut kernel, &mut state, count, Input::None, |index| {
-                (Id::new(index), 10.0)
+                (Key::from(index), 10.0)
             });
             let (index, offset) = state.position();
             assert_eq!(offset, 5.0);
@@ -707,9 +707,9 @@ mod tests {
                 Input::None,
                 |index| {
                     let id = if index == 0 {
-                        Id::new("head")
+                        Key::from("head")
                     } else {
-                        Id::new(index - 1)
+                        Key::from(index - 1)
                     };
                     (id, 10.0)
                 },
@@ -732,7 +732,7 @@ mod tests {
             ] {
                 let mut kernel = Kernel::default();
                 let mut state = VirtualListState::default();
-                let row = |index: usize| (Id::new(index), extents[index % extents.len()]);
+                let row = |index: usize| (Key::from(index), extents[index % extents.len()]);
                 settle_frame(&mut kernel, &mut state, count, row);
                 for phase in [TouchPhase::Down, TouchPhase::Up] {
                     render_frame(&mut kernel, &mut state, count, pointer(id, phase, 79.5, 49.999), row);
@@ -741,7 +741,7 @@ mod tests {
                     settle_frame(&mut kernel, &mut state, count, row);
                 }
                 if let Some(count) = count {
-                    let area = kernel.area(Id::ROOT.child(Id::new(count - 1))).unwrap();
+                    let area = kernel.area(Id::ROOT.child(Key::from(count - 1))).unwrap();
                     assert_eq!(area.y + area.height, extents.iter().sum::<f32>().min(50.0));
                 } else {
                     assert_eq!(state.position().0, 5);
@@ -755,7 +755,7 @@ mod tests {
     fn variable_rows_keep_the_thumb_moving_with_the_scroll() {
         let mut kernel = Kernel::default();
         let mut state = VirtualListState::default();
-        let row = |index| (Id::new(index), [1.0, 1024.0, 16.0, 512.0][index % 4]);
+        let row = |index| (Key::from(index), [1.0, 1024.0, 16.0, 512.0][index % 4]);
         let mut previous = settle_frame(&mut kernel, &mut state, None, row).1.unwrap();
         for delta in [16.0, -16.0] {
             for _ in 0..400 {
@@ -781,10 +781,10 @@ mod tests {
             for (before, after) in [(1024.0, 16.0), (16.0, 1024.0)] {
                 let mut kernel = Kernel::default();
                 let mut state = VirtualListState::default();
-                let row = |index| (Id::new(index), if index < 20 { before } else { after });
+                let row = |index| (Key::from(index), if index < 20 { before } else { after });
                 state.scroll_to(20, 0.0);
                 settle_frame(&mut kernel, &mut state, count, row);
-                let key = Id::new(20usize);
+                let key = Key::from(20usize);
                 let y = kernel.area(Id::ROOT.child(key)).unwrap().y;
                 state.scroll_by(-20.0);
                 render_frame(&mut kernel, &mut state, count, Input::None, row);
@@ -834,7 +834,7 @@ mod tests {
         kernel: &mut Kernel<TestContext>,
         state: &mut VirtualListState<f32>,
         count: Option<usize>,
-        row: impl Fn(usize) -> (Id, f32),
+        row: impl Fn(usize) -> (Key, f32),
     ) -> (Option<Rect<f32>>, Option<Rect<f32>>) {
         for _ in 0..8 {
             let result = render_frame(kernel, state, count, Input::None, &row);
@@ -850,7 +850,7 @@ mod tests {
         state: &mut VirtualListState<f32>,
         count: Option<usize>,
         input: Input<f32>,
-        row: impl Fn(usize) -> (Id, f32),
+        row: impl Fn(usize) -> (Key, f32),
     ) -> (Option<Rect<f32>>, Option<Rect<f32>>) {
         kernel.build(
             &mut TestContext,

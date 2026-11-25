@@ -336,6 +336,8 @@ pub fn resolve<C: Context>(
     bounds: Constraints<C::Scalar>,
     commit: bool,
 ) -> Size<C::Scalar> {
+    // placements start here rather than with each node as building never reads them
+    kernel.placements.resize(kernel.nodes.len(), Placement::default());
     let mut size = arrange(kernel, bump, context, root, bounds, &[]);
     if kernel.node_motions.is_empty() {
         return size;
@@ -353,7 +355,7 @@ pub fn resolve<C: Context>(
             continue;
         }
         index += 1;
-        let Some(record) = stored.motion.index() else {
+        let Some(record) = stored.aux.index().and_then(|aux| kernel.aux[aux].motion.index()) else {
             continue;
         };
         let NodeMotion {
@@ -363,7 +365,7 @@ pub fn resolve<C: Context>(
         if !commit && !config.properties.intersects(MotionProps::SIZE) {
             continue;
         }
-        let id = stored.widget_id;
+        let id = stored.id;
         if stored.parent == node {
             config.properties = config
                 .properties
@@ -437,18 +439,18 @@ pub fn position<C: Context>(kernel: &mut Kernel<C>) {
         let area = &mut placements[index].area;
         area.x += reference.x;
         area.y += reference.y;
-        let Some(record) = stored.motion.index() else {
+        let Some(record) = stored.aux.index().and_then(|aux| kernel.aux[aux].motion.index()) else {
             continue;
         };
         let motion = kernel.node_motions[record].motion;
         // a node that changes reference continues from where it was on screen and its subtree follows
-        let id = stored.widget_id;
-        let Some(old) = kernel.laid_out.get(id, |index| kernel.old_nodes[index].widget_id) else {
+        let id = stored.id;
+        let Some(old) = kernel.slots.old(id) else {
             continue;
         };
         // previous nodes belong to another build, so their references are read by value
-        let old_reference = kernel.old_nodes[kernel.old_nodes[old].target.index()].widget_id;
-        if old_reference == kernel.nodes[stored.target.index()].widget_id {
+        let old_reference = kernel.old_nodes[kernel.old_nodes[old].target.index()].id;
+        if old_reference == kernel.nodes[stored.target.index()].id {
             continue;
         }
         let Ok(state) = kernel.motions.binary_search_by_key(&id, |state| state.id) else {
