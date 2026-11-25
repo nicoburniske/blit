@@ -8,6 +8,7 @@ publish = false
 [features]
 cpu = ["dep:blit-cpu", "blit-cpu/std", "dep:softbuffer"]
 gpu = ["dep:blit-gpu", "dep:wgpu"]
+nightly = ["blit-executor/nightly"]
 
 [dependencies]
 blit.workspace = true

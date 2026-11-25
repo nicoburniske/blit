@@ -1,5 +1,5 @@
-#![feature(must_not_suspend)]
-#![deny(must_not_suspend)]
+#![cfg_attr(feature = "nightly", feature(must_not_suspend))]
+#![cfg_attr(feature = "nightly", deny(must_not_suspend))]
 //! local task execution for blit platform runners
 
 use std::{
@@ -18,7 +18,7 @@ mod scope;
 mod task;
 
 pub use self::{
-    scope::{AppMut, Project, Scope, ScopeRef},
+    scope::{Borrow, Project, TaskCx, TaskScope},
     task::TaskId,
 };
 
@@ -41,7 +41,7 @@ impl<A: 'static> LocalExecutor<A> {
     }
 
     /// creates the root task scope for this executor
-    pub fn root(&self) -> Scope<A> {
+    pub fn root(&self) -> TaskScope<A> {
         scope::root(Rc::downgrade(&self.core))
     }
 
@@ -67,9 +67,8 @@ impl<A: 'static> LocalExecutor<A> {
                 // drop the task before panicking so app access cannot survive a caught panic
                 executor.tasks.remove(task);
                 panic!(
-                    "app borrowed at {location} across await. add these attributes to your crate:\n\
-                     #![feature(must_not_suspend)]\n\
-                     #![deny(must_not_suspend)]"
+                    "state borrowed at {location} across await. drop the borrow before awaiting \
+                     (enable blit-executor's `nightly` feature for compile-time must_not_suspend checks)"
                 )
             }
         })

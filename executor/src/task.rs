@@ -16,7 +16,8 @@ use blit_util::arena::{Arena, Index};
 use crate::ExecutorCore;
 
 /// identifies a task within a local executor
-pub type TaskId = Index<Task>;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TaskId(Index<Task>);
 
 pub struct TaskExecutor {
     tasks: RefCell<Arena<Task>>,
@@ -39,21 +40,21 @@ impl TaskExecutor {
     pub fn spawn(&self, scope: Rc<dyn TaskListState>, future: impl Future<Output = ()> + 'static) -> TaskId {
         let mut tasks = self.tasks.borrow_mut();
         let next = scope.tasks().head.get();
-        let id = tasks.insert_with(|id| Task {
+        let id = TaskId(tasks.insert_with(|id| Task {
             future: Some(Box::pin(future)),
             wake: Arc::new(TaskWake {
-                id,
+                id: TaskId(id),
                 queued: AtomicBool::new(false),
                 ready: self.ready.clone(),
             }),
             scope,
             previous: None,
             next,
-        });
+        }));
         if let Some(next) = next {
-            tasks.get_mut(next).unwrap().previous = Some(id);
+            tasks.get_mut(next.0).unwrap().previous = Some(id);
         }
-        let task = tasks.get(id).unwrap();
+        let task = tasks.get(id.0).unwrap();
         task.scope.tasks().head.set(Some(id));
         let wake = task.wake.clone();
         drop(tasks);
@@ -98,7 +99,7 @@ impl TaskExecutor {
             let Some((mut future, wake)) = ({
                 let mut tasks = self.tasks.borrow_mut();
                 tasks
-                    .get_mut(id)
+                    .get_mut(id.0)
                     .map(|task| (task.future.take().expect("task already running"), task.wake.clone()))
             }) else {
                 continue;
@@ -113,7 +114,7 @@ impl TaskExecutor {
                 }
                 Poll::Pending => {
                     let mut tasks = self.tasks.borrow_mut();
-                    if let Some(task) = tasks.get_mut(id) {
+                    if let Some(task) = tasks.get_mut(id.0) {
                         task.future = Some(future);
                     }
                 }
@@ -129,23 +130,23 @@ impl TaskExecutor {
         let owned = self
             .tasks
             .borrow()
-            .get(id)
+            .get(id.0)
             .is_some_and(|task| std::ptr::addr_eq(Rc::as_ptr(&task.scope), Rc::as_ptr(scope)));
         owned && self.remove(id)
     }
 
     pub fn remove(&self, id: TaskId) -> bool {
         let mut tasks = self.tasks.borrow_mut();
-        let Some(task) = tasks.remove(id) else {
+        let Some(task) = tasks.remove(id.0) else {
             return false;
         };
         if let Some(previous) = task.previous {
-            tasks.get_mut(previous).unwrap().next = task.next;
+            tasks.get_mut(previous.0).unwrap().next = task.next;
         } else {
             task.scope.tasks().head.set(task.next);
         }
         if let Some(next) = task.next {
-            tasks.get_mut(next).unwrap().previous = task.previous;
+            tasks.get_mut(next.0).unwrap().previous = task.previous;
         }
         // dropping the future may cancel other tasks
         drop(tasks);

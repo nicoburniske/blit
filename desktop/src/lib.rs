@@ -1,7 +1,7 @@
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 compile_error!("blit-desktop currently supports Linux and macOS only");
 
-pub use blit_executor::{AppMut, Project, Scope, ScopeRef, TaskId};
+pub use blit_executor::{Borrow, Project, TaskCx, TaskId, TaskScope};
 pub use winit::event_loop::EventLoopClosed;
 
 pub use self::{
@@ -82,7 +82,7 @@ pub trait Application: Sized + 'static {
 
     fn new(
         input: EventLoopProxy<Self::Input>,
-        scope: Scope<Self>,
+        scope: TaskScope<Self>,
         context: &mut DesktopContext<Self::Graphics>,
     ) -> Self;
 

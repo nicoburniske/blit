@@ -4,7 +4,7 @@ use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, ScrollDemo, Trans
 use blit_desktop::cpu;
 #[cfg(feature = "gpu")]
 use blit_desktop::gpu;
-use blit_desktop::{Application, Config, EventLoopProxy, Scope};
+use blit_desktop::{Application, Config, EventLoopProxy, TaskScope};
 use blit_gui::{
     color::Color,
     mesh::{Mesh, MeshVertex},
@@ -122,7 +122,7 @@ impl Application for App {
     #[cfg(feature = "gpu")]
     type Graphics = gpu::Backend;
 
-    fn new(_: EventLoopProxy<Self::Input>, _: Scope<Self>, context: &mut DesktopContext) -> Self {
+    fn new(_: EventLoopProxy<Self::Input>, _: TaskScope<Self>, context: &mut DesktopContext) -> Self {
         context.profiler.set_enabled(true);
         Self::default()
     }
