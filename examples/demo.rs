@@ -2,6 +2,7 @@ use blit::{Animation, Axis, Easing, Id, Layout, Motion, Scalar, Sides, Size, Spr
 use blit_widget::{
     Context, interact,
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex},
+    scroll::ScrollListState,
 };
 
 /// applies selection changes before building any option's visuals
@@ -137,14 +138,57 @@ pub enum Transition {
 }
 
 impl Transition {
-    pub fn motion(self) -> Option<Motion> {
+    pub fn animation(self) -> Animation {
         let duration = 0.25;
-        let animation = match self {
-            Self::Off => return None,
+        match self {
+            Self::Off => Animation::default(),
             Self::Spring => Animation::Spring(Spring::new(duration, 0.2).rest(0.01, 0.01)),
             Self::Tween => Animation::Tween(Tween::new(duration, Easing::EASE_IN_OUT)),
-        };
-        Some(Motion::new(animation).layout())
+        }
+    }
+
+    pub fn motion(self) -> Option<Motion> {
+        match self {
+            Self::Off => None,
+            _ => Some(Motion::new(self.animation()).layout()),
+        }
+    }
+}
+
+pub struct ScrollDemo<T> {
+    pub axis: Axis,
+    pub count: Option<usize>,
+    pub transition: Transition,
+    pub list: ScrollListState<T>,
+}
+
+impl<T: Default> Default for ScrollDemo<T> {
+    fn default() -> Self {
+        Self {
+            axis: Axis::Vertical,
+            count: Some(1_000),
+            transition: Transition::default(),
+            list: ScrollListState::default(),
+        }
+    }
+}
+
+impl<T: Scalar> ScrollDemo<T> {
+    pub fn far_target(&self) -> (usize, &'static str) {
+        match self.count {
+            Some(100) => (50, "To 50"),
+            Some(1_000) => (500, "To 500"),
+            Some(_) => (50_000, "To 50k"),
+            None => (500, "To 500"),
+        }
+    }
+
+    pub fn animation(&self) -> Animation {
+        match self.transition {
+            Transition::Off => Animation::default(),
+            Transition::Spring => Animation::Spring(Spring::new(0.45, 0.0).rest(0.01, 0.01)),
+            Transition::Tween => Animation::Tween(Tween::new(0.45, Easing::EASE_OUT_EXPO)),
+        }
     }
 }
 

@@ -1,6 +1,9 @@
 use std::ops::Range;
 
-use blit::{Axis, Constraints, Id, Key, Layout, LayoutCx, Point, Rect, Scalar, Scope, Size, Ui, state};
+use blit::{
+    Animation, AnimationOptions, Axis, Constraints, Id, Key, Layout, LayoutCx, Point, Rect, Scalar, Scope, Size, Ui,
+    internal::animator::Animator, state,
+};
 
 use super::{Scrollbar, ScrollbarInput, THUMB, TRACK, ThumbProgress, content_input, content_motion, scrollbar_input};
 use crate::Context;
@@ -15,6 +18,8 @@ blit::builder! {
         axis: Axis = Axis::Vertical,
         #[into]
         count: Option<usize> = None,
+        #[into]
+        animation: Animation = Animation::default(),
         scroll_speed: f32 = 1.0,
         inertia_friction: f32 = 2.5,
         minimum_thumb_extent: T = T::from_f32(1.0),
@@ -36,6 +41,7 @@ impl<'a, T: Scalar> ScrollList<'a, T> {
             state,
             axis,
             count,
+            animation,
             scroll_speed,
             inertia_friction,
             minimum_thumb_extent,
@@ -45,11 +51,13 @@ impl<'a, T: Scalar> ScrollList<'a, T> {
         let size = viewport.map_or(ui.screen().size(), |area| area.size());
         let extent = axis.extent(size);
         let overscan = extent.repeat(VIEWPORTS);
-        let row = state.sample.get(state.visible.start);
         let motion = content_input(&mut ui, axis);
         // the scrollbar and the rows key into scopes of their own, so no row key meets a part
         let (parts, rows) = (ui.scope(), ui.scope());
         let (thumb_active, scrollbar) = scrollbar_input(&mut state.inertia, &mut ui, parts, axis, extent);
+        if motion.active || motion.deactivated || motion.delta != Point::ZERO || scrollbar.is_some() {
+            state.request = Request::default();
+        }
         let movement = match scrollbar {
             None => content_motion(
                 &mut state.inertia,
@@ -64,29 +72,35 @@ impl<'a, T: Scalar> ScrollList<'a, T> {
         if viewport.is_none() {
             ui.request_frame();
         }
+        let row = state.sample.get(state.visible.start).copied();
+        let current = state.first as f64
+            + row.map_or(0.0, |row| {
+                (state.within.to_f32() / row.extent.to_f32()).clamp(0.0, 1.0) as f64
+            });
+        let (request_delta, request_seek) = advance_request(state, &mut ui, animation, count, overscan, current);
+        let row = state.sample.get(state.visible.start).copied();
         // treat large offsets into an unmeasured window as movement so the existing seek logic estimates the row
+        let mut extra_delta = request_delta;
         if state.sample.is_empty() && state.within.to_f32().abs() > overscan.to_f32() {
-            state.scroll_delta = state.within.endpoint(state.scroll_delta);
+            extra_delta = state.within.endpoint(extra_delta);
             state.within = T::ZERO;
         }
         let delta = {
             let delta: T = state.inertia.pixel_delta(movement);
-            let delta = delta.endpoint(std::mem::take(&mut state.scroll_delta));
+            let delta = delta.endpoint(extra_delta);
             if delta.to_f32().abs() > overscan.to_f32() && state.average == 0.0 {
                 // wait for the initial extents before estimating a large jump
-                state.scroll_delta = delta;
+                state.request.target = Goal::Delta(delta.to_f32());
+                state.request.applied = 0.0;
+                state.request.animator = None;
                 ui.request_frame();
                 T::ZERO
             } else {
                 delta
             }
         };
-        let current = state.first as f64
-            + row.map_or(0.0, |row| {
-                (state.within.to_f32() / row.extent.to_f32()).clamp(0.0, 1.0) as f64
-            });
         let seek = match scrollbar {
-            None | Some(ScrollbarInput::Idle | ScrollbarInput::Thumb(0.0)) => {
+            None | Some(ScrollbarInput::Idle | ScrollbarInput::Thumb(0.0)) => request_seek.or_else(|| {
                 if delta.to_f32().abs() > overscan.to_f32()
                     && state.average > 0.0
                     && !row.zip(state.sample.last()).is_some_and(|(row, last)| {
@@ -98,7 +112,7 @@ impl<'a, T: Scalar> ScrollList<'a, T> {
                 } else {
                     None
                 }
-            }
+            }),
             Some(ScrollbarInput::Thumb(value) | ScrollbarInput::Track(value)) => {
                 state.inertia.remainder = 0.0;
                 let offset = row.map_or(T::ZERO, |row| row.top.endpoint(state.within));
@@ -425,9 +439,7 @@ where
 #[derive(Default)]
 pub struct ScrollListState<T> {
     inertia: super::Inertia,
-
-    // movement queued for the next build
-    scroll_delta: T,
+    request: Request<T>,
 
     // retain the viewport position when the window is replaced
     first: usize,
@@ -442,29 +454,166 @@ pub struct ScrollListState<T> {
     scrollbar: ScrollbarState,
 }
 
+#[derive(Default)]
+struct Request<T> {
+    target: Goal<T>,
+    animator: Option<Animator<f32, 1>>,
+    applied: f32,
+    remainder: f32,
+}
+
+#[derive(Clone, Copy, Default)]
+enum Goal<T> {
+    #[default]
+    None,
+    Delta(f32),
+    Row {
+        index: usize,
+        offset: T,
+    },
+}
+
 impl<T: Scalar> ScrollListState<T> {
     /// replaces the movement in pixels queued for the next build
     pub fn scroll_by(&mut self, amount: T) {
-        self.scroll_delta = amount;
         self.inertia.stop();
+        let target = match self.request.target {
+            Goal::Delta(_) => self.request.applied + amount.to_f32(),
+            _ => {
+                self.request = Request::default();
+                amount.to_f32()
+            }
+        };
+        self.request.target = Goal::Delta(target);
     }
 
     /// scrolls to a list index and pixel offset
     /// - nearby offsets use exact row measurements
     /// - large offscreen offsets use estimated row extents
     pub fn scroll_to(&mut self, index: usize, offset: T) {
+        self.inertia.stop();
+        self.request = Request {
+            target: Goal::Row { index, offset },
+            ..Request::default()
+        };
+    }
+
+    /// jumps immediately to a list index and pixel offset without animation
+    pub fn jump_to(&mut self, index: usize, offset: T) {
         self.first = index;
         self.scrollbar.position = index as f64;
         self.within = offset;
         self.sample.clear();
         self.visible = 0..0;
-        self.scroll_delta = T::ZERO;
+        self.stop();
+    }
+
+    pub fn stop(&mut self) {
         self.inertia.stop();
+        self.request = Request::default();
+    }
+
+    pub fn is_moving(&self) -> bool {
+        !matches!(self.request.target, Goal::None) || self.inertia.velocity != 0.0
     }
 
     /// returns the row index and pixel offset
     pub fn position(&self) -> (usize, T) {
         (self.first, self.within)
+    }
+}
+
+fn advance_request<C: Context, S: state::Local>(
+    state: &mut ScrollListState<C::Scalar>,
+    ui: &mut Ui<'_, C, S>,
+    animation: Animation,
+    count: Option<usize>,
+    overscan: C::Scalar,
+    current: f64,
+) -> (C::Scalar, Option<f64>) {
+    let instant = match animation {
+        Animation::Tween(tween) => tween.duration <= 0.0,
+        Animation::Spring(spring) => spring.duration <= 0.0,
+    };
+    if let Goal::Row { index, offset } = state.request.target {
+        let index = index.min(count.unwrap_or(usize::MAX).saturating_sub(1));
+        if instant {
+            state.jump_to(index, offset);
+            return (C::Scalar::ZERO, None);
+        }
+        if state.sample.is_empty() {
+            ui.request_frame();
+            return (C::Scalar::ZERO, None);
+        }
+        // nearby targets convert to exact pixel deltas before starting a row space seek
+        if state.request.animator.is_none()
+            && let Some(first_row) = state.sample.get(state.visible.start)
+            && let Some(window_first) = state.first.checked_sub(state.visible.start)
+            && let Some(target_row) = index.checked_sub(window_first).and_then(|i| state.sample.get(i))
+        {
+            let current_top = first_row.top.endpoint(state.within);
+            let target_top = target_row.top.endpoint(offset);
+            state.request.target = Goal::Delta(target_top.to_f32() - current_top.to_f32());
+        }
+    }
+    match state.request.target {
+        Goal::None => (C::Scalar::ZERO, None),
+        Goal::Delta(target) => {
+            if (target - state.request.applied).abs() > overscan.to_f32() && state.average == 0.0 {
+                ui.request_frame();
+                return (C::Scalar::ZERO, None);
+            }
+            let request = &mut state.request;
+            let animator = request
+                .animator
+                .get_or_insert_with(|| Animator::new([request.applied], Animation::default()));
+            let (value, _) = animator.advance(
+                [target],
+                [true],
+                animation,
+                AnimationOptions::default(),
+                ui.time(),
+                true,
+            );
+            let step = value[0] - request.applied + request.remainder;
+            request.applied = value[0];
+            let whole = if step == 0.0 {
+                C::Scalar::ZERO
+            } else {
+                C::Scalar::from_f32(step)
+            };
+            request.remainder = step - whole.to_f32();
+            if animator.is_active() {
+                ui.request_frame();
+            } else {
+                *request = Request::default();
+            }
+            (whole, None)
+        }
+        Goal::Row { index, offset } => {
+            let index = index.min(count.unwrap_or(usize::MAX).saturating_sub(1));
+            let target = index as f64
+                + if state.average > 0.0 {
+                    offset.to_f32() as f64 / state.average as f64
+                } else {
+                    0.0
+                };
+            let request = &mut state.request;
+            let animator = request
+                .animator
+                .get_or_insert_with(|| Animator::new([(current - target) as f32], Animation::default()));
+            animator.advance([0.0], [true], animation, AnimationOptions::default(), ui.time(), true);
+            let min = -(target as f32);
+            let max = count.map_or(f32::INFINITY, |count| (count.saturating_sub(1) as f64 - target) as f32);
+            let remaining = animator.clamp(0, min, max, ui.time());
+            if animator.is_active() {
+                ui.request_frame();
+                (C::Scalar::ZERO, Some((target + remaining as f64).max(0.0)))
+            } else {
+                state.jump_to(index, offset);
+                (C::Scalar::ZERO, None)
+            }
+        }
     }
 }
 
@@ -494,6 +643,7 @@ enum Phase {
     Done,
 }
 
+#[derive(Clone, Copy)]
 struct Row<T> {
     top: T,
     extent: T,
@@ -845,6 +995,69 @@ mod tests {
             kernel.find(Scope::ROOT, 2usize).and_then(|id| kernel.area(id)),
             Some(Rect::new(20.0, 0.0, 10.0, 20.0))
         );
+    }
+
+    #[test]
+    fn animated_requests_settle_nearby_and_far() {
+        let mut kernel = Kernel::default();
+        let mut state = ScrollListState::default();
+        let animation = blit::Tween::new(0.250, blit::Easing::LINEAR);
+        let mut step = |state: &mut ScrollListState<f32>, millis| {
+            kernel.build(
+                &mut TestContext,
+                FrameInfo::new(Size::new(80.0, 50.0)),
+                Duration::from_millis(millis),
+                Input::None,
+                |ui: Ui<'_, TestContext>| {
+                    let mut list =
+                        ScrollList::new(state)
+                            .count(1_000)
+                            .animation(animation)
+                            .begin(ui, |_| {}, |_, _| {});
+                    while let Some((_, row)) = list.next() {
+                        row.constrain(Constraints::tight(Size::new(80.0, 10.0))).insert(());
+                    }
+                },
+            );
+            kernel.layout(&mut TestContext);
+        };
+        step(&mut state, 0);
+        step(&mut state, 0);
+
+        // animated scroll_by
+        state.scroll_by(100.0);
+        step(&mut state, 0);
+        step(&mut state, 125);
+        assert_eq!(state.position(), (5, 0.0));
+        assert!(state.is_moving());
+        step(&mut state, 250);
+        assert_eq!(state.position(), (10, 0.0));
+        assert!(!state.is_moving());
+
+        // nearby animated scroll_to (inside sample window)
+        state.scroll_to(12, 4.0);
+        step(&mut state, 250);
+        step(&mut state, 375);
+        assert_eq!(state.position(), (11, 2.0));
+        step(&mut state, 500);
+        assert_eq!(state.position(), (12, 4.0));
+        assert!(!state.is_moving());
+
+        // far animated scroll_to (outside sample window)
+        state.scroll_to(500, 3.0);
+        step(&mut state, 500);
+        step(&mut state, 625);
+        assert!(state.position().0 > 100 && state.position().0 < 500);
+        assert!(state.is_moving());
+        step(&mut state, 750);
+        assert_eq!(state.position(), (500, 3.0));
+        assert!(!state.is_moving());
+
+        // jump_to skips animation
+        state.jump_to(0, 0.0);
+        step(&mut state, 750);
+        assert_eq!(state.position(), (0, 0.0));
+        assert!(!state.is_moving());
     }
 
     fn settle_frame(

@@ -8,7 +8,7 @@ use blit::{
     Animation, Axis, Constraints, Easing, KeyboardEvent, Motion, Scalar, Scope, Sides, Size, Spring, Tween, Widget,
     input::{Input, Key},
 };
-use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, Transition, board, select};
+use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, ScrollDemo, Transition, board, select};
 use blit_tui::{
     TuiContext, Ui,
     color::Color,
@@ -1042,64 +1042,89 @@ impl Widget<TuiContext> for &mut WidgetsPage {
     }
 }
 
-struct ScrollPage {
-    axis: Axis,
-    state: ScrollListState,
-    items: Vec<String>,
-}
-
-impl Default for ScrollPage {
-    fn default() -> Self {
-        Self {
-            axis: Axis::default(),
-            state: ScrollListState::default(),
-            items: (1..=100).map(|index| index.to_string()).collect(),
-        }
-    }
-}
+#[derive(Default)]
+struct ScrollPage(ScrollDemo<i32>);
 
 impl Widget<TuiContext> for &mut ScrollPage {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
-        let ScrollPage {
-            axis: scroll_axis,
-            state: scroll,
-            items,
-        } = self;
+        let demo = &mut self.0;
         let mut body = ui.layout(flex::column().gap(1)).pad(1);
         body.insert(panel(colors::SURFACE, " scroll "));
         {
-            let mut controls = body.child().layout(flex::column());
-            controls.child().insert(Text::new("axis").color(colors::TEXT_MUTED));
+            let mut controls = body.child().layout(flex::row().gap(2));
             if controls.child().build(select(
-                scroll_axis,
+                &mut demo.axis,
                 &[(" Vertical ", Axis::Vertical), (" Horizontal ", Axis::Horizontal)],
                 flex::row().gap(1),
                 draw_button,
             )) {
-                *scroll = ScrollListState::default();
+                demo.list = ScrollListState::default();
+            }
+            if controls.child().build(select(
+                &mut demo.count,
+                &[
+                    (" 100 ", Some(100)),
+                    (" 1k ", Some(1_000)),
+                    (" 100k ", Some(100_000)),
+                    (" Infinite ", None),
+                ],
+                flex::row().gap(1),
+                draw_button,
+            )) {
+                demo.list = ScrollListState::default();
+            }
+            controls.child().build(select(
+                &mut demo.transition,
+                &[
+                    (" Off ", Transition::Off),
+                    (" Spring ", Transition::Spring),
+                    (" Tween ", Transition::Tween),
+                ],
+                flex::row().gap(1),
+                draw_button,
+            ));
+        }
+        {
+            let mut actions = body.child().layout(flex::row().gap(1));
+            let current = demo.list.position().0;
+            let (far_target, far_label) = demo.far_target();
+            if actions.child().build(Button::new(" Top ", false)) {
+                demo.list.scroll_to(0, 0);
+            }
+            if actions.child().build(Button::new(" -5 ", false)) {
+                demo.list.scroll_to(current.saturating_sub(5), 0);
+            }
+            if actions.child().build(Button::new(" +5 ", false)) {
+                demo.list.scroll_to(current + 5, 0);
+            }
+            if actions.child().build(Button::new(far_label, false)) {
+                demo.list.scroll_to(far_target, 0);
+            }
+            if actions.child().build(Button::new(" Jump 0 ", false)) {
+                demo.list.jump_to(0, 0);
             }
         }
-        let axis = *scroll_axis;
-        // every tile shares one extent along the axis
+        let horizontal = demo.axis == Axis::Horizontal;
+        let axis = demo.axis;
         let mut limits = Constraints {
             min: Size::ZERO,
             max: Size::uniform(i32::UNBOUNDED),
         };
-        let extent = match axis {
-            Axis::Horizontal => 12,
-            Axis::Vertical => 3,
-        };
+        let extent = if horizontal { 12 } else { 3 };
         axis.set_extent(&mut limits.min, extent);
         axis.set_extent(&mut limits.max, extent);
-        let (layout, padding) = match axis {
-            Axis::Horizontal => (flex::column().align(Align::Center).justify(Justify::Center), 0),
-            Axis::Vertical => (flex::row().align(Align::Center), 1),
+        let (layout, padding) = if horizontal {
+            (flex::column().align(Align::Center).justify(Justify::Center), 0)
+        } else {
+            (flex::row().align(Align::Center), 1)
         };
-        let mut list = ScrollList::new(scroll)
+        let animation = demo.animation();
+        let mut list = ScrollList::new(&mut demo.list)
             .axis(axis)
-            .count(items.len())
+            .count(demo.count)
+            .animation(animation)
             .minimum_thumb_extent(4)
             .begin(body.child().item(flex::item().grow()), scroll_track, scroll_thumb);
         while let Some((index, ui)) = list.next() {
@@ -1115,7 +1140,7 @@ impl Widget<TuiContext> for &mut ScrollPage {
                     .border(Border::new(colors::CANVAS_BORDER)),
             );
             tile.child().insert(
-                Text::new(&items[index])
+                Text::new(format_args!("{index}"))
                     .color(colors::TEXT)
                     .attributes(TextAttributes::BOLD),
             );

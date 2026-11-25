@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use blit::{Animation, Axis, Constraints, Easing, LogicalRect, Motion, Sides, Size, Spring, Tween, Widget};
-use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, Transition, board, select};
+use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, ScrollDemo, Transition, board, select};
 #[cfg(not(feature = "gpu"))]
 use blit_desktop::cpu;
 #[cfg(feature = "gpu")]
@@ -154,10 +154,7 @@ impl Application for App {
                 .child()
                 .layout(flex::row().gap(sz::XS).align(Align::Center))
                 .pad(sz::XXS);
-            header.insert(Rectangle::new().background(colors::SURFACE).border(Border::gradient(
-                sz::BORDER,
-                LinearGradient::new(&colors::RIM).angle(90.0),
-            )));
+            header.insert(panel(colors::SURFACE));
             header.child().build(select(
                 &mut self.page,
                 &[
@@ -855,96 +852,180 @@ impl Widget<DesktopContext> for &mut LayoutPage {
 
 #[derive(Default)]
 struct ScrollPage {
-    mode: ScrollMode,
-    list: ScrollListState,
-}
-
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum ScrollMode {
-    Finite,
-    #[default]
-    Infinite,
-    Horizontal,
+    demo: ScrollDemo<f32>,
+    split: SplitState,
 }
 
 impl Widget<DesktopContext> for &mut ScrollPage {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
-        let ScrollPage { mode, list: state } = self;
-        let mut section = ui.layout(flex::column().gap(sz::SM)).pad(sz::LG);
-        section.insert(panel(colors::SURFACE));
-        {
-            let mut header = section.child().layout(flex::column().gap(sz::SM));
-            header
-                .child()
-                .insert(Text::new("scroll").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-            if header.child().build(select(
-                mode,
-                &[
-                    ("finite", ScrollMode::Finite),
-                    ("infinite", ScrollMode::Infinite),
-                    ("horizontal", ScrollMode::Horizontal),
-                ],
-                flex::row().gap(sz::XS),
-                draw_button,
-            )) {
-                *state = ScrollListState::default();
-            }
-        }
-        let horizontal = *mode == ScrollMode::Horizontal;
-        let row = move |ui: Ui<'_>, index: usize| {
-            let item = ITEMS[index % ITEMS.len()];
-            let (layout, padding) = if horizontal {
-                (flex::column().align(Align::Center).justify(Justify::Center), 0.0)
-            } else {
-                (
-                    flex::row().gap(sz::SM).align(Align::Center),
-                    sz::XS + (index % 5) as f32 * sz::XXS,
-                )
-            };
-            let background = if index.is_multiple_of(2) {
-                colors::CANVAS
-            } else {
-                colors::SURFACE_HIGH
-            };
-            let mut tile = ui.layout(layout).pad(padding);
-            tile.insert(
-                Rectangle::new()
-                    .background(background)
-                    .radius(BorderRadius::all(sz::XXS)),
-            );
-            tile.child()
-                .insert(Text::new(format_args!("{index}")).style(TextStyle::new().color(colors::TEXT_MUTED)));
-            tile.child().insert(Text::new(item.label).style(TextStyle {
-                size: sz::MD,
-                color: colors::TEXT,
-                ..TextStyle::default()
-            }));
-        };
-        let mut list = ScrollList::new(state)
-            .axis(if horizontal { Axis::Horizontal } else { Axis::Vertical })
-            .count(match mode {
-                ScrollMode::Finite => Some(100_000),
-                ScrollMode::Infinite => None,
-                ScrollMode::Horizontal => Some(100),
-            })
-            .scroll_speed(2.0)
-            .inertia_friction(3.0)
-            .minimum_thumb_extent(if horizontal { sz::XXL } else { sz::XS })
-            .begin(section.child().item(flex::item().grow()), scroll_track, scroll_thumb);
-        while let Some((index, ui)) = list.next() {
-            // horizontal tiles share one width, vertical rows size to their content
-            let ui = if horizontal {
-                ui.constrain(Constraints {
-                    min: Size::new(sz::SCROLL_ITEM_WIDTH, 0.0),
-                    max: Size::new(sz::SCROLL_ITEM_WIDTH, f32::INFINITY),
-                })
-            } else {
-                ui
-            };
-            ui.build(|ui: Ui<'_>| row(ui, index));
-        }
+        let ScrollPage {
+            demo,
+            split: split_state,
+        } = self;
+        let axis = std::cell::Cell::new(demo.axis);
+        let count = std::cell::Cell::new(demo.count);
+        let transition = std::cell::Cell::new(demo.transition);
+        let command = std::cell::Cell::new(None);
+        let (current, offset) = demo.list.position();
+        let (far_target, far_label) = demo.far_target();
+        split(split_state).build(
+            ui,
+            |ui| {
+                let mut sidebar = ui.layout(flex::column().gap(sz::LG)).pad(sz::LG);
+                sidebar.insert(panel(colors::SURFACE));
+                sidebar
+                    .child()
+                    .insert(Text::new("SCROLL").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
+                let mut selected_axis = axis.get();
+                sidebar.child().build(|ui: Ui<'_>| {
+                    choices(
+                        ui,
+                        "axis",
+                        &mut selected_axis,
+                        &[("Vertical", Axis::Vertical), ("Horizontal", Axis::Horizontal)],
+                    );
+                });
+                axis.set(selected_axis);
+                let mut selected_count = count.get();
+                sidebar.child().build(|ui: Ui<'_>| {
+                    choices(
+                        ui,
+                        "count",
+                        &mut selected_count,
+                        &[
+                            ("100", Some(100)),
+                            ("1k", Some(1_000)),
+                            ("100k", Some(100_000)),
+                            ("Infinite", None),
+                        ],
+                    );
+                });
+                count.set(selected_count);
+                let mut selected_transition = transition.get();
+                sidebar.child().build(|ui: Ui<'_>| {
+                    choices(
+                        ui,
+                        "animation",
+                        &mut selected_transition,
+                        &[
+                            ("Off", Transition::Off),
+                            ("Spring", Transition::Spring),
+                            ("Tween", Transition::Tween),
+                        ],
+                    );
+                });
+                transition.set(selected_transition);
+                {
+                    let mut group = sidebar.child().layout(flex::column().gap(sz::XXS));
+                    group
+                        .child()
+                        .insert(Text::new("navigate").style(TextStyle::new().size(sz::MD).color(colors::TEXT_MUTED)));
+                    let mut actions = group
+                        .child()
+                        .layout(wrap::horizontal().item_gap(sz::XXS).run_gap(sz::XXS));
+                    if actions.child().build(Button::new("Top", false)) {
+                        command.set(Some((0, false)));
+                    }
+                    if actions.child().build(Button::new("-5", false)) {
+                        command.set(Some((current.saturating_sub(5), false)));
+                    }
+                    if actions.child().build(Button::new("+5", false)) {
+                        command.set(Some((current + 5, false)));
+                    }
+                    if actions.child().build(Button::new(far_label, false)) {
+                        command.set(Some((far_target, false)));
+                    }
+                    if actions.child().build(Button::new("Jump 0", false)) {
+                        command.set(Some((0, true)));
+                    }
+                }
+                sidebar.child().insert(
+                    Text::new(format_args!("row {current}  ·  {offset:.0} px"))
+                        .style(TextStyle::new().size(sz::SM).color(colors::TEXT_DIM)),
+                );
+            },
+            |ui| {
+                if axis.get() != demo.axis || count.get() != demo.count {
+                    demo.axis = axis.get();
+                    demo.count = count.get();
+                    demo.list = ScrollListState::default();
+                } else if let Some((target, jump)) = command.get() {
+                    if jump {
+                        demo.list.jump_to(target, 0.0);
+                    } else {
+                        demo.list.scroll_to(target, 0.0);
+                    }
+                }
+                demo.transition = transition.get();
+                let mut frame = ui.layout(flex::column()).clip(2.0).pad(sz::BORDER);
+                frame.insert(panel(colors::BACKGROUND));
+                let horizontal = demo.axis == Axis::Horizontal;
+                let animation = demo.animation();
+                let mut inner = frame.child().item(flex::item().grow()).clip(1.0).layout(());
+                let mut rows = ScrollList::new(&mut demo.list)
+                    .axis(demo.axis)
+                    .count(demo.count)
+                    .animation(animation)
+                    .scroll_speed(2.0)
+                    .inertia_friction(3.0)
+                    .minimum_thumb_extent(sz::XXL)
+                    .floating(true)
+                    .begin(inner.child(), scroll_track, scroll_thumb);
+                while let Some((index, ui)) = rows.next() {
+                    let accent = colors::ITEMS[index % colors::ITEMS.len()];
+                    if horizontal {
+                        let mut cell = ui
+                            .constrain(Constraints {
+                                min: Size::new(sz::SCROLL_ITEM_WIDTH, 0.0),
+                                max: Size::new(sz::SCROLL_ITEM_WIDTH, f32::INFINITY),
+                            })
+                            .layout(flex::column())
+                            .pad(Sides::xy(sz::XXS, sz::SM));
+                        let mut card = cell
+                            .child()
+                            .item(flex::item().grow())
+                            .layout(flex::column().gap(sz::XS).align(Align::Center).justify(Justify::Center))
+                            .pad(sz::SM);
+                        card.insert(panel(colors::SURFACE));
+                        card.child()
+                            .item(flex::item().width(sz::XL).height(sz::XXS))
+                            .insert(Rectangle::new().background(accent).radius(BorderRadius::all(2.0)));
+                        card.child().insert(
+                            Text::new(format_args!("{index}")).style(TextStyle::new().size(sz::LG).color(colors::TEXT)),
+                        );
+                        card.child().insert(
+                            Text::new(format_args!("item {}", ITEMS[index % ITEMS.len()].label))
+                                .style(TextStyle::new().size(sz::SM).color(colors::TEXT_DIM)),
+                        );
+                    } else {
+                        let background = if index.is_multiple_of(2) {
+                            colors::BACKGROUND
+                        } else {
+                            colors::SURFACE
+                        };
+                        let extra = (index % 4) as f32 * sz::XXS;
+                        let mut row = ui
+                            .layout(flex::row().gap(sz::SM).align(Align::Center))
+                            .pad(Sides::xy(sz::MD, sz::SM + extra));
+                        row.insert(Rectangle::new().background(background));
+                        row.child()
+                            .item(flex::item().width(sz::XXS).height(sz::MD))
+                            .insert(Rectangle::new().background(accent).radius(BorderRadius::all(1.0)));
+                        row.child().item(flex::item().width(sz::XXXXL)).insert(
+                            Text::new(format_args!("{index}"))
+                                .style(TextStyle::new().size(sz::SM).color(colors::TEXT_DIM)),
+                        );
+                        row.child().insert(
+                            Text::new(format_args!("Row {}", ITEMS[index % ITEMS.len()].label))
+                                .style(TextStyle::new().size(sz::MD).color(colors::TEXT)),
+                        );
+                    }
+                }
+            },
+            split_divider,
+        );
     }
 }
 
@@ -1215,26 +1296,22 @@ fn scroll_area(state: &mut ScrollState) -> Scroll<'_, f32> {
         .scroll_speed(2.0)
         .inertia_friction(3.0)
         .minimum_thumb_extent(sz::XXL)
+        .floating(true)
 }
 
 // its minimum size is the scrollbar thickness
 fn scroll_track(ui: Ui<'_>) {
-    let mut ui = ui.constrain(Constraints {
-        min: Size::uniform(sz::XS),
+    ui.constrain(Constraints {
+        min: Size::uniform(10.0),
         max: Size::uniform(f32::INFINITY),
     });
-    ui.insert(
-        Rectangle::new()
-            .background(colors::SCROLL_TRACK)
-            .radius(BorderRadius::all(sz::XXS)),
-    );
 }
 
-fn scroll_thumb(mut ui: Ui<'_>, active: bool) {
-    ui.insert(
+fn scroll_thumb(ui: Ui<'_>, active: bool) {
+    ui.layout(()).pad(2.0).child().insert(
         Rectangle::new()
             .background(if active { colors::TEXT_DIM } else { colors::BORDER })
-            .radius(BorderRadius::all(sz::XXS)),
+            .radius(BorderRadius::all(3.0)),
     );
 }
 
@@ -1283,7 +1360,6 @@ mod colors {
     pub const SURFACE: Color = Color::rgb(24, 28, 32);
     pub const SURFACE_HIGH: Color = Color::rgb(41, 47, 52);
     pub const TRACK: Color = Color::rgb(19, 22, 25);
-    pub const SCROLL_TRACK: Color = Color::rgba(12, 15, 18, 120);
     pub const CANVAS: Color = Color::rgb(30, 35, 39);
     pub const CANVAS_BORDER: Color = Color::rgb(86, 94, 99);
     pub const GRIP: Color = Color::rgb(88, 97, 104);
