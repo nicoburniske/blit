@@ -216,6 +216,7 @@ where
     H: FnOnce(Ui<'_, C>, bool),
 {
     /// the next row to build and its index, until the viewport is covered
+    #[allow(clippy::should_implement_trait)]
     pub fn next<O: Key>(&mut self) -> Option<(usize, Ui<'_, C, state::Child<ListItem>>)>
     where
         K: FnMut(usize) -> O,
