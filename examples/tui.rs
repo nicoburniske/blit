@@ -22,11 +22,7 @@ use blit_tui::{
         performance::{Performance, PerformanceState},
         popover::{Popover, PopoverClose, PopoverState},
         resize::{Resize, ResizeEdge, ResizeGrip, ResizeState},
-        scroll::{
-            ScrollState,
-            area::ScrollArea,
-            virtual_list::{VirtualList, VirtualListState},
-        },
+        scroll::{Scroll, ScrollList, ScrollListState, ScrollState},
         shadow::Shadow,
         sparkline::Sparkline,
         split::{Split, SplitDivider, SplitState},
@@ -223,7 +219,7 @@ impl Widget<TuiContext> for &mut AnimationPage {
             |ui| {
                 let mut sidebar = ui.layout(flex::column()).clip(0).pad(1);
                 sidebar.insert(panel(colors::SURFACE, " config "));
-                ScrollArea::new(controls_scroll).minimum_thumb_extent(4).build(
+                Scroll::new(controls_scroll).minimum_thumb_extent(4).build(
                     sidebar.child().item(flex::item().grow()),
                     |ui| {
                         let mut controls = ui.layout(flex::column().gap(1));
@@ -525,7 +521,7 @@ impl Widget<TuiContext> for &mut LayoutPage {
             |ui| {
                 let mut sidebar = ui.layout(flex::column()).pad(1);
                 sidebar.insert(panel(colors::SURFACE, " config "));
-                ScrollArea::new(layout_scroll).minimum_thumb_extent(4).build(
+                Scroll::new(layout_scroll).minimum_thumb_extent(4).build(
                     sidebar.child().item(flex::item().grow()),
                     |ui| {
                         let mut controls = ui.layout(flex::column().gap(1));
@@ -1048,7 +1044,7 @@ impl Widget<TuiContext> for &mut WidgetsPage {
 
 struct ScrollPage {
     axis: Axis,
-    state: VirtualListState,
+    state: ScrollListState,
     items: Vec<String>,
 }
 
@@ -1056,7 +1052,7 @@ impl Default for ScrollPage {
     fn default() -> Self {
         Self {
             axis: Axis::default(),
-            state: VirtualListState::default(),
+            state: ScrollListState::default(),
             items: (1..=100).map(|index| index.to_string()).collect(),
         }
     }
@@ -1082,7 +1078,7 @@ impl Widget<TuiContext> for &mut ScrollPage {
                 flex::row().gap(1),
                 draw_button,
             )) {
-                *scroll = VirtualListState::default();
+                *scroll = ScrollListState::default();
             }
         }
         let axis = *scroll_axis;
@@ -1101,7 +1097,7 @@ impl Widget<TuiContext> for &mut ScrollPage {
             Axis::Horizontal => (flex::column().align(Align::Center).justify(Justify::Center), 0),
             Axis::Vertical => (flex::row().align(Align::Center), 1),
         };
-        let mut list = VirtualList::new(scroll)
+        let mut list = ScrollList::new(scroll)
             .axis(axis)
             .count(items.len())
             .minimum_thumb_extent(4)

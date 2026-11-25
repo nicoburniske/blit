@@ -10,8 +10,8 @@ blit::builder! {
     /// measures a bounded viewport window and estimates remaining extents
     /// rows must have positive finite extents along the axis
     /// an absent count scrolls indefinitely with a thumb covering the explored range
-    pub struct VirtualList<'a, T: Scalar> {
-        new(state: &'a mut VirtualListState<T>),
+    pub struct ScrollList<'a, T: Scalar> {
+        new(state: &'a mut ScrollListState<T>),
         axis: Axis = Axis::Vertical,
         #[into]
         count: Option<usize> = None,
@@ -23,7 +23,7 @@ blit::builder! {
     }
 }
 
-impl<'a, T: Scalar> VirtualList<'a, T> {
+impl<'a, T: Scalar> ScrollList<'a, T> {
     /// starts the list in `ui`, whose rows then come from [`Rows::next`]
     pub fn begin<C, S, R, H>(self, mut ui: Ui<'a, C, S>, track: R, thumb: H) -> Rows<'a, C, R, H>
     where
@@ -195,7 +195,7 @@ impl<'a, T: Scalar> VirtualList<'a, T> {
     }
 }
 
-/// the rows of a [`VirtualList`], measured as they are built
+/// the rows of a [`ScrollList`], measured as they are built
 ///
 /// rows are keyed by their index unless [`Rows::keys`] names them.
 /// the scrollbar is built once the rows run out or this is dropped
@@ -241,7 +241,7 @@ where
     R: FnOnce(Ui<'_, C>),
     H: FnOnce(Ui<'_, C>, bool),
 {
-    state: &'a mut VirtualListState<C::Scalar>,
+    state: &'a mut ScrollListState<C::Scalar>,
     content: Ui<'a, C, state::Open<VirtualLayout<C::Scalar>>>,
     parts: Scope,
     rows: Scope,
@@ -423,7 +423,7 @@ where
 }
 
 #[derive(Default)]
-pub struct VirtualListState<T> {
+pub struct ScrollListState<T> {
     inertia: super::Inertia,
 
     // movement queued for the next build
@@ -442,7 +442,7 @@ pub struct VirtualListState<T> {
     scrollbar: ScrollbarState,
 }
 
-impl<T: Scalar> VirtualListState<T> {
+impl<T: Scalar> ScrollListState<T> {
     /// replaces the movement in pixels queued for the next build
     pub fn scroll_by(&mut self, amount: T) {
         self.scroll_delta = amount;
@@ -641,7 +641,7 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for VirtualLayout<T> {
     }
 }
 
-fn metrics<T: Scalar>(state: &VirtualListState<T>, count: Option<usize>, extent: T, offset: T) -> (f64, f64) {
+fn metrics<T: Scalar>(state: &ScrollListState<T>, count: Option<usize>, extent: T, offset: T) -> (f64, f64) {
     let position_at = |index, offset: T| {
         state.sample.get(index).map_or(state.first as f64, |row: &Row<T>| {
             state.first as f64 + index as f64 - state.visible.start as f64
@@ -678,7 +678,7 @@ mod tests {
     fn shrinking_anchor_keeps_the_window_bounded() {
         for count in [Some(1_000_000), None] {
             let mut kernel = Kernel::default();
-            let mut state = VirtualListState::default();
+            let mut state = ScrollListState::default();
             let tall = |index| (index as u64, 10_000.0);
             settle_frame(&mut kernel, &mut state, count, tall);
             state.scroll_by(5_000.0);
@@ -701,7 +701,7 @@ mod tests {
     fn queued_movement_and_position_preserve_the_row_offset() {
         for count in [Some(1_000_000), None] {
             let mut kernel = Kernel::default();
-            let mut state = VirtualListState::default();
+            let mut state = ScrollListState::default();
             state.scroll_by(5_000_000.0);
             settle_frame(&mut kernel, &mut state, count, |index| (index as u64, 10.0));
             assert_eq!(state.position().0, 500_000);
@@ -744,7 +744,7 @@ mod tests {
                 (None, &[10.0]),
             ] {
                 let mut kernel = Kernel::default();
-                let mut state = VirtualListState::default();
+                let mut state = ScrollListState::default();
                 let row = |index: usize| (index as u64, extents[index % extents.len()]);
                 settle_frame(&mut kernel, &mut state, count, row);
                 for phase in [TouchPhase::Down, TouchPhase::Up] {
@@ -770,7 +770,7 @@ mod tests {
     #[test]
     fn variable_rows_keep_the_thumb_moving_with_the_scroll() {
         let mut kernel = Kernel::default();
-        let mut state = VirtualListState::default();
+        let mut state = ScrollListState::default();
         let row = |index| (index as u64, [1.0, 1024.0, 16.0, 512.0][index % 4]);
         let mut previous = settle_frame(&mut kernel, &mut state, None, row).1.unwrap();
         for delta in [16.0, -16.0] {
@@ -796,7 +796,7 @@ mod tests {
         for count in [Some(1_000), None] {
             for (before, after) in [(1024.0, 16.0), (16.0, 1024.0)] {
                 let mut kernel = Kernel::default();
-                let mut state = VirtualListState::default();
+                let mut state = ScrollListState::default();
                 let row = |index| (index as u64, if index < 20 { before } else { after });
                 state.scroll_to(20, 0.0);
                 settle_frame(&mut kernel, &mut state, count, row);
@@ -818,7 +818,7 @@ mod tests {
     #[test]
     fn horizontal_rows_flow_along_x() {
         let mut kernel = Kernel::default();
-        let mut state = VirtualListState::default();
+        let mut state = ScrollListState::default();
         for _ in 0..2 {
             kernel.build(
                 &mut TestContext,
@@ -827,7 +827,7 @@ mod tests {
                 Input::None,
                 |ui: Ui<'_, TestContext>| {
                     let mut list =
-                        VirtualList::new(&mut state)
+                        ScrollList::new(&mut state)
                             .axis(Axis::Horizontal)
                             .count(10)
                             .begin(ui, |_| {}, |_, _| {});
@@ -849,7 +849,7 @@ mod tests {
 
     fn settle_frame(
         kernel: &mut Kernel<TestContext>,
-        state: &mut VirtualListState<f32>,
+        state: &mut ScrollListState<f32>,
         count: Option<usize>,
         row: impl Fn(usize) -> (u64, f32),
     ) -> (Option<Rect<f32>>, Option<Rect<f32>>) {
@@ -864,7 +864,7 @@ mod tests {
 
     fn render_frame(
         kernel: &mut Kernel<TestContext>,
-        state: &mut VirtualListState<f32>,
+        state: &mut ScrollListState<f32>,
         count: Option<usize>,
         input: Input<f32>,
         row: impl Fn(usize) -> (u64, f32),
@@ -883,7 +883,7 @@ mod tests {
                         max: Size::uniform(f32::INFINITY),
                     });
                 };
-                let mut list = VirtualList::new(&mut *state)
+                let mut list = ScrollList::new(&mut *state)
                     .count(count)
                     .begin(ui, track, |ui: Ui<'_, TestContext>, _| thumb = Some(ui.id()))
                     .keys(|index| row(index).0);

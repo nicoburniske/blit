@@ -6,7 +6,7 @@ use crate::Context;
 blit::builder! {
     /// use for arbitrary content such as forms and small collections
     /// builds all content every frame
-    pub struct ScrollArea<'a, T: Scalar> {
+    pub struct Scroll<'a, T: Scalar> {
         new(state: &'a mut ScrollState<T>),
         axis: Axis = Axis::Vertical,
         scroll_speed: f32 = 1.0,
@@ -17,7 +17,7 @@ blit::builder! {
     }
 }
 
-impl<T: Scalar> ScrollArea<'_, T> {
+impl<T: Scalar> Scroll<'_, T> {
     pub fn build<C, S, W, R, H>(self, ui: Ui<'_, C, S>, content: W, track: R, thumb: H)
     where
         C: Context<Scalar = T>,

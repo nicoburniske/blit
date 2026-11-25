@@ -24,11 +24,7 @@ use blit_gui_widget::{
     performance::{Performance, PerformanceState},
     popover::{Popover, PopoverClose, PopoverState},
     resize::{Resize, ResizeEdge, ResizeGrip, ResizeState},
-    scroll::{
-        ScrollState,
-        area::ScrollArea,
-        virtual_list::{VirtualList, VirtualListState},
-    },
+    scroll::{Scroll, ScrollList, ScrollListState, ScrollState},
     split::{Split, SplitDivider, SplitState},
     text_input::{TextInput, TextInputState},
 };
@@ -860,7 +856,7 @@ impl Widget<DesktopContext> for &mut LayoutPage {
 #[derive(Default)]
 struct ScrollPage {
     mode: ScrollMode,
-    list: VirtualListState,
+    list: ScrollListState,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -893,7 +889,7 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                 flex::row().gap(sz::XS),
                 draw_button,
             )) {
-                *state = VirtualListState::default();
+                *state = ScrollListState::default();
             }
         }
         let horizontal = *mode == ScrollMode::Horizontal;
@@ -926,7 +922,7 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                 ..TextStyle::default()
             }));
         };
-        let mut list = VirtualList::new(state)
+        let mut list = ScrollList::new(state)
             .axis(if horizontal { Axis::Horizontal } else { Axis::Vertical })
             .count(match mode {
                 ScrollMode::Finite => Some(100_000),
@@ -1214,8 +1210,8 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     }
 }
 
-fn scroll_area(state: &mut ScrollState) -> ScrollArea<'_, f32> {
-    ScrollArea::new(state)
+fn scroll_area(state: &mut ScrollState) -> Scroll<'_, f32> {
+    Scroll::new(state)
         .scroll_speed(2.0)
         .inertia_friction(3.0)
         .minimum_thumb_extent(sz::XXL)

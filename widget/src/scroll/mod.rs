@@ -1,5 +1,10 @@
-pub mod area;
-pub mod virtual_list;
+pub use self::{
+    area::Scroll,
+    list::{Rows, ScrollList, ScrollListState},
+};
+
+mod area;
+mod list;
 
 use std::time::Duration;
 
@@ -566,7 +571,7 @@ mod tests {
 
     use blit::{FrameInfo, Kernel, Spring, input::Input};
 
-    use super::{area::ScrollArea, *};
+    use super::*;
     use crate::test::TestContext;
 
     #[test]
@@ -623,7 +628,7 @@ mod tests {
                         phase,
                     }),
                     |ui: Ui<'_, TestContext>| {
-                        ScrollArea::new(&mut state).build(
+                        Scroll::new(&mut state).build(
                             ui,
                             |mut ui| {
                                 ui.measure(|_, bounds| bounds.constrain(Size::new(200.0, 4000.0)));
@@ -662,7 +667,7 @@ mod tests {
             let mut step = || {
                 crate::test::step(&mut kernel, Input::None, |ui: Ui<'_, TestContext>| {
                     let (area, track) = (Cell::new(None), Cell::new(None));
-                    ScrollArea::new(&mut state).floating(floating).build(
+                    Scroll::new(&mut state).floating(floating).build(
                         ui,
                         |mut ui| {
                             area.set(ui.area());
@@ -697,7 +702,7 @@ mod tests {
         let mut step = |state: &mut ScrollState<f32>| {
             for _ in 0..3 {
                 crate::test::step(&mut kernel, Input::None, |ui: Ui<'_, TestContext>| {
-                    ScrollArea::new(state).build(
+                    Scroll::new(state).build(
                         ui,
                         |ui| {
                             let mut rows = ui.layout(crate::layout::flex::column());

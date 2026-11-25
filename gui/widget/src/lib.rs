@@ -13,12 +13,7 @@ pub mod scroll {
     pub use blit_widget::scroll::*;
 
     pub type ScrollState = blit_widget::scroll::ScrollState<f32>;
-
-    pub mod virtual_list {
-        pub use blit_widget::scroll::virtual_list::*;
-
-        pub type VirtualListState = blit_widget::scroll::virtual_list::VirtualListState<f32>;
-    }
+    pub type ScrollListState = blit_widget::scroll::ScrollListState<f32>;
 }
 
 pub mod split {
