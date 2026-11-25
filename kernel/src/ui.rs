@@ -563,9 +563,27 @@ impl<'ui, C: Context> UiInner<'ui, C> {
     fn child(&mut self, location: &'static Location<'static>) -> (NodeId, u32) {
         // out of line so the usual match stays small
         #[cold]
-        fn search(old_nodes: &[StoredNode], old: u32, end: u32, location: &Location<'_>, ordinal: u32) -> Option<u32> {
-            let mut index = old + 1;
+        fn search(
+            old_nodes: &[StoredNode],
+            cursor: Cursor,
+            end: u32,
+            location: &Location<'_>,
+            ordinal: u32,
+        ) -> Option<u32> {
+            // scan past the cursor first so skipped siblings stay linear, then wrap around
+            let mut index = if cursor.next <= end {
+                old_nodes[cursor.next as usize].subtree_end + 1
+            } else {
+                end + 1
+            };
             while index <= end {
+                if old_nodes[index as usize].mark.is_site(location, ordinal) {
+                    return Some(index);
+                }
+                index = old_nodes[index as usize].subtree_end + 1;
+            }
+            let mut index = cursor.old + 1;
+            while index < cursor.next {
                 if old_nodes[index as usize].mark.is_site(location, ordinal) {
                     return Some(index);
                 }
@@ -604,7 +622,7 @@ impl<'ui, C: Context> UiInner<'ui, C> {
             {
                 found = Some(self.cursor.next);
             } else {
-                found = search(&kernel.old_nodes, self.cursor.old, end, location, ordinal);
+                found = search(&kernel.old_nodes, self.cursor, end, location, ordinal);
                 kernel.sites[site].scan = found.is_some();
             }
         }
