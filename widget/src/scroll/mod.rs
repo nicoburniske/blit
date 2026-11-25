@@ -45,26 +45,28 @@ impl<T: Scalar> ScrollState<T> {
         (self.content_extent - self.viewport_extent).max(T::ZERO)
     }
 
-    pub fn scroll_by(&mut self, amount: T, animation: impl Into<Animation>, options: AnimationOptions) {
-        self.scroll_to(self.offset.endpoint(amount), animation, options);
+    pub fn scroll_by(&mut self, amount: T) {
+        self.scroll_to(self.offset.endpoint(amount));
     }
 
     /// queues an offset resolved against the scroll area's measured limits
-    /// zero duration jumps immediately and retargeting carries existing request velocity
-    pub fn scroll_to(&mut self, offset: T, animation: impl Into<Animation>, options: AnimationOptions) {
+    /// retargeting carries existing request velocity
+    pub fn scroll_to(&mut self, offset: T) {
         self.inertia.stop();
         self.request.target = Goal::Offset(offset);
-        self.request.animation = animation.into();
-        self.request.options = options;
     }
 
     /// queues a node of the scroll content to reveal within the viewport
-    pub fn scroll_to_widget(&mut self, target: Id, animation: impl Into<Animation>, options: AnimationOptions) {
+    pub fn reveal(&mut self, target: Id) {
         self.inertia.stop();
-        self.request.target = Goal::Widget(target);
+        self.request.target = Goal::Node(target);
         self.request.missed = false;
-        self.request.animation = animation.into();
-        self.request.options = options;
+    }
+
+    /// sets the offset immediately without animation
+    pub fn jump_to(&mut self, offset: T) {
+        self.stop();
+        self.offset = offset;
     }
 
     pub fn stop(&mut self) {
@@ -75,7 +77,7 @@ impl<T: Scalar> ScrollState<T> {
     pub fn is_moving(&self) -> bool {
         match self.request.target {
             Goal::None => self.inertia.velocity != 0.0,
-            Goal::Offset(_) | Goal::Widget(_) => true,
+            Goal::Offset(_) | Goal::Node(_) => true,
         }
     }
 }
@@ -100,10 +102,8 @@ impl Inertia {
 #[derive(Debug, Default)]
 struct Request<T> {
     target: Goal<T>,
-    animation: Animation,
-    options: AnimationOptions,
     animator: Option<Animator<T, 1>>,
-    // the widget target was missing from the previous build, which may have added it
+    // the node target was missing from the previous build, which may have added it
     missed: bool,
 }
 
@@ -112,7 +112,7 @@ enum Goal<T> {
     #[default]
     None,
     Offset(T),
-    Widget(Id),
+    Node(Id),
 }
 
 #[derive(Clone, Copy)]
@@ -476,11 +476,16 @@ fn content_motion<C: Context, S: Local>(
     direct_delta
 }
 
-fn animate<C: Context, S: Local>(state: &mut ScrollState<C::Scalar>, ui: &mut Ui<'_, C, S>, viewport_known: bool) {
+fn animate<C: Context, S: Local>(
+    state: &mut ScrollState<C::Scalar>,
+    ui: &mut Ui<'_, C, S>,
+    animation: Animation,
+    viewport_known: bool,
+) {
     let request = &mut state.request;
     let target = match request.target {
-        // the widget that holds the content turns a widget goal into an offset first
-        Goal::None | Goal::Widget(_) => return,
+        // the widget that holds the content turns a node goal into an offset first
+        Goal::None | Goal::Node(_) => return,
         _ if !viewport_known => {
             ui.request_frame();
             return;
@@ -501,7 +506,7 @@ fn animate<C: Context, S: Local>(state: &mut ScrollState<C::Scalar>, ui: &mut Ui
     let animator = request
         .animator
         .get_or_insert_with(|| Animator::new([state.offset], Animation::default()));
-    animator.advance([goal], [true], request.animation, request.options, ui.time(), true);
+    animator.advance([goal], [true], animation, AnimationOptions::default(), ui.time(), true);
     let offset = animator.clamp(0, C::Scalar::ZERO, maximum, ui.time());
     if animator.is_active() {
         state.offset = offset;
@@ -726,15 +731,15 @@ mod tests {
             state.offset
         };
         step(&mut state);
-        state.scroll_to_widget(target.get().unwrap(), Animation::default(), AnimationOptions::default());
+        state.reveal(target.get().unwrap());
         assert_eq!(step(&mut state), 600.0);
         assert!(!state.is_moving());
         // a focus change reveals once, so scrolling away from a row that stays focused sticks
-        state.scroll_to(0.0, Animation::default(), AnimationOptions::default());
+        state.scroll_to(0.0);
         step(&mut state);
         focused.set(Some(17));
         assert_eq!(step(&mut state), 600.0);
-        state.scroll_to(0.0, Animation::default(), AnimationOptions::default());
+        state.scroll_to(0.0);
         assert_eq!(step(&mut state), 0.0);
     }
 
@@ -747,35 +752,35 @@ mod tests {
             ..ScrollState::default()
         };
         let spring = Spring::new(0.500, 0.3).rest(0.01, 0.01);
-        let mut step = |state: &mut ScrollState<f32>, millis| {
+        let mut step = |state: &mut ScrollState<f32>, animation: Animation, millis| {
             kernel.build(
                 &mut TestContext,
                 FrameInfo::new(Size::uniform(100.0)),
                 Duration::from_millis(millis),
                 Input::None,
-                |mut ui: Ui<'_, TestContext>| animate(state, &mut ui, true),
+                |mut ui: Ui<'_, TestContext>| animate(state, &mut ui, animation, true),
             );
             kernel.layout(&mut TestContext);
         };
-        state.scroll_to(500.0, spring, AnimationOptions::default());
-        step(&mut state, 0);
-        step(&mut state, 30);
+        state.scroll_to(500.0);
+        step(&mut state, spring.into(), 0);
+        step(&mut state, spring.into(), 30);
         let moving = state.offset;
         assert!(moving > 0.0 && moving < 500.0);
-        state.scroll_to(0.0, spring, AnimationOptions::default());
-        step(&mut state, 30);
+        state.scroll_to(0.0);
+        step(&mut state, spring.into(), 30);
         assert_eq!(state.offset, moving);
-        step(&mut state, 31);
+        step(&mut state, spring.into(), 31);
         assert!(state.offset > moving);
-        state.scroll_to(10_000.0, spring, AnimationOptions::default());
-        step(&mut state, 31);
-        step(&mut state, 2000);
+        state.scroll_to(10_000.0);
+        step(&mut state, spring.into(), 31);
+        step(&mut state, spring.into(), 2000);
         move_by(&mut state, 0.0);
         assert_eq!(state.offset, 900.0);
         assert!(!state.is_moving());
         assert!(state.request.animator.is_none());
-        state.scroll_to(300.0, Animation::default(), AnimationOptions::default());
-        step(&mut state, 2000);
+        state.scroll_to(300.0);
+        step(&mut state, Animation::default(), 2000);
         assert_eq!(state.offset, 300.0);
         assert!(!kernel.has_pending_redraw());
     }

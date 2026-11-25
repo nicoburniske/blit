@@ -1,4 +1,4 @@
-use blit::{Animation, AnimationOptions, Axis, Rect, Scalar, Ui, state::NoLayout};
+use blit::{Animation, Axis, Rect, Scalar, Ui, state::NoLayout};
 
 use super::{CONTENT, Goal, Request, ScrollLayout, ScrollState, Scrollbar, animate, build_scroll, update};
 use crate::Context;
@@ -9,6 +9,8 @@ blit::builder! {
     pub struct Scroll<'a, T: Scalar> {
         new(state: &'a mut ScrollState<T>),
         axis: Axis = Axis::Vertical,
+        #[into]
+        animation: Animation = Animation::default(),
         scroll_speed: f32 = 1.0,
         inertia_friction: f32 = 2.5,
         minimum_thumb_extent: T = T::from_f32(1.0),
@@ -30,6 +32,7 @@ impl<T: Scalar> Scroll<'_, T> {
             let Self {
                 state,
                 axis,
+                animation,
                 scroll_speed,
                 inertia_friction,
                 minimum_thumb_extent,
@@ -46,14 +49,13 @@ impl<T: Scalar> Scroll<'_, T> {
                 if let Some(content) = content
                     && let Some(node) = ui.node(focused).area()
                 {
-                    let offset = reveal_offset(state, axis, content, node);
-                    state.scroll_to(offset, Animation::default(), AnimationOptions::default());
+                    state.scroll_to(reveal_offset(state, axis, content, node));
                 }
             }
             let reveal = match state.request.target {
-                Goal::Widget(target) => Some(target),
+                Goal::Node(target) => Some(target),
                 _ => {
-                    animate(state, &mut ui, viewport_known);
+                    animate(state, &mut ui, animation, viewport_known);
                     None
                 }
             };
@@ -86,7 +88,7 @@ impl<T: Scalar> Scroll<'_, T> {
             match (reveal, revealed) {
                 (Some(_), Some((content, node))) => {
                     state.request.target = Goal::Offset(reveal_offset(state, axis, content, node));
-                    animate(state, &mut viewport, viewport_known);
+                    animate(state, &mut viewport, animation, viewport_known);
                     if state.offset != offset {
                         viewport.request_frame();
                     }
