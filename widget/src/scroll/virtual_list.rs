@@ -297,7 +297,7 @@ where
         };
         let row = self
             .content
-            .child_in(self.rows, key(index))
+            .child_in(self.rows.key(key(index)))
             .item(ListItem(Kind::Row(index)));
         self.pending = Some((index, row.id()));
         Some((index, row))
@@ -394,12 +394,12 @@ where
         // built after the rows so they draw and take input above them
         if progress.visible_fraction < 1.0 {
             self.content
-                .child_in(self.parts, TRACK)
+                .child_in(self.parts.key(TRACK))
                 .item(ListItem(Kind::Track(progress)))
                 .build(track);
             let thumb_active = self.thumb_active;
             self.content
-                .child_in(self.parts, THUMB)
+                .child_in(self.parts.key(THUMB))
                 .item(ListItem(Kind::Thumb))
                 .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
         }
@@ -826,7 +826,7 @@ mod tests {
                     while let Some((index, row)) = list.next() {
                         row.constrain(Constraints::tight(Size::new(10.0, 20.0)))
                             .layout(())
-                            .child_in(Scope::ROOT, index)
+                            .child_in(Scope::ROOT.key(index))
                             .insert(());
                     }
                 },
@@ -884,7 +884,7 @@ mod tests {
                     // a marker in the root scope covers the row so the frame can find it
                     ui.constrain(Constraints::tight(Size::new(79.0, extent)))
                         .layout(())
-                        .child_in(Scope::ROOT, id)
+                        .child_in(Scope::ROOT.key(id))
                         .insert(());
                 }
             },

@@ -58,17 +58,24 @@ impl<T: Scalar> Popover<'_, T> {
             // key, id, scope
             let popover = ui.scope();
             let (backdrop_id, trigger_id, content_id) = (0u8, 1u8, 2u8);
-            let press = ui.node(popover.key(trigger_id)).interact(interact::press());
+            let (press, trigger_area) = {
+                let mut part = ui.node(popover.key(trigger_id));
+                (part.interact(interact::press()), part.area())
+            };
             if self.open_on_hover && press.hovered {
                 state.open = true;
             } else if !self.open_on_hover && press.activated {
                 state.open = !state.open;
             }
             // requested while closed too so the opening frame knows where the trigger is
-            let areas = [trigger_id, content_id].map(|id| ui.node(popover.key(id)).area());
+            let areas = [trigger_area, ui.node(popover.key(content_id)).area()];
             if state.open {
-                let backdrop = ui.node(popover.key(backdrop_id)).interact(interact::press());
-                ui.node(popover.key(backdrop_id)).interact(BlockInput);
+                let backdrop = {
+                    let mut part = ui.node(popover.key(backdrop_id));
+                    let backdrop = part.interact(interact::press());
+                    part.interact(BlockInput);
+                    backdrop
+                };
                 let content_hovered = ui.node(popover.key(content_id)).interact(BlockInput);
                 let pointer_inside = content_hovered
                     || ui
@@ -85,7 +92,7 @@ impl<T: Scalar> Popover<'_, T> {
 
             let mut root = ui.layout(flex::column().align(Align::Start));
             if state.open && self.close != PopoverClose::Manual {
-                root.child_in(popover, backdrop_id)
+                root.child_in(popover.key(backdrop_id))
                     .parent(self.parent)
                     .z_index(1)
                     .place(
@@ -94,7 +101,7 @@ impl<T: Scalar> Popover<'_, T> {
                     )
                     .insert(());
             }
-            root.child_in(popover, trigger_id)
+            root.child_in(popover.key(trigger_id))
                 .hit(self.hit)
                 .layout(())
                 .child()
@@ -103,7 +110,7 @@ impl<T: Scalar> Popover<'_, T> {
                 return;
             }
             // stacks above the backdrop as its later sibling
-            root.child_in(popover, content_id)
+            root.child_in(popover.key(content_id))
                 .parent(self.parent)
                 .z_index(1)
                 .hit(
@@ -205,14 +212,14 @@ mod tests {
             ui,
             |ui, _, _| {
                 ui.layout(())
-                    .child_in(Scope::ROOT, named_trigger)
+                    .child_in(Scope::ROOT.key(named_trigger))
                     .constrain(Constraints::tight(Size::new(2.0, 1.0)))
                     .insert(())
             },
             |ui| {
                 part = Some(ui.parent_id());
                 ui.layout(())
-                    .child_in(Scope::ROOT, named_content)
+                    .child_in(Scope::ROOT.key(named_content))
                     .constrain(Constraints::tight(Size::new(4.0, 3.0)))
                     .insert(())
             },

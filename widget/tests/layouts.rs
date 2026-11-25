@@ -76,8 +76,9 @@ fn absolute_percentages_use_the_target() {
                 top: 1.0,
                 bottom: 1.0,
             });
-            root.child_in(Scope::ROOT, 1).insert(BoxContent(Size::new(6.0, 2.0)));
-            root.child_in(Scope::ROOT, id).place(
+            root.child_in(Scope::ROOT.key(1))
+                .insert(BoxContent(Size::new(6.0, 2.0)));
+            root.child_in(Scope::ROOT.key(id)).place(
                 Scope::ROOT.key(1),
                 absolute::place()
                     .target_anchor(Anchor::BottomRight)
@@ -99,9 +100,9 @@ fn absolute_flips_then_clamps_into_the_screen() {
         FrameInfo::new(Size::new(20, 10)),
         |ui: Ui<'_, Cells>| {
             let mut root = ui.layout(flex::column().justify(Justify::End));
-            root.child_in(Scope::ROOT, 1).insert(BoxContent(Size::new(6, 2)));
+            root.child_in(Scope::ROOT.key(1)).insert(BoxContent(Size::new(6, 2)));
             // flips above and clamps x
-            root.child_in(Scope::ROOT, popup).place(
+            root.child_in(Scope::ROOT.key(popup)).place(
                 Scope::ROOT.key(1),
                 absolute::place()
                     .target_anchor(Anchor::BottomLeft)
@@ -127,7 +128,7 @@ fn flex_remeasures_constraint_dependent_content() {
         FrameInfo::new(Size::new(5.0, 10.0)),
         |ui: Ui<'_, TestContext>| {
             let mut row = ui.layout(flex::row().align(Align::Start));
-            row.child_in(Scope::ROOT, child)
+            row.child_in(Scope::ROOT.key(child))
                 .item(flex::item().width(Sizing::grow()))
                 .insert(ResponsiveContent);
         },
@@ -153,15 +154,15 @@ fn parent_items_allocate_and_component_bounds_constrain_each_axis() {
             |ui: Ui<'_, TestContext>| {
                 if wrapping {
                     let mut row = ui.layout(wrap::horizontal());
-                    row.child_in(Scope::ROOT, inherited)
+                    row.child_in(Scope::ROOT.key(inherited))
                         .item(wrap::item().width(Sizing::grow()))
                         .constrain(height)
                         .layout(());
-                    row.child_in(Scope::ROOT, fixed)
+                    row.child_in(Scope::ROOT.key(fixed))
                         .item(wrap::item().width(20.0).height(9.0))
                         .constrain(height)
                         .layout(());
-                    row.child_in(Scope::ROOT, fit)
+                    row.child_in(Scope::ROOT.key(fit))
                         .item(wrap::item().width(Sizing::fit()))
                         .constrain(height)
                         .layout(())
@@ -169,15 +170,15 @@ fn parent_items_allocate_and_component_bounds_constrain_each_axis() {
                         .insert(BoxContent(Size::uniform(10.0)));
                 } else {
                     let mut row = ui.layout(flex::row());
-                    row.child_in(Scope::ROOT, inherited)
+                    row.child_in(Scope::ROOT.key(inherited))
                         .item(flex::item().weight(2.0).width(Sizing::grow()))
                         .constrain(height)
                         .layout(());
-                    row.child_in(Scope::ROOT, fixed)
+                    row.child_in(Scope::ROOT.key(fixed))
                         .item(flex::item().width(20.0).height(9.0))
                         .constrain(height)
                         .layout(());
-                    row.child_in(Scope::ROOT, fit)
+                    row.child_in(Scope::ROOT.key(fit))
                         .item(flex::item().width(Sizing::fit()))
                         .constrain(height)
                         .layout(())
@@ -219,10 +220,10 @@ fn explicit_items_and_grid_accept_custom_layouts() {
             FrameInfo::new(Size::uniform(100.0)),
             |ui: Ui<'_, TestContext>| {
                 if use_grid {
-                    ui.layout(grid::new(1)).child_in(Scope::ROOT, child).layout(Plain);
+                    ui.layout(grid::new(1)).child_in(Scope::ROOT.key(child)).layout(Plain);
                 } else {
                     ui.layout(flex::row())
-                        .child_in(Scope::ROOT, child)
+                        .child_in(Scope::ROOT.key(child))
                         .item(flex::item().width(10.0).height(10.0))
                         .layout(Plain);
                 }
@@ -246,15 +247,17 @@ fn flex_cross_grow_uses_fit_siblings_under_loose_constraints() {
         FrameInfo::new(Size::new(100.0, 100.0)),
         |ui: Ui<'_, TestContext>| {
             let mut column = ui.layout(flex::column());
-            column.child_in(Scope::ROOT, header).build(|ui: Ui<'_, TestContext>| {
-                let mut row = ui.layout(flex::row());
-                row.child()
-                    .item(flex::item().grow())
-                    .insert(BoxContent(Size::uniform(10.0)));
-                row.child().insert(BoxContent(Size::uniform(10.0)));
-            });
             column
-                .child_in(Scope::ROOT, body)
+                .child_in(Scope::ROOT.key(header))
+                .build(|ui: Ui<'_, TestContext>| {
+                    let mut row = ui.layout(flex::row());
+                    row.child()
+                        .item(flex::item().grow())
+                        .insert(BoxContent(Size::uniform(10.0)));
+                    row.child().insert(BoxContent(Size::uniform(10.0)));
+                });
+            column
+                .child_in(Scope::ROOT.key(body))
                 .item(flex::item().height(Sizing::grow()))
                 .insert(BoxContent(Size::ZERO));
         },
@@ -310,7 +313,7 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
                     };
                     {
                         let mut branch = root
-                            .child_in(Scope::ROOT, branch_id)
+                            .child_in(Scope::ROOT.key(branch_id))
                             .item(grow_item)
                             .layout(CountedFlex(flex::layout(axis), 1))
                             .pad(1.0);
@@ -323,7 +326,7 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
                             ))
                             .pad(1.0);
                         nested
-                            .child_in(Scope::ROOT, leaf)
+                            .child_in(Scope::ROOT.key(leaf))
                             .insert(BoxContent(Size::uniform(10.0)));
                     }
                     let cross = if cross_fixed {
@@ -335,7 +338,7 @@ fn flex_defers_nested_grow_children_until_cross_size_is_known() {
                         Axis::Horizontal => flex::item().width(10.0).height(cross),
                         Axis::Vertical => flex::item().width(cross).height(10.0),
                     };
-                    root.child_in(Scope::ROOT, sibling)
+                    root.child_in(Scope::ROOT.key(sibling))
                         .item(item)
                         .insert(BoxContent(Size::ZERO));
                 },
@@ -414,7 +417,7 @@ fn flex_unbounded_cross_uses_content_or_zero_for_fill_children() {
                                     Axis::Horizontal => flex::item().width(main).height(sizing),
                                     Axis::Vertical => flex::item().width(sizing).height(main),
                                 };
-                                flex.child_in(Scope::ROOT, id)
+                                flex.child_in(Scope::ROOT.key(id))
                                     .item(item)
                                     .insert(BoxContent(Size::uniform(50.0)));
                             }
@@ -448,10 +451,10 @@ fn flex_distributes_growing_space() {
         FrameInfo::new(Size::new(100.0, 20.0)),
         |ui: Ui<'_, TestContext>| {
             let mut row = ui.layout(flex::row().gap(4.0));
-            row.child_in(Scope::ROOT, fixed)
+            row.child_in(Scope::ROOT.key(fixed))
                 .item(flex::item().width(20.0))
                 .insert(BoxContent(Size::new(1.0, 10.0)));
-            row.child_in(Scope::ROOT, grow)
+            row.child_in(Scope::ROOT.key(grow))
                 .item(flex::item().width(Sizing::grow()))
                 .insert(BoxContent(Size::new(1.0, 10.0)));
         },
@@ -476,7 +479,7 @@ fn flex_respects_growth_caps() {
                 Sizing::grow(),
             ];
             for (id, sizing) in ids.into_iter().zip(sizing) {
-                row.child_in(Scope::ROOT, id)
+                row.child_in(Scope::ROOT.key(id))
                     .item(flex::item().width(sizing))
                     .insert(BoxContent(Size::uniform(1.0)));
             }
@@ -501,11 +504,11 @@ fn flex_size_motion_preserves_exact_overflow_and_reflows_siblings() {
             Input::None,
             |ui: Ui<'_, TestContext>| {
                 let mut row = ui.layout(flex::row());
-                row.child_in(Scope::ROOT, animated)
+                row.child_in(Scope::ROOT.key(animated))
                     .item(flex::item().width(extent).height(extent))
                     .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).size())
                     .insert(BoxContent(Size::ZERO));
-                row.child_in(Scope::ROOT, sibling)
+                row.child_in(Scope::ROOT.key(sibling))
                     .item(flex::item().width(1.0).height(1.0))
                     .insert(BoxContent(Size::ZERO));
             },
@@ -534,11 +537,11 @@ fn empty_layouts_keep_padding() {
         |ui: Ui<'_, Cells>| {
             let mut root = ui.layout(flex::row().align(Align::Start));
             let padding = Sides::all(2);
-            root.child_in(Scope::ROOT, ids[0]).layout(flex::row()).pad(padding);
-            root.child_in(Scope::ROOT, ids[1])
+            root.child_in(Scope::ROOT.key(ids[0])).layout(flex::row()).pad(padding);
+            root.child_in(Scope::ROOT.key(ids[1]))
                 .layout(wrap::horizontal())
                 .pad(padding);
-            root.child_in(Scope::ROOT, ids[2]).layout(grid::new(2)).pad(padding);
+            root.child_in(Scope::ROOT.key(ids[2])).layout(grid::new(2)).pad(padding);
         },
     );
     assert_eq!(
@@ -560,7 +563,8 @@ fn wrap_uses_exact_cell_boundaries() {
             for _ in 0..4096 {
                 wrap.child().insert(BoxContent(Size::uniform(1)));
             }
-            wrap.child_in(Scope::ROOT, last).insert(BoxContent(Size::uniform(1)));
+            wrap.child_in(Scope::ROOT.key(last))
+                .insert(BoxContent(Size::uniform(1)));
         },
     );
     assert_eq!(kernel.area(Scope::ROOT.key(last)), Some(Rect::new(0, 1, 1, 1)));
@@ -578,16 +582,16 @@ fn wrap_grows_each_run_and_stretches_cross_grow() {
         |ui: Ui<'_, TestContext>| {
             let mut root = ui.layout(flex::row().align(Align::Start));
             let mut wrap = root
-                .child_in(Scope::ROOT, wrap_id)
+                .child_in(Scope::ROOT.key(wrap_id))
                 .item(flex::item().width(11.0))
                 .layout(wrap::horizontal().align(Align::Start));
-            wrap.child_in(Scope::ROOT, ids[0])
+            wrap.child_in(Scope::ROOT.key(ids[0]))
                 .item(wrap::item().width(Sizing::grow_range(0.0, 5.0)).height(Sizing::grow()))
                 .insert(BoxContent(Size::new(4.0, 1.0)));
-            wrap.child_in(Scope::ROOT, ids[1])
+            wrap.child_in(Scope::ROOT.key(ids[1]))
                 .item(wrap::item().width(Sizing::grow()))
                 .insert(BoxContent(Size::new(4.0, 3.0)));
-            wrap.child_in(Scope::ROOT, ids[2])
+            wrap.child_in(Scope::ROOT.key(ids[2]))
                 .item(wrap::item().width(Sizing::grow()))
                 .insert(ResponsiveContent);
         },
@@ -623,7 +627,7 @@ fn wrap_keeps_target_runs_during_size_motions() {
             |ui: Ui<'_, Cells>| {
                 let mut wrap = ui.layout(wrap::horizontal().gap(1)).pad(1);
                 for id in ids {
-                    wrap.child_in(Scope::ROOT, id)
+                    wrap.child_in(Scope::ROOT.key(id))
                         .item(wrap::item().width(Sizing::grow_range(2, i32::MAX)))
                         .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).size())
                         .insert(BoxContent(Size::uniform(1)));
@@ -652,9 +656,9 @@ fn wrap_shrinkwraps_animated_target_runs() {
             Input::None,
             |ui: Ui<'_, TestContext>| {
                 let mut root = ui.layout(flex::column().align(Align::Start));
-                let mut wrap = root.child_in(Scope::ROOT, wrap_id).layout(wrap::horizontal());
+                let mut wrap = root.child_in(Scope::ROOT.key(wrap_id)).layout(wrap::horizontal());
                 for id in child_ids {
-                    wrap.child_in(Scope::ROOT, id)
+                    wrap.child_in(Scope::ROOT.key(id))
                         .item(wrap::item().width(extent).height(1.0))
                         .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).size())
                         .insert(BoxContent(Size::ZERO));
@@ -686,7 +690,7 @@ fn percentage_children_share_rounded_space() {
             {
                 let mut row = column.child().layout(flex::row().align(Align::Start));
                 for id in &ids[..2] {
-                    row.child_in(Scope::ROOT, *id)
+                    row.child_in(Scope::ROOT.key(*id))
                         .item(flex::item().width(Sizing::percent(0.5)).height(if *id == ids[0] {
                             Sizing::grow()
                         } else {
@@ -697,7 +701,7 @@ fn percentage_children_share_rounded_space() {
             }
             let mut row = column.child().layout(wrap::horizontal());
             for id in &ids[2..] {
-                row.child_in(Scope::ROOT, *id)
+                row.child_in(Scope::ROOT.key(*id))
                     .item(wrap::item().width(Sizing::percent(0.5)))
                     .insert(BoxContent(Size::uniform(1)));
             }
@@ -723,11 +727,11 @@ fn parent_percentages_apply_once_before_padding() {
         |ui: Ui<'_, TestContext>| {
             let mut outer = ui.layout(flex::row());
             let mut fit = outer
-                .child_in(Scope::ROOT, container)
+                .child_in(Scope::ROOT.key(container))
                 .item(flex::item().width(Sizing::percent(0.5)).height(Sizing::percent(0.5)))
                 .layout(())
                 .pad(1.0);
-            fit.child_in(Scope::ROOT, percent)
+            fit.child_in(Scope::ROOT.key(percent))
                 .insert(BoxContent(Size::new(4.0, 2.0)));
         },
     );
@@ -752,7 +756,7 @@ fn spanning_grid_sizes_spanning_items() {
         FrameInfo::new(Size::new(100.0, 40.0)),
         |ui: Ui<'_, TestContext>| {
             let mut grid = ui.layout(layout);
-            grid.child_in(Scope::ROOT, wide)
+            grid.child_in(Scope::ROOT.key(wide))
                 .item(grid::item().column_span(2).height(12.0))
                 .insert(BoxContent(Size::new(20.0, 10.0)));
             grid.child().insert(BoxContent(Size::uniform(10.0)));
@@ -776,13 +780,13 @@ fn grid_intrinsic_width_preserves_integer_spans() {
             FrameInfo::new(Size::new(100, 20)),
             |ui: Ui<'_, Cells>| {
                 let mut root = ui.layout(flex::column().align(Align::Start));
-                let mut grid = root.child_in(Scope::ROOT, grid_id).layout(grid::new(columns));
+                let mut grid = root.child_in(Scope::ROOT.key(grid_id)).layout(grid::new(columns));
                 if start != 0 {
                     grid.child()
                         .item(grid::item().column_span(start))
                         .insert(BoxContent(Size::new(0, 1)));
                 }
-                grid.child_in(Scope::ROOT, child)
+                grid.child_in(Scope::ROOT.key(child))
                     .item(grid::item().column_span(span))
                     .insert(BoxContent(Size::new(width, 1)));
             },
@@ -809,7 +813,7 @@ fn spanning_grid_fills_available_cell() {
                 .item(grid::item().row_span(2).column_span(2))
                 .insert(BoxContent(Size::new(20, 2)));
             grid.child().insert(ResponsiveContent);
-            grid.child_in(Scope::ROOT, hole).insert(ResponsiveContent);
+            grid.child_in(Scope::ROOT.key(hole)).insert(ResponsiveContent);
         },
     );
     assert_eq!(kernel.area(Scope::ROOT.key(hole)), Some(Rect::new(19, 2, 9, 2)));
@@ -827,7 +831,7 @@ fn grid_preserves_an_animated_child_extent_with_a_larger_sibling() {
             Input::None,
             |ui: Ui<'_, Cells>| {
                 let mut grid = ui.layout(grid::new(2));
-                grid.child_in(Scope::ROOT, id)
+                grid.child_in(Scope::ROOT.key(id))
                     .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).height())
                     .insert(BoxContent(Size::new(1, extent)));
                 grid.child().insert(BoxContent(Size::new(1, extent)));

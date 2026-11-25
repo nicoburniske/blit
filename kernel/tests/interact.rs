@@ -31,11 +31,11 @@ fn keyboard_input_bubbles_until_claimed() {
         }
         let mut root = ui.layout(Overlay);
         let mut branch = |parent, child| {
-            let mut branch = root.child_in(Scope::ROOT, Key::from(parent as u32));
+            let mut branch = root.child_in(Scope::ROOT.key(Key::from(parent as u32)));
             let parent = branch.interact(Keyboard(parent, None));
             let child = branch
                 .layout(Overlay)
-                .child_in(Scope::ROOT, Key::from(child as u32))
+                .child_in(Scope::ROOT.key(Key::from(child as u32)))
                 .interact(Keyboard(child, Some(child)));
             [parent, child]
         };
@@ -170,7 +170,7 @@ fn deepest_gesture_captures_first() {
         let child = ui.node(Scope::ROOT.key(child_key)).interact(CAPTURE)[0];
         let parent = ui.interact(CAPTURE)[0];
         let mut root = ui.layout(Overlay);
-        root.child_in(Scope::ROOT, child_key)
+        root.child_in(Scope::ROOT.key(child_key))
             .insert(Fill('C', Size::uniform(200.0)));
         (parent, child)
     };
@@ -205,7 +205,7 @@ fn unmounted_owner_retires_contact() {
         let root = ui.interact(WATCH)[0];
         let mut layout = ui.layout(Overlay);
         let owned = mounted.get().then(|| {
-            let mut child = layout.child_in(Scope::ROOT, Key::from(child));
+            let mut child = layout.child_in(Scope::ROOT.key(Key::from(child)));
             child.insert(Fill('B', Size::uniform(200.0)));
             child.interact(CAPTURE)[0]
         });
@@ -244,7 +244,7 @@ fn gesture_state_lives_while_requested() {
         let mut updates = [None; 4];
         let (start, end) = rows.get();
         for (row, updates) in updates.iter_mut().enumerate().take(end).skip(start) {
-            let mut child = root.child_in(Scope::ROOT, Key::from(row));
+            let mut child = root.child_in(Scope::ROOT.key(Key::from(row)));
             child.interact(Hover);
             *updates = Some(child.interact(Count));
         }
@@ -278,7 +278,7 @@ fn named_kinds_follow_reordered_nodes() {
         let mut root = ui.layout(Rects);
         for (index, id) in order.get().into_iter().enumerate() {
             if let Some(id) = id {
-                root.child_in(Scope::ROOT, id)
+                root.child_in(Scope::ROOT.key(id))
                     .item(Rect::new(index as f32 * 50.0, 0.0, 50.0, 100.0));
             }
         }
@@ -352,7 +352,7 @@ fn kind_requested_twice_keeps_one_slot() {
     let build = |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
         for id in 0..64 {
-            let mut child = root.child_in(Scope::ROOT, id);
+            let mut child = root.child_in(Scope::ROOT.key(id));
             child.interact(Count);
             child.interact(Count);
         }
@@ -379,7 +379,7 @@ fn tapping_unregistered_background_clears_focus() {
             }
             let mut root = ui.layout(Rects);
             let mut field = root
-                .child_in(Scope::ROOT, field)
+                .child_in(Scope::ROOT.key(field))
                 .item(Rect::new(0.0, 0.0, 100.0, 200.0));
             field.interact(WATCH);
             field.focused()
@@ -510,7 +510,7 @@ fn removed_scroll_owner_keeps_its_sequence() {
     let owner = Cell::new(1100);
     let build = |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
-        let mut list = root.child_in(Scope::ROOT, owner.get());
+        let mut list = root.child_in(Scope::ROOT.key(owner.get()));
         list.insert(Fill('L', Size::uniform(200.0)));
         list.interact(Wheel)
     };
@@ -544,7 +544,7 @@ fn focus_within_reads_the_previous_layout() {
         let mut list = ui.layout(Rects);
         // before any child is built
         seen.set(list.focus_within());
-        let mut field = list.child_in(Scope::ROOT, 0).item(Rect::new(0.0, 0.0, 10.0, 10.0));
+        let mut field = list.child_in(Scope::ROOT.key(0)).item(Rect::new(0.0, 0.0, 10.0, 10.0));
         field.interact(WATCH);
         child.set(Some(field.id()));
         if focus.get() {
@@ -570,7 +570,9 @@ fn focused_descendant_scrolls_into_view() {
         let mut list = ui.layout(Rects);
         for index in 0..10 {
             let y = index as f32 * 30.0 - offset.get();
-            let mut field = list.child_in(Scope::ROOT, index).item(Rect::new(0.0, y, 100.0, 30.0));
+            let mut field = list
+                .child_in(Scope::ROOT.key(index))
+                .item(Rect::new(0.0, y, 100.0, 30.0));
             field.interact(WATCH);
             if request.get() == Some(index) {
                 field.focus();

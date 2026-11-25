@@ -25,13 +25,13 @@ fn three_columns_use_all_ten_cells_and_wrap_at_the_assigned_width() {
                         if use_grid {
                             let mut row = ui.layout(grid::new(3));
                             for column in 0..3 {
-                                row.child_in(Scope::ROOT, Key::from(column))
+                                row.child_in(Scope::ROOT.key(Key::from(column)))
                                     .insert(Text::new("abcd").options(TextOptions::new().wrap(TextWrap::Character)));
                             }
                         } else {
                             let mut row = ui.layout(flex::row());
                             for column in 0..3 {
-                                row.child_in(Scope::ROOT, Key::from(column))
+                                row.child_in(Scope::ROOT.key(Key::from(column)))
                                     .item(flex::item().width(Sizing::grow()))
                                     .insert(Text::new("abcd").options(TextOptions::new().wrap(TextWrap::Character)));
                             }

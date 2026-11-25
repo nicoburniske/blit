@@ -46,8 +46,8 @@ impl<T: Scalar> Resize<'_, T> {
             let previous = ui.area();
             let resize = ui.scope();
             let mut grip_input = |key: u8, edge| {
-                let press = ui.node(resize.key(key)).interact(interact::press());
-                let drag = ui.node(resize.key(key)).interact(interact::drag());
+                let mut part = ui.node(resize.key(key));
+                let (press, drag) = (part.interact(interact::press()), part.interact(interact::drag()));
                 let grip = ResizeGrip {
                     edge,
                     hovered: press.hovered,
@@ -85,7 +85,7 @@ impl<T: Scalar> Resize<'_, T> {
                 (Item::Corner, 3, corner),
             ] {
                 shell
-                    .child_in(resize, grip_id)
+                    .child_in(resize.key(grip_id))
                     .item(item)
                     .build(|ui: Ui<'_, C>| grip(ui, handle));
             }

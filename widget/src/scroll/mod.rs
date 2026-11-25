@@ -310,12 +310,22 @@ fn scrollbar_input<C: Context, S: Local>(
     axis: Axis,
     viewport_extent: C::Scalar,
 ) -> (bool, Option<ScrollbarInput>) {
-    let thumb_area = ui.node(scroll.key(THUMB)).area();
-    let track_area = ui.node(scroll.key(TRACK)).area();
-    let thumb = ui.node(scroll.key(THUMB)).interact(interact::press());
-    let track = ui.node(scroll.key(TRACK)).interact(interact::press());
-    let thumb_drag = ui.node(scroll.key(THUMB)).interact(interact::drag());
-    let track_drag = ui.node(scroll.key(TRACK)).interact(interact::drag());
+    let (thumb_area, thumb, thumb_drag) = {
+        let mut part = ui.node(scroll.key(THUMB));
+        (
+            part.area(),
+            part.interact(interact::press()),
+            part.interact(interact::drag()),
+        )
+    };
+    let (track_area, track, track_drag) = {
+        let mut part = ui.node(scroll.key(TRACK));
+        (
+            part.area(),
+            part.interact(interact::press()),
+            part.interact(interact::drag()),
+        )
+    };
     let active = thumb.active || track.active || thumb_drag.active || track_drag.active;
     // cancelled drags leave the offset alone
     let thumb_moved = thumb_drag.active || thumb_drag.released;
@@ -532,13 +542,13 @@ where
 {
     let mut viewport = ui.layout(layout).clip(C::Scalar::ZERO);
     viewport
-        .child_in(parts, CONTENT)
+        .child_in(parts.key(CONTENT))
         .item(ScrollItem::Content)
         .build(content);
     if shown {
-        viewport.child_in(parts, TRACK).item(ScrollItem::Track).build(track);
+        viewport.child_in(parts.key(TRACK)).item(ScrollItem::Track).build(track);
         viewport
-            .child_in(parts, THUMB)
+            .child_in(parts.key(THUMB))
             .item(ScrollItem::Thumb)
             .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
     }
@@ -693,7 +703,7 @@ mod tests {
                         |ui| {
                             let mut rows = ui.layout(crate::layout::flex::column());
                             for index in 10..20u8 {
-                                let mut row = rows.child_in(Scope::ROOT, index);
+                                let mut row = rows.child_in(Scope::ROOT.key(index));
                                 row.interact(interact::focus());
                                 if focused.get() == Some(index) {
                                     row.focus();

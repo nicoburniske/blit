@@ -446,14 +446,14 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
         Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node, old)
     }
 
-    /// creates a child keyed `key` in `scope` rather than identified by where it is built
+    /// creates the child `name` rather than one identified by where it is built
     ///
-    /// it keeps its state as its siblings change or it moves to another parent, as its key names it.
-    /// [`Ui::node`] with `scope.key(key)` refers to it before it is built
+    /// it keeps its state as its siblings change or it moves to another parent, as its name stays.
+    /// [`Ui::node`] with the same name refers to it before it is built
     #[inline]
     #[track_caller]
-    pub fn child_in(&mut self, scope: Scope, key: impl Into<Key>) -> Ui<'_, C, state::Child<L::Item>> {
-        let (node, old) = self.inner.child_in(scope.0, key.into(), Location::caller());
+    pub fn child_in(&mut self, name: Name) -> Ui<'_, C, state::Child<L::Item>> {
+        let (node, old) = self.inner.child_in(name.scope.0, name.key, Location::caller());
         Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node, old)
     }
 
@@ -554,13 +554,7 @@ impl<'ui, C: Context> UiInner<'ui, C> {
     fn child(&mut self, location: &'static Location<'static>) -> (NodeId, u32) {
         // out of line so the usual match stays small
         #[cold]
-        fn search(
-            old_nodes: &[StoredNode],
-            old: u32,
-            end: u32,
-            location: &Location<'_>,
-            ordinal: u32,
-        ) -> Option<u32> {
+        fn search(old_nodes: &[StoredNode], old: u32, end: u32, location: &Location<'_>, ordinal: u32) -> Option<u32> {
             let mut index = old + 1;
             while index <= end {
                 if old_nodes[index as usize].mark.is_site(location, ordinal) {
@@ -594,7 +588,11 @@ impl<'ui, C: Context> UiInner<'ui, C> {
         let mut found = None;
         if scan && self.cursor.old != Slots::NONE {
             let end = kernel.old_nodes[self.cursor.old as usize].subtree_end;
-            if self.cursor.next <= end && kernel.old_nodes[self.cursor.next as usize].mark.is_site(location, ordinal) {
+            if self.cursor.next <= end
+                && kernel.old_nodes[self.cursor.next as usize]
+                    .mark
+                    .is_site(location, ordinal)
+            {
                 found = Some(self.cursor.next);
             } else {
                 found = search(&kernel.old_nodes, self.cursor.old, end, location, ordinal);
@@ -609,7 +607,10 @@ impl<'ui, C: Context> UiInner<'ui, C> {
             }
             None => (kernel.slots.alloc(), Slots::NONE),
         };
-        (kernel.push_node(Some(self.node), id, Mark::Site(location, ordinal)), old)
+        (
+            kernel.push_node(Some(self.node), id, Mark::Site(location, ordinal)),
+            old,
+        )
     }
 
     fn child_in(&mut self, scope: Id, key: Key, location: &'static Location<'static>) -> (NodeId, u32) {

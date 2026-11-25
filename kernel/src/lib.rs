@@ -176,32 +176,51 @@ impl Scope {
     /// the app's own scope, which widgets leave alone
     pub const ROOT: Self = Self(Id::ROOT);
 
-    /// the node keyed `key` in this scope, which may be built later
-    pub fn key(self, key: impl Into<Key>) -> Target {
-        Target {
-            scope: self.0,
-            key: Some(key.into()),
+    /// names the node keyed `key` in this scope, which may be built later
+    pub fn key(self, key: impl Into<Key>) -> Name {
+        Name {
+            scope: self,
+            key: key.into(),
         }
     }
 }
 
-/// points at a node by its id, or by its key in a scope before it is built
+/// a node named by its key in a scope, built with [`Ui::child_in`]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Target {
-    scope: Id,
-    key: Option<Key>,
+pub struct Name {
+    scope: Scope,
+    key: Key,
+}
+
+/// a node to point at, by its id or by its name before it is built
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Target {
+    Node(Id),
+    Name(Name),
 }
 
 impl From<Id> for Target {
     fn from(id: Id) -> Self {
-        Self { scope: id, key: None }
+        Self::Node(id)
     }
 }
 
-// lets optional settings such as a motion lift take an id directly
+impl From<Name> for Target {
+    fn from(name: Name) -> Self {
+        Self::Name(name)
+    }
+}
+
+// lets optional settings such as a motion lift take an id or name directly
 impl From<Id> for Option<Target> {
     fn from(id: Id) -> Self {
         Some(id.into())
+    }
+}
+
+impl From<Name> for Option<Target> {
+    fn from(name: Name) -> Self {
+        Some(name.into())
     }
 }
 
@@ -524,9 +543,9 @@ impl<C: Context> Kernel<C> {
 
     /// the id of `target`, kept through this build and taking a slot for a key nothing holds yet
     fn resolve(&mut self, target: Target) -> Id {
-        let id = match target.key {
-            Some(key) => self.slots.name(target.scope, key),
-            None => target.scope,
+        let id = match target {
+            Target::Node(id) => id,
+            Target::Name(name) => self.slots.name(name.scope.0, name.key),
         };
         self.slots.keep(id);
         id
@@ -534,9 +553,9 @@ impl<C: Context> Kernel<C> {
 
     /// the id of `target`, if anything holds it
     fn find(&self, target: Target) -> Option<Id> {
-        match target.key {
-            Some(key) => self.slots.find(target.scope, key),
-            None => Some(target.scope),
+        match target {
+            Target::Node(id) => Some(id),
+            Target::Name(name) => self.slots.find(name.scope.0, name.key),
         }
     }
 

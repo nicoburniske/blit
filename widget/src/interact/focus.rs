@@ -53,14 +53,16 @@ mod tests {
                 ui.clear_focus();
             }
             let mut ui = ui.layout(rect::new());
-            let mut left = ui.child_in(Scope::ROOT, left).item(Rect::new(0.0, 0.0, 100.0, 200.0));
+            let mut left = ui
+                .child_in(Scope::ROOT.key(left))
+                .item(Rect::new(0.0, 0.0, 100.0, 200.0));
             let left_focused = left.interact(interact::focus());
             if change_focus.replace(false) {
                 left.node(Scope::ROOT.key(right)).focus();
             }
             drop(left);
             let mut right = ui
-                .child_in(Scope::ROOT, right)
+                .child_in(Scope::ROOT.key(right))
                 .item(Rect::new(100.0, 0.0, 100.0, 200.0));
             (left_focused, right.interact(interact::focus()))
         };

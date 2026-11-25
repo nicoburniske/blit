@@ -422,7 +422,7 @@ impl Widget<TuiContext> for &mut Modal {
         ];
         let (_, accent) = palettes[self.accent];
         let mut modal = root
-            .child_in(Scope::ROOT, backdrop_id)
+            .child_in(Scope::ROOT.key(backdrop_id))
             .parent(blit::Id::ROOT)
             .z_index(1)
             .place(
@@ -1225,7 +1225,7 @@ impl Widget<TuiContext> for Canvas {
         let gap = |axis| self.config.gap(axis, unit);
         let item_sizing = |index| self.config.item_sizing(index, unit);
         let mut shell = ui.layout(());
-        let mut ui = shell.child_in(Scope::ROOT, CANVAS_KEY);
+        let mut ui = shell.child_in(Scope::ROOT.key(CANVAS_KEY));
         // items keep one key across layouts so they animate between them
         let items = ui.scope();
         match self.config.layout {
@@ -1243,7 +1243,7 @@ impl Widget<TuiContext> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = item_sizing(index);
                     canvas
-                        .child_in(items, index)
+                        .child_in(items.key(index))
                         .item(flex::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config, unit);
@@ -1269,7 +1269,7 @@ impl Widget<TuiContext> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = item_sizing(index);
                     canvas
-                        .child_in(items, index)
+                        .child_in(items.key(index))
                         .item(wrap::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config, unit);
@@ -1284,7 +1284,7 @@ impl Widget<TuiContext> for Canvas {
                 canvas.insert(background);
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
-                        .child_in(items, index)
+                        .child_in(items.key(index))
                         .item(
                             grid::item()
                                 .row_span(spec.rows)
