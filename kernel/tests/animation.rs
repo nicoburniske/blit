@@ -4,6 +4,7 @@ use super::*;
 
 #[test]
 fn motions() {
+    let motion = 1000;
     for named in [false, true] {
         let (mut kernel, mut context) = kernel(Size::new(1.0, 5.0));
         for (extent, gap, millis, area, sibling, pending) in [
@@ -15,7 +16,7 @@ fn motions() {
             let build = |ui: Ui<'_>| {
                 let mut column = ui.layout(Column);
                 let child = if named {
-                    column.child_id("motion")
+                    column.child_in(Scope::ROOT, motion)
                 } else {
                     column.child()
                 };
@@ -272,7 +273,7 @@ fn delay_holds_before_moving() {
 #[test]
 fn retargeted_motion_measurement() {
     let (mut kernel, mut context) = kernel(Size::uniform(100.0));
-    let id = "retargeted height";
+    let id = 1100;
     for (extent, millis, expected) in [
         (1.0, 0, 1.0),
         (3.0, 0, 1.0),
@@ -290,7 +291,7 @@ fn retargeted_motion_measurement() {
             |ui: Ui<'_>| {
                 let mut column = ui.layout(Column);
                 let mut child = column
-                    .child_id(id)
+                    .child_in(Scope::ROOT, id)
                     .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).height());
                 let node = child.id();
                 child.insert(Fill('X', Size::new(1.0, extent)));
@@ -300,7 +301,7 @@ fn retargeted_motion_measurement() {
                 column.child().insert(Fill('Y', Size::uniform(1.0)));
             },
         );
-        assert_eq!(kernel.area(Id::ROOT.child(id)).unwrap().height, expected);
+        assert_eq!(kernel.area(Scope::ROOT.key(id)).unwrap().height, expected);
         assert_eq!(
             context.commands.last(),
             Some(&Paint('Y', Rect::new(0.0, expected, 1.0, 1.0)))
@@ -554,13 +555,13 @@ fn integer_springs_preserve_fractional_motion() {
 #[test]
 fn spring_motion_measurement_and_settling() {
     let (mut kernel, mut context) = kernel(Size::uniform(100.0));
-    let id = "spring motion";
+    let id = 1101;
     let spring = Spring::new(0.500, 0.0);
     for (extent, millis) in [(1.0, 0), (3.0, 0), (3.0, 100), (3.0, 10_000)] {
         let time = Duration::from_millis(millis);
         let measured = render_inputs(&mut kernel, &mut context, time, [], |ui: Ui<'_>| {
             let mut column = ui.layout(Column);
-            let mut child = column.child_id(id).motion(Motion::new(spring).height());
+            let mut child = column.child_in(Scope::ROOT, id).motion(Motion::new(spring).height());
             let node = child.id();
             child.insert(Fill('X', Size::new(1.0, extent)));
             drop(child);
@@ -575,11 +576,11 @@ fn spring_motion_measurement_and_settling() {
             3.0
         };
         assert!((measured.height - expected).abs() < 0.00001);
-        assert_eq!(kernel.area(Id::ROOT.child(id)).unwrap().height, measured.height);
+        assert_eq!(kernel.area(Scope::ROOT.key(id)).unwrap().height, measured.height);
     }
     render_inputs(&mut kernel, &mut context, Duration::from_secs(10), [], |ui: Ui<'_>| {
         ui.layout(Column)
-            .child_id(id)
+            .child_in(Scope::ROOT, id)
             .motion(Motion::new(spring).height())
             .insert(Fill('X', Size::new(1.0, 3.0)));
     });
@@ -628,11 +629,11 @@ fn easing_curves() {
 #[test]
 fn spring_sizes_stay_nonnegative_and_resize_snaps() {
     let (mut kernel, mut context) = kernel(Size::uniform(100.0));
-    let id = "bounded spring";
+    let id = 1102;
     let build = |extent| {
         move |ui: Ui<'_>| {
             ui.layout(Column)
-                .child_id(id)
+                .child_in(Scope::ROOT, id)
                 .motion(Motion::new(Spring::new(0.250, 0.4)).size())
                 .insert(Fill('X', Size::uniform(extent)));
         }
@@ -640,17 +641,18 @@ fn spring_sizes_stay_nonnegative_and_resize_snaps() {
     render_inputs(&mut kernel, &mut context, Duration::ZERO, [], build(1.0));
     render_inputs(&mut kernel, &mut context, Duration::ZERO, [], build(0.0));
     render_inputs(&mut kernel, &mut context, Duration::from_millis(125), [], build(0.0));
-    assert_eq!(kernel.area(Id::ROOT.child(id)).unwrap().size(), Size::ZERO);
+    assert_eq!(kernel.area(Scope::ROOT.key(id)).unwrap().size(), Size::ZERO);
     context.info = FrameInfo::new(Size::uniform(200.0));
     render_inputs(&mut kernel, &mut context, Duration::from_millis(130), [], build(3.0));
-    assert_eq!(kernel.area(Id::ROOT.child(id)).unwrap().size(), Size::uniform(3.0));
+    assert_eq!(kernel.area(Scope::ROOT.key(id)).unwrap().size(), Size::uniform(3.0));
     render_inputs(&mut kernel, &mut context, Duration::from_secs(1), [], build(3.0));
-    assert_eq!(kernel.area(Id::ROOT.child(id)).unwrap().size(), Size::uniform(3.0));
+    assert_eq!(kernel.area(Scope::ROOT.key(id)).unwrap().size(), Size::uniform(3.0));
     assert!(!kernel.has_pending_redraw());
 }
 
 #[test]
 fn reparented_motion_continues_from_its_screen_position() {
+    let card = 1001;
     let (mut kernel, mut context) = kernel(Size::uniform(40.0));
     let motion = Motion::new(Tween::new(1.0, Easing::LINEAR)).position();
     // the card moves from the first column to the second without moving within either
@@ -662,7 +664,7 @@ fn reparented_motion_continues_from_its_screen_position() {
             [],
             |ui: Ui<'_>| {
                 let mut board = ui.layout(Rects);
-                let scope = board.id();
+                let scope = Scope::ROOT;
                 for index in 0..2 {
                     let mut parent = board
                         .child()
@@ -670,14 +672,14 @@ fn reparented_motion_continues_from_its_screen_position() {
                         .layout(Fixed(Size::uniform(10.0)));
                     if index == column {
                         parent
-                            .child_in(scope, "card")
+                            .child_in(scope, card)
                             .motion(motion)
                             .insert(Fill('C', Size::uniform(2.0)));
                     }
                 }
             },
         );
-        assert_eq!(kernel.area(Id::ROOT.child("card")), Some(Rect::new(x, 0.0, 2.0, 2.0)));
+        assert_eq!(kernel.area(Scope::ROOT.key(card)), Some(Rect::new(x, 0.0, 2.0, 2.0)));
     }
 }
 
@@ -713,6 +715,7 @@ fn intervals_count_and_reset() {
 
 #[test]
 fn lifted_motion_paints_above_while_moving() {
+    let card = 1001;
     let (mut kernel, mut context) = kernel(Size::uniform(40.0));
     let motion = Motion::new(Tween::new(1.0, Easing::LINEAR)).position().lift(Id::ROOT);
     // the card moves into the first column, under the second until lifted
@@ -724,7 +727,7 @@ fn lifted_motion_paints_above_while_moving() {
             [],
             |ui: Ui<'_>| {
                 let mut board = ui.layout(Rects);
-                let scope = board.id();
+                let scope = Scope::ROOT;
                 for index in 0..2 {
                     let mut parent = board
                         .child()
@@ -735,7 +738,7 @@ fn lifted_motion_paints_above_while_moving() {
                     }
                     if index == column {
                         parent
-                            .child_in(scope, "card")
+                            .child_in(scope, card)
                             .motion(motion)
                             .insert(Fill('C', Size::uniform(2.0)));
                     }

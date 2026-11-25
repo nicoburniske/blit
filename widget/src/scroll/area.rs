@@ -35,12 +35,13 @@ impl<T: Scalar> ScrollArea<'_, T> {
                 minimum_thumb_extent,
                 floating,
             } = self;
-            let (thumb_active, viewport_known) = update(state, &mut ui, axis, scroll_speed, inertia_friction);
+            let parts = ui.scope();
+            let (thumb_active, viewport_known) = update(state, &mut ui, parts, axis, scroll_speed, inertia_friction);
             // a focus change reveals the focused node wherever it is
             if ui.focus_moved()
                 && let Some(focused) = ui.focus_within()
             {
-                let content = ui.node(ui.id().child(CONTENT)).area();
+                let content = ui.node(parts.key(CONTENT)).area();
                 if let Some(content) = content
                     && let Some(node) = ui.node(focused).area()
                 {
@@ -49,23 +50,23 @@ impl<T: Scalar> ScrollArea<'_, T> {
                 }
             }
             let reveal = match state.request.target {
-                Goal::Widget(id) => Some(id),
+                Goal::Widget(target) => Some(target),
                 _ => {
                     animate(state, &mut ui, viewport_known);
                     None
                 }
             };
             let offset = state.offset;
-            // searched from the content so the scrollbar can never match
             let mut revealed = None;
             let content = |mut ui: Ui<'_, C>| {
-                if let Some(id) = reveal {
-                    revealed = ui.area().zip(ui.node(ui.id().child(id)).area());
+                if let Some(target) = reveal {
+                    revealed = ui.area().zip(ui.node(target).area());
                 }
                 content(ui)
             };
             let mut viewport = build_scroll(
                 ui,
+                parts,
                 ScrollLayout {
                     axis,
                     offset,

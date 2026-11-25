@@ -97,7 +97,7 @@ fn content_and_paint_order() {
 #[test]
 fn scratch_and_default_items() {
     let (mut kernel, mut context) = kernel(Size::uniform(4.0));
-    let id = "scratch";
+    let id = 1100;
     for (extent, millis) in [(1.0, 0), (2.0, 0), (2.0, 500)] {
         render_inputs(
             &mut kernel,
@@ -106,7 +106,7 @@ fn scratch_and_default_items() {
             [],
             |ui: Ui<'_>| {
                 let mut root = ui.layout(SharedItems(3));
-                root.child_id(id)
+                root.child_in(Scope::ROOT, id)
                     .motion(Motion::new(Tween::new(1.0, Easing::LINEAR)).size())
                     .layout(Temporary)
                     .child()
@@ -118,7 +118,7 @@ fn scratch_and_default_items() {
             },
         );
         assert_eq!(
-            kernel.area(Id::ROOT.child(id)).unwrap().size(),
+            kernel.area(Scope::ROOT.key(id)).unwrap().size(),
             Size::uniform(if millis == 500 { 1.5 } else { 1.0 })
         );
     }
@@ -177,12 +177,14 @@ fn owned_values_and_culling() {
 
 #[test]
 fn anchors_and_clip_parents() {
+    let anchor = 1000;
+    let panel_key = 1001;
     let (mut kernel, mut context) = kernel(Size::new(8.0, 5.0));
     render(&mut kernel, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
-        root.child_id("anchor").insert(Fill('T', Size::uniform(2.0)));
+        root.child_in(Scope::ROOT, anchor).insert(Fill('T', Size::uniform(2.0)));
         root.child()
-            .place(Id::ROOT.child("anchor"), At(|size| Point::new(size.width, size.height)))
+            .place(Scope::ROOT.key(anchor), At(|size| Point::new(size.width, size.height)))
             .insert(Fill('A', Size::uniform(1.0)));
     });
     assert_eq!(
@@ -196,14 +198,17 @@ fn anchors_and_clip_parents() {
     for escape in [true, false] {
         render(&mut kernel, &mut context, |ui: Ui<'_>| {
             let mut root = ui.layout(Overlay);
-            let mut panel = root.child_id("panel").layout(Fixed(Size::uniform(3.0))).clip(0.0);
+            let mut panel = root
+                .child_in(Scope::ROOT, panel_key)
+                .layout(Fixed(Size::uniform(3.0)))
+                .clip(0.0);
             panel.insert(Fill('p', Size::ZERO));
             panel
                 .child()
                 .parent(if escape {
                     Target::from(Id::ROOT)
                 } else {
-                    Id::ROOT.child("panel")
+                    Scope::ROOT.key(panel_key)
                 })
                 .insert(Fill('L', Size::uniform(3.0)));
         });
@@ -221,14 +226,16 @@ fn anchors_and_clip_parents() {
 
 #[test]
 fn visual_parent_and_hit_order() {
+    let modal = 1002;
+    let popup_key = 1003;
     let (mut kernel, mut context) = kernel(Size::new(7.0, 5.0));
-    let popup = Id::ROOT.child("popup");
+    let popup = Scope::ROOT.key(popup_key);
     for open in [false, true, false] {
         let build = |mut ui: Ui<'_>| {
-            let responses = [popup, Id::ROOT.child("modal")].map(|id| ui.node(id).interact(WATCH)[0].is_some());
+            let responses = [popup, Scope::ROOT.key(modal)].map(|id| ui.node(id).interact(WATCH)[0].is_some());
             let mut root = ui.layout(Overlay);
             if open {
-                root.child_id("modal")
+                root.child_in(Scope::ROOT, modal)
                     .place(Id::ROOT, Full(|_| Point::ZERO))
                     .z_index(1)
                     .insert(Fill('M', Size::ZERO));
@@ -243,7 +250,7 @@ fn visual_parent_and_hit_order() {
                         let inner = ui.id();
                         ui.place(outer, At(|_| Point::new(2.0, 2.0)))
                             .layout(Fixed(Size::uniform(1.0)))
-                            .child_in(Id::ROOT, "popup")
+                            .child_in(Scope::ROOT, popup_key)
                             .place(inner, Full(|_| Point::new(-2.0, -2.0)))
                             .parent(outer)
                             .z_index(i16::MAX)
@@ -290,6 +297,7 @@ fn visual_parent_and_hit_order() {
 }
 #[test]
 fn unbuilt_targets_keep_their_own_parent() {
+    const TARGET: u32 = 1004;
     let cases: &[fn(Ui<'_>)] = &[
         |ui| {
             let id = ui.id();
@@ -302,31 +310,33 @@ fn unbuilt_targets_keep_their_own_parent() {
         },
         |ui| {
             let mut root = ui.layout(Overlay);
-            root.child().parent(Id::ROOT.child("target")).insert(());
-            root.child_id("target").insert(());
+            root.child().parent(Scope::ROOT.key(TARGET)).insert(());
+            root.child_in(Scope::ROOT, TARGET).insert(());
         },
         |ui| {
             let mut root = ui.layout(Overlay);
             root.child()
-                .place(Id::ROOT.child("target"), At(|_| Point::ZERO))
+                .place(Scope::ROOT.key(TARGET), At(|_| Point::ZERO))
                 .insert(());
-            root.child_id("target").insert(());
+            root.child_in(Scope::ROOT, TARGET).insert(());
         },
         |ui| {
             let mut root = ui.layout(Overlay);
-            root.child_id("target").parent(Id::ROOT.child("target")).insert(());
+            root.child_in(Scope::ROOT, TARGET)
+                .parent(Scope::ROOT.key(TARGET))
+                .insert(());
         },
         |ui| {
             let mut root = ui.layout(Overlay);
-            root.child_id("target").insert(());
-            root.parent(Id::ROOT.child("target")).insert(());
+            root.child_in(Scope::ROOT, TARGET).insert(());
+            root.parent(Scope::ROOT.key(TARGET)).insert(());
         },
     ];
     for build in cases {
         let (mut kernel, mut context) = kernel(Size::uniform(1.0));
         // a previous build must not satisfy a current reference
         render(&mut kernel, &mut context, |ui: Ui<'_>| {
-            ui.layout(Overlay).child_id("target").insert(())
+            ui.layout(Overlay).child_in(Scope::ROOT, TARGET).insert(())
         });
         render(&mut kernel, &mut context, build);
     }
@@ -334,17 +344,18 @@ fn unbuilt_targets_keep_their_own_parent() {
 
 #[test]
 fn duplicate_keys_are_reported() {
+    const TARGET: u32 = 1004;
     let cases: &[fn(Ui<'_>) -> u32] = &[
         |ui| {
             let mut root = ui.layout(Overlay);
-            root.child_id("target").insert(());
-            root.child_id("target").insert(());
+            root.child_in(Scope::ROOT, TARGET).insert(());
+            root.child_in(Scope::ROOT, TARGET).insert(());
             line!() - 1
         },
         |ui| {
             let mut root = ui.layout(Overlay);
-            root.child_in(Id::ROOT, "target").insert(());
-            root.child().layout(Overlay).child_in(Id::ROOT, "target").insert(());
+            root.child_in(Scope::ROOT, TARGET).insert(());
+            root.child().layout(Overlay).child_in(Scope::ROOT, TARGET).insert(());
             line!() - 1
         },
     ];
@@ -359,7 +370,7 @@ fn duplicate_keys_are_reported() {
 #[test]
 fn bindings_and_geometry() {
     let (mut kernel, mut context) = kernel(Size::uniform(10.0));
-    let (a, b) = ("a", "b");
+    let (a, b) = (1101, 1102);
     // every area of the previous layout is available
     let mut laid_out = false;
     for (count, query) in [
@@ -373,22 +384,22 @@ fn bindings_and_geometry() {
     ] {
         render(&mut kernel, &mut context, |mut ui: Ui<'_>| {
             if query {
-                assert_eq!(ui.node(ui.id().child(a)).area().is_some(), laid_out);
-                assert_eq!(ui.node(ui.id().child(b)).area().is_some(), laid_out);
+                assert_eq!(ui.node(Scope::ROOT.key(a)).area().is_some(), laid_out);
+                assert_eq!(ui.node(Scope::ROOT.key(b)).area().is_some(), laid_out);
             }
-            ui.node(ui.id().child(b)).interact(WATCH);
+            ui.node(Scope::ROOT.key(b)).interact(WATCH);
             let mut root = ui.layout(Overlay);
             for _ in 0..count {
                 root.child().insert(());
             }
             if count != 0 {
-                root.child_id(b).insert(());
-                root.child_id(a).parent(Id::ROOT.child(b)).insert(());
-                root.child().place(Id::ROOT.child(a), At(|_| Point::ZERO)).insert(());
+                root.child_in(Scope::ROOT, b).insert(());
+                root.child_in(Scope::ROOT, a).parent(Scope::ROOT.key(b)).insert(());
+                root.child().place(Scope::ROOT.key(a), At(|_| Point::ZERO)).insert(());
             }
         });
-        assert_eq!(kernel.area(Id::ROOT.child(a)).is_some(), count != 0);
-        assert_eq!(kernel.area(Id::ROOT.child(b)).is_some(), count != 0);
+        assert_eq!(kernel.area(Scope::ROOT.key(a)).is_some(), count != 0);
+        assert_eq!(kernel.area(Scope::ROOT.key(b)).is_some(), count != 0);
         laid_out = count != 0;
     }
 }
@@ -396,14 +407,14 @@ fn bindings_and_geometry() {
 #[test]
 fn padding_insets_children_while_content_keeps_the_full_box() {
     let (mut kernel, mut context) = kernel(Size::new(7.0, 5.0));
-    let node = "padded";
+    let node = 1103;
     render(&mut kernel, &mut context, |ui: Ui<'_>| {
         let mut root = ui.layout(Overlay);
-        let mut padded = root.child_id(node).layout(()).pad(2.0);
+        let mut padded = root.child_in(Scope::ROOT, node).layout(()).pad(2.0);
         padded.insert(Fill('B', Size::ZERO));
         padded.child().insert(Fill('C', Size::new(3.0, 1.0)));
     });
-    assert_eq!(kernel.area(Id::ROOT.child(node)), Some(Rect::new(0.0, 0.0, 7.0, 5.0)));
+    assert_eq!(kernel.area(Scope::ROOT.key(node)), Some(Rect::new(0.0, 0.0, 7.0, 5.0)));
     assert_eq!(
         context.commands,
         [
@@ -438,21 +449,24 @@ fn call_sites_identify_children() {
 
 #[test]
 fn keyed_children_resolve_ahead_and_keep_state_across_parents() {
+    let child_key = 1005;
+    let card_key = 1006;
     let (mut kernel, mut context) = kernel(Size::uniform(10.0));
     let full = Some(Rect::new(0.0, 0.0, 10.0, 10.0));
     for (millis, column, expected) in [(0, 0, (None, None, false)), (500, 1, (full, full, true))] {
         let time = Duration::from_millis(millis);
         let result = render_inputs(&mut kernel, &mut context, time, [], |mut ui: Ui<'_>| {
-            let scope = ui.id();
-            let child = ui.node(ui.id().child("child")).area();
-            let card = ui.node(scope.child("card")).area();
+            let scope = ui.scope();
+            let child = ui.node(Scope::ROOT.key(child_key)).area();
+            let card = ui.node(scope.key(card_key)).area();
             let mut root = ui.layout(Overlay);
-            root.child_id("child").insert(Fill('A', Size::uniform(10.0)));
+            root.child_in(Scope::ROOT, child_key)
+                .insert(Fill('A', Size::uniform(10.0)));
             let mut fired = false;
             for index in 0..2 {
                 let mut parent = root.child().layout(Overlay);
                 if index == column {
-                    let mut card = parent.child_in(scope, "card");
+                    let mut card = parent.child_in(scope, card_key);
                     fired = card.timer(Duration::from_millis(500)).fired();
                     card.insert(Fill('B', Size::uniform(10.0)));
                 }
@@ -473,7 +487,7 @@ fn ids_follow_their_node() {
                 root.child().insert(());
             }
             let site = root.child().id();
-            (site, keys.map(|key| root.child_id(key).id()))
+            (site, keys.map(|key| root.child_in(Scope::ROOT, key).id()))
         })
     };
     let (site, [a, b]) = build(false, [1, 2]);

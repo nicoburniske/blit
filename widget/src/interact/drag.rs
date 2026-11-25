@@ -106,7 +106,7 @@ mod tests {
     use std::cell::Cell;
 
     use blit::{
-        Kernel, Ui,
+        Kernel, Scope, Ui,
         input::{
             Input,
             TouchPhase::{Down, Move, Up},
@@ -188,12 +188,15 @@ mod tests {
 
     #[test]
     fn removing_the_dragged_widget_cancels() {
+        let handle = 1000;
         let mut kernel = Kernel::<TestContext>::default();
         let mounted = Cell::new(true);
         let build = |mut ui: Ui<'_, TestContext>| {
-            let drag = ui.node(ui.id().child("handle")).interact(interact::drag());
+            let drag = ui.node(Scope::ROOT.key(handle)).interact(interact::drag());
             if mounted.get() {
-                ui.layout(()).child_id("handle").build(|_: Ui<'_, TestContext>| {});
+                ui.layout(())
+                    .child_in(Scope::ROOT, handle)
+                    .build(|_: Ui<'_, TestContext>| {});
             }
             drag
         };

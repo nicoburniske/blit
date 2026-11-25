@@ -1,8 +1,8 @@
 use std::{hint::black_box, time::Duration};
 
 use blit::{
-    Animation, Constraints, Context, Easing, FrameInfo, Id, Interact, InteractCx, Kernel, Layout, LayoutCx, Motion,
-    Point, Size, Spring, Tween, Ui, input::Input, state,
+    Animation, Constraints, Context, Easing, FrameInfo, Interact, InteractCx, Kernel, Layout, LayoutCx, Motion, Point,
+    Scope, Size, Spring, Tween, Ui, input::Input, state,
 };
 
 #[global_allocator]
@@ -69,7 +69,7 @@ fn build_explicit_ids(bencher: divan::Bencher, count: usize) {
             |ui: Ui<'_, ()>| {
                 let mut root = ui.layout(Stack::default());
                 for index in 0..count {
-                    root.child_id(index).insert(());
+                    root.child_in(Scope::ROOT, index).insert(());
                 }
             },
         );
@@ -99,6 +99,7 @@ fn build_motions(bencher: divan::Bencher, count: usize) {
 
 #[divan::bench(args = [100, 1000])]
 fn build_named_parent(bencher: divan::Bencher, count: usize) {
+    let bench_root = 1000;
     let mut kernel = Kernel::default();
     bencher.bench_local(|| {
         kernel.build(
@@ -108,8 +109,8 @@ fn build_named_parent(bencher: divan::Bencher, count: usize) {
             Input::None,
             |ui: Ui<'_, ()>| {
                 let mut outer = ui.layout(Stack::default());
-                let mut root = outer.child_id("bench root").layout(Stack::default());
-                let target = Id::ROOT.child("bench root");
+                let mut root = outer.child_in(Scope::ROOT, bench_root).layout(Stack::default());
+                let target = Scope::ROOT.key(bench_root);
                 for _ in 0..count {
                     root.child().parent(target).insert(());
                 }
@@ -170,11 +171,11 @@ fn build_areas_and_layout(bencher: divan::Bencher, count: usize) {
             Input::None,
             |mut ui: Ui<'_, ()>| {
                 for index in 0..10 {
-                    black_box(ui.node(ui.id().child(index)).area());
+                    black_box(ui.node(Scope::ROOT.key(index)).area());
                 }
                 let mut root = ui.layout(Stack::default());
                 for index in 0..count {
-                    root.child_id(index).insert(());
+                    root.child_in(Scope::ROOT, index).insert(());
                 }
             },
         );
@@ -211,7 +212,7 @@ fn animate(bencher: divan::Bencher, count: usize, animation: Animation) {
             |mut ui: Ui<'_, ()>| {
                 for index in 0..count {
                     black_box(
-                        ui.node(ui.id().child(index))
+                        ui.node(Scope::ROOT.key(index))
                             .animate(target, animation, Default::default()),
                     );
                 }
@@ -254,7 +255,7 @@ fn motions(bencher: divan::Bencher, count: usize, animation: Animation, size: bo
                     position: if size { Point::ZERO } else { Point::new(target, target) },
                 });
                 for index in 0..count {
-                    root.child_id(index).motion(config).insert(());
+                    root.child_in(Scope::ROOT, index).motion(config).insert(());
                 }
             },
         );

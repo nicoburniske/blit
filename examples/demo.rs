@@ -13,8 +13,9 @@ pub fn select<'a, C: Context, T: Copy + PartialEq, D>(
 ) -> impl Widget<C, Response = bool> {
     move |mut ui: Ui<'_, C>| {
         let mut clicked = false;
+        let items = ui.scope();
         for (index, (_, value)) in options.iter().enumerate() {
-            let press = ui.node(ui.id().child(index)).interact(interact::press());
+            let press = ui.node(items.key(index)).interact(interact::press());
             if press.clicked {
                 *selected = *value;
                 clicked = true;
@@ -22,7 +23,7 @@ pub fn select<'a, C: Context, T: Copy + PartialEq, D>(
         }
         let mut group = ui.layout(layout);
         for (index, (data, value)) in options.iter().enumerate() {
-            group.child_id(index).build(|mut ui: Ui<'_, C>| {
+            group.child_in(items, index).build(|mut ui: Ui<'_, C>| {
                 let press = ui.interact(interact::press());
                 render(ui, data, *selected == *value, press);
             });
@@ -39,21 +40,22 @@ pub fn board<'a, C: Context>(
     mut decorate: impl FnMut(&mut Ui<'_, C, Open<flex::Layout<C::Scalar>>>, &str) + 'a,
     mut card: impl FnMut(Ui<'_, C>, Option<u32>, bool) + 'a,
 ) -> impl Widget<C> + 'a {
-    move |ui: Ui<'_, C>| {
+    move |mut ui: Ui<'_, C>| {
         let spring = Spring::new(0.350, 0.15);
         let item = || flex::item().height(height);
+        // cards are keyed in the board rather than their column so they keep their state across columns
+        let (lanes, tiles) = (ui.scope(), ui.scope());
         let mut board = ui.layout(flex::row().gap(gap).align(Align::Stretch));
-        let scope = board.id();
         let mut dragged = None;
-        for (name, cards) in columns.iter() {
+        for (index, (name, cards)) in columns.iter().enumerate() {
             let mut column = board
-                .child_id(*name)
+                .child_in(lanes, index)
                 .item(flex::item().grow())
                 .layout(flex::column().gap(gap).align(Align::Stretch))
                 .pad(gap);
             decorate(&mut column, name);
             for &id in cards {
-                let mut node = column.child_in(scope, id);
+                let mut node = column.child_in(tiles, id);
                 let response = node.interact(interact::drag());
                 if response.active {
                     dragged = Some((id, response.position));
@@ -84,9 +86,9 @@ pub fn board<'a, C: Context>(
         }
         // the dragged card moves to the column under the pointer after the other cards above the pointer
         if let Some((id, pointer)) = dragged
-            && let Some(column) = columns.iter().position(|(name, _)| {
+            && let Some(column) = (0..columns.len()).position(|index| {
                 board
-                    .node(board.id().child(*name))
+                    .node(lanes.key(index))
                     .area()
                     .is_some_and(|area| area.contains(pointer))
             })
@@ -97,7 +99,7 @@ pub fn board<'a, C: Context>(
                 .filter(|&&other| other != id)
                 .filter(|&&other| {
                     board
-                        .node(scope.child(other))
+                        .node(tiles.key(other))
                         .area()
                         .is_some_and(|area| area.y.lerp(area.y + area.height, 0.5) < pointer.y)
                 })

@@ -105,7 +105,7 @@ pub trait Context {
     type Scalar: Scalar;
 
     /// the node built at `location` repeats `key` in `scope` and takes a fresh id instead
-    fn duplicate_key(&mut self, _scope: Id, _key: Key, _location: &'static Location<'static>) {}
+    fn duplicate_key(&mut self, _scope: Scope, _key: Key, _location: &'static Location<'static>) {}
 
     /// clips drawing to a rounded rectangle until the matching pop
     fn push_clip(&mut self, _area: Rect<Self::Scalar>, _radius: Corners<Self::Scalar>) {}
@@ -150,8 +150,8 @@ pub trait Widget<C: Context, S = state::Build> {
 
 /// stable identity for widgets, animations and timers, handed out by the kernel
 ///
-/// each build matches a node to the previous build by its parent and call site, or by its key,
-/// and the node keeps the id it matched. an id stops resolving once its node is gone.
+/// each build matches a node to the previous build by its parent and call site, or by its key
+/// in a scope, and the node keeps the id it matched. an id stops resolving once its node is gone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id {
     slot: u32,
@@ -159,16 +159,27 @@ pub struct Id {
 }
 
 impl Id {
-    /// the frame root, the scope for keys unique across the frame
+    /// the frame root
     pub const ROOT: Self = Self {
         slot: 0,
         generation: NonZeroU32::MIN,
     };
+}
+
+/// a space of keys, so keys from unrelated code never meet
+///
+/// [`Ui::scope`] makes one owned by a node and a call site, and [`Scope::ROOT`] belongs to the app
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Scope(Id);
+
+impl Scope {
+    /// the app's own scope, which widgets leave alone
+    pub const ROOT: Self = Self(Id::ROOT);
 
     /// the node keyed `key` in this scope, which may be built later
-    pub fn child(self, key: impl Into<Key>) -> Target {
+    pub fn key(self, key: impl Into<Key>) -> Target {
         Target {
-            scope: self,
+            scope: self.0,
             key: Some(key.into()),
         }
     }
@@ -194,9 +205,7 @@ impl From<Id> for Option<Target> {
     }
 }
 
-/// tells keyed nodes apart within a scope, compared exactly
-///
-/// a scope is any node's id, usually the parent's or [`Id::ROOT`]
+/// tells keyed nodes apart within a [`Scope`], compared exactly
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Key(u64);
 
@@ -212,15 +221,6 @@ macro_rules! key_from_integer {
 }
 
 key_from_integer!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
-
-/// strings are hashed, so two may share a key and report a duplicate
-impl From<&str> for Key {
-    fn from(key: &str) -> Self {
-        let mut hasher = internal::hash::FxHasher::new();
-        hasher.write(key.as_bytes());
-        Self(hasher.finish())
-    }
-}
 
 impl<C: Context, F, O> Widget<C> for F
 where
@@ -271,6 +271,8 @@ pub struct Kernel<C: Context> {
     slots: Slots,
     interaction: InteractionState<C::Scalar>,
     animations: Vec<AnimationState>,
+    // the scopes made by call sites, sorted by call
+    scopes: Vec<CallScope>,
     motions: Vec<MotionState<C::Scalar>>,
     timers: Vec<TimerState>,
     /// focus requested during this build, applied once it resolves
@@ -315,6 +317,7 @@ impl<C: Context> Default for Kernel<C> {
             slots: Slots::default(),
             interaction: InteractionState::default(),
             animations: Vec::new(),
+            scopes: Vec::new(),
             motions: Vec::new(),
             timers: Vec::new(),
             focus: FocusRequest::Keep,
@@ -397,6 +400,9 @@ impl<C: Context> Kernel<C> {
         let output = widget.build(Ui::new(self, context, &scratch, root, old));
         scratch.prepare();
         self.scratch = scratch;
+        // a scope this build did not make dies with the next one
+        let slots = &self.slots;
+        self.scopes.retain(|scope| slots.is_kept(scope.id));
         assert_eq!(
             self.nodes[0].subtree_end as usize,
             self.nodes.len() - 1,

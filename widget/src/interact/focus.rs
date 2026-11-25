@@ -28,7 +28,7 @@ mod tests {
     use std::cell::Cell;
 
     use blit::{
-        Id, Kernel, Rect, Ui,
+        Kernel, Rect, Scope, Ui,
         input::{
             Input,
             TouchPhase::{Down, Move, Up},
@@ -43,6 +43,8 @@ mod tests {
 
     #[test]
     fn focus_follows_presses_and_taps() {
+        let left = 1000;
+        let right = 1001;
         let mut kernel = Kernel::<TestContext>::default();
         let change_focus = Cell::new(false);
         let clear_focus = Cell::new(false);
@@ -51,13 +53,15 @@ mod tests {
                 ui.clear_focus();
             }
             let mut ui = ui.layout(rect::new());
-            let mut left = ui.child_id("left").item(Rect::new(0.0, 0.0, 100.0, 200.0));
+            let mut left = ui.child_in(Scope::ROOT, left).item(Rect::new(0.0, 0.0, 100.0, 200.0));
             let left_focused = left.interact(interact::focus());
             if change_focus.replace(false) {
-                left.node(Id::ROOT.child("right")).focus();
+                left.node(Scope::ROOT.key(right)).focus();
             }
             drop(left);
-            let mut right = ui.child_id("right").item(Rect::new(100.0, 0.0, 100.0, 200.0));
+            let mut right = ui
+                .child_in(Scope::ROOT, right)
+                .item(Rect::new(100.0, 0.0, 100.0, 200.0));
             (left_focused, right.interact(interact::focus()))
         };
         let mut next = |input| step(&mut kernel, input, build);

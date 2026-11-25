@@ -442,6 +442,13 @@ impl Names {
     }
 }
 
+/// a scope made at a call site on a node
+#[derive(Clone, Copy)]
+pub struct CallScope {
+    pub call: Call,
+    pub id: Id,
+}
+
 /// a call site on a node, the key of its animations and timers
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Call {
@@ -463,19 +470,19 @@ impl Call {
 }
 
 impl Ord for Call {
+    #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        // line and column first, as the file compares as a string
-        let key = |call: &Self| {
-            let location = call.location;
-            (
-                call.owner,
-                location.line(),
-                location.column(),
-                location.file(),
-                call.repeat,
-            )
-        };
-        key(self).cmp(&key(other))
+        let (location, other_location) = (self.location, other.location);
+        // the file last and only between copies of a call site, as it compares as a string
+        self.owner
+            .cmp(&other.owner)
+            .then_with(|| location.line().cmp(&other_location.line()))
+            .then_with(|| location.column().cmp(&other_location.column()))
+            .then_with(|| self.repeat.cmp(&other.repeat))
+            .then_with(|| match core::ptr::eq(location, other_location) {
+                true => core::cmp::Ordering::Equal,
+                false => location.file().cmp(other_location.file()),
+            })
     }
 }
 

@@ -212,6 +212,29 @@ impl<'ui, C: Context, S: state::Local> Ui<'ui, C, S> {
         }
     }
 
+    /// a scope for keys of this node and call site, so keys of unrelated code never meet
+    ///
+    /// scopes made at one call site repeat within a build, told apart by their order
+    #[track_caller]
+    pub fn scope(&mut self) -> Scope {
+        let kernel = &mut *self.inner.kernel;
+        let mut call = Call::new(self.inner.target, Location::caller());
+        let index = loop {
+            match kernel.scopes.binary_search_by_key(&call, |scope| scope.call) {
+                Ok(index) if kernel.slots.is_kept(kernel.scopes[index].id) => call.repeat += 1,
+                Ok(index) => break index,
+                Err(index) => {
+                    let id = kernel.slots.alloc();
+                    kernel.scopes.insert(index, CallScope { call, id });
+                    break index;
+                }
+            }
+        };
+        let id = kernel.scopes[index].id;
+        kernel.slots.keep(id);
+        Scope(id)
+    }
+
     /// inserts content into the current node
     #[inline]
     pub fn insert<W: Widget<C, state::Insert>>(&mut self, widget: W) -> W::Response {
@@ -423,23 +446,14 @@ impl<'ui, C: Context, L: Layout<C>> Ui<'ui, C, state::Open<L>> {
         Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node, old)
     }
 
-    /// creates a child identified among its siblings by `key` rather than where it is built
+    /// creates a child keyed `key` in `scope` rather than identified by where it is built
     ///
-    /// [`Ui::node`] with `self.id().child(key)` refers to it before it is built
+    /// it keeps its state as its siblings change or it moves to another parent, as its key names it.
+    /// [`Ui::node`] with `scope.key(key)` refers to it before it is built
     #[inline]
     #[track_caller]
-    pub fn child_id(&mut self, key: impl Into<Key>) -> Ui<'_, C, state::Child<L::Item>> {
-        self.child_in(self.inner.target, key)
-    }
-
-    /// creates a child keyed `key` in the scope `scope`, usually an ancestor's id
-    ///
-    /// it keeps its state when it moves to another parent, as its key in the scope names it.
-    /// [`Ui::node`] with `scope.child(key)` refers to it before it is built
-    #[inline]
-    #[track_caller]
-    pub fn child_in(&mut self, scope: Id, key: impl Into<Key>) -> Ui<'_, C, state::Child<L::Item>> {
-        let (node, old) = self.inner.child_in(scope, key.into(), Location::caller());
+    pub fn child_in(&mut self, scope: Scope, key: impl Into<Key>) -> Ui<'_, C, state::Child<L::Item>> {
+        let (node, old) = self.inner.child_in(scope.0, key.into(), Location::caller());
         Ui::new(self.inner.kernel, self.inner.context, self.inner.scratch, node, old)
     }
 
@@ -600,7 +614,8 @@ impl<'ui, C: Context> UiInner<'ui, C> {
 
     fn child_in(&mut self, scope: Id, key: Key, location: &'static Location<'static>) -> (NodeId, u32) {
         let kernel = &mut *self.kernel;
-        let keyed = scope == self.target || kernel.slots.is_kept(scope);
+        // a scope is kept by the build that made it, while one held from an older build names alone
+        let keyed = kernel.slots.is_kept(scope);
         let mut mark = if keyed { Mark::Key(scope.slot, key) } else { Mark::Named };
         let (mut id, mut old) = if keyed
             && self.cursor.old != Slots::NONE
@@ -622,7 +637,7 @@ impl<'ui, C: Context> UiInner<'ui, C> {
         };
         if kernel.slots.claimed(id) {
             // the repeat is named alone so the next build finds the first holder
-            self.context.duplicate_key(scope, key, location);
+            self.context.duplicate_key(Scope(scope), key, location);
             id = kernel.slots.alloc();
             old = Slots::NONE;
             mark = Mark::Named;

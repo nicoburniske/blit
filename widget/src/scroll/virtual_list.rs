@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Axis, Constraints, Id, Key, Layout, LayoutCx, Point, Rect, Scalar, Size, Ui, state};
+use blit::{Axis, Constraints, Id, Key, Layout, LayoutCx, Point, Rect, Scalar, Scope, Size, Ui, state};
 
 use super::{Scrollbar, ScrollbarInput, THUMB, TRACK, ThumbProgress, content_input, content_motion, scrollbar_input};
 use crate::Context;
@@ -47,7 +47,9 @@ impl<'a, T: Scalar> VirtualList<'a, T> {
         let overscan = extent.repeat(VIEWPORTS);
         let row = state.sample.get(state.visible.start);
         let motion = content_input(&mut ui, axis);
-        let (thumb_active, scrollbar) = scrollbar_input(&mut state.inertia, &mut ui, axis, extent);
+        // the scrollbar and the rows key into scopes of their own, so no row key meets a part
+        let (parts, rows) = (ui.scope(), ui.scope());
+        let (thumb_active, scrollbar) = scrollbar_input(&mut state.inertia, &mut ui, parts, axis, extent);
         let movement = match scrollbar {
             None => content_motion(
                 &mut state.inertia,
@@ -138,7 +140,7 @@ impl<'a, T: Scalar> VirtualList<'a, T> {
         let gutter = match floating {
             true => T::ZERO,
             false => ui
-                .node(ui.id().child(TRACK))
+                .node(parts.key(TRACK))
                 .area()
                 .map_or(T::ZERO, |area| cross.extent(area.size())),
         };
@@ -164,6 +166,8 @@ impl<'a, T: Scalar> VirtualList<'a, T> {
         let list = List {
             state,
             content,
+            parts,
+            rows,
             axis,
             count,
             anchor,
@@ -238,6 +242,8 @@ where
 {
     state: &'a mut VirtualListState<C::Scalar>,
     content: Ui<'a, C, state::Open<VirtualLayout<C::Scalar>>>,
+    parts: Scope,
+    rows: Scope,
     axis: Axis,
     count: Option<usize>,
     anchor: Anchor<C::Scalar>,
@@ -289,7 +295,10 @@ where
             self.finish();
             return None;
         };
-        let row = self.content.child_id(key(index)).item(ListItem(Kind::Row(index)));
+        let row = self
+            .content
+            .child_in(self.rows, key(index))
+            .item(ListItem(Kind::Row(index)));
         self.pending = Some((index, row.id()));
         Some((index, row))
     }
@@ -385,12 +394,12 @@ where
         // built after the rows so they draw and take input above them
         if progress.visible_fraction < 1.0 {
             self.content
-                .child_id(TRACK)
+                .child_in(self.parts, TRACK)
                 .item(ListItem(Kind::Track(progress)))
                 .build(track);
             let thumb_active = self.thumb_active;
             self.content
-                .child_id(THUMB)
+                .child_in(self.parts, THUMB)
                 .item(ListItem(Kind::Thumb))
                 .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
         }
@@ -661,7 +670,7 @@ mod tests {
     use std::time::Duration;
 
     use blit::{
-        FrameInfo, Id, Kernel, Key,
+        FrameInfo, Kernel, Key, Scope,
         input::{Input, TouchPhase},
     };
 
@@ -680,7 +689,7 @@ mod tests {
             settle_frame(&mut kernel, &mut state, count, |index| (Key::from(index), 1.0));
             assert!(state.sample.len() <= 101);
             assert_eq!(state.position().0, 1);
-            assert_eq!(kernel.area(Id::ROOT.child(Key::from(1usize))).unwrap().y, 0.0);
+            assert_eq!(kernel.area(Scope::ROOT.key(Key::from(1usize))).unwrap().y, 0.0);
         }
     }
 
@@ -707,7 +716,7 @@ mod tests {
                 Input::None,
                 |index| {
                     let id = if index == 0 {
-                        Key::from("head")
+                        Key::from(u32::MAX)
                     } else {
                         Key::from(index - 1)
                     };
@@ -741,7 +750,7 @@ mod tests {
                     settle_frame(&mut kernel, &mut state, count, row);
                 }
                 if let Some(count) = count {
-                    let area = kernel.area(Id::ROOT.child(Key::from(count - 1))).unwrap();
+                    let area = kernel.area(Scope::ROOT.key(Key::from(count - 1))).unwrap();
                     assert_eq!(area.y + area.height, extents.iter().sum::<f32>().min(50.0));
                 } else {
                     assert_eq!(state.position().0, 5);
@@ -785,15 +794,15 @@ mod tests {
                 state.scroll_to(20, 0.0);
                 settle_frame(&mut kernel, &mut state, count, row);
                 let key = Key::from(20usize);
-                let y = kernel.area(Id::ROOT.child(key)).unwrap().y;
+                let y = kernel.area(Scope::ROOT.key(key)).unwrap().y;
                 state.scroll_by(-20.0);
                 render_frame(&mut kernel, &mut state, count, Input::None, row);
-                assert_eq!(kernel.area(Id::ROOT.child(key)).unwrap().y, y + 20.0);
+                assert_eq!(kernel.area(Scope::ROOT.key(key)).unwrap().y, y + 20.0);
                 settle_frame(&mut kernel, &mut state, count, row);
-                assert_eq!(kernel.area(Id::ROOT.child(key)).unwrap().y, y + 20.0);
+                assert_eq!(kernel.area(Scope::ROOT.key(key)).unwrap().y, y + 20.0);
                 state.scroll_by(40.0);
                 render_frame(&mut kernel, &mut state, count, Input::None, row);
-                assert_eq!(kernel.area(Id::ROOT.child(key)).unwrap().y, y - 20.0);
+                assert_eq!(kernel.area(Scope::ROOT.key(key)).unwrap().y, y - 20.0);
             }
         }
     }
@@ -817,7 +826,7 @@ mod tests {
                     while let Some((index, row)) = list.next() {
                         row.constrain(Constraints::tight(Size::new(10.0, 20.0)))
                             .layout(())
-                            .child_in(Id::ROOT, index)
+                            .child_in(Scope::ROOT, index)
                             .insert(());
                     }
                 },
@@ -825,7 +834,7 @@ mod tests {
             kernel.layout(&mut TestContext);
         }
         assert_eq!(
-            kernel.area(Id::ROOT.child(2usize)),
+            kernel.area(Scope::ROOT.key(2usize)),
             Some(Rect::new(20.0, 0.0, 10.0, 20.0))
         );
     }
@@ -852,6 +861,7 @@ mod tests {
         input: Input<f32>,
         row: impl Fn(usize) -> (Key, f32),
     ) -> (Option<Rect<f32>>, Option<Rect<f32>>) {
+        let mut thumb = None;
         kernel.build(
             &mut TestContext,
             FrameInfo::new(Size::new(80.0, 50.0)),
@@ -867,22 +877,22 @@ mod tests {
                 };
                 let mut list = VirtualList::new(&mut *state)
                     .count(count)
-                    .begin(ui, track, |_, _| {})
+                    .begin(ui, track, |ui: Ui<'_, TestContext>, _| thumb = Some(ui.id()))
                     .keys(|index| row(index).0);
                 while let Some((index, ui)) = list.next() {
                     let (id, extent) = row(index);
                     // a marker in the root scope covers the row so the frame can find it
                     ui.constrain(Constraints::tight(Size::new(79.0, extent)))
                         .layout(())
-                        .child_in(Id::ROOT, id)
+                        .child_in(Scope::ROOT, id)
                         .insert(());
                 }
             },
         );
         kernel.layout(&mut TestContext);
         (
-            kernel.area(Id::ROOT.child(row(state.position().0).0)),
-            kernel.area(Id::ROOT.child(THUMB)),
+            kernel.area(Scope::ROOT.key(row(state.position().0).0)),
+            thumb.and_then(|id| kernel.area(id)),
         )
     }
 }

@@ -13,9 +13,10 @@
 use alloc::{vec, vec::Vec};
 use core::{hash::Hash, ops::Range};
 
-use blit::{PhysicalRect, Scale2, internal::hash::FxHasher};
+use blit::{PhysicalRect, Scale2};
 
 use super::{DamageTracker, DisplayList};
+use crate::hash::FxHasher;
 
 pub struct TileDamage {
     shift: u32,

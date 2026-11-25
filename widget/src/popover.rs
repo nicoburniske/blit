@@ -55,20 +55,21 @@ impl<T: Scalar> Popover<'_, T> {
     {
         ui.build(|mut ui: Ui<'_, C>| {
             let state = self.state;
-            let popover = ui.id();
+            // key, id, scope
+            let popover = ui.scope();
             let (backdrop_id, trigger_id, content_id) = (0u8, 1u8, 2u8);
-            let press = ui.node(popover.child(trigger_id)).interact(interact::press());
+            let press = ui.node(popover.key(trigger_id)).interact(interact::press());
             if self.open_on_hover && press.hovered {
                 state.open = true;
             } else if !self.open_on_hover && press.activated {
                 state.open = !state.open;
             }
             // requested while closed too so the opening frame knows where the trigger is
-            let areas = [trigger_id, content_id].map(|id| ui.node(popover.child(id)).area());
+            let areas = [trigger_id, content_id].map(|id| ui.node(popover.key(id)).area());
             if state.open {
-                let backdrop = ui.node(popover.child(backdrop_id)).interact(interact::press());
-                ui.node(popover.child(backdrop_id)).interact(BlockInput);
-                let content_hovered = ui.node(popover.child(content_id)).interact(BlockInput);
+                let backdrop = ui.node(popover.key(backdrop_id)).interact(interact::press());
+                ui.node(popover.key(backdrop_id)).interact(BlockInput);
+                let content_hovered = ui.node(popover.key(content_id)).interact(BlockInput);
                 let pointer_inside = content_hovered
                     || ui
                         .mouse_position()
@@ -84,7 +85,7 @@ impl<T: Scalar> Popover<'_, T> {
 
             let mut root = ui.layout(flex::column().align(Align::Start));
             if state.open && self.close != PopoverClose::Manual {
-                root.child_id(backdrop_id)
+                root.child_in(popover, backdrop_id)
                     .parent(self.parent)
                     .z_index(1)
                     .place(
@@ -93,7 +94,7 @@ impl<T: Scalar> Popover<'_, T> {
                     )
                     .insert(());
             }
-            root.child_id(trigger_id)
+            root.child_in(popover, trigger_id)
                 .hit(self.hit)
                 .layout(())
                 .child()
@@ -102,7 +103,7 @@ impl<T: Scalar> Popover<'_, T> {
                 return;
             }
             // stacks above the backdrop as its later sibling
-            root.child_id(content_id)
+            root.child_in(popover, content_id)
                 .parent(self.parent)
                 .z_index(1)
                 .hit(
@@ -113,7 +114,7 @@ impl<T: Scalar> Popover<'_, T> {
                         .left(self.x.max(T::ZERO)),
                 )
                 .place(
-                    popover.child(trigger_id),
+                    popover.key(trigger_id),
                     absolute::place()
                         .target_anchor(self.target_anchor)
                         .child_anchor(self.child_anchor)
@@ -150,7 +151,7 @@ mod tests {
     use std::time::Duration;
 
     use blit::{
-        Axis, Constraints, FrameInfo, Kernel, Point as InputPoint, Rect, Size,
+        Axis, Constraints, FrameInfo, Kernel, Point as InputPoint, Rect, Scope, Size,
         input::{Modifiers, MouseButton, ScrollPhase},
     };
 
@@ -195,26 +196,34 @@ mod tests {
         }
     }
 
-    fn render(ui: Ui<'_, TestContext>, popover: Popover<'_, f32>) {
+    // returns the popover's node holding the content
+    fn render(ui: Ui<'_, TestContext>, popover: Popover<'_, f32>) -> Option<Id> {
+        let named_trigger = 1000;
+        let named_content = 1001;
+        let mut part = None;
         popover.build(
             ui,
             |ui, _, _| {
                 ui.layout(())
-                    .child_in(Id::ROOT, "named trigger")
+                    .child_in(Scope::ROOT, named_trigger)
                     .constrain(Constraints::tight(Size::new(2.0, 1.0)))
                     .insert(())
             },
             |ui| {
+                part = Some(ui.parent_id());
                 ui.layout(())
-                    .child_in(Id::ROOT, "named content")
+                    .child_in(Scope::ROOT, named_content)
                     .constrain(Constraints::tight(Size::new(4.0, 3.0)))
                     .insert(())
             },
         );
+        part
     }
 
     #[test]
     fn popover_uses_root_constraints_and_close_behavior() {
+        let named_trigger = 1000;
+        let named_content = 1001;
         let mut kernel = Kernel::default();
         let mut context = TestContext;
         let info = FrameInfo::new(Size::uniform(10.0));
@@ -257,7 +266,7 @@ mod tests {
         }
 
         let mut expected = [true, true, false].into_iter();
-        let mut content_area = None;
+        let (mut part, mut content_area) = (None, None);
         for input in [
             Input::MouseDown {
                 position: InputPoint::new(1.0, 0.5),
@@ -276,27 +285,19 @@ mod tests {
                 modifiers: Modifiers::NONE,
             },
         ] {
-            kernel.build(
-                &mut context,
-                info,
-                Duration::ZERO,
-                input,
-                |mut ui: Ui<'_, TestContext>| {
-                    if let Input::MouseUp { .. } = input {
-                        content_area = ui.node(ui.id().child(2u8)).area();
-                    }
-                    render(ui, Popover::new(&mut state).width(5.0).height(4.0));
-                    assert_eq!(state.open, expected.next().unwrap());
-                },
-            );
+            kernel.build(&mut context, info, Duration::ZERO, input, |ui: Ui<'_, TestContext>| {
+                part = render(ui, Popover::new(&mut state).width(5.0).height(4.0));
+                assert_eq!(state.open, expected.next().unwrap());
+            });
             kernel.layout(&mut context);
             if let Input::MouseUp { .. } = input {
+                content_area = part.and_then(|id| kernel.area(id));
                 assert_eq!(
-                    kernel.area(Id::ROOT.child("named content")),
+                    kernel.area(Scope::ROOT.key(named_content)),
                     Some(Rect::new(0.0, 1.0, 4.0, 3.0))
                 );
                 assert_eq!(
-                    kernel.area(Id::ROOT.child("named trigger")),
+                    kernel.area(Scope::ROOT.key(named_trigger)),
                     Some(Rect::new(0.0, 0.0, 2.0, 1.0)),
                 );
             }

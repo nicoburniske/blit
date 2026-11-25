@@ -4,7 +4,7 @@ pub mod virtual_list;
 use std::time::Duration;
 
 use blit::{
-    Animation, AnimationOptions, Axis, Constraints, Key, Layout, LayoutCx, NodeId, Point, Scalar, Size, Ui,
+    Animation, AnimationOptions, Axis, Constraints, Layout, LayoutCx, NodeId, Point, Scalar, Scope, Size, Target, Ui,
     internal::animator::Animator, state::Local,
 };
 
@@ -53,15 +53,15 @@ impl<T: Scalar> ScrollState<T> {
         self.request.options = options;
     }
 
-    /// queues a direct child of the scroll content or a list row to reveal within the viewport
+    /// queues a node of the scroll content to reveal within the viewport
     pub fn scroll_to_widget(
         &mut self,
-        key: impl Into<Key>,
+        target: impl Into<Target>,
         animation: impl Into<Animation>,
         options: AnimationOptions,
     ) {
         self.inertia.stop();
-        self.request.target = Goal::Widget(key.into());
+        self.request.target = Goal::Widget(target.into());
         self.request.missed = false;
         self.request.animation = animation.into();
         self.request.options = options;
@@ -112,7 +112,7 @@ enum Goal<T> {
     #[default]
     None,
     Offset(T),
-    Widget(Key),
+    Widget(Target),
 }
 
 #[derive(Clone, Copy)]
@@ -259,6 +259,7 @@ impl<T: Scalar> Scrollbar<T> {
 fn update<C: Context>(
     state: &mut ScrollState<C::Scalar>,
     ui: &mut Ui<'_, C>,
+    parts: Scope,
     axis: Axis,
     scroll_speed: f32,
     inertia_friction: f32,
@@ -269,7 +270,7 @@ fn update<C: Context>(
     } else {
         false
     };
-    if let Some(area) = ui.node(ui.id().child(CONTENT)).area() {
+    if let Some(area) = ui.node(parts.key(CONTENT)).area() {
         state.content_extent = axis.extent(area.size());
     }
 
@@ -278,7 +279,7 @@ fn update<C: Context>(
         state.request = Request::default();
     }
     let maximum = state.maximum_offset();
-    let (thumb_active, scrollbar) = scrollbar_input(&mut state.inertia, ui, axis, state.viewport_extent);
+    let (thumb_active, scrollbar) = scrollbar_input(&mut state.inertia, ui, parts, axis, state.viewport_extent);
     if let Some(action) = scrollbar {
         state.request = Request::default();
         match action {
@@ -305,16 +306,16 @@ enum ScrollbarInput {
 fn scrollbar_input<C: Context, S: Local>(
     state: &mut Inertia,
     ui: &mut Ui<'_, C, S>,
+    scroll: Scope,
     axis: Axis,
     viewport_extent: C::Scalar,
 ) -> (bool, Option<ScrollbarInput>) {
-    let scroll = ui.id();
-    let thumb_area = ui.node(scroll.child(THUMB)).area();
-    let track_area = ui.node(scroll.child(TRACK)).area();
-    let thumb = ui.node(scroll.child(THUMB)).interact(interact::press());
-    let track = ui.node(scroll.child(TRACK)).interact(interact::press());
-    let thumb_drag = ui.node(scroll.child(THUMB)).interact(interact::drag());
-    let track_drag = ui.node(scroll.child(TRACK)).interact(interact::drag());
+    let thumb_area = ui.node(scroll.key(THUMB)).area();
+    let track_area = ui.node(scroll.key(TRACK)).area();
+    let thumb = ui.node(scroll.key(THUMB)).interact(interact::press());
+    let track = ui.node(scroll.key(TRACK)).interact(interact::press());
+    let thumb_drag = ui.node(scroll.key(THUMB)).interact(interact::drag());
+    let track_drag = ui.node(scroll.key(TRACK)).interact(interact::drag());
     let active = thumb.active || track.active || thumb_drag.active || track_drag.active;
     // cancelled drags leave the offset alone
     let thumb_moved = thumb_drag.active || thumb_drag.released;
@@ -514,6 +515,7 @@ fn move_by<T: Scalar>(state: &mut ScrollState<T>, amount: f32) {
 
 fn build_scroll<'a, C, L, W, R, H>(
     ui: Ui<'a, C>,
+    parts: Scope,
     layout: L,
     content: W,
     track: R,
@@ -529,26 +531,31 @@ where
     H: FnOnce(Ui<'_, C>, bool),
 {
     let mut viewport = ui.layout(layout).clip(C::Scalar::ZERO);
-    viewport.child_id(CONTENT).item(ScrollItem::Content).build(content);
+    viewport
+        .child_in(parts, CONTENT)
+        .item(ScrollItem::Content)
+        .build(content);
     if shown {
-        viewport.child_id(TRACK).item(ScrollItem::Track).build(track);
+        viewport.child_in(parts, TRACK).item(ScrollItem::Track).build(track);
         viewport
-            .child_id(THUMB)
+            .child_in(parts, THUMB)
             .item(ScrollItem::Thumb)
             .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
     }
     viewport
 }
 
-// children of a scroll node, named so they never meet a list row's key
-const CONTENT: &str = "blit scroll content";
-const TRACK: &str = "blit scroll track";
-const THUMB: &str = "blit scroll thumb";
+// children of a scroll node, keyed in its own scope
+const CONTENT: u8 = 0;
+const TRACK: u8 = 1;
+const THUMB: u8 = 2;
 const MIN_SCROLL_VELOCITY: f32 = 5.0;
 const MAX_SCROLL_VELOCITY: f32 = 12_000.0;
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use blit::{FrameInfo, Kernel, Spring, input::Input};
 
     use super::{area::ScrollArea, *};
@@ -645,13 +652,16 @@ mod tests {
             let mut kernel = Kernel::default();
             let mut state = ScrollState::<f32>::new();
             let mut step = || {
-                crate::test::step(&mut kernel, Input::None, |mut ui: Ui<'_, TestContext>| {
-                    let area = ui.node(ui.id().child(CONTENT)).area();
-                    let track = ui.node(ui.id().child(TRACK)).area();
+                crate::test::step(&mut kernel, Input::None, |ui: Ui<'_, TestContext>| {
+                    let (area, track) = (Cell::new(None), Cell::new(None));
                     ScrollArea::new(&mut state).floating(floating).build(
                         ui,
-                        |mut ui| ui.measure(move |_, bounds| Size::new(bounds.max.width, height)),
+                        |mut ui| {
+                            area.set(ui.area());
+                            ui.measure(move |_, bounds| Size::new(bounds.max.width, height))
+                        },
                         |ui| {
+                            track.set(ui.area());
                             ui.constrain(Constraints {
                                 min: Size::uniform(1.0),
                                 max: Size::uniform(f32::INFINITY),
@@ -659,7 +669,7 @@ mod tests {
                         },
                         |_, _| {},
                     );
-                    (area, track)
+                    (area.get(), track.get())
                 })
             };
             step();
@@ -672,8 +682,6 @@ mod tests {
 
     #[test]
     fn requests_and_focus_reveal_content() {
-        use std::cell::Cell;
-
         let mut kernel = Kernel::default();
         let mut state = ScrollState::<f32>::new();
         let focused = Cell::new(None);
@@ -685,7 +693,7 @@ mod tests {
                         |ui| {
                             let mut rows = ui.layout(crate::layout::flex::column());
                             for index in 10..20u8 {
-                                let mut row = rows.child_id(index);
+                                let mut row = rows.child_in(Scope::ROOT, index);
                                 row.interact(interact::focus());
                                 if focused.get() == Some(index) {
                                     row.focus();
@@ -701,7 +709,7 @@ mod tests {
             state.offset
         };
         step(&mut state);
-        state.scroll_to_widget(17u8, Animation::default(), AnimationOptions::default());
+        state.scroll_to_widget(Scope::ROOT.key(17u8), Animation::default(), AnimationOptions::default());
         assert_eq!(step(&mut state), 600.0);
         assert!(!state.is_moving());
         // a focus change reveals once, so scrolling away from a row that stays focused sticks

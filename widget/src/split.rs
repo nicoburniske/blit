@@ -56,14 +56,14 @@ impl<T: Scalar> Split<'_, T> {
         ui.build(|mut ui: Ui<'_, C>| {
             let state = self.state;
             let axis = self.axis;
-            let split = ui.id();
+            let split = ui.scope();
             let (leading_id, divider_id) = (0u8, 1u8);
-            let press = ui.node(split.child(divider_id)).interact(interact::press());
+            let press = ui.node(split.key(divider_id)).interact(interact::press());
             let measured = ui
-                .node(split.child(leading_id))
+                .node(split.key(leading_id))
                 .area()
                 .map(|area| axis.extent(area.size()));
-            let drag = ui.node(split.child(divider_id)).interact(interact::drag());
+            let drag = ui.node(split.key(divider_id)).interact(interact::drag());
             let delta = match axis {
                 Axis::Horizontal => drag.delta.x,
                 Axis::Vertical => drag.delta.y,
@@ -86,8 +86,8 @@ impl<T: Scalar> Split<'_, T> {
                 minimum_leading: self.minimum_leading,
                 minimum_trailing: self.minimum_trailing,
             });
-            panes.child_id(leading_id).build(leading);
-            panes.child_id(divider_id).build(|ui: Ui<'_, C>| {
+            panes.child_in(split, leading_id).build(leading);
+            panes.child_in(split, divider_id).build(|ui: Ui<'_, C>| {
                 divider(
                     ui,
                     SplitDivider {

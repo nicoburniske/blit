@@ -5,7 +5,7 @@ use std::{
 };
 
 use blit::{
-    Animation, Axis, Constraints, Easing, KeyboardEvent, Motion, Scalar, Sides, Size, Spring, Tween, Widget,
+    Animation, Axis, Constraints, Easing, KeyboardEvent, Motion, Scalar, Scope, Sides, Size, Spring, Tween, Widget,
     input::{Input, Key},
 };
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, Transition, board, select};
@@ -34,6 +34,9 @@ use blit_tui::{
         tint::Tint,
     },
 };
+
+// the canvas is named in the root scope beside the modal backdrop
+const CANVAS_KEY: u32 = 1;
 
 fn main() -> io::Result<()> {
     let mut demo = Demo::default();
@@ -261,14 +264,13 @@ impl Widget<TuiContext> for &mut AnimationPage {
                 }
                 let tween = Animation::Tween(Tween::new(spring.duration, Easing::EASE_IN_OUT));
                 let spring = Animation::Spring(spring);
-                for (index, (label, animation, restart)) in [
+                for (label, animation, restart) in [
                     ("tween / carry", tween, false),
                     ("tween / restart", tween, true),
                     ("spring / carry", spring, false),
                     ("spring / restart", spring, true),
                 ]
                 .into_iter()
-                .enumerate()
                 {
                     let mut row = preview
                         .child()
@@ -307,7 +309,7 @@ impl Widget<TuiContext> for &mut AnimationPage {
                             .options(TextOptions::new().horizontal_align(HorizontalAlign::Center)),
                     );
                     range
-                        .child_id(index)
+                        .child()
                         .place(range_id, marker)
                         .motion(Motion::new(animation).x().restart(restart))
                         .insert(Block::new().background(if restart { colors::ACCENT_DARK } else { colors::ACCENT }));
@@ -405,8 +407,8 @@ impl Widget<TuiContext> for &mut Modal {
             self.open = true;
             self.palette.open = false;
         }
-        let backdrop_id = "backdrop";
-        let backdrop = blit::Id::ROOT.child(backdrop_id);
+        let backdrop_id = 0;
+        let backdrop = Scope::ROOT.key(backdrop_id);
         if self.open && root.node(backdrop).interact(interact::press()).clicked {
             self.open = false;
         }
@@ -419,9 +421,8 @@ impl Widget<TuiContext> for &mut Modal {
             (" orchid ", Color::Rgb(205, 155, 255)),
         ];
         let (_, accent) = palettes[self.accent];
-        let panel_id = "panel";
         let mut modal = root
-            .child_in(blit::Id::ROOT, backdrop_id)
+            .child_in(Scope::ROOT, backdrop_id)
             .parent(blit::Id::ROOT)
             .z_index(1)
             .place(
@@ -432,7 +433,7 @@ impl Widget<TuiContext> for &mut Modal {
             )
             .layout(());
         modal.insert(Tint::new([0, 0, 0], if self.dim { 180 } else { 80 }));
-        let mut panel = modal.child_id(panel_id);
+        let mut panel = modal.child();
         panel.interact(interact::press());
         let parent = panel.parent_id();
         let mut panel = panel
@@ -475,7 +476,7 @@ impl Widget<TuiContext> for &mut Modal {
                         .border(Border::new(accent).style(BorderStyle::Rounded)),
                 );
                 for (index, (name, _)) in palettes.into_iter().enumerate() {
-                    if menu.child_id(index).build(Button::new(name, self.accent == index)) {
+                    if menu.child().build(Button::new(name, self.accent == index)) {
                         selected = Some(index);
                     }
                 }
@@ -727,7 +728,7 @@ impl Widget<TuiContext> for &mut TextPage {
                             .run_gap(1)
                             .align(Align::Center),
                     );
-                    for (index, (label, attribute)) in [
+                    for (label, attribute) in [
                         (" Bold ", TextAttributes::BOLD),
                         (" Dim ", TextAttributes::DIM),
                         (" Italic ", TextAttributes::ITALIC),
@@ -738,11 +739,10 @@ impl Widget<TuiContext> for &mut TextPage {
                         (" Strikethrough ", TextAttributes::STRIKETHROUGH),
                     ]
                     .into_iter()
-                    .enumerate()
                     {
                         let selected = text_attributes.contains(attribute);
                         if toggles
-                            .child_id(index)
+                            .child()
                             .build(Button::new(label, selected))
                         {
                             text_attributes.set(attribute, !selected);
@@ -1225,7 +1225,9 @@ impl Widget<TuiContext> for Canvas {
         let gap = |axis| self.config.gap(axis, unit);
         let item_sizing = |index| self.config.item_sizing(index, unit);
         let mut shell = ui.layout(());
-        let ui = shell.child_in(blit::Id::ROOT, "canvas");
+        let mut ui = shell.child_in(Scope::ROOT, CANVAS_KEY);
+        // items keep one key across layouts so they animate between them
+        let items = ui.scope();
         match self.config.layout {
             CanvasLayout::Flex => {
                 let mut canvas = ui
@@ -1241,7 +1243,7 @@ impl Widget<TuiContext> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = item_sizing(index);
                     canvas
-                        .child_id(index)
+                        .child_in(items, index)
                         .item(flex::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config, unit);
@@ -1267,7 +1269,7 @@ impl Widget<TuiContext> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = item_sizing(index);
                     canvas
-                        .child_id(index)
+                        .child_in(items, index)
                         .item(wrap::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config, unit);
@@ -1282,7 +1284,7 @@ impl Widget<TuiContext> for Canvas {
                 canvas.insert(background);
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
-                        .child_id(index)
+                        .child_in(items, index)
                         .item(
                             grid::item()
                                 .row_span(spec.rows)
@@ -1311,7 +1313,7 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     );
     if let Some(anchor) = spec.badge {
         item.child()
-            .parent(blit::Id::ROOT.child("canvas"))
+            .parent(Scope::ROOT.key(CANVAS_KEY))
             .z_index(1)
             .build(|ui: Ui<'_>| {
                 let parent = ui.parent_id();

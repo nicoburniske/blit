@@ -34,6 +34,9 @@ use blit_gui_widget::{
 };
 use blit_text::{Family, FontData, FontStyle};
 
+// the canvas is named in the root scope
+const CANVAS_KEY: u32 = 0;
+
 fn main() {
     let fonts = std::fs::read_dir(std::path::Path::new(env!("BLIT_TEST_FONT")).with_file_name(""))
         .unwrap()
@@ -322,14 +325,13 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                     *right = !*right;
                 }
                 let tween = Tween::new(spring.duration, Easing::EASE_IN_OUT);
-                for (index, (label, animation, restart)) in [
+                for (label, animation, restart) in [
                     ("tween / carry", Animation::Tween(tween), false),
                     ("tween / restart", Animation::Tween(tween), true),
                     ("spring / carry", Animation::Spring(spring), false),
                     ("spring / restart", Animation::Spring(spring), true),
                 ]
                 .into_iter()
-                .enumerate()
                 {
                     let mut row = preview
                         .child()
@@ -363,7 +365,7 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                             .radius(BorderRadius::all(sz::XXS)),
                     );
                     track
-                        .child_id(index)
+                        .child()
                         .place(track_id, marker)
                         .motion(Motion::new(animation).x().restart(restart))
                         .insert(
@@ -1074,7 +1076,9 @@ impl Widget<DesktopContext> for Canvas {
             .border(Border::solid(sz::BORDER_STRONG, colors::CANVAS_BORDER))
             .radius(BorderRadius::all(sz::XS));
         let mut shell = ui.layout(());
-        let ui = shell.child_in(blit::Id::ROOT, "canvas");
+        let mut ui = shell.child_in(blit::Scope::ROOT, CANVAS_KEY);
+        // items keep one key across layouts so they animate between them
+        let items = ui.scope();
         match self.config.layout {
             CanvasLayout::Flex => {
                 let mut canvas = ui
@@ -1090,7 +1094,7 @@ impl Widget<DesktopContext> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = self.config.item_sizing(index, self.unit);
                     canvas
-                        .child_id(index)
+                        .child_in(items, index)
                         .item(flex::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config);
@@ -1116,7 +1120,7 @@ impl Widget<DesktopContext> for Canvas {
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     let (width, height) = self.config.item_sizing(index, self.unit);
                     canvas
-                        .child_id(index)
+                        .child_in(items, index)
                         .item(wrap::item().width(width).height(height))
                         .build(|ui: Ui<'_>| {
                             canvas_item(ui, index, spec, self.config);
@@ -1131,7 +1135,7 @@ impl Widget<DesktopContext> for Canvas {
                 canvas.insert(background);
                 for (index, spec) in ITEMS.into_iter().enumerate() {
                     canvas
-                        .child_id(index)
+                        .child_in(items, index)
                         .item(
                             grid::item()
                                 .row_span(spec.rows)
@@ -1183,7 +1187,7 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
     }));
     if let Some(anchor) = spec.badge {
         item.child()
-            .parent(blit::Id::ROOT.child("canvas"))
+            .parent(blit::Scope::ROOT.key(CANVAS_KEY))
             .z_index(1)
             .build(|ui: Ui<'_>| {
                 let parent = ui.parent_id();

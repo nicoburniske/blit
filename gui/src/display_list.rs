@@ -8,13 +8,10 @@ use core::{
 
 use blit::{
     FrameStore, LogicalRect, PhysicalRect,
-    internal::{
-        bump::{Bump, Offset},
-        hash::FxHasher,
-    },
+    internal::bump::{Bump, Offset},
 };
 
-use crate::style::BorderRadius;
+use crate::{hash::FxHasher, style::BorderRadius};
 
 /// owned drawing inputs and their static backend operations
 #[derive(Default)]
