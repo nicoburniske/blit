@@ -79,6 +79,7 @@ impl<T: Scalar> ScrollArea<'_, T> {
                 track,
                 thumb,
                 thumb_active,
+                state.maximum_offset() > T::ZERO,
             );
             match (reveal, revealed) {
                 (Some(_), Some((content, node))) => {

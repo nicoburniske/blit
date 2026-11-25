@@ -350,15 +350,17 @@ where
             }
         };
         // built after the rows so they draw and take input above them
-        self.content
-            .child_id(TRACK)
-            .item(ListItem(Kind::Track(progress)))
-            .build(track);
-        let thumb_active = self.thumb_active;
-        self.content
-            .child_id(THUMB)
-            .item(ListItem(Kind::Thumb))
-            .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
+        if progress.visible_fraction < 1.0 {
+            self.content
+                .child_id(TRACK)
+                .item(ListItem(Kind::Track(progress)))
+                .build(track);
+            let thumb_active = self.thumb_active;
+            self.content
+                .child_id(THUMB)
+                .item(ListItem(Kind::Thumb))
+                .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
+        }
         if self.viewport.is_none() {
             // preserve the anchor until the viewport is known
             state.first = anchor.index;
@@ -589,13 +591,13 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for VirtualLayout<T> {
         {
             cx.request_frame();
         }
-        let (track, progress) = track.expect("virtual list track is missing");
-        let thumb = thumb.expect("virtual list thumb is missing");
-        // the track's own size sets the scrollbar thickness
-        let thickness = cross
-            .extent(cx.layout_child(track, Constraints::loose(constraints.max)))
-            .min(cross.extent(size));
-        self.scrollbar.layout(cx, axis, size, progress, thickness, track, thumb);
+        if let Some(((track, progress), thumb)) = track.zip(thumb) {
+            // the track's own size sets the scrollbar thickness
+            let thickness = cross
+                .extent(cx.layout_child(track, Constraints::loose(constraints.max)))
+                .min(cross.extent(size));
+            self.scrollbar.layout(cx, axis, size, progress, thickness, track, thumb);
+        }
         size
     }
 }
@@ -721,17 +723,17 @@ mod tests {
         let mut kernel = Kernel::default();
         let mut state = VirtualListState::default();
         let row = |index| (Id::new(index), [1.0, 1024.0, 16.0, 512.0][index % 4]);
-        let mut previous = settle_frame(&mut kernel, &mut state, None, row).1;
+        let mut previous = settle_frame(&mut kernel, &mut state, None, row).1.unwrap();
         for delta in [16.0, -16.0] {
             for _ in 0..400 {
                 state.scroll_by(delta);
-                let thumb = render_frame(&mut kernel, &mut state, None, Input::None, row).1;
+                let thumb = render_frame(&mut kernel, &mut state, None, Input::None, row).1.unwrap();
                 assert!((thumb.y - previous.y) * delta >= -0.0001);
                 if delta > 0.0 {
                     assert!(thumb.height <= previous.height);
                 }
                 assert!(thumb.y >= 0.0 && thumb.y + thumb.height <= 50.00001);
-                let idle = render_frame(&mut kernel, &mut state, None, Input::None, row).1;
+                let idle = render_frame(&mut kernel, &mut state, None, Input::None, row).1.unwrap();
                 assert_eq!(idle, thumb);
                 assert!(!kernel.has_pending_redraw());
                 previous = thumb;
@@ -800,7 +802,7 @@ mod tests {
         state: &mut VirtualListState<f32>,
         count: Option<usize>,
         row: impl Fn(usize) -> (Id, f32),
-    ) -> (Option<Rect<f32>>, Rect<f32>) {
+    ) -> (Option<Rect<f32>>, Option<Rect<f32>>) {
         for _ in 0..8 {
             let result = render_frame(kernel, state, count, Input::None, &row);
             if !kernel.has_pending_redraw() {
@@ -816,7 +818,7 @@ mod tests {
         count: Option<usize>,
         input: Input<f32>,
         row: impl Fn(usize) -> (Id, f32),
-    ) -> (Option<Rect<f32>>, Rect<f32>) {
+    ) -> (Option<Rect<f32>>, Option<Rect<f32>>) {
         kernel.build(
             &mut TestContext,
             FrameInfo::new(Size::new(80.0, 50.0)),
@@ -845,7 +847,7 @@ mod tests {
         kernel.layout(&mut TestContext);
         (
             kernel.area(Id::ROOT.child(row(state.position().0).0)),
-            kernel.area(Id::ROOT.child(THUMB)).unwrap(),
+            kernel.area(Id::ROOT.child(THUMB)),
         )
     }
 }

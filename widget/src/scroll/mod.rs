@@ -147,13 +147,15 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for ScrollLayout<T> {
             }
         }
         let content = content.expect("scroll area content is missing");
-        let track = track.expect("scroll area track is missing");
-        let thumb = thumb.expect("scroll area thumb is missing");
+        // the scrollbar is absent unless the content overflowed last frame
+        let bars = track.zip(thumb);
         // the track's own size sets the scrollbar thickness
         let cross = self.axis.other();
-        let thickness = cross
-            .extent(ui.layout_child(track, Constraints::loose(constraints.max)))
-            .min(cross.extent(constraints.max));
+        let thickness = bars.map_or(T::ZERO, |(track, _)| {
+            cross
+                .extent(ui.layout_child(track, Constraints::loose(constraints.max)))
+                .min(cross.extent(constraints.max))
+        });
         let mut gutter_size = Size::ZERO;
         if !self.scrollbar.floating {
             cross.set_extent(&mut gutter_size, thickness);
@@ -168,7 +170,7 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for ScrollLayout<T> {
         let viewport_extent = self.axis.extent(viewport_size);
         let maximum = (content_extent - viewport_extent).max(T::ZERO);
         let offset = self.offset.clamp(T::ZERO, maximum);
-        if viewport_extent != self.viewport_extent || offset != self.offset {
+        if viewport_extent != self.viewport_extent || offset != self.offset || bars.is_some() != (maximum > T::ZERO) {
             ui.request_frame();
         }
         ui.set_child_position(
@@ -178,11 +180,8 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for ScrollLayout<T> {
                 Axis::Vertical => Point::new(T::ZERO, -offset),
             },
         );
-        self.scrollbar.layout(
-            ui,
-            self.axis,
-            viewport_size,
-            ThumbProgress {
+        if let Some((track, thumb)) = bars {
+            let progress = ThumbProgress {
                 position: if maximum > T::ZERO {
                     offset.to_f32() / maximum.to_f32()
                 } else {
@@ -193,11 +192,10 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for ScrollLayout<T> {
                 } else {
                     1.0
                 },
-            },
-            thickness,
-            track,
-            thumb,
-        );
+            };
+            self.scrollbar
+                .layout(ui, self.axis, viewport_size, progress, thickness, track, thumb);
+        }
         viewport_size
     }
 }
@@ -220,11 +218,9 @@ impl<T: Scalar> Scrollbar<T> {
         thumb: NodeId,
     ) {
         let viewport_extent = axis.extent(size);
-        let scrollable = progress.visible_fraction < 1.0;
-        let track_extent = if scrollable { viewport_extent } else { T::ZERO };
         let track_size = match axis {
-            Axis::Horizontal => Size::new(track_extent, thickness),
-            Axis::Vertical => Size::new(thickness, track_extent),
+            Axis::Horizontal => Size::new(viewport_extent, thickness),
+            Axis::Vertical => Size::new(thickness, viewport_extent),
         };
         ui.layout_child(track, Constraints::tight(track_size));
         ui.set_child_position(
@@ -234,14 +230,9 @@ impl<T: Scalar> Scrollbar<T> {
                 Axis::Vertical => Point::new(size.width - thickness, T::ZERO),
             },
         );
-        let minimum_extent = self.minimum.max(T::ZERO);
-        let thumb_extent = if scrollable {
-            T::from_f32(viewport_extent.to_f32() * progress.visible_fraction)
-                .max(minimum_extent)
-                .min(viewport_extent)
-        } else {
-            T::ZERO
-        };
+        let thumb_extent = T::from_f32(viewport_extent.to_f32() * progress.visible_fraction)
+            .max(self.minimum.max(T::ZERO))
+            .min(viewport_extent);
         let thumb_offset = T::from_f32(progress.position * (viewport_extent - thumb_extent).to_f32());
         let thumb_size = match axis {
             Axis::Horizontal => Size::new(thumb_extent, thickness),
@@ -523,6 +514,7 @@ fn build_scroll<'a, C, L, W, R, H>(
     track: R,
     thumb: H,
     thumb_active: bool,
+    shown: bool,
 ) -> Ui<'a, C, blit::state::Open<L>>
 where
     C: Context,
@@ -533,11 +525,13 @@ where
 {
     let mut viewport = ui.layout(layout).clip(C::Scalar::ZERO);
     viewport.child_id(CONTENT).item(ScrollItem::Content).build(content);
-    viewport.child_id(TRACK).item(ScrollItem::Track).build(track);
-    viewport
-        .child_id(THUMB)
-        .item(ScrollItem::Thumb)
-        .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
+    if shown {
+        viewport.child_id(TRACK).item(ScrollItem::Track).build(track);
+        viewport
+            .child_id(THUMB)
+            .item(ScrollItem::Thumb)
+            .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
+    }
     viewport
 }
 
@@ -641,16 +635,17 @@ mod tests {
     }
 
     #[test]
-    fn floating_scrollbars_leave_the_content_width() {
-        for (floating, width) in [(false, 199.0), (true, 200.0)] {
+    fn scrollbars_appear_on_overflow_and_floating_ones_leave_the_content_width() {
+        for (floating, height, width) in [(false, 400.0, 199.0), (true, 400.0, 200.0), (false, 100.0, 200.0)] {
             let mut kernel = Kernel::default();
             let mut state = ScrollState::<f32>::new();
             let mut step = || {
                 crate::test::step(&mut kernel, Input::None, |mut ui: Ui<'_, TestContext>| {
                     let area = ui.node(ui.id().child(CONTENT)).area();
+                    let track = ui.node(ui.id().child(TRACK)).area();
                     ScrollArea::new(&mut state).floating(floating).build(
                         ui,
-                        |mut ui| ui.measure(|_, bounds| Size::new(bounds.max.width, 400.0)),
+                        |mut ui| ui.measure(move |_, bounds| Size::new(bounds.max.width, height)),
                         |ui| {
                             ui.constrain(Constraints {
                                 min: Size::uniform(1.0),
@@ -659,11 +654,14 @@ mod tests {
                         },
                         |_, _| {},
                     );
-                    area
+                    (area, track)
                 })
             };
             step();
-            assert_eq!(step().unwrap().width, width);
+            step();
+            let (area, track) = step();
+            assert_eq!(area.unwrap().width, width);
+            assert_eq!(track.is_some(), height > 200.0);
         }
     }
 
