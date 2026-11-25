@@ -10,8 +10,9 @@ use blit::{
     FrameStore, LogicalRect, PhysicalRect,
     internal::bump::{Bump, Offset},
 };
+use rustc_hash::FxHasher;
 
-use crate::{hash::FxHasher, style::BorderRadius};
+use crate::style::BorderRadius;
 
 /// owned drawing inputs and their static backend operations
 #[derive(Default)]

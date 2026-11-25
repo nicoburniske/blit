@@ -11,12 +11,15 @@
 //! rendering consumes disjoint horizontal runs of dirty tiles
 
 use alloc::{vec, vec::Vec};
-use core::{hash::Hash, ops::Range};
+use core::{
+    hash::{Hash, Hasher},
+    ops::Range,
+};
 
 use blit::{PhysicalRect, Scale2};
+use rustc_hash::FxHasher;
 
 use super::{DamageTracker, DisplayList};
-use crate::hash::FxHasher;
 
 pub struct TileDamage {
     shift: u32,

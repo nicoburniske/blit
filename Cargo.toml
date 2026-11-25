@@ -36,4 +36,5 @@ blit-text-parley = { path = "gui/text/parley" }
 blit-util = { path = "util" }
 hashbrown = "0.17.1"
 libm = "0.2.16"
+rustc-hash = { version = "2.1.3", default-features = false }
 wgpu = { version = "30.0.1", default-features = false }
