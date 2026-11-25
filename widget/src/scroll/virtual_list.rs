@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use blit::{Axis, Constraints, Layout, LayoutCx, NodeId, Point, Rect, Scalar, Size, Ui, state};
+use blit::{Axis, Constraints, Id, Layout, LayoutCx, NodeId, Point, Rect, Scalar, Size, Ui, state};
 
 use super::{Scrollbar, ScrollbarInput, THUMB, TRACK, ThumbProgress, content_input, content_motion, scrollbar_input};
 use crate::Context;
@@ -161,7 +161,7 @@ impl<'a, T: Scalar> VirtualList<'a, T> {
             },
         });
         state.sample.clear();
-        Rows {
+        let list = List {
             state,
             content,
             axis,
@@ -183,14 +183,54 @@ impl<'a, T: Scalar> VirtualList<'a, T> {
             phase: Phase::Down,
             track: Some(track),
             thumb: Some(thumb),
+        };
+        Rows {
+            list,
+            keys: |index| index,
         }
     }
 }
 
 /// the rows of a [`VirtualList`], measured as they are built
 ///
+/// rows are keyed by their index unless [`Rows::keys`] names them.
 /// the scrollbar is built once the rows run out or this is dropped
-pub struct Rows<'a, C, R, H>
+pub struct Rows<'a, C, R, H, K = fn(usize) -> usize>
+where
+    C: Context,
+    R: FnOnce(Ui<'_, C>),
+    H: FnOnce(Ui<'_, C>, bool),
+{
+    list: List<'a, C, R, H>,
+    keys: K,
+}
+
+impl<'a, C, R, H, K> Rows<'a, C, R, H, K>
+where
+    C: Context,
+    R: FnOnce(Ui<'_, C>),
+    H: FnOnce(Ui<'_, C>, bool),
+{
+    /// the next row to build and its index, until the viewport is covered
+    pub fn next<O: Into<Id>>(&mut self) -> Option<(usize, Ui<'_, C, state::Child<ListItem>>)>
+    where
+        K: FnMut(usize) -> O,
+    {
+        self.list.next(&mut self.keys)
+    }
+
+    /// names the row at each index, so a row keeps its state as rows before it come and go
+    pub fn keys<F, O>(self, keys: F) -> Rows<'a, C, R, H, F>
+    where
+        F: FnMut(usize) -> O,
+        O: Into<Id>,
+    {
+        Rows { list: self.list, keys }
+    }
+}
+
+// everything but the keys, which builds the scrollbar when dropped and so cannot be taken apart
+struct List<'a, C, R, H>
 where
     C: Context,
     R: FnOnce(Ui<'_, C>),
@@ -216,16 +256,16 @@ where
     thumb: Option<H>,
 }
 
-impl<C, R, H> Rows<'_, C, R, H>
+impl<C, R, H> List<'_, C, R, H>
 where
     C: Context,
     R: FnOnce(Ui<'_, C>),
     H: FnOnce(Ui<'_, C>, bool),
 {
-    /// the next row to build and its index, until the viewport is covered
-    ///
-    /// rows are keyed by their index unless given a key
-    pub fn next(&mut self) -> Option<(usize, Ui<'_, C, state::Child<ListItem>>)> {
+    fn next<K: Into<Id>>(
+        &mut self,
+        key: impl FnOnce(usize) -> K,
+    ) -> Option<(usize, Ui<'_, C, state::Child<ListItem>>)> {
         if self.phase == Phase::Done {
             return None;
         }
@@ -249,18 +289,11 @@ where
             self.finish();
             return None;
         };
-        let row = self.content.child_id(index).item(ListItem(Kind::Row(index)));
+        let row = self.content.child_id(key(index)).item(ListItem(Kind::Row(index)));
         self.pending = Some((index, row.node_id()));
         Some((index, row))
     }
-}
 
-impl<C, R, H> Rows<'_, C, R, H>
-where
-    C: Context,
-    R: FnOnce(Ui<'_, C>),
-    H: FnOnce(Ui<'_, C>, bool),
-{
     // the row built since the last call joins the window
     fn measure(&mut self) {
         let Some((index, node)) = self.pending.take() else {
@@ -371,7 +404,7 @@ where
     }
 }
 
-impl<C, R, H> Drop for Rows<'_, C, R, H>
+impl<C, R, H> Drop for List<'_, C, R, H>
 where
     C: Context,
     R: FnOnce(Ui<'_, C>),
@@ -832,12 +865,14 @@ mod tests {
                         max: Size::uniform(f32::INFINITY),
                     });
                 };
-                let mut list = VirtualList::new(&mut *state).count(count).begin(ui, track, |_, _| {});
+                let mut list = VirtualList::new(&mut *state)
+                    .count(count)
+                    .begin(ui, track, |_, _| {})
+                    .keys(|index| row(index).0);
                 while let Some((index, ui)) = list.next() {
                     let (id, extent) = row(index);
                     // a marker in the root scope covers the row so the frame can find it
-                    ui.key(id)
-                        .constrain(Constraints::tight(Size::new(79.0, extent)))
+                    ui.constrain(Constraints::tight(Size::new(79.0, extent)))
                         .layout(())
                         .child_in(Id::ROOT, id)
                         .insert(());
