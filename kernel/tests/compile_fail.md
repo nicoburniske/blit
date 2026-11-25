@@ -95,6 +95,6 @@ targets only query and request state
 use blit::*;
 
 fn insert_into_target<C: Context>(mut ui: Ui<'_, C>) {
-    ui.at(1).insert(());
+    ui.node(Id::ROOT).insert(());
 }
 ```

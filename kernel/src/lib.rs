@@ -11,6 +11,31 @@
 //! 2. [`Kernel::layout`] runs the measure and layout callbacks to size and position every node
 //! 3. [`Kernel::paint`] runs the paint callbacks with resolved geometry
 //!
+//! # identity
+//!
+//! every node receives a kernel assigned [`Id`] matched across frames without hashing
+//!
+//! - [`Ui::child`] matches by parent and call site
+//! - [`Ui::child_in`] matches by an integer [`Key`] in a [`Scope`] (from [`Ui::scope`] or [`Scope::ROOT`])
+//! - [`Ui::resolve`] turns a scope and key into its [`Id`] before the node is built
+//! - [`Ui::node`] queries a node's previous area or attaches interactions by [`Id`]
+//!
+//! an [`Id`] stops resolving once its node is absent for a full build, so resolve from a scope
+//! and key each frame rather than storing [`Id`]s across frames
+//!
+//! ```
+//! # use blit::Ui;
+//! fn widget(mut ui: Ui<'_, ()>) {
+//!     let parts = ui.scope();
+//!     let panel = ui.resolve(parts, 0);
+//!     let previous = ui.node(panel).area();
+//!
+//!     let mut root = ui.layout(());
+//!     root.child_in(parts, 0).insert(());
+//!     # let _ = previous;
+//! }
+//! ```
+//!
 //! # traits
 //!
 //! | trait        | stage         | does                                           |
