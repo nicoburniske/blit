@@ -1,4 +1,7 @@
-use blit::{Constraints, LayoutCx, Point, Scalar, Size, Ui, state::NoLayout};
+use blit::{
+    Constraints, LayoutCx, Point, Scalar, Scope, Size, Ui,
+    state::{NoLayout, Open},
+};
 
 use crate::{Context, interact};
 
@@ -34,63 +37,85 @@ blit::builder! {
 }
 
 impl<T: Scalar> Resize<'_, T> {
-    pub fn build<C, S, W, F>(self, ui: Ui<'_, C, S>, content: W, mut grip: F)
+    pub fn begin<'a, C, S>(self, mut ui: Ui<'a, C, S>) -> ResizeContent<'a, C>
     where
         C: Context<Scalar = T>,
         S: NoLayout,
-        W: FnOnce(Ui<'_, C>),
-        F: FnMut(Ui<'_, C>, ResizeGrip),
     {
-        ui.build(|mut ui: Ui<'_, C>| {
-            let state = self.state;
-            let previous = ui.area();
-            let resize = ui.scope();
-            let mut grip_input = |key: u8, edge| {
-                let id = ui.resolve(resize, key);
-                let mut part = ui.node(id);
-                let (press, drag) = (part.interact(interact::press()), part.interact(interact::drag()));
-                let grip = ResizeGrip {
-                    edge,
-                    hovered: press.hovered,
-                    active: press.active || drag.active,
-                };
-                (grip, drag.delta)
+        let state = self.state;
+        let previous = ui.area();
+        let scope = ui.scope();
+        let mut grip_input = |key: u8, edge| {
+            let id = ui.resolve(scope, key);
+            let mut part = ui.node(id);
+            let (press, drag) = (part.interact(interact::press()), part.interact(interact::drag()));
+            let grip = ResizeGrip {
+                edge,
+                hovered: press.hovered,
+                active: press.active || drag.active,
             };
-            let (right, right_delta) = grip_input(1, ResizeEdge::Right);
-            let (bottom, bottom_delta) = grip_input(2, ResizeEdge::Bottom);
-            let (corner, corner_delta) = grip_input(3, ResizeEdge::Corner);
-            let delta = Size::new(right_delta.x + corner_delta.x, bottom_delta.y + corner_delta.y);
-            if delta != Size::ZERO {
-                let size = state
-                    .size
-                    .or_else(|| previous.map(|area| area.size()))
-                    .unwrap_or(self.initial);
-                state.size = Some(size + delta);
-            }
-            let size = Constraints {
-                min: self.minimum,
-                max: self.maximum.max(self.minimum),
-            }
-            .constrain(state.size.unwrap_or(self.initial));
-            if let Some(stored) = &mut state.size {
-                *stored = size;
-            }
-            let mut shell = ui.layout(Layout {
-                size,
-                grip_size: self.grip_size,
-            });
-            shell.child().item(Item::Content).build(content);
-            for (item, grip_id, handle) in [
-                (Item::Right, 1, right),
-                (Item::Bottom, 2, bottom),
-                (Item::Corner, 3, corner),
-            ] {
-                shell
-                    .child_in(resize, grip_id)
-                    .item(item)
-                    .build(|ui: Ui<'_, C>| grip(ui, handle));
-            }
+            (grip, drag.delta)
+        };
+        let (right, right_delta) = grip_input(1, ResizeEdge::Right);
+        let (bottom, bottom_delta) = grip_input(2, ResizeEdge::Bottom);
+        let (corner, corner_delta) = grip_input(3, ResizeEdge::Corner);
+        let delta = Size::new(right_delta.x + corner_delta.x, bottom_delta.y + corner_delta.y);
+        if delta != Size::ZERO {
+            let size = state
+                .size
+                .or_else(|| previous.map(|area| area.size()))
+                .unwrap_or(self.initial);
+            state.size = Some(size + delta);
+        }
+        let size = Constraints {
+            min: self.minimum,
+            max: self.maximum.max(self.minimum),
+        }
+        .constrain(state.size.unwrap_or(self.initial));
+        if let Some(stored) = &mut state.size {
+            *stored = size;
+        }
+        let shell = ui.layout(Layout {
+            size,
+            grip_size: self.grip_size,
+        });
+        ResizeContent(ResizeGrips {
+            shell,
+            scope,
+            grips: [right, bottom, corner],
         })
+    }
+}
+
+#[must_use]
+pub struct ResizeContent<'a, C: Context>(ResizeGrips<'a, C>);
+
+impl<'a, C: Context> ResizeContent<'a, C> {
+    pub fn content(mut self, content: impl FnOnce(Ui<'_, C>)) -> ResizeGrips<'a, C> {
+        self.0.shell.child().item(Item::Content).build(content);
+        self.0
+    }
+}
+
+#[must_use]
+pub struct ResizeGrips<'a, C: Context> {
+    shell: Ui<'a, C, Open<Layout<C::Scalar>>>,
+    scope: Scope,
+    grips: [ResizeGrip; 3],
+}
+
+impl<C: Context> ResizeGrips<'_, C> {
+    pub fn grip(mut self, mut grip: impl FnMut(Ui<'_, C>, ResizeGrip)) {
+        for (item, grip_id, handle) in [
+            (Item::Right, 1, self.grips[0]),
+            (Item::Bottom, 2, self.grips[1]),
+            (Item::Corner, 3, self.grips[2]),
+        ] {
+            self.shell
+                .child_in(self.scope, grip_id)
+                .item(item)
+                .build(|ui: Ui<'_, C>| grip(ui, handle));
+        }
     }
 }
 

@@ -76,94 +76,92 @@ where
             .x(self.popover_x)
             .y(self.popover_y)
             .close(PopoverClose::Manual)
-            .build(
-                ui,
-                |ui, press, open| {
-                    let mut badge = ui
-                        .layout(flex::row().gap(self.gap).align(Align::Center))
-                        .pad(self.badge_padding);
-                    badge.insert(
-                        Rectangle::new()
-                            .background(if press.hovered || open {
-                                self.hover_background.unwrap_or(self.graph_background)
-                            } else {
-                                self.background
-                            })
-                            .border(border)
-                            .radius(self.radius),
+            .begin(ui)
+            .trigger(|ui, press, open| {
+                let mut badge = ui
+                    .layout(flex::row().gap(self.gap).align(Align::Center))
+                    .pad(self.badge_padding);
+                badge.insert(
+                    Rectangle::new()
+                        .background(if press.hovered || open {
+                            self.hover_background.unwrap_or(self.graph_background)
+                        } else {
+                            self.background
+                        })
+                        .border(border)
+                        .radius(self.radius),
+                );
+                badge
+                    .child()
+                    .item(flex::item().width(self.marker_size).height(self.marker_size))
+                    .insert(Rectangle::new().background(self.accent).radius(self.marker_radius));
+                badge
+                    .child()
+                    .insert(Text::new(label).style(self.text_style.color(self.color)));
+            })
+            .content(|ui| {
+                let profiler: &FrameProfiler = ui.context().as_ref();
+                let mut graph_values = ui.scratch().slice(columns);
+                graph_values.resize(columns, 0.0_f32);
+                for (value, millis) in graph_values.iter_mut().zip(profiler.graph(columns)) {
+                    *value = millis;
+                }
+                let scale = graph_values.iter().copied().fold(33.4_f32, f32::max);
+                let mut panel = ui.layout(flex::column().gap(self.gap)).pad(self.padding);
+                panel.insert(
+                    Rectangle::new()
+                        .background(self.background)
+                        .border(border)
+                        .radius(self.radius),
+                );
+                {
+                    let mut table = panel.child().layout(
+                        grid::new(3)
+                            .column_gap(self.table_gap.width)
+                            .row_gap(self.table_gap.height),
                     );
-                    badge
-                        .child()
-                        .item(flex::item().width(self.marker_size).height(self.marker_size))
-                        .insert(Rectangle::new().background(self.accent).radius(self.marker_radius));
-                    badge
-                        .child()
-                        .insert(Text::new(label).style(self.text_style.color(self.color)));
-                },
-                |ui| {
-                    let profiler: &FrameProfiler = ui.context().as_ref();
-                    let mut graph_values = ui.scratch().slice(columns);
-                    graph_values.resize(columns, 0.0_f32);
-                    for (value, millis) in graph_values.iter_mut().zip(profiler.graph(columns)) {
-                        *value = millis;
-                    }
-                    let scale = graph_values.iter().copied().fold(33.4_f32, f32::max);
-                    let mut panel = ui.layout(flex::column().gap(self.gap)).pad(self.padding);
-                    panel.insert(
-                        Rectangle::new()
-                            .background(self.background)
-                            .border(border)
-                            .radius(self.radius),
-                    );
+                    for (label, values) in ["stage", "total", "build", "layout", "paint"]
+                        .into_iter()
+                        .zip(values.iter())
                     {
-                        let mut table = panel.child().layout(
-                            grid::new(3)
-                                .column_gap(self.table_gap.width)
-                                .row_gap(self.table_gap.height),
-                        );
-                        for (label, values) in ["stage", "total", "build", "layout", "paint"]
-                            .into_iter()
-                            .zip(values.iter())
-                        {
+                        table
+                            .child()
+                            .insert(Text::new(label).style(self.text_style.color(self.muted_color)));
+                        for value in values {
                             table
                                 .child()
-                                .insert(Text::new(label).style(self.text_style.color(self.muted_color)));
-                            for value in values {
-                                table
-                                    .child()
-                                    .layout(flex::row().justify(crate::layout::Justify::End))
-                                    .child()
-                                    .insert(Text::new(value).style(self.text_style.color(self.color)));
-                            }
+                                .layout(flex::row().justify(crate::layout::Justify::End))
+                                .child()
+                                .insert(Text::new(value).style(self.text_style.color(self.color)));
                         }
                     }
-                    let mut chart = panel.child().layout(flex::row().gap(self.gap));
-                    {
-                        let mut axis = chart.child().item(flex::item().height(graph_height)).layout(
-                            flex::column()
-                                .align(Align::End)
-                                .justify(crate::layout::Justify::SpaceBetween),
-                        );
-                        for (label, value) in axis_labels.iter_mut().zip([scale, scale / 2.0, 0.0]) {
-                            label.clear();
-                            let _ = write!(label, "{value:.1} ms");
-                            axis.child()
-                                .insert(Text::new(label).style(self.text_style.color(self.muted_color)));
-                        }
+                }
+                let mut chart = panel.child().layout(flex::row().gap(self.gap));
+                {
+                    let mut axis = chart.child().item(flex::item().height(graph_height)).layout(
+                        flex::column()
+                            .align(Align::End)
+                            .justify(crate::layout::Justify::SpaceBetween),
+                    );
+                    for (label, value) in axis_labels.iter_mut().zip([scale, scale / 2.0, 0.0]) {
+                        label.clear();
+                        let _ = write!(label, "{value:.1} ms");
+                        axis.child()
+                            .insert(Text::new(label).style(self.text_style.color(self.muted_color)));
                     }
-                    let mut graph = chart
+                }
+                let mut graph = chart
+                    .child()
+                    .item(flex::item().width(graph_width).height(graph_height))
+                    .layout(flex::row().align(Align::End));
+                graph.insert(Rectangle::new().background(self.graph_background));
+                for &millis in graph_values.iter() {
+                    graph
                         .child()
-                        .item(flex::item().width(graph_width).height(graph_height))
-                        .layout(flex::row().align(Align::End));
-                    graph.insert(Rectangle::new().background(self.graph_background));
-                    for &millis in graph_values.iter() {
-                        graph
-                            .child()
-                            .item(flex::item().width(Sizing::grow()).height(graph_height * millis / scale))
-                            .insert(Rectangle::new().background(self.accent));
-                    }
-                },
-            );
+                        .item(flex::item().width(Sizing::grow()).height(graph_height * millis / scale))
+                        .insert(Rectangle::new().background(self.accent));
+                }
+            });
     }
 }
 

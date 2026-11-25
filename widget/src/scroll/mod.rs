@@ -1,5 +1,5 @@
 pub use self::{
-    area::Scroll,
+    area::{Scroll, ScrollBar, ScrollContent},
     list::{Rows, ScrollList, ScrollListState},
 };
 
@@ -151,7 +151,9 @@ impl<C: Context<Scalar = T>, T: Scalar> Layout<C> for ScrollLayout<T> {
                 ScrollItem::Thumb => thumb = Some(child),
             }
         }
-        let content = content.expect("scroll area content is missing");
+        let Some(content) = content else {
+            return constraints.min;
+        };
         // the scrollbar is absent unless the content overflowed last frame
         let bars = track.zip(thumb);
         // the track's own size sets the scrollbar thickness
@@ -256,9 +258,9 @@ impl<T: Scalar> Scrollbar<T> {
 
 /// updates scroll input and motion returning thumb activity and viewport availability
 /// uses the content and thumb children for geometry when present
-fn update<C: Context>(
+fn update<C: Context, S: Local>(
     state: &mut ScrollState<C::Scalar>,
-    ui: &mut Ui<'_, C>,
+    ui: &mut Ui<'_, C, S>,
     parts: Scope,
     axis: Axis,
     scroll_speed: f32,
@@ -531,38 +533,6 @@ fn move_by<T: Scalar>(state: &mut ScrollState<T>, amount: f32) {
     }
 }
 
-fn build_scroll<'a, C, L, W, R, H>(
-    ui: Ui<'a, C>,
-    parts: Scope,
-    layout: L,
-    content: W,
-    track: R,
-    thumb: H,
-    thumb_active: bool,
-    shown: bool,
-) -> Ui<'a, C, blit::state::Open<L>>
-where
-    C: Context,
-    L: Layout<C, Item = ScrollItem>,
-    W: FnOnce(Ui<'_, C>),
-    R: FnOnce(Ui<'_, C>),
-    H: FnOnce(Ui<'_, C>, bool),
-{
-    let mut viewport = ui.layout(layout).clip(C::Scalar::ZERO);
-    viewport
-        .child_in(parts, CONTENT)
-        .item(ScrollItem::Content)
-        .build(content);
-    if shown {
-        viewport.child_in(parts, TRACK).item(ScrollItem::Track).build(track);
-        viewport
-            .child_in(parts, THUMB)
-            .item(ScrollItem::Thumb)
-            .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
-    }
-    viewport
-}
-
 // children of a scroll node, keyed in its own scope
 const CONTENT: u8 = 0;
 const TRACK: u8 = 1;
@@ -633,14 +603,12 @@ mod tests {
                         phase,
                     }),
                     |ui: Ui<'_, TestContext>| {
-                        Scroll::new(&mut state).build(
-                            ui,
-                            |mut ui| {
+                        Scroll::new(&mut state)
+                            .begin(ui)
+                            .content(|mut ui| {
                                 ui.measure(|_, bounds| bounds.constrain(Size::new(200.0, 4000.0)));
-                            },
-                            |_| {},
-                            |_, _| {},
-                        )
+                            })
+                            .scrollbar(|_| {}, |_, _| {})
                     },
                 );
                 kernel.layout(&mut TestContext);
@@ -672,21 +640,23 @@ mod tests {
             let mut step = || {
                 crate::test::step(&mut kernel, Input::None, |ui: Ui<'_, TestContext>| {
                     let (area, track) = (Cell::new(None), Cell::new(None));
-                    Scroll::new(&mut state).floating(floating).build(
-                        ui,
-                        |mut ui| {
+                    Scroll::new(&mut state)
+                        .floating(floating)
+                        .begin(ui)
+                        .content(|mut ui| {
                             area.set(ui.area());
                             ui.measure(move |_, bounds| Size::new(bounds.max.width, height))
-                        },
-                        |ui| {
-                            track.set(ui.area());
-                            ui.constrain(Constraints {
-                                min: Size::uniform(1.0),
-                                max: Size::uniform(f32::INFINITY),
-                            });
-                        },
-                        |_, _| {},
-                    );
+                        })
+                        .scrollbar(
+                            |ui| {
+                                track.set(ui.area());
+                                ui.constrain(Constraints {
+                                    min: Size::uniform(1.0),
+                                    max: Size::uniform(f32::INFINITY),
+                                });
+                            },
+                            |_, _| {},
+                        );
                     (area.get(), track.get())
                 })
             };
@@ -707,9 +677,9 @@ mod tests {
         let mut step = |state: &mut ScrollState<f32>| {
             for _ in 0..3 {
                 crate::test::step(&mut kernel, Input::None, |ui: Ui<'_, TestContext>| {
-                    Scroll::new(state).build(
-                        ui,
-                        |ui| {
+                    Scroll::new(state)
+                        .begin(ui)
+                        .content(|ui| {
                             let mut rows = ui.layout(crate::layout::flex::column());
                             for index in 10..20u8 {
                                 let mut row = rows.child_in(Scope::ROOT, index);
@@ -722,10 +692,8 @@ mod tests {
                                 }
                                 row.measure(|_, bounds| bounds.constrain(Size::new(200.0, 100.0)));
                             }
-                        },
-                        |_| {},
-                        |_, _| {},
-                    )
+                        })
+                        .scrollbar(|_| {}, |_, _| {})
                 });
             }
             state.offset

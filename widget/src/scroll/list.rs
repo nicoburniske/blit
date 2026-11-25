@@ -30,12 +30,10 @@ blit::builder! {
 
 impl<'a, T: Scalar> ScrollList<'a, T> {
     /// starts the list in `ui`, whose rows then come from [`Rows::next`]
-    pub fn begin<C, S, R, H>(self, mut ui: Ui<'a, C, S>, track: R, thumb: H) -> Rows<'a, C, R, H>
+    pub fn begin<C, S>(self, mut ui: Ui<'a, C, S>) -> Rows<'a, C>
     where
         C: Context<Scalar = T>,
         S: state::NoLayout,
-        R: FnOnce(Ui<'_, C>),
-        H: FnOnce(Ui<'_, C>, bool),
     {
         let Self {
             state,
@@ -199,8 +197,7 @@ impl<'a, T: Scalar> ScrollList<'a, T> {
             },
             pending: None,
             phase: Phase::Down,
-            track: Some(track),
-            thumb: Some(thumb),
+            progress: None,
         };
         Rows {
             list,
@@ -212,23 +209,13 @@ impl<'a, T: Scalar> ScrollList<'a, T> {
 /// the rows of a [`ScrollList`], measured as they are built
 ///
 /// rows are keyed by their index unless [`Rows::keys`] names them.
-/// the scrollbar is built once the rows run out or this is dropped
-pub struct Rows<'a, C, R, H, K = fn(usize) -> usize>
-where
-    C: Context,
-    R: FnOnce(Ui<'_, C>),
-    H: FnOnce(Ui<'_, C>, bool),
-{
-    list: List<'a, C, R, H>,
+/// finish with [`Rows::scrollbar`] to draw a scrollbar
+pub struct Rows<'a, C: Context, K = fn(usize) -> usize> {
+    list: List<'a, C>,
     keys: K,
 }
 
-impl<'a, C, R, H, K> Rows<'a, C, R, H, K>
-where
-    C: Context,
-    R: FnOnce(Ui<'_, C>),
-    H: FnOnce(Ui<'_, C>, bool),
-{
+impl<'a, C: Context, K> Rows<'a, C, K> {
     /// the next row to build and its index, until the viewport is covered
     #[allow(clippy::should_implement_trait)]
     pub fn next<O: Key>(&mut self) -> Option<(usize, Ui<'_, C>)>
@@ -239,22 +226,35 @@ where
     }
 
     /// names the row at each index, so a row keeps its state as rows before it come and go
-    pub fn keys<F, O>(self, keys: F) -> Rows<'a, C, R, H, F>
+    pub fn keys<F, O>(self, keys: F) -> Rows<'a, C, F>
     where
         F: FnMut(usize) -> O,
         O: Key,
     {
         Rows { list: self.list, keys }
     }
+
+    /// builds the scrollbar once the rows are done
+    pub fn scrollbar(mut self, track: impl FnOnce(Ui<'_, C>), thumb: impl FnOnce(Ui<'_, C>, bool)) {
+        self.list.finish();
+        if let Some(progress) = self.list.progress.filter(|progress| progress.visible_fraction < 1.0) {
+            self.list
+                .content
+                .child_in(self.list.parts, TRACK)
+                .item(ListItem(Kind::Track(progress)))
+                .build(track);
+            let thumb_active = self.list.thumb_active;
+            self.list
+                .content
+                .child_in(self.list.parts, THUMB)
+                .item(ListItem(Kind::Thumb))
+                .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
+        }
+    }
 }
 
-// everything but the keys, which builds the scrollbar when dropped and so cannot be taken apart
-struct List<'a, C, R, H>
-where
-    C: Context,
-    R: FnOnce(Ui<'_, C>),
-    H: FnOnce(Ui<'_, C>, bool),
-{
+// everything but the keys, which finishes state updates when dropped and so cannot be taken apart
+struct List<'a, C: Context> {
     state: &'a mut ScrollListState<C::Scalar>,
     content: Ui<'a, C, state::Open<VirtualLayout<C::Scalar>>>,
     parts: Scope,
@@ -272,17 +272,10 @@ where
     // the row handed out last, measured on the next call
     pending: Option<(usize, Id)>,
     phase: Phase,
-    // taken once the rows run out
-    track: Option<R>,
-    thumb: Option<H>,
+    progress: Option<ThumbProgress>,
 }
 
-impl<C, R, H> List<'_, C, R, H>
-where
-    C: Context,
-    R: FnOnce(Ui<'_, C>),
-    H: FnOnce(Ui<'_, C>, bool),
-{
+impl<C: Context> List<'_, C> {
     fn next<K: Key>(&mut self, key: impl FnOnce(usize) -> K) -> Option<(usize, Ui<'_, C>)> {
         if self.phase == Phase::Done {
             return None;
@@ -330,11 +323,11 @@ where
     }
 
     fn finish(&mut self) {
+        if self.phase == Phase::Done {
+            return;
+        }
         self.measure();
         self.phase = Phase::Done;
-        let (Some(track), Some(thumb)) = (self.track.take(), self.thumb.take()) else {
-            return;
-        };
         let state = &mut *self.state;
         let window = &self.window;
         let anchor = self.anchor;
@@ -403,18 +396,7 @@ where
                 },
             }
         };
-        // built after the rows so they draw and take input above them
-        if progress.visible_fraction < 1.0 {
-            self.content
-                .child_in(self.parts, TRACK)
-                .item(ListItem(Kind::Track(progress)))
-                .build(track);
-            let thumb_active = self.thumb_active;
-            self.content
-                .child_in(self.parts, THUMB)
-                .item(ListItem(Kind::Thumb))
-                .build(|ui: Ui<'_, C>| thumb(ui, thumb_active));
-        }
+        self.progress = Some(progress);
         if self.viewport.is_none() {
             // preserve the anchor until the viewport is known
             state.first = anchor.index;
@@ -425,12 +407,7 @@ where
     }
 }
 
-impl<C, R, H> Drop for List<'_, C, R, H>
-where
-    C: Context,
-    R: FnOnce(Ui<'_, C>),
-    H: FnOnce(Ui<'_, C>, bool),
-{
+impl<C: Context> Drop for List<'_, C> {
     fn drop(&mut self) {
         self.finish();
     }
@@ -976,11 +953,7 @@ mod tests {
                 Duration::ZERO,
                 Input::None,
                 |ui: Ui<'_, TestContext>| {
-                    let mut list =
-                        ScrollList::new(&mut state)
-                            .axis(Axis::Horizontal)
-                            .count(10)
-                            .begin(ui, |_| {}, |_, _| {});
+                    let mut list = ScrollList::new(&mut state).axis(Axis::Horizontal).count(10).begin(ui);
                     while let Some((index, row)) = list.next() {
                         row.constrain(Constraints::tight(Size::new(10.0, 20.0)))
                             .layout(())
@@ -1009,11 +982,7 @@ mod tests {
                 Duration::from_millis(millis),
                 Input::None,
                 |ui: Ui<'_, TestContext>| {
-                    let mut list =
-                        ScrollList::new(state)
-                            .count(1_000)
-                            .animation(animation)
-                            .begin(ui, |_| {}, |_, _| {});
+                    let mut list = ScrollList::new(state).count(1_000).animation(animation).begin(ui);
                     while let Some((_, row)) = list.next() {
                         row.constrain(Constraints::tight(Size::new(80.0, 10.0))).insert(());
                     }
@@ -1098,7 +1067,7 @@ mod tests {
                 };
                 let mut list = ScrollList::new(&mut *state)
                     .count(count)
-                    .begin(ui, track, |ui: Ui<'_, TestContext>, _| thumb = Some(ui.id()))
+                    .begin(ui)
                     .keys(|index| row(index).0);
                 while let Some((index, ui)) = list.next() {
                     let (id, extent) = row(index);
@@ -1108,6 +1077,7 @@ mod tests {
                         .child_in(Scope::ROOT, id)
                         .insert(());
                 }
+                list.scrollbar(track, |ui, _| thumb = Some(ui.id()));
             },
         );
         kernel.layout(&mut TestContext);

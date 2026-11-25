@@ -1,5 +1,3 @@
-use std::cell::Cell;
-
 use blit::{Animation, Axis, Constraints, Easing, LogicalRect, Motion, Sides, Size, Spring, Tween, Widget};
 use blit_demo::{CanvasConfig, CanvasLayout, ITEMS, ItemSizing, ScrollDemo, Transition, board, select};
 #[cfg(not(feature = "gpu"))]
@@ -31,7 +29,6 @@ use blit_gui_widget::{
 use blit_text::{Family, FontData, FontStyle};
 
 // the canvas is named in the root scope
-const CANVAS_KEY: u32 = 0;
 
 fn main() {
     let fonts = std::fs::read_dir(std::path::Path::new(env!("BLIT_TEST_FONT")).with_file_name(""))
@@ -170,36 +167,32 @@ impl Application for App {
                 draw_button,
             ));
             header.child().item(flex::item().grow()).insert(());
-            let mut reset = false;
             Popover::new(&mut self.settings)
                 .target_anchor(Anchor::BottomRight)
                 .child_anchor(Anchor::TopRight)
                 .y(sz::XXS)
                 .open_on_hover(true)
                 .close(PopoverClose::Exit)
-                .build(
-                    header.child(),
-                    |ui, press, open| draw_button(ui, "settings", open, press),
-                    |ui| {
-                        let mut popup = ui.layout(flex::column().gap(sz::SM)).pad(sz::MD);
-                        popup.insert(
-                            Rectangle::new()
-                                .background(colors::SURFACE)
-                                .border(Border::solid(sz::BORDER, colors::ACCENT))
-                                .radius(BorderRadius::all(sz::XS)),
-                        );
-                        if popup
-                            .child()
-                            .build(Button::new("Show performance", self.show_performance))
-                        {
-                            self.show_performance = !self.show_performance;
-                        }
-                        reset = popup.child().build(Button::new("Reset", false));
-                    },
-                );
-            if reset {
-                *self = Self::default();
-            }
+                .begin(header.child())
+                .trigger(|ui, press, open| draw_button(ui, "settings", open, press))
+                .content(|ui| {
+                    let mut popup = ui.layout(flex::column().gap(sz::SM)).pad(sz::MD);
+                    popup.insert(
+                        Rectangle::new()
+                            .background(colors::SURFACE)
+                            .border(Border::solid(sz::BORDER, colors::ACCENT))
+                            .radius(BorderRadius::all(sz::XS)),
+                    );
+                    if popup
+                        .child()
+                        .build(Button::new("Show performance", self.show_performance))
+                    {
+                        self.show_performance = !self.show_performance;
+                    }
+                    if popup.child().build(Button::new("Reset", false)) {
+                        *self = Self::default();
+                    }
+                });
         }
         match self.page {
             Page::Layout => root.child().item(flex::item().grow()).build(&mut self.layout),
@@ -265,19 +258,18 @@ impl Widget<DesktopContext> for &mut AnimationPage {
             scroll: controls_scroll,
             split: split_state,
         } = self;
-        let settings = Cell::new(*spring);
         let mut body = ui.layout(flex::row());
-        split(split_state).build(
-            body.child().item(flex::item().grow()),
-            |ui| {
+        split(split_state)
+            .begin(body.child().item(flex::item().grow()))
+            .first(|ui| {
                 let mut sidebar = ui.layout(flex::column().gap(sz::XS)).clip(0.0).pad(sz::LG);
                 sidebar.insert(panel(colors::SURFACE));
                 sidebar
                     .child()
                     .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-                scroll_area(controls_scroll).build(
-                    sidebar.child().item(flex::item().grow()),
-                    |ui| {
+                scroll_area(controls_scroll)
+                    .begin(sidebar.child().item(flex::item().grow()))
+                    .content(|ui| {
                         let mut controls = ui.layout(flex::column().gap(sz::LG));
                         controls.child().build(|ui: Ui<'_>| {
                             choices(
@@ -295,14 +287,12 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                                 &[("350ms", 0.35), ("650ms", 0.65), ("1000ms", 1.0), ("2000ms", 2.0)],
                             );
                         });
-                    },
-                    scroll_track,
-                    scroll_thumb,
-                );
-                settings.set(*spring);
-            },
-            |ui| {
-                let spring = settings.get();
+                    })
+                    .scrollbar(scroll_track, scroll_thumb);
+            })
+            .divider(split_divider)
+            .second(|ui| {
+                let spring = *spring;
                 let mut preview = ui.layout(flex::column().gap(sz::SM)).clip(0.0).pad(sz::LG);
                 preview.insert(panel(colors::SURFACE));
                 preview
@@ -367,9 +357,7 @@ impl Widget<DesktopContext> for &mut AnimationPage {
                                 .radius(BorderRadius::all(sz::XXS)),
                         );
                 }
-            },
-            split_divider,
-        );
+            });
     }
 }
 
@@ -507,18 +495,11 @@ impl Widget<DesktopContext> for &mut TextPage {
             max_lines,
             split: split_state,
         } = self;
-        let options = TextOptions {
-            wrap: *wrap,
-            overflow: *overflow,
-            horizontal_align: *horizontal,
-            vertical_align: *vertical,
-            max_lines: *max_lines,
-        };
         let screen = ui.screen().size();
         let mut body = ui.layout(flex::row());
-        split(split_state).build(
-            body.child().item(flex::item().grow()),
-            |ui| {
+        split(split_state)
+            .begin(body.child().item(flex::item().grow()))
+            .first(|ui| {
                 let mut controls = ui.layout(flex::column().gap(sz::LG)).pad(sz::LG);
                 controls.insert(panel(colors::SURFACE));
                 controls
@@ -576,8 +557,16 @@ impl Widget<DesktopContext> for &mut TextPage {
                         &[("All", None), ("3", Some(3)), ("6", Some(6))],
                     );
                 });
-            },
-            |ui| {
+            })
+            .divider(split_divider)
+            .second(|ui| {
+                let options = TextOptions {
+                    wrap: *wrap,
+                    overflow: *overflow,
+                    horizontal_align: *horizontal,
+                    vertical_align: *vertical,
+                    max_lines: *max_lines,
+                };
                 let mut preview = ui.layout(flex::column().gap(sz::SM)).pad(sz::LG);
                 preview.insert(panel(colors::SURFACE));
                 preview
@@ -595,32 +584,28 @@ impl Widget<DesktopContext> for &mut TextPage {
                         .minimum(Size::new(260.0, 160.0))
                         .maximum(screen)
                         .grip_size(Size::uniform(sz::MD))
-                        .build(
-                            viewport.child(),
-                            |ui| {
-                                let mut paragraph = ui.layout(()).clip(0.0).pad(sz::LG);
-                                paragraph.insert(
-                                    Rectangle::new()
-                                        .background(colors::CANVAS)
-                                        .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
-                                        .radius(BorderRadius::all(sz::XS)),
-                                );
-                                paragraph.child().insert(
-                                    RichText::new(text, spans)
-                                        .style(TextStyle {
-                                            size: sz::LG,
-                                            color: colors::TEXT_MUTED,
-                                            ..TextStyle::default()
-                                        })
-                                        .options(options),
-                                );
-                            },
-                            draw_grip,
-                        );
+                        .begin(viewport.child())
+                        .content(|ui| {
+                            let mut paragraph = ui.layout(()).clip(0.0).pad(sz::LG);
+                            paragraph.insert(
+                                Rectangle::new()
+                                    .background(colors::CANVAS)
+                                    .border(Border::solid(sz::BORDER, colors::CANVAS_BORDER))
+                                    .radius(BorderRadius::all(sz::XS)),
+                            );
+                            paragraph.child().insert(
+                                RichText::new(text, spans)
+                                    .style(TextStyle {
+                                        size: sz::LG,
+                                        color: colors::TEXT_MUTED,
+                                        ..TextStyle::default()
+                                    })
+                                    .options(options),
+                            );
+                        })
+                        .grip(draw_grip);
                 });
-            },
-            split_divider,
-        );
+            });
     }
 }
 
@@ -697,19 +682,18 @@ impl Widget<DesktopContext> for &mut LayoutPage {
         } = self;
         let screen = ui.screen().size();
         let unit = Size::uniform(sz::SM);
-        let preview_config = *canvas;
         let mut body = ui.layout(flex::row());
-        split(split_state).build(
-            body.child().item(flex::item().grow()),
-            |ui| {
+        split(split_state)
+            .begin(body.child().item(flex::item().grow()))
+            .first(|ui| {
                 let mut sidebar = ui.layout(flex::column().gap(sz::XS)).pad(sz::LG);
                 sidebar.insert(panel(colors::SURFACE));
                 sidebar
                     .child()
                     .insert(Text::new("PARAMETERS").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-                scroll_area(controls_scroll).build(
-                    sidebar.child().item(flex::item().grow()),
-                    |ui| {
+                scroll_area(controls_scroll)
+                    .begin(sidebar.child().item(flex::item().grow()))
+                    .content(|ui| {
                         let mut controls = ui.layout(flex::column().gap(sz::LG));
                         controls.child().build(|ui: Ui<'_>| {
                             choices(
@@ -809,12 +793,11 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                                 ],
                             );
                         });
-                    },
-                    scroll_track,
-                    scroll_thumb,
-                );
-            },
-            |ui| {
+                    })
+                    .scrollbar(scroll_track, scroll_thumb);
+            })
+            .divider(split_divider)
+            .second(|ui| {
                 let mut preview = ui.layout(flex::column().gap(sz::SM)).pad(sz::LG);
                 preview.insert(panel(colors::SURFACE));
                 preview
@@ -833,20 +816,11 @@ impl Widget<DesktopContext> for &mut LayoutPage {
                         .initial(initial)
                         .minimum(sz::CANVAS_MIN)
                         .grip_size(Size::uniform(sz::MD))
-                        .build(
-                            viewport.child(),
-                            |ui| {
-                                ui.build(Canvas {
-                                    config: preview_config,
-                                    unit,
-                                })
-                            },
-                            draw_grip,
-                        );
+                        .begin(viewport.child())
+                        .content(|ui| ui.build(Canvas { config: *canvas, unit }))
+                        .grip(draw_grip);
                 });
-            },
-            split_divider,
-        );
+            });
     }
 }
 
@@ -860,40 +834,30 @@ impl Widget<DesktopContext> for &mut ScrollPage {
     type Response = ();
 
     fn build(self, ui: Ui<'_>) {
-        let ScrollPage {
-            demo,
-            split: split_state,
-        } = self;
-        let axis = std::cell::Cell::new(demo.axis);
-        let count = std::cell::Cell::new(demo.count);
-        let transition = std::cell::Cell::new(demo.transition);
-        let command = std::cell::Cell::new(None);
-        let (current, offset) = demo.list.position();
-        let (far_target, far_label) = demo.far_target();
-        split(split_state).build(
-            ui,
-            |ui| {
+        split(&mut self.split)
+            .begin(ui)
+            .first(|ui| {
+                let previous = (self.demo.axis, self.demo.count);
+                let (current, offset) = self.demo.list.position();
+                let (far_target, far_label) = self.demo.far_target();
                 let mut sidebar = ui.layout(flex::column().gap(sz::LG)).pad(sz::LG);
                 sidebar.insert(panel(colors::SURFACE));
                 sidebar
                     .child()
                     .insert(Text::new("SCROLL").style(TextStyle::new().size(sz::MD).color(colors::ACCENT)));
-                let mut selected_axis = axis.get();
                 sidebar.child().build(|ui: Ui<'_>| {
                     choices(
                         ui,
                         "axis",
-                        &mut selected_axis,
+                        &mut self.demo.axis,
                         &[("Vertical", Axis::Vertical), ("Horizontal", Axis::Horizontal)],
                     );
                 });
-                axis.set(selected_axis);
-                let mut selected_count = count.get();
                 sidebar.child().build(|ui: Ui<'_>| {
                     choices(
                         ui,
                         "count",
-                        &mut selected_count,
+                        &mut self.demo.count,
                         &[
                             ("100", Some(100)),
                             ("1k", Some(1_000)),
@@ -902,13 +866,11 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                         ],
                     );
                 });
-                count.set(selected_count);
-                let mut selected_transition = transition.get();
                 sidebar.child().build(|ui: Ui<'_>| {
                     choices(
                         ui,
                         "animation",
-                        &mut selected_transition,
+                        &mut self.demo.transition,
                         &[
                             ("Off", Transition::Off),
                             ("Spring", Transition::Spring),
@@ -916,7 +878,9 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                         ],
                     );
                 });
-                transition.set(selected_transition);
+                if (self.demo.axis, self.demo.count) != previous {
+                    self.demo.list = ScrollListState::default();
+                }
                 {
                     let mut group = sidebar.child().layout(flex::column().gap(sz::XXS));
                     group
@@ -926,53 +890,42 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                         .child()
                         .layout(wrap::horizontal().item_gap(sz::XXS).run_gap(sz::XXS));
                     if actions.child().build(Button::new("Top", false)) {
-                        command.set(Some((0, false)));
+                        self.demo.list.scroll_to(0, 0.0);
                     }
                     if actions.child().build(Button::new("-5", false)) {
-                        command.set(Some((current.saturating_sub(5), false)));
+                        self.demo.list.scroll_to(current.saturating_sub(5), 0.0);
                     }
                     if actions.child().build(Button::new("+5", false)) {
-                        command.set(Some((current + 5, false)));
+                        self.demo.list.scroll_to(current + 5, 0.0);
                     }
                     if actions.child().build(Button::new(far_label, false)) {
-                        command.set(Some((far_target, false)));
+                        self.demo.list.scroll_to(far_target, 0.0);
                     }
                     if actions.child().build(Button::new("Jump 0", false)) {
-                        command.set(Some((0, true)));
+                        self.demo.list.jump_to(0, 0.0);
                     }
                 }
                 sidebar.child().insert(
                     Text::new(format_args!("row {current}  ·  {offset:.0} px"))
                         .style(TextStyle::new().size(sz::SM).color(colors::TEXT_DIM)),
                 );
-            },
-            |ui| {
-                if axis.get() != demo.axis || count.get() != demo.count {
-                    demo.axis = axis.get();
-                    demo.count = count.get();
-                    demo.list = ScrollListState::default();
-                } else if let Some((target, jump)) = command.get() {
-                    if jump {
-                        demo.list.jump_to(target, 0.0);
-                    } else {
-                        demo.list.scroll_to(target, 0.0);
-                    }
-                }
-                demo.transition = transition.get();
+            })
+            .divider(split_divider)
+            .second(|ui| {
                 let mut frame = ui.layout(flex::column()).clip(2.0).pad(sz::BORDER);
                 frame.insert(panel(colors::BACKGROUND));
-                let horizontal = demo.axis == Axis::Horizontal;
-                let animation = demo.animation();
+                let horizontal = self.demo.axis == Axis::Horizontal;
+                let animation = self.demo.animation();
                 let mut inner = frame.child().item(flex::item().grow()).clip(1.0).layout(());
-                let mut rows = ScrollList::new(&mut demo.list)
-                    .axis(demo.axis)
-                    .count(demo.count)
+                let mut rows = ScrollList::new(&mut self.demo.list)
+                    .axis(self.demo.axis)
+                    .count(self.demo.count)
                     .animation(animation)
                     .scroll_speed(2.0)
                     .inertia_friction(3.0)
                     .minimum_thumb_extent(sz::XXL)
                     .floating(true)
-                    .begin(inner.child(), scroll_track, scroll_thumb);
+                    .begin(inner.child());
                 while let Some((index, ui)) = rows.next() {
                     let accent = colors::ITEMS[index % colors::ITEMS.len()];
                     if horizontal {
@@ -1023,9 +976,8 @@ impl Widget<DesktopContext> for &mut ScrollPage {
                         );
                     }
                 }
-            },
-            split_divider,
-        );
+                rows.scrollbar(scroll_track, scroll_thumb);
+            });
     }
 }
 
@@ -1147,13 +1099,11 @@ struct Canvas {
 impl Widget<DesktopContext> for Canvas {
     type Response = ();
 
-    fn build(self, ui: Ui<'_>) {
+    fn build(self, mut ui: Ui<'_>) {
         let background = Rectangle::new()
             .background(colors::CANVAS)
             .border(Border::solid(sz::BORDER_STRONG, colors::CANVAS_BORDER))
             .radius(BorderRadius::all(sz::XS));
-        let mut shell = ui.layout(());
-        let mut ui = shell.child_in(blit::Scope::ROOT, CANVAS_KEY);
         // items keep one key across layouts so they animate between them
         let items = ui.scope();
         match self.config.layout {
@@ -1263,7 +1213,7 @@ fn canvas_item(ui: Ui<'_>, index: usize, spec: blit_demo::ItemSpec, config: Canv
         ..TextStyle::default()
     }));
     if let Some(anchor) = spec.badge {
-        let canvas = item.resolve(blit::Scope::ROOT, CANVAS_KEY);
+        let canvas = item.parent_id();
         item.child().parent(canvas).z_index(1).build(|ui: Ui<'_>| {
             let parent = ui.parent_id();
             let mut badge = ui

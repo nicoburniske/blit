@@ -74,97 +74,95 @@ where
             .x(self.popover_x)
             .y(self.popover_y)
             .close(PopoverClose::Manual)
-            .build(
-                ui,
-                |ui, press, open| {
-                    let mut badge = ui
-                        .layout(flex::row().gap(self.gap).align(Align::Center))
-                        .pad(self.badge_padding);
-                    badge.insert(
-                        Block::new()
-                            .background(if press.hovered || open {
-                                self.hover_background.unwrap_or(self.graph_background)
-                            } else {
-                                self.background
-                            })
-                            .border(border),
-                    );
-                    badge
+            .begin(ui)
+            .trigger(|ui, press, open| {
+                let mut badge = ui
+                    .layout(flex::row().gap(self.gap).align(Align::Center))
+                    .pad(self.badge_padding);
+                badge.insert(
+                    Block::new()
+                        .background(if press.hovered || open {
+                            self.hover_background.unwrap_or(self.graph_background)
+                        } else {
+                            self.background
+                        })
+                        .border(border),
+                );
+                badge
+                    .child()
+                    .item(flex::item().width(1).height(1))
+                    .insert(Block::new().background(self.accent));
+                badge
+                    .child()
+                    .insert(Text::new(label).color(self.color).attributes(self.badge_attributes));
+            })
+            .content(|ui| {
+                let profiler: &FrameProfiler = ui.context().as_ref();
+                let mut graph_values = ui.scratch().slice(columns);
+                graph_values.resize(columns, 0.0_f32);
+                for (value, millis) in graph_values.iter_mut().zip(profiler.graph(columns)) {
+                    *value = millis;
+                }
+                let scale = graph_values.iter().copied().fold(0.001_f32, f32::max);
+                let mut panel = ui.layout(flex::column()).pad(self.padding);
+                panel.insert(Block::new().background(self.background).border(border));
+                {
+                    let mut table = panel
                         .child()
-                        .item(flex::item().width(1).height(1))
-                        .insert(Block::new().background(self.accent));
-                    badge
-                        .child()
-                        .insert(Text::new(label).color(self.color).attributes(self.badge_attributes));
-                },
-                |ui| {
-                    let profiler: &FrameProfiler = ui.context().as_ref();
-                    let mut graph_values = ui.scratch().slice(columns);
-                    graph_values.resize(columns, 0.0_f32);
-                    for (value, millis) in graph_values.iter_mut().zip(profiler.graph(columns)) {
-                        *value = millis;
-                    }
-                    let scale = graph_values.iter().copied().fold(0.001_f32, f32::max);
-                    let mut panel = ui.layout(flex::column()).pad(self.padding);
-                    panel.insert(Block::new().background(self.background).border(border));
+                        .layout(grid::new(3).column_gap(self.column_gap).row_gap(self.row_gap));
+                    for (label, values) in ["stage", "total", "build", "layout", "paint"]
+                        .into_iter()
+                        .zip(values.iter())
                     {
-                        let mut table = panel
-                            .child()
-                            .layout(grid::new(3).column_gap(self.column_gap).row_gap(self.row_gap));
-                        for (label, values) in ["stage", "total", "build", "layout", "paint"]
-                            .into_iter()
-                            .zip(values.iter())
-                        {
-                            table.child().insert(Text::new(label).color(self.muted_color));
-                            for value in values {
-                                table
-                                    .child()
-                                    .layout(flex::row().justify(Justify::End))
-                                    .child()
-                                    .insert(Text::new(value).color(self.color));
-                            }
+                        table.child().insert(Text::new(label).color(self.muted_color));
+                        for value in values {
+                            table
+                                .child()
+                                .layout(flex::row().justify(Justify::End))
+                                .child()
+                                .insert(Text::new(value).color(self.color));
                         }
                     }
-                    let mut chart = panel.child().layout(flex::row().gap(self.gap));
-                    {
-                        let mut axis = chart
-                            .child()
-                            .item(flex::item().height(rows as i32))
-                            .layout(flex::column().align(Align::End).justify(Justify::SpaceBetween));
-                        for (label, value) in axis_labels.iter_mut().zip([scale, scale / 2.0, 0.0]) {
-                            label.clear();
-                            let _ = write!(label, "{value:.3} ms");
-                            axis.child().insert(Text::new(label).color(self.muted_color));
-                        }
-                    }
-                    let mut graph = chart
+                }
+                let mut chart = panel.child().layout(flex::row().gap(self.gap));
+                {
+                    let mut axis = chart
                         .child()
-                        .item(flex::item().width(columns as i32).height(rows as i32))
-                        .layout(flex::row().align(Align::End));
-                    graph.insert(Block::new().background(self.graph_background));
-                    for &millis in graph_values.iter() {
-                        let eighths = ((rows * 8) as f32 * millis / scale)
-                            .round()
-                            .clamp(0.0, (rows * 8) as f32) as usize;
-                        let full = eighths / 8;
-                        let partial = eighths % 8;
-                        let mut bar = graph
-                            .child()
-                            .item(flex::item().width(1).height(full as i32 + i32::from(partial != 0)))
-                            .layout(flex::column());
-                        if partial != 0 {
-                            bar.child()
-                                .item(flex::item().width(1).height(1))
-                                .insert(Text::new(["", "▁", "▂", "▃", "▄", "▅", "▆", "▇"][partial]).color(self.accent));
-                        }
-                        if full != 0 {
-                            bar.child()
-                                .item(flex::item().width(1).height(full as i32))
-                                .insert(Block::new().background(self.accent));
-                        }
+                        .item(flex::item().height(rows as i32))
+                        .layout(flex::column().align(Align::End).justify(Justify::SpaceBetween));
+                    for (label, value) in axis_labels.iter_mut().zip([scale, scale / 2.0, 0.0]) {
+                        label.clear();
+                        let _ = write!(label, "{value:.3} ms");
+                        axis.child().insert(Text::new(label).color(self.muted_color));
                     }
-                },
-            );
+                }
+                let mut graph = chart
+                    .child()
+                    .item(flex::item().width(columns as i32).height(rows as i32))
+                    .layout(flex::row().align(Align::End));
+                graph.insert(Block::new().background(self.graph_background));
+                for &millis in graph_values.iter() {
+                    let eighths = ((rows * 8) as f32 * millis / scale)
+                        .round()
+                        .clamp(0.0, (rows * 8) as f32) as usize;
+                    let full = eighths / 8;
+                    let partial = eighths % 8;
+                    let mut bar = graph
+                        .child()
+                        .item(flex::item().width(1).height(full as i32 + i32::from(partial != 0)))
+                        .layout(flex::column());
+                    if partial != 0 {
+                        bar.child()
+                            .item(flex::item().width(1).height(1))
+                            .insert(Text::new(["", "▁", "▂", "▃", "▄", "▅", "▆", "▇"][partial]).color(self.accent));
+                    }
+                    if full != 0 {
+                        bar.child()
+                            .item(flex::item().width(1).height(full as i32))
+                            .insert(Block::new().background(self.accent));
+                    }
+                }
+            });
     }
 }
 
