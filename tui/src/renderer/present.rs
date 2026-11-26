@@ -79,6 +79,10 @@ impl TuiRenderer {
         self.invalidated = false;
         std::mem::swap(&mut self.cells, &mut self.frame_cells);
 
+        const SYNC_BEGIN: &str = "\x1b[?2026h";
+        const SYNC_END: &str = "\x1b[?2026l";
+        self.output.push_str(SYNC_BEGIN);
+
         let mut style = None;
         for y in 0..self.rows {
             let mut x = 0;
@@ -208,6 +212,11 @@ impl TuiRenderer {
                 uwrite!(self.output, "\x1b_Ga=d,d=I,i={id},q=2\x1b\\");
             }
             self.images.swap_remove(image);
+        }
+        if self.output.len() == SYNC_BEGIN.len() {
+            self.output.clear();
+        } else {
+            self.output.push_str(SYNC_END);
         }
         std::mem::swap(&mut self.presented_kitty_placements, &mut self.kitty_placements);
         self.text_layouts.trim_to_weight();
