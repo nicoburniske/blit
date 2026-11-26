@@ -20,7 +20,7 @@ blit::builder! {
     pub struct TextInput<'a> {
         new(state: &'a mut TextInputState, value: &'a mut String),
         #[bounds(Handler<Action = Edit>)]
-        keymap<F = fn(KeyboardEvent) -> Option<Edit>>: F = default_keymap,
+        keymap<F = fn(KeyboardEvent<'_>) -> Option<Edit>>: F = default_keymap,
         style: TextStyle<'a> = TextStyle::new(),
         padding: Sides<f32> = Sides::all(0.0),
         background: Color = Color::TRANSPARENT,
@@ -54,20 +54,18 @@ where
         let press = ui.interact(interact::press());
         let mut focused = ui.interact(interact::focus());
         let drag = ui.interact(interact::drag().axis(Axis::Horizontal));
-        let input = ui.input();
         let editing = ui.interact(interact::keyboard(keymap).require_focus());
         if focused && editing == Some(Edit::Blur) {
             ui.clear_focus();
             focused = false;
         }
-        let response = state.update(value, if focused { editing } else { None });
-        let text = ui.context_mut().text().text_run(value.as_str(), style);
-        let options = TextOptions {
-            max_lines: Some(1),
-            ..TextOptions::default()
+        let input_text = match ui.input() {
+            Input::Text(text) => text.as_str(),
+            _ => "",
         };
+        let response = state.update(value, if focused { editing } else { None }, input_text);
         let moved = matches!(
-            input,
+            ui.input(),
             Input::MouseMove { .. }
                 | Input::Touch {
                     phase: TouchPhase::Move,
@@ -75,7 +73,7 @@ where
                 }
         );
         let released = matches!(
-            input,
+            ui.input(),
             Input::MouseUp {
                 button: MouseButton::Primary,
                 ..
@@ -84,16 +82,21 @@ where
                 ..
             }
         );
+        let extend = match ui.input() {
+            Input::MouseDown { modifiers, .. } | Input::MouseUp { modifiers, .. } => modifiers.shift(),
+            _ => false,
+        };
+        let text = ui.context_mut().text().text_run(value.as_str(), style);
+        let options = TextOptions {
+            max_lines: Some(1),
+            ..TextOptions::default()
+        };
         let press_position = press.contact.and_then(|id| ui.contact_position(id));
         let pointer = if !focused {
             None
         } else if (drag.active || drag.released) && (moved || released) {
             Some((drag.position, true))
         } else if press.activated || press.clicked {
-            let extend = match input {
-                Input::MouseDown { modifiers, .. } | Input::MouseUp { modifiers, .. } => modifiers.shift(),
-                _ => false,
-            };
             press_position.map(|position| (position, extend))
         } else if press.active && moved {
             press_position.map(|position| (position, true))

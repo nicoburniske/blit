@@ -108,7 +108,7 @@ where
     ///
     /// the caller owns the context and its renderer is resized to the terminal before rendering
     pub fn pump(&mut self, context: &mut C, mut render: impl FnMut(blit::Ui<'_, C>)) -> io::Result<bool> {
-        let mut inputs = [Input::None; MAX_EVENTS_PER_FRAME];
+        let mut inputs = [const { Input::None }; MAX_EVENTS_PER_FRAME];
         let mut input_count = 0;
         let mut pending = self.kernel.has_pending_redraw();
         let needs_frame = |poll: Poll| poll.input_count != 0 || poll.resized || poll.redraw || poll.woken;
@@ -151,7 +151,8 @@ where
         let info = self.frame_info();
         // the prefilled Input::None runs one pass when no events were collected
         context.as_mut().profiler.begin_frame(now);
-        for &input in &inputs[..input_count.max(1)] {
+        for input in &mut inputs[..input_count.max(1)] {
+            let input = std::mem::take(input);
             self.kernel.build(context, info, now, input, |mut ui: blit::Ui<'_, C>| {
                 if !ui.context_mut().as_mut().should_quit {
                     render(ui);
@@ -244,7 +245,7 @@ where
                 _ => {}
             }
             let input = match event {
-                protocol::Event::Text(character) => Some(Input::Text(character)),
+                protocol::Event::Text(character) => Some(Input::Text(character.into())),
                 protocol::Event::Key(key) => {
                     let modifiers = Modifiers::new(
                         key.modifiers.shift,
@@ -279,7 +280,7 @@ where
                         Some(Key::Character(character))
                             if !modifiers.control() && !modifiers.alt() && !modifiers.super_key() =>
                         {
-                            (!key.text && key.kind != protocol::KeyKind::Release).then_some(Input::Text(character))
+                            (!key.text && key.kind != protocol::KeyKind::Release).then(|| Input::Text(character.into()))
                         }
                         Some(key_code) => Some(Input::Key(KeyInput {
                             key: key_code,

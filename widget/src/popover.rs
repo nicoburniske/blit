@@ -341,12 +341,13 @@ mod tests {
                 modifiers: Modifiers::NONE,
             },
         ] {
+            let released = matches!(input, Input::MouseUp { .. });
             kernel.build(&mut context, info, Duration::ZERO, input, |ui: Ui<'_, TestContext>| {
                 part = render(ui, Popover::new(&mut state).width(5.0).height(4.0));
                 assert_eq!(state.open, expected.next().unwrap());
             });
             kernel.layout(&mut context);
-            if let Input::MouseUp { .. } = input {
+            if released {
                 content_area = part.and_then(|id| kernel.area(id));
                 assert_eq!(
                     kernel.find(Scope::ROOT, named_content).and_then(|id| kernel.area(id)),

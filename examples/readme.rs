@@ -32,7 +32,7 @@ fn main() -> std::io::Result<()> {
                 })
         });
         let quit_key = root.interact(interact::keyboard(|input| match input {
-            KeyboardEvent::Text('q') => Some(()),
+            KeyboardEvent::Text("q") => Some(()),
             _ => None,
         }));
         if quit || quit_key.is_some() {

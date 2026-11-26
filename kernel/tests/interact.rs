@@ -5,15 +5,15 @@ use super::*;
 #[test]
 fn keyboard_input_bubbles_until_claimed() {
     #[derive(Clone, Copy)]
-    struct Keyboard(char, Option<char>);
+    struct Keyboard(&'static str, Option<&'static str>);
 
     impl Interact<TestContext> for Keyboard {
         type State = ();
-        type Response = Option<char>;
+        type Response = Option<&'static str>;
 
         fn update(&self, _: &mut (), cx: &mut InteractCx<'_, f32>) -> Self::Response {
             let input = cx.keyboard()?;
-            if self.1.is_some_and(|character| input != KeyboardEvent::Text(character)) {
+            if self.1.is_some_and(|text| input != KeyboardEvent::Text(text)) {
                 return None;
             }
             cx.claim_keyboard();
@@ -25,23 +25,23 @@ fn keyboard_input_bubbles_until_claimed() {
     let focused = Cell::new(None);
     let build = |mut ui: Ui<'_>| {
         if let Some(key) = focused.get() {
-            let target = ui.resolve(Scope::ROOT, key as u32);
+            let target = ui.resolve(Scope::ROOT, key);
             ui.node(target).focus();
         } else {
             ui.clear_focus();
         }
         let mut root = ui.layout(Overlay);
-        let mut branch = |parent, child| {
-            let mut branch = root.child_in(Scope::ROOT, parent as u32);
+        let mut branch = |parent_key, parent, child_key, child| {
+            let mut branch = root.child_in(Scope::ROOT, parent_key);
             let parent = branch.interact(Keyboard(parent, None));
             let child = branch
                 .layout(Overlay)
-                .child_in(Scope::ROOT, child as u32)
+                .child_in(Scope::ROOT, child_key)
                 .interact(Keyboard(child, Some(child)));
             [parent, child]
         };
-        let [a, b] = branch('a', 'b');
-        let [c, d] = branch('c', 'd');
+        let [a, b] = branch(1, "a", 2, "b");
+        let [c, d] = branch(3, "c", 4, "d");
         let mut handled = [a, b, c, d].into_iter().flatten();
         let winner = handled.next();
         assert_eq!(handled.next(), None, "input was handled more than once");
@@ -49,12 +49,12 @@ fn keyboard_input_bubbles_until_claimed() {
     };
     assert_eq!(render(&mut kernel, &mut context, build), None);
     let mut next = |input| render_inputs(&mut kernel, &mut context, Duration::ZERO, [input], build);
-    assert_eq!(next(Input::Text('b')), Some('b'));
-    assert_eq!(next(Input::Text('d')), Some('a'));
-    focused.set(Some('d'));
+    assert_eq!(next(Input::Text("b".into())), Some("b"));
+    assert_eq!(next(Input::Text("d".into())), Some("a"));
+    focused.set(Some(4));
     next(Input::None);
-    assert_eq!(next(Input::Text('d')), Some('d'));
-    assert_eq!(next(Input::Text('x')), Some('c'));
+    assert_eq!(next(Input::Text("d".into())), Some("d"));
+    assert_eq!(next(Input::Text("x".into())), Some("c"));
     assert_eq!(next(Input::MouseLeave), None);
 }
 

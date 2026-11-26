@@ -184,8 +184,8 @@ impl<'ui, C: Context, S> Ui<'ui, C, S> {
     /// this frame's input regardless of focus or claims
     ///
     /// handle keyboard shortcuts through an interaction to respect input routing.
-    pub fn input(&self) -> Input<C::Scalar> {
-        self.inner.kernel.input
+    pub fn input(&self) -> &Input<C::Scalar> {
+        &self.inner.kernel.input
     }
 
     pub fn screen(&self) -> Rect<C::Scalar> {

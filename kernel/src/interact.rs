@@ -81,9 +81,9 @@ pub enum ContactSource {
 
 /// keyboard and text input routed through focus
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum KeyboardEvent {
+pub enum KeyboardEvent<'a> {
     Key(KeyInput),
-    Text(char),
+    Text(&'a str),
 }
 
 /// wheel or trackpad input for this widget
@@ -123,11 +123,12 @@ pub struct InteractCx<'a, T> {
     hover: Option<u32>,
     deadline: &'a mut Option<Duration>,
     input: &'a Input<T>,
-    keyboard: &'a mut Option<(Option<u32>, KeyboardEvent)>,
+    keyboard_target: Option<u32>,
+    keyboard_claimed: &'a mut bool,
     time: Duration,
 }
 
-impl<T: Scalar> InteractCx<'_, T> {
+impl<'a, T: Scalar> InteractCx<'a, T> {
     /// the current frame time
     pub fn time(&self) -> Duration {
         self.time
@@ -173,21 +174,30 @@ impl<T: Scalar> InteractCx<'_, T> {
     ///
     /// input starts at the focused widget and bubbles through its ancestors.
     /// without focus, all mounted handlers are eligible.
-    pub fn keyboard(&self) -> Option<KeyboardEvent> {
-        let (target, input) = (*self.keyboard)?;
-        (self.node != UNRESOLVED && target.is_none_or(|target| self.contains(target))).then_some(input)
+    pub fn keyboard(&self) -> Option<KeyboardEvent<'a>> {
+        if *self.keyboard_claimed
+            || self.node == UNRESOLVED
+            || self.keyboard_target.is_some_and(|target| !self.contains(target))
+        {
+            return None;
+        }
+        match self.input {
+            Input::Key(key) => Some(KeyboardEvent::Key(*key)),
+            Input::Text(text) => Some(KeyboardEvent::Text(text.as_str())),
+            _ => None,
+        }
     }
 
     /// stops this keyboard or text event from reaching another interaction
     pub fn claim_keyboard(&mut self) {
         if self.keyboard().is_some() {
-            *self.keyboard = None;
+            *self.keyboard_claimed = true;
         }
     }
 
     /// this frame's input regardless of focus or claims
-    pub fn input(&self) -> Input<T> {
-        *self.input
+    pub fn input(&self) -> &'a Input<T> {
+        self.input
     }
 
     /// scrolling over this widget, or the cancellation of a sequence it held
@@ -369,7 +379,8 @@ impl<T: Scalar> InteractionState<T> {
                         hover: None,
                         deadline: &mut self.deadline,
                         input: &Input::None,
-                        keyboard: &mut None,
+                        keyboard_target: None,
+                        keyboard_claimed: &mut true,
                         time,
                     },
                 );
@@ -433,8 +444,9 @@ impl<T: Scalar> InteractionState<T> {
                 self.scroll = None;
             }
         }
-        match *input {
+        match input {
             Input::MouseDown { position, .. } | Input::MouseMove { position, .. } | Input::MouseUp { position, .. } => {
+                let position = *position;
                 self.mouse_position = Some(position);
                 for index in 0..self.contacts.len() {
                     let ContactSource::Mouse(button) = self.contacts[index].source else {
@@ -443,7 +455,8 @@ impl<T: Scalar> InteractionState<T> {
                     let released = matches!(input, Input::MouseUp { button: released, .. } if *released == button);
                     self.update(index, position, if released { Phase::Ended } else { Phase::Changed });
                 }
-                if let Input::MouseDown { button, .. } = *input {
+                if let Input::MouseDown { button, .. } = input {
+                    let button = *button;
                     // a press away from any focusable widget clears focus
                     if button == MouseButton::Primary {
                         self.focused = None;
@@ -454,14 +467,14 @@ impl<T: Scalar> InteractionState<T> {
                     self.mouse_position = None;
                 }
             }
-            Input::Touch {
+            &Input::Touch {
                 id,
                 position,
                 phase: TouchPhase::Down,
             } => {
                 self.press(ContactSource::Touch(id), position, time);
             }
-            Input::Touch { id, position, phase } => {
+            &Input::Touch { id, position, phase } => {
                 if let Some(index) = self
                     .contacts
                     .iter()
@@ -484,7 +497,7 @@ impl<T: Scalar> InteractionState<T> {
                 }
             }
             Input::MouseLeave => self.mouse_position = None,
-            Input::Scroll {
+            &Input::Scroll {
                 position,
                 delta_x,
                 delta_y,
@@ -554,18 +567,13 @@ impl<T: Scalar> InteractionState<T> {
         }
         self.deadline = None;
         let mut focus_taken = false;
-        let mut keyboard = match *input {
-            Input::Key(key) => Some(KeyboardEvent::Key(key)),
-            Input::Text(text) => Some(KeyboardEvent::Text(text)),
-            _ => None,
-        }
-        .and_then(|input| {
-            let target = match self.focused {
-                Some(id) => Some(self.kinds.slots[self.kinds.find(id, None).ok()?].node),
-                None => None,
-            };
-            Some((target, input))
-        });
+        let (keyboard_target, mut keyboard_claimed) = match self.focused {
+            Some(id) => match self.kinds.find(id, None) {
+                Ok(index) => (Some(self.kinds.slots[index].node), false),
+                Err(_) => (None, true),
+            },
+            None => (None, false),
+        };
         let kinds = &mut self.kinds;
         for index in 0..kinds.slots.len() {
             let slot = kinds.slots[index];
@@ -583,7 +591,8 @@ impl<T: Scalar> InteractionState<T> {
                     hover,
                     deadline: &mut self.deadline,
                     input,
-                    keyboard: &mut keyboard,
+                    keyboard_target,
+                    keyboard_claimed: &mut keyboard_claimed,
                     time,
                 },
             );

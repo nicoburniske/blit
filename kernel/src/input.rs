@@ -1,6 +1,8 @@
+use alloc::string::String;
+
 use crate::Point;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum Input<T> {
     #[default]
     None,
@@ -35,7 +37,7 @@ pub enum Input<T> {
         continuous: bool,
         phase: ScrollPhase,
     },
-    Text(char),
+    Text(String),
     Key(KeyInput),
 }
 

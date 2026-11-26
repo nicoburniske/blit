@@ -71,7 +71,7 @@ impl Default for Demo {
 impl Demo {
     fn show(&mut self, mut ui: Ui<'_>) {
         let quit = ui.interact(interact::keyboard(|input| match input {
-            KeyboardEvent::Text('q') => Some(()),
+            KeyboardEvent::Text("q") => Some(()),
             _ => None,
         }));
         if !self.modal.open && quit.is_some() {

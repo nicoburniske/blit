@@ -150,7 +150,14 @@ impl<A: Application> Runner<A> {
     }
 
     fn push_text(&mut self, text: &str) {
-        self.inputs.extend(text.chars().map(Input::Text))
+        if text.is_empty() {
+            return;
+        }
+        if let Some(Input::Text(pending)) = self.inputs.last_mut() {
+            pending.push_str(text);
+        } else {
+            self.inputs.push(Input::Text(text.into()));
+        }
     }
 
     fn push_input(&mut self, input: Input<f32>) {

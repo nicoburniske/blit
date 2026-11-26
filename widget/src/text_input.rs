@@ -4,7 +4,7 @@ use unicode_segmentation::UnicodeSegmentation;
 /// an editing action independent of its keyboard binding
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Edit {
-    Insert(char),
+    Insert,
     DeleteBackward,
     DeleteForward,
     MoveLeft {
@@ -41,16 +41,25 @@ pub struct Response {
 }
 
 impl<T: Scalar> State<T> {
-    pub fn update(&mut self, value: &mut String, edit: Option<Edit>) -> Response {
+    pub fn update(&mut self, value: &mut String, edit: Option<Edit>, text: &str) -> Response {
         self.cursor = boundary(value, self.cursor);
         self.anchor = boundary(value, self.anchor);
         self.offset_x = self.offset_x.max(T::ZERO);
         let mut response = Response::default();
         match edit {
-            Some(Edit::Insert(character)) if !character.is_control() => {
+            Some(Edit::Insert) if text.chars().any(|character| !character.is_control()) => {
                 self.delete_selection(value);
-                let end = self.cursor + character.len_utf8();
-                value.insert(self.cursor, character);
+                let before = value.len();
+                if text.chars().any(char::is_control) {
+                    let mut cursor = self.cursor;
+                    for character in text.chars().filter(|character| !character.is_control()) {
+                        value.insert(cursor, character);
+                        cursor += character.len_utf8();
+                    }
+                } else {
+                    value.insert_str(self.cursor, text);
+                }
+                let end = self.cursor + (value.len() - before);
                 self.cursor = value
                     .grapheme_indices(true)
                     .map(|(offset, _)| offset)
@@ -124,9 +133,9 @@ impl<T: Scalar> State<T> {
 ///
 /// custom keymaps can fall back to this function for events they do not override.
 /// returning `None` lets an event bubble and [`Edit::Ignore`] consumes it.
-pub fn default_keymap(event: KeyboardEvent) -> Option<Edit> {
+pub fn default_keymap(event: KeyboardEvent<'_>) -> Option<Edit> {
     match event {
-        KeyboardEvent::Text(character) if !character.is_control() => Some(Edit::Insert(character)),
+        KeyboardEvent::Text(text) if text.chars().any(|character| !character.is_control()) => Some(Edit::Insert),
         KeyboardEvent::Key(key) if key.pressed => {
             let extend = key.modifiers.shift();
             let macos = cfg!(target_os = "macos");

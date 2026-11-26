@@ -1,13 +1,13 @@
 use blit::{Context, InteractCx, KeyboardEvent};
 
 /// maps a keyboard event to an action, or lets it bubble
-pub trait Handler: FnOnce(KeyboardEvent) -> Option<Self::Action> + Copy + 'static {
+pub trait Handler: FnOnce(KeyboardEvent<'_>) -> Option<Self::Action> + Copy + 'static {
     type Action: Copy + 'static;
 }
 
 impl<A: Copy + 'static, F> Handler for F
 where
-    F: FnOnce(KeyboardEvent) -> Option<A> + Copy + 'static,
+    F: FnOnce(KeyboardEvent<'_>) -> Option<A> + Copy + 'static,
 {
     type Action = A;
 }

@@ -407,7 +407,7 @@ fn content_motion<C: Context, S: Local>(
     let previous = state.last_frame.replace(now);
     let elapsed = previous.map_or(0.0, |previous| now.saturating_sub(previous).as_secs_f32());
     if matches!(ui.input(), blit::input::Input::Touch { phase: blit::input::TouchPhase::Down, position, .. }
-        if ui.area().is_some_and(|area| area.contains(position)))
+        if ui.area().is_some_and(|area| area.contains(*position)))
     {
         state.stop();
         state.sample_time = Some(now);
