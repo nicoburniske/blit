@@ -6,7 +6,6 @@ license.workspace = true
 publish = false
 
 [dependencies]
-base64 = "0.22"
 blit.workspace = true
 blit-widget.workspace = true
 blit-util.workspace = true

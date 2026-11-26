@@ -1,9 +1,8 @@
 use std::fmt::Write as _;
 
-use base64::Engine as _;
 use blit::PhysicalRect;
 
-use super::{BASE64, KittyPlacement, TuiRenderer, write_color};
+use super::{KittyPlacement, TuiRenderer, write_color};
 use crate::{
     image::{Image, ImageFit},
     text::TextAttributes,
@@ -178,7 +177,7 @@ impl TuiRenderer {
                     } else {
                         uwrite!(self.output, "\x1b_Gm={more},q=2;");
                     }
-                    BASE64.encode_string(chunk, &mut self.output);
+                    encode_base64(chunk, &mut self.output);
                     self.output.push_str("\x1b\\");
                 }
                 image.transmitted = true;
@@ -217,5 +216,51 @@ impl TuiRenderer {
 
     pub fn invalidate(&mut self) {
         self.invalidated = true;
+    }
+}
+
+fn encode_base64(input: &[u8], output: &mut String) {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let encoded = input.len().div_ceil(3) * 4;
+    output.reserve(encoded);
+    // safety: every written byte is ascii from TABLE or '=' and all `encoded` bytes are initialized
+    unsafe {
+        let output = output.as_mut_vec();
+        let start = output.len();
+        let dst = &mut output.spare_capacity_mut()[..encoded];
+        let groups = input.chunks_exact(3);
+        let remainder = groups.remainder();
+        let mut out_groups = dst.chunks_exact_mut(4);
+        for (group, out) in groups.zip(&mut out_groups) {
+            let bits = (u32::from(group[0]) << 16) | (u32::from(group[1]) << 8) | u32::from(group[2]);
+            out.write_copy_of_slice(&[
+                TABLE[((bits >> 18) & 0x3f) as usize],
+                TABLE[((bits >> 12) & 0x3f) as usize],
+                TABLE[((bits >> 6) & 0x3f) as usize],
+                TABLE[(bits & 0x3f) as usize],
+            ]);
+        }
+        match remainder {
+            [a] => {
+                let bits = u32::from(*a) << 16;
+                out_groups.next().unwrap().write_copy_of_slice(&[
+                    TABLE[((bits >> 18) & 0x3f) as usize],
+                    TABLE[((bits >> 12) & 0x3f) as usize],
+                    b'=',
+                    b'=',
+                ]);
+            }
+            [a, b] => {
+                let bits = (u32::from(*a) << 16) | (u32::from(*b) << 8);
+                out_groups.next().unwrap().write_copy_of_slice(&[
+                    TABLE[((bits >> 18) & 0x3f) as usize],
+                    TABLE[((bits >> 12) & 0x3f) as usize],
+                    TABLE[((bits >> 6) & 0x3f) as usize],
+                    b'=',
+                ]);
+            }
+            _ => {}
+        }
+        output.set_len(start + encoded);
     }
 }
