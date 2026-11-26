@@ -196,7 +196,7 @@ fn next_run<T: Scalar, I: Iterator>(
 ) -> (usize, T) {
     let mut count = 0;
     let mut used = T::ZERO;
-    let tolerance = available.tolerance();
+    let tolerance = T::from_f32(available.to_f32().abs() * f32::EPSILON);
     while let Some(item) = widths.peek() {
         let width = size(item);
         let needed = width.endpoint(if count == 0 { T::ZERO } else { gap });

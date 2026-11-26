@@ -36,23 +36,30 @@ pub trait Scalar:
     /// e.g. three equal shares of ten cells snap to `3, 4, 3`
     /// continuous coordinates return `share` directly to avoid cancellation
     fn allocate(cursor: &mut f32, share: f32) -> Self;
-    /// allowance for accumulated arithmetic error at this magnitude
-    /// approximate arithmetic uses a small tolerance and exact arithmetic uses zero
-    fn tolerance(self) -> Self;
     /// multiplies by a count with saturation for bounded integer coordinates
     fn repeat(self, count: usize) -> Self;
-    /// counts complete strides and clamps the result to the `usize` range
-    /// `stride` must be finite and positive
-    fn index(self, stride: Self) -> usize;
     /// evaluates `self + (end - self) * amount` with coordinate snapping
     /// `amount` is not clamped so values outside zero to one extrapolate
-    fn lerp(self, end: Self, amount: f32) -> Self;
+    #[inline]
+    fn lerp(self, end: Self, amount: f32) -> Self {
+        self.offset(self.delta(end) * amount)
+    }
     /// returns the lesser coordinate
-    fn min(self, other: Self) -> Self;
+    #[inline]
+    fn min(self, other: Self) -> Self {
+        if self < other { self } else { other }
+    }
     /// returns the greater coordinate
-    fn max(self, other: Self) -> Self;
+    #[inline]
+    fn max(self, other: Self) -> Self {
+        if self > other { self } else { other }
+    }
     /// clamps to an inclusive range and panics if `min <= max` is false
-    fn clamp(self, min: Self, max: Self) -> Self;
+    #[inline]
+    fn clamp(self, min: Self, max: Self) -> Self {
+        assert!(min <= max, "min > max");
+        self.max(min).min(max)
+    }
     /// adds an extent with saturation for bounded integer coordinates
     fn endpoint(self, extent: Self) -> Self;
 
@@ -77,32 +84,8 @@ impl Scalar for f32 {
         share
     }
     #[inline]
-    fn tolerance(self) -> Self {
-        self.abs() * Self::EPSILON
-    }
-    #[inline]
     fn repeat(self, count: usize) -> Self {
         self * count as Self
-    }
-    #[inline]
-    fn index(self, stride: Self) -> usize {
-        (self / stride) as usize
-    }
-    #[inline]
-    fn lerp(self, end: Self, amount: f32) -> Self {
-        self + (end - self) * amount
-    }
-    #[inline]
-    fn min(self, other: Self) -> Self {
-        self.min(other)
-    }
-    #[inline]
-    fn max(self, other: Self) -> Self {
-        self.max(other)
-    }
-    #[inline]
-    fn clamp(self, min: Self, max: Self) -> Self {
-        self.clamp(min, max)
     }
     #[inline]
     fn endpoint(self, extent: Self) -> Self {
@@ -141,33 +124,9 @@ impl Scalar for i32 {
         Self::from_f32(*cursor) - start
     }
     #[inline]
-    fn tolerance(self) -> Self {
-        0
-    }
-    #[inline]
     fn repeat(self, count: usize) -> Self {
         let count = count.min(u32::MAX as usize) as i64;
         (self as i64 * count).clamp(Self::MIN as i64, Self::MAX as i64) as Self
-    }
-    #[inline]
-    fn index(self, stride: Self) -> usize {
-        (Ord::max(self, 0) as u32 / stride as u32) as usize
-    }
-    #[inline]
-    fn lerp(self, end: Self, amount: f32) -> Self {
-        math::round(self as f64 + (end as f64 - self as f64) * amount as f64)
-    }
-    #[inline]
-    fn min(self, other: Self) -> Self {
-        Ord::min(self, other)
-    }
-    #[inline]
-    fn max(self, other: Self) -> Self {
-        Ord::max(self, other)
-    }
-    #[inline]
-    fn clamp(self, min: Self, max: Self) -> Self {
-        Ord::clamp(self, min, max)
     }
     #[inline]
     fn endpoint(self, extent: Self) -> Self {
