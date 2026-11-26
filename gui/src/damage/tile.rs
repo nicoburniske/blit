@@ -12,12 +12,11 @@
 
 use alloc::{vec, vec::Vec};
 use core::{
-    hash::{Hash, Hasher},
+    hash::{BuildHasher, Hash, Hasher},
     ops::Range,
 };
 
 use blit::{PhysicalRect, Scale2};
-use rustc_hash::FxHasher;
 
 use super::{DamageTracker, DisplayList};
 
@@ -30,6 +29,7 @@ pub struct TileDamage {
     hashes: Vec<u64>,
     sums: Vec<u32>,
     clips: Vec<Clip>,
+    hash_builder: hashbrown::DefaultHashBuilder,
     invalidated: bool,
 }
 
@@ -54,6 +54,7 @@ impl TileDamage {
             hashes: Vec::new(),
             sums: vec![0],
             clips: Vec::new(),
+            hash_builder: Default::default(),
             invalidated: true,
         }
     }
@@ -103,7 +104,7 @@ impl DamageTracker for TileDamage {
                 area.width.saturating_sub(inset.saturating_mul(2)).max(0),
                 area.height.saturating_sub(inset.saturating_mul(2)).max(0),
             );
-            let mut hash = FxHasher::default();
+            let mut hash = self.hash_builder.build_hasher();
             hash.write_u64(parent.hash);
             [
                 clip.area.x,
@@ -128,7 +129,7 @@ impl DamageTracker for TileDamage {
             let Some(bounds) = record.bounds.intersection(clip.bounds) else {
                 continue;
             };
-            let mut hash = FxHasher::default();
+            let mut hash = self.hash_builder.build_hasher();
             [bounds.x, bounds.y, bounds.width, bounds.height].hash(&mut hash);
             if bounds.intersection(clip.inner) != Some(bounds) {
                 hash.write_u64(clip.hash);

@@ -1,14 +1,15 @@
 use alloc::vec::Vec;
 use core::{
     any::TypeId,
-    hash::{Hash, Hasher},
+    hash::{BuildHasher, Hash, Hasher},
     mem::offset_of,
 };
 
 use blit::{FrameStore, FrameStoreMut, LogicalRect, PhysicalRect};
-use rustc_hash::FxHasher;
 
 use crate::style::BorderRadius;
+
+pub type DisplayHasher = <hashbrown::DefaultHashBuilder as BuildHasher>::Hasher;
 
 /// owned drawing inputs and their replay callbacks
 #[derive(Default)]
@@ -124,7 +125,7 @@ impl DisplayList {
         index
     }
 
-    pub fn hash(&self, index: usize, state: &mut FxHasher) {
+    pub fn hash(&self, index: usize, state: &mut DisplayHasher) {
         let command = &self.commands[index];
         let operations = command.ops;
         operations.kind.hash(state);
@@ -193,7 +194,7 @@ struct Ops {
     input_offset: u32,
     replay_offset: u32,
     equal: unsafe fn(&DisplayList, u32, &DisplayList, u32) -> bool,
-    hash: unsafe fn(&DisplayList, u32, &mut FxHasher),
+    hash: unsafe fn(&DisplayList, u32, &mut DisplayHasher),
 }
 
 #[derive(Clone, Copy)]
