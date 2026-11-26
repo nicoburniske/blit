@@ -117,7 +117,7 @@ impl<'a, C: Context> ScrollContent<'a, C> {
                     self.viewport.request_frame();
                 }
             }
-            (Some(_), None) if std::mem::replace(&mut self.state.request.missed, true) => {
+            (Some(_), None) if core::mem::replace(&mut self.state.request.missed, true) => {
                 self.state.request = Request::default()
             }
             (Some(_), None) => self.viewport.request_frame(),

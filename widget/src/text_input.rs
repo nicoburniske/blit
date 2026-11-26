@@ -1,3 +1,5 @@
+use alloc::string::String;
+
 use blit::{KeyboardEvent, Scalar, input::Key};
 use unicode_segmentation::UnicodeSegmentation;
 

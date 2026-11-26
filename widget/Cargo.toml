@@ -5,9 +5,15 @@ edition = "2024"
 license.workspace = true
 publish = false
 
+[features]
+default = ["std"]
+# the frame profiler, timed by the system clock
+std = []
+
 [dependencies]
 blit.workspace = true
-unicode-segmentation = "1"
+libm.workspace = true
+unicode-segmentation = { version = "1", default-features = false }
 
 [dev-dependencies]
 divan = "0.1"

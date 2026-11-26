@@ -1,4 +1,5 @@
-use std::ops::Range;
+use alloc::vec::Vec;
+use core::ops::Range;
 
 use blit::{
     Animation, AnimationOptions, Axis, Constraints, Id, Key, Layout, LayoutCx, Point, Rect, Scalar, Scope, Size, Ui,
