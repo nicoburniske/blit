@@ -54,19 +54,22 @@ pub enum PreparedFill {
 pub struct Gradients {
     pub entries: Vec<Gradient>,
     pub stops: Vec<Stop>,
+    // rgba bias and increments along x and y for each span between stops
+    pub ramps: Vec<[[i32; 4]; 3]>,
 }
 
 #[repr(C)]
 pub struct Gradient {
     pub stops: Range<u32>,
+    ramps: Range<u32>,
     // linear step and bias or conic center and starting turn
     x: f32,
     y: f32,
     offset: f32,
-    clamp: bool,
+    opaque: bool,
     inverse: f64,
-    // rgb bias and increments along x and y
-    ramp: Option<[[i32; 3]; 3]>,
+    // copy of the ramp covering every pixel in bounds which skips stop checks
+    ramp: Option<[[i32; 4]; 3]>,
 }
 
 pub struct Stop {
@@ -124,46 +127,66 @@ impl PreparedFill {
         }));
         let end = u32::try_from(gradients.stops.len()).expect("too many gradient stops");
         let stops = &gradients.stops[start..end as usize];
+        let opaque = stops.iter().all(|stop| stop.color.alpha == 255);
+        let ramps = gradients.ramps.len();
+        if matches!(fill, Fill::LinearGradient(_)) {
+            let mut exact = true;
+            gradients.ramps.extend(stops.windows(2).map(|pair| {
+                let first = [
+                    pair[0].color.red,
+                    pair[0].color.green,
+                    pair[0].color.blue,
+                    pair[0].color.alpha,
+                ]
+                .map(f64::from);
+                let second = [
+                    pair[1].color.red,
+                    pair[1].color.green,
+                    pair[1].color.blue,
+                    pair[1].color.alpha,
+                ]
+                .map(f64::from);
+                let inverse = 1.0 / (pair[1].position as f64 - pair[0].position as f64);
+                let mut ramp = [[0; 4]; 3];
+                for i in 0..4 {
+                    let delta = (second[i] - first[i]) * inverse * (1 << 20) as f64;
+                    let values = [
+                        first[i] * (1 << 20) as f64 + delta * (offset as f64 - pair[0].position as f64),
+                        delta * x as f64,
+                        delta * y as f64,
+                    ];
+                    for (j, value) in values.into_iter().enumerate() {
+                        exact &= value.abs() < (1_u64 << 52) as f64;
+                        ramp[j][i] = math::round(value) as i64 as i32;
+                    }
+                }
+                ramp
+            }));
+            if !exact {
+                gradients.ramps.truncate(ramps);
+            }
+        }
         let mut ramp = None;
-        let mut clamp = true;
-        if matches!(fill, Fill::LinearGradient(_))
-            && stops.len() == 2
-            && stops.iter().all(|stop| stop.color.alpha == 255)
-        {
-            let first = stops[0].color;
-            let second = stops[1].color;
-            let first = [first.red, first.green, first.blue].map(f64::from);
-            let second = [second.red, second.green, second.blue].map(f64::from);
-            let inverse = 1.0 / (stops[1].position as f64 - stops[0].position as f64);
+        if gradients.ramps.len() > ramps {
             let position = offset as f64 + x as f64 * bounds.x as f64 + y as f64 * bounds.y as f64;
             let right = x as f64 * (bounds.width - 1) as f64;
             let bottom = y as f64 * (bounds.height - 1) as f64;
-            clamp = position + right.min(0.0) + bottom.min(0.0) < stops[0].position as f64
-                || position + right.max(0.0) + bottom.max(0.0) > stops[1].position as f64;
-            let mut color = [[0; 3]; 3];
-            let mut exact = true;
-            for i in 0..3 {
-                let delta = (second[i] - first[i]) * inverse * (1 << 20) as f64;
-                let values = [
-                    first[i] * (1 << 20) as f64 + delta * (offset as f64 - stops[0].position as f64),
-                    delta * x as f64,
-                    delta * y as f64,
-                ];
-                for (j, value) in values.into_iter().enumerate() {
-                    exact &= value.abs() < (1_u64 << 52) as f64;
-                    color[j][i] = math::round(value) as i64 as i32;
-                }
-            }
-            ramp = exact.then_some(color);
+            let low = position + right.min(0.0) + bottom.min(0.0);
+            let high = position + right.max(0.0) + bottom.max(0.0);
+            ramp = stops
+                .windows(2)
+                .position(|pair| low >= pair[0].position as f64 && high <= pair[1].position as f64)
+                .map(|span| gradients.ramps[ramps + span]);
         }
         gradients.entries.push(Gradient {
             stops: start as u32..end,
+            ramps: ramps as u32..gradients.ramps.len() as u32,
             x,
             y,
             offset,
+            opaque,
             inverse: 1.0 / x as f64,
             ramp,
-            clamp,
         });
         if matches!(fill, Fill::ConicGradient(_)) {
             Self::ConicGradient(index)
@@ -178,30 +201,42 @@ impl PreparedFill {
             Self::Solid(color) => color,
             Self::Gradient(index) | Self::ConicGradient(index) => {
                 let gradient = &gradients.entries[index as usize];
-                if let Some(ramp) = &gradient.ramp {
-                    if gradient.clamp {
-                        let stops = &gradients.stops[gradient.stops.start as usize..gradient.stops.end as usize];
-                        let position =
-                            gradient.offset as f64 + gradient.y as f64 * y as f64 + gradient.x as f64 * x as f64;
-                        if position <= stops[0].position as f64 {
-                            return stops[0].color;
+                if !gradient.ramps.is_empty() {
+                    let ramp = match &gradient.ramp {
+                        Some(ramp) => ramp,
+                        None => {
+                            let stops = &gradients.stops[gradient.stops.start as usize..gradient.stops.end as usize];
+                            let last = stops.len() - 1;
+                            let position =
+                                gradient.offset as f64 + gradient.y as f64 * y as f64 + gradient.x as f64 * x as f64;
+                            if position <= stops[0].position as f64 {
+                                return stops[0].color;
+                            }
+                            if position >= stops[last].position as f64 {
+                                return stops[last].color;
+                            }
+                            let span = stops[1..last].partition_point(|stop| stop.position as f64 <= position);
+                            &gradients.ramps[gradient.ramps.start as usize + span]
                         }
-                        if position >= stops[1].position as f64 {
-                            return stops[1].color;
-                        }
-                    }
-                    let rounding = BAYER[((y & 3) * 4 + (x & 3)) as usize] as i32 * 65536 + 32768;
-                    let channel = |i: usize| {
-                        let color = ramp[0][i]
-                            .wrapping_add(ramp[1][i].wrapping_mul(x))
-                            .wrapping_add(ramp[2][i].wrapping_mul(y));
-                        ((color + rounding) >> 20).clamp(0, 255) as u8
                     };
+                    let rounding = BAYER[((y & 3) * 4 + (x & 3)) as usize] as i32 * 65536 + 32768;
+                    let raw = |i: usize| {
+                        ramp[0][i]
+                            .wrapping_add(ramp[1][i].wrapping_mul(x))
+                            .wrapping_add(ramp[2][i].wrapping_mul(y))
+                    };
+                    let alpha = if gradient.opaque {
+                        255
+                    } else {
+                        ((raw(3).clamp(0, 255 << 20) + (1 << 19)) >> 20) as u8
+                    };
+                    let max_rgb = i32::from(alpha) << 20;
+                    let channel = |i: usize| ((raw(i).clamp(0, max_rgb) + rounding) >> 20) as u8;
                     return PremultipliedRgbaColor {
                         red: channel(0),
                         green: channel(1),
                         blue: channel(2),
-                        alpha: 255,
+                        alpha,
                     };
                 }
                 let position = if matches!(*self, Self::ConicGradient(_)) {
@@ -233,50 +268,70 @@ impl PreparedFill {
             }
             Self::Gradient(index) | Self::ConicGradient(index) => {
                 let gradient = &gradients.entries[index as usize];
-                if let Some(ramp) = &gradient.ramp
-                    && coverage == 255
-                {
-                    let (begin, end) = if !gradient.clamp {
-                        (0, pixels.len())
-                    } else {
-                        let stops = &gradients.stops[gradient.stops.start as usize..gradient.stops.end as usize];
-                        let position = gradient.offset as f64 + gradient.y as f64 * y as f64;
-                        if gradient.x == 0.0 {
-                            if position <= stops[0].position as f64 || position >= stops[1].position as f64 {
-                                let color = if position <= stops[0].position as f64 {
-                                    stops[0].color
-                                } else {
-                                    stops[1].color
-                                };
-                                pixels.fill(P::from_rgba(color));
-                                return;
-                            }
-                            (0, pixels.len())
+                let ramps = &gradients.ramps[gradient.ramps.start as usize..gradient.ramps.end as usize];
+                if !ramps.is_empty() {
+                    let write = |pixels: &mut [P], begin: usize, ramp: &[[i32; 4]; 3]| {
+                        if pixels.is_empty() {
+                            return;
+                        }
+                        let start_x = x.wrapping_add(begin as i32);
+                        let rounding = core::array::from_fn(|i| {
+                            BAYER[((y & 3) * 4 + (((start_x & 3) + i as i32) & 3)) as usize] as i32 * 65536 + 32768
+                        });
+                        if gradient.opaque && coverage == 255 {
+                            let color = core::array::from_fn(|i| {
+                                ramp[0][i]
+                                    .wrapping_add(ramp[1][i].wrapping_mul(start_x))
+                                    .wrapping_add(ramp[2][i].wrapping_mul(y))
+                            });
+                            P::write_ramp(pixels, color, [ramp[1][0], ramp[1][1], ramp[1][2]], rounding);
                         } else {
-                            let a = math::ceil((stops[0].position as f64 - position) * gradient.inverse);
-                            let b = math::ceil((stops[1].position as f64 - position) * gradient.inverse);
-                            let begin = (a.min(b) - x as f64).clamp(0.0, pixels.len() as f64) as usize;
-                            let end = (a.max(b) - x as f64).clamp(0.0, pixels.len() as f64) as usize;
-                            let edges = if gradient.x < 0.0 {
-                                [stops[1].color, stops[0].color]
-                            } else {
-                                [stops[0].color, stops[1].color]
-                            };
-                            pixels[..begin].fill(P::from_rgba(edges[0]));
-                            pixels[end..].fill(P::from_rgba(edges[1]));
-                            (begin, end)
+                            let color = core::array::from_fn(|i| {
+                                ramp[0][i]
+                                    .wrapping_add(ramp[1][i].wrapping_mul(start_x))
+                                    .wrapping_add(ramp[2][i].wrapping_mul(y))
+                            });
+                            P::blend_ramp(pixels, color, ramp[1], rounding, coverage);
                         }
                     };
-                    let color = core::array::from_fn(|i| {
-                        ramp[0][i]
-                            .wrapping_add(ramp[1][i].wrapping_mul(x.wrapping_add(begin as i32)))
-                            .wrapping_add(ramp[2][i].wrapping_mul(y))
-                    });
-                    let rounding = core::array::from_fn(|i| {
-                        BAYER[((y & 3) * 4 + ((((x + begin as i32) & 3) + i as i32) & 3)) as usize] as i32 * 65536
-                            + 32768
-                    });
-                    P::write_ramp(&mut pixels[begin..end], color, ramp[1], rounding);
+                    if let Some(ramp) = &gradient.ramp {
+                        write(pixels, 0, ramp);
+                        return;
+                    }
+                    let stops = &gradients.stops[gradient.stops.start as usize..gradient.stops.end as usize];
+                    let last = stops.len() - 1;
+                    let position = gradient.offset as f64 + gradient.y as f64 * y as f64;
+                    if gradient.x == 0.0 {
+                        if position <= stops[0].position as f64 {
+                            P::blend_slice(pixels, stops[0].color.coverage(coverage as u32));
+                        } else if position >= stops[last].position as f64 {
+                            P::blend_slice(pixels, stops[last].color.coverage(coverage as u32));
+                        } else {
+                            let span = stops[1..last].partition_point(|stop| stop.position as f64 <= position);
+                            write(pixels, 0, &ramps[span]);
+                        }
+                        return;
+                    }
+                    let length = pixels.len() as f64;
+                    let boundary = |stop: &Stop| {
+                        (math::ceil((stop.position as f64 - position) * gradient.inverse) - x as f64)
+                            .clamp(0.0, length) as usize
+                    };
+                    let (first, end) = (boundary(&stops[0]), boundary(&stops[last]));
+                    let edges = if gradient.x < 0.0 {
+                        [stops[last].color, stops[0].color]
+                    } else {
+                        [stops[0].color, stops[last].color]
+                    };
+                    P::blend_slice(&mut pixels[..first.min(end)], edges[0].coverage(coverage as u32));
+                    P::blend_slice(&mut pixels[first.max(end)..], edges[1].coverage(coverage as u32));
+                    let mut previous = first;
+                    for (ramp, stop) in ramps.iter().zip(&stops[1..]) {
+                        let next = boundary(stop);
+                        let begin = previous.min(next);
+                        write(&mut pixels[begin..previous.max(next)], begin, ramp);
+                        previous = next;
+                    }
                     return;
                 }
                 let stops = &gradients.stops[gradient.stops.start as usize..gradient.stops.end as usize];

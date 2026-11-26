@@ -189,6 +189,10 @@ pub trait Pixel: Copy + 'static {
         write_ramp_scalar(pixels, color, step, rounding);
     }
 
+    fn blend_ramp(pixels: &mut [Self], color: [i32; 4], step: [i32; 4], rounding: [i32; 4], coverage: u8) {
+        blend_ramp_scalar(pixels, color, step, rounding, coverage);
+    }
+
     fn blend_slice(pixels: &mut [Self], color: PremultipliedRgbaColor) {
         match color.alpha {
             0 => {}
@@ -512,6 +516,51 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
     }
 
     #[inline(always)]
+    fn blend_ramp(pixels: &mut [Self], color: [i32; 4], step: [i32; 4], rounding: [i32; 4], coverage: u8) {
+        if pixels.len() < 8 {
+            blend_ramp_scalar(pixels, color, step, rounding, coverage);
+            return;
+        }
+        let (chunks, tail) = pixels.as_chunks_mut::<8>();
+        dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
+            let lanes = i32x8::simd_from(simd, [0, 1, 2, 3, 4, 5, 6, 7]);
+            let dither = i32x8::simd_from(simd, core::array::from_fn(|i| rounding[i & 3]));
+            let half = i32x8::splat(simd, 1 << 19);
+            let mut colors = [
+                lanes * step[0] + color[0] + dither,
+                lanes * step[1] + color[1] + dither,
+                lanes * step[2] + color[2] + dither,
+                lanes * step[3] + color[3] + half,
+            ];
+            let increments = step.map(|step| i32x8::splat(simd, step.wrapping_mul(8)));
+            let zero = i32x8::splat(simd, 0);
+            let maximum = i32x8::splat(simd, 255 << 20);
+            for pixels in chunks.iter_mut() {
+                let mut alpha = (colors[3].max(zero).min(maximum) >> 20).bitcast::<u32x8<_>>();
+                let max_rgb = (alpha << 20).bitcast::<i32x8<_>>();
+                let mut red = (colors[0].max(zero).min(max_rgb) >> 20).bitcast::<u32x8<_>>();
+                let mut green = (colors[1].max(zero).min(max_rgb) >> 20).bitcast::<u32x8<_>>();
+                let mut blue = (colors[2].max(zero).min(max_rgb) >> 20).bitcast::<u32x8<_>>();
+                if coverage != 255 {
+                    let coverage = u32x8::splat(simd, u32::from(coverage));
+                    alpha = divide_by_255(alpha * coverage);
+                    red = divide_by_255(red * coverage);
+                    green = divide_by_255(green * coverage);
+                    blue = divide_by_255(blue * coverage);
+                }
+                let destination = u32x8::simd_from(simd, (*pixels).map(|pixel| pixel.0));
+                *pixels = <[u32; 8]>::from(blend::<_, RED, GREEN, BLUE, ALPHA>(destination, alpha, red, green, blue))
+                    .map(Self);
+                for i in 0..4 {
+                    colors[i] += increments[i];
+                }
+            }
+        });
+        let color = core::array::from_fn(|i| color[i].wrapping_add(step[i].wrapping_mul((chunks.len() * 8) as i32)));
+        blend_ramp_scalar(tail, color, step, rounding, coverage);
+    }
+
+    #[inline(always)]
     fn blend_slice(pixels: &mut [Self], color: PremultipliedRgbaColor) {
         match color.alpha {
             0 => return,
@@ -783,6 +832,35 @@ fn write_ramp_scalar<P: Pixel>(pixels: &mut [P], mut color: [i32; 3], step: [i32
         let channel = |index: usize| ((color[index].clamp(0, 255 << 20) + rounding[i & 3]) >> 20) as u8;
         *pixel = P::from_rgb(channel(0), channel(1), channel(2));
         for channel in 0..3 {
+            color[channel] = color[channel].wrapping_add(step[channel]);
+        }
+    }
+}
+
+#[inline(always)]
+fn blend_ramp_scalar<P: Pixel>(
+    pixels: &mut [P],
+    mut color: [i32; 4],
+    step: [i32; 4],
+    rounding: [i32; 4],
+    coverage: u8,
+) {
+    for (i, pixel) in pixels.iter_mut().enumerate() {
+        let alpha = ((color[3].clamp(0, 255 << 20) + (1 << 19)) >> 20) as u8;
+        let max_rgb = i32::from(alpha) << 20;
+        let channel = |index: usize| ((color[index].clamp(0, max_rgb) + rounding[i & 3]) >> 20) as u8;
+        let sample = PremultipliedRgbaColor {
+            red: channel(0),
+            green: channel(1),
+            blue: channel(2),
+            alpha,
+        };
+        pixel.blend(if coverage == 255 {
+            sample
+        } else {
+            sample.coverage(u32::from(coverage))
+        });
+        for channel in 0..4 {
             color[channel] = color[channel].wrapping_add(step[channel]);
         }
     }

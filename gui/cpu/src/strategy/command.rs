@@ -336,6 +336,7 @@ impl<P: Pixel> RasterCommands<P> {
         self.range = 0..0;
         self.gradients.entries.clear();
         self.gradients.stops.clear();
+        self.gradients.ramps.clear();
         for mesh in &mut self.meshes[..self.mesh_count] {
             mesh.clear();
         }
