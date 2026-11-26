@@ -94,10 +94,9 @@ impl TextRenderer {
                         (placement.y + glyph.position.y + offset.y) * scale_factor,
                     ),
                 });
-                let Some(index) = self.glyphs.glyph(&mut resolved, prepared.key) else {
+                let Some(cached) = self.glyphs.glyph(&mut resolved, prepared.key) else {
                     continue;
                 };
-                let cached = self.glyphs.get(index);
                 let shape = PhysicalRect::new(
                     prepared.origin.x.saturating_add(i32::from(cached.metrics.left)),
                     prepared.origin.y.saturating_add(i32::from(cached.metrics.top)),

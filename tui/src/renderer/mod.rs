@@ -152,8 +152,7 @@ impl TuiRenderer {
         }
         for glyph in &self.cells.glyph {
             if let Some((run, _)) = Glyph(*glyph).run() {
-                self.text_runs
-                    .update_index(run as usize, |run| run.screen_references -= 1);
+                self.text_runs.get_mut_index(run as usize).screen_references -= 1;
             }
         }
         self.columns = columns;
@@ -246,7 +245,7 @@ impl TuiRenderer {
         });
         if self.text_runs.get_index(index).id.0 as u32 == 0 {
             let slot = u32::try_from(index + 1).expect("too many tui text runs");
-            self.text_runs.update_index(index, |run| run.id.0 |= u64::from(slot));
+            self.text_runs.get_mut_index(index).id.0 |= u64::from(slot);
             self.next_text_run = self.next_text_run.checked_add(1).expect("too many tui text runs");
         }
         self.text_runs.get_index(index).id

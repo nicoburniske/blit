@@ -136,8 +136,7 @@ impl TextSystem {
         });
         if inserted {
             let slot = u32::try_from(source_index + 1).expect("too many cached text sources");
-            self.sources
-                .update_index(source_index, |source| source.id |= u64::from(slot));
+            self.sources.get_mut_index(source_index).id |= u64::from(slot);
             self.next_source = self.next_source.checked_add(1).expect("too many text sources");
         }
         TextRun(self.sources.get_index(source_index).id)
@@ -302,10 +301,10 @@ impl TextSystem {
             return (layout, 0);
         }
         let index = (id as u32).checked_sub(1).expect("invalid text") as usize;
-        let unshaped = self.sources.update_index(index, |cached| {
-            assert_eq!(cached.id, id, "expired text source");
-            cached.shape.is_none()
-        });
+        let cached = self.sources.get_index(index);
+        assert_eq!(cached.id, id, "expired text source");
+        self.sources.touch_index(index);
+        let unshaped = cached.shape.is_none();
         if unshaped {
             let cached = self.sources.get_key_index(index);
             let one;

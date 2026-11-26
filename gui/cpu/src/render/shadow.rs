@@ -125,9 +125,7 @@ impl<P: Pixel> crate::Render<P> for Renderer {
                 },
             )
         };
-        let (image, nine_slice) = if let Some((cached, _)) = self.entries.get(&key) {
-            (cached.image.clone(), cached.nine_slice)
-        } else {
+        let (cached, _) = self.entries.try_get_or_insert(key, |key| {
             let width = bounds.width as usize;
             let height = bounds.height as usize;
             let mut alpha = if key.inset {
@@ -204,7 +202,9 @@ impl<P: Pixel> crate::Render<P> for Renderer {
             }
             let center_y = height / 2;
             let mut top = center_y;
-            while top > 0 && alpha[(top - 1) * width..top * width] == alpha[center_y * width..(center_y + 1) * width] {
+            while top > 0
+                && alpha[(top - 1) * width..top * width] == alpha[center_y * width..(center_y + 1) * width]
+            {
                 top -= 1;
             }
             let mut bottom_start = center_y + 1;
@@ -249,14 +249,16 @@ impl<P: Pixel> crate::Render<P> for Renderer {
                 image_height as u32,
             );
             let image = cx.create_image(data);
-            let cached = CachedShadow {
-                image,
-                bytes,
-                nine_slice,
-            };
-            let (cached, _) = self.entries.get_or_insert(key, |key| (key, cached));
-            (cached.image.clone(), cached.nine_slice)
-        };
+            Some((
+                key,
+                CachedShadow {
+                    image,
+                    bytes,
+                    nine_slice,
+                },
+            ))
+        })?;
+        let (image, nine_slice) = (cached.image.clone(), cached.nine_slice);
         Some(Prepared {
             image,
             bounds,

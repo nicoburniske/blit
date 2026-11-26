@@ -28,23 +28,16 @@ impl GlyphCache {
         }
     }
 
-    pub fn glyph(&mut self, text: &mut ResolvedTextLayout<'_>, id: GlyphImageId) -> Option<usize> {
-        if let Some((_, index)) = self.glyphs.get(&id) {
-            return Some(index);
-        }
-        let Ok(GlyphImage { metrics, pixels }) = text.rasterize_glyph(id) else {
-            text.remove_glyph(id);
-            return None;
-        };
-        Some(
-            self.glyphs
-                .get_or_insert(id, |key| (key, CachedGlyph { metrics, pixels }))
-                .1,
-        )
-    }
-
-    pub fn get(&self, index: usize) -> &CachedGlyph {
-        self.glyphs.get_index(index)
+    pub fn glyph(&mut self, text: &mut ResolvedTextLayout<'_>, id: GlyphImageId) -> Option<&CachedGlyph> {
+        self.glyphs
+            .try_get_or_insert(id, |key| {
+                let Ok(GlyphImage { metrics, pixels }) = text.rasterize_glyph(key) else {
+                    text.remove_glyph(key);
+                    return None;
+                };
+                Some((key, CachedGlyph { metrics, pixels }))
+            })
+            .map(|(glyph, _)| glyph)
     }
 
     pub fn finish_frame(&mut self, text: &mut TextSystem) {

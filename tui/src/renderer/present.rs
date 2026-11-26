@@ -65,13 +65,10 @@ impl TuiRenderer {
                 let new = new_glyph.run().map(|(run, _)| run);
                 if old != new {
                     if let Some(run) = new {
-                        self.text_runs
-                            .update_index(run as usize, |run| run.screen_references += 1);
+                        self.text_runs.get_mut_index(run as usize).screen_references += 1;
                     }
                     if let Some(run) = old {
-                        self.text_runs.update_index(run as usize, |run| {
-                            run.screen_references -= 1;
-                        });
+                        self.text_runs.get_mut_index(run as usize).screen_references -= 1;
                     }
                 }
             }
