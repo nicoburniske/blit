@@ -370,3 +370,71 @@ fn renders_primitives_and_rebuilds_frames() {
     renderer.render(&target);
     assert_eq!(renderer.batch_count(), 0);
 }
+
+#[test]
+fn profiles_gpu_pass_timestamps() {
+    #[cfg(target_os = "linux")]
+    let backends = wgpu::Backends::VULKAN;
+    #[cfg(target_os = "macos")]
+    let backends = wgpu::Backends::METAL;
+
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let Ok(adapter) = blit_executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+        eprintln!("skipping native GPU test because no adapter is available");
+        return;
+    };
+    if !adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+        eprintln!("skipping GPU timestamp test because adapter lacks TIMESTAMP_QUERY");
+        return;
+    }
+    let (device, queue) = blit_executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_features: wgpu::Features::TIMESTAMP_QUERY,
+        ..Default::default()
+    }))
+    .unwrap();
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("blit gpu timestamp test target"),
+        size: wgpu::Extent3d {
+            width: 64,
+            height: 64,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let text = TextSystem::new(TextConfig::default(), blit_text_parley::Backend::new()).unwrap();
+    let mut renderer = Renderer::new(
+        device.clone(),
+        queue,
+        wgpu::TextureFormat::Rgba8Unorm,
+        text,
+        RendererConfig::default(),
+    );
+    let mut profiler = blit_profile::FrameProfiler::new(8);
+    profiler.set_refresh_interval(Duration::ZERO);
+    let gpu = profiler.register("gpu");
+    profiler.set_enabled(true);
+
+    for step in 0..3 {
+        profiler.begin_frame(Duration::from_millis(step * 16));
+        Rectangle::new()
+            .background(Color::WHITE)
+            .paint(LogicalRect::new(0.0, 0.0, 64.0, 64.0), &mut renderer);
+        renderer.render_profiled(&target, &mut profiler, gpu);
+        profiler.finish_frame();
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(Duration::from_secs(5)),
+            })
+            .unwrap();
+    }
+    assert!(profiler.stages()[0].stats.latest.is_some());
+}

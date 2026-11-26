@@ -169,6 +169,7 @@ dependencies = [
  "blit-executor",
  "blit-gpu",
  "blit-gui",
+ "blit-profile",
  "blit-widget",
  "softbuffer",
  "wgpu",
@@ -189,6 +190,7 @@ dependencies = [
  "blit",
  "blit-executor",
  "blit-gui",
+ "blit-profile",
  "blit-text",
  "blit-text-parley",
  "blit-util",
@@ -218,6 +220,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "blit-profile"
+version = "0.1.0"
+
+[[package]]
 name = "blit-text"
 version = "0.1.0"
 dependencies = [
@@ -240,6 +246,7 @@ name = "blit-tui"
 version = "0.1.0"
 dependencies = [
  "blit",
+ "blit-profile",
  "blit-util",
  "blit-widget",
  "divan",

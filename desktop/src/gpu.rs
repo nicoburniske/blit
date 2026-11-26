@@ -1,4 +1,4 @@
-use std::{io::Error as IoError, sync::Arc};
+use std::{io::Error as IoError, sync::Arc, time::Instant};
 
 use blit::{LogicalRect, Paint};
 use blit_gpu::Renderer;
@@ -7,6 +7,7 @@ use blit_gui::{
     style::BorderRadius,
     text::system::TextSystem,
 };
+use blit_profile::{FrameProfiler, StageId};
 use wgpu::{CurrentSurfaceTexture, SurfaceConfiguration};
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -24,6 +25,7 @@ pub struct Backend {
     instance: wgpu::Instance,
     gpu: Option<Gpu>,
     active: Option<Active>,
+    stages: Stages,
 }
 
 impl Backend {
@@ -36,6 +38,7 @@ impl Backend {
             }),
             gpu: None,
             active: None,
+            stages: Stages::default(),
         }
     }
 }
@@ -137,6 +140,7 @@ impl GraphicsBackend for Backend {
                     .ok_or_else(|| IoError::other("GPU surface has no non-sRGB format"))?;
             }
             let (device, queue) = blit_executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
                 required_limits: wgpu::Limits::default().using_resolution(adapter.limits()),
                 ..Default::default()
             }))?;
@@ -184,13 +188,21 @@ impl GraphicsBackend for Backend {
             .set_scale(scale);
     }
 
+    fn register_profiler(&mut self, profiler: &mut FrameProfiler) {
+        self.stages = Stages {
+            encode: profiler.register("encode"),
+            present: profiler.register("present"),
+            gpu: profiler.register("gpu"),
+        };
+    }
+
     fn reset_frame(&mut self) {
         if let Some(gpu) = &mut self.gpu {
             gpu.renderer.reset_frame();
         }
     }
 
-    fn render(&mut self) -> Result<bool, GraphicsError> {
+    fn render(&mut self, profiler: &mut FrameProfiler, started_at: Instant) -> Result<bool, GraphicsError> {
         let (Some(active), Some(gpu)) = (&mut self.active, &mut self.gpu) else {
             return Ok(false);
         };
@@ -228,14 +240,24 @@ impl GraphicsBackend for Backend {
             }
         };
 
-        gpu.renderer.render(&frame.texture);
+        profiler.mark(self.stages.present, || started_at.elapsed());
+        gpu.renderer.render_profiled(&frame.texture, profiler, self.stages.gpu);
+        profiler.mark(self.stages.encode, || started_at.elapsed());
         active.window.pre_present_notify();
         gpu.queue.present(frame);
         if suboptimal {
             active.surface.configure(&gpu.device, &active.config);
         }
+        profiler.mark(self.stages.present, || started_at.elapsed());
         Ok(true)
     }
+}
+
+#[derive(Clone, Copy, Default)]
+struct Stages {
+    encode: StageId,
+    gpu: StageId,
+    present: StageId,
 }
 
 struct Active {

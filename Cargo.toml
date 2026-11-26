@@ -11,6 +11,7 @@ members = [
     "gui/text",
     "gui/text/parley",
     "kernel",
+    "profile",
     "tui",
     "util",
     "widget",
@@ -30,6 +31,7 @@ blit-executor = { path = "executor" }
 blit-gui = { path = "gui" }
 blit-gui-widget = { path = "gui/widget" }
 blit-gpu = { path = "gui/gpu" }
+blit-profile = { path = "profile" }
 blit-widget = { path = "widget" }
 blit-text = { path = "gui/text" }
 blit-text-parley = { path = "gui/text/parley" }

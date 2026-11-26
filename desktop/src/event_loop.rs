@@ -8,7 +8,7 @@ use blit::{
     input::{Input, Key, KeyInput, Modifiers, MouseButton, ScrollPhase},
 };
 use blit_executor::LocalExecutor;
-use blit_widget::performance::Stage;
+use blit_profile::StageId;
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize as WindowSize, PhysicalPosition, PhysicalSize},
@@ -52,7 +52,13 @@ impl<A: Application> Session<A> {
             height,
             graphics,
         } = config;
-        let context = DesktopContext::new(graphics);
+        let mut context = DesktopContext::new(graphics);
+        let stages = Stages {
+            build: context.profiler.register("build"),
+            layout: context.profiler.register("layout"),
+            paint: context.profiler.register("paint"),
+        };
+        context.graphics.register_profiler(&mut context.profiler);
         let event_loop = EventLoop::<Event<A::Input>>::with_user_event().build()?;
         let runner = Runner {
             state: Some(State::Pending(Box::new(Pending {
@@ -60,6 +66,7 @@ impl<A: Application> Session<A> {
                 width,
                 height,
                 context,
+                stages,
                 input: EventLoopProxy {
                     inner: event_loop.create_proxy(),
                 },
@@ -112,6 +119,7 @@ struct Pending<A: Application> {
     width: u32,
     height: u32,
     context: DesktopContext<A::Graphics>,
+    stages: Stages,
     input: EventLoopProxy<A::Input>,
 }
 
@@ -119,12 +127,20 @@ struct Active<A: Application> {
     app: A,
     executor: LocalExecutor<A>,
     context: DesktopContext<A::Graphics>,
+    stages: Stages,
     kernel: Kernel<DesktopContext<A::Graphics>>,
     window: Arc<Window>,
     ui_scale: f32,
     render_deferred: bool,
     occluded: bool,
     suspended: bool,
+}
+
+#[derive(Clone, Copy)]
+struct Stages {
+    build: StageId,
+    layout: StageId,
+    paint: StageId,
 }
 
 impl<A: Application> Active<A> {
@@ -217,6 +233,7 @@ impl<A: Application> Runner<A> {
         let scale = active.scale();
         let info = FrameInfo::new(Size::new(size.width as f32 / scale, size.height as f32 / scale));
         let no_input = self.inputs.is_empty().then_some(Input::None);
+        let stages = active.stages;
         active.context.profiler.begin_frame(time);
         active.context.graphics.reset_frame();
         for input in self.inputs.drain(..).chain(no_input) {
@@ -225,16 +242,31 @@ impl<A: Application> Runner<A> {
                 .build(&mut active.context, info, time, input, |ui: Ui<'_, A::Graphics>| {
                     active.app.build(ui)
                 });
-            active.context.profiler.finish_stage(Stage::Build);
+            active.context.profiler.mark(stages.build, || self.started_at.elapsed());
             active.kernel.layout(&mut active.context);
-            active.context.profiler.finish_stage(Stage::Layout);
+            active
+                .context
+                .profiler
+                .mark(stages.layout, || self.started_at.elapsed());
         }
         active.kernel.paint(&mut active.context);
-        let presented = match active.context.graphics.render() {
+        active.context.profiler.mark(stages.paint, || self.started_at.elapsed());
+        let presented = match active
+            .context
+            .graphics
+            .render(&mut active.context.profiler, self.started_at)
+        {
             Ok(presented) => presented,
-            Err(error) => return self.fail(event_loop, error),
+            Err(error) => {
+                active.context.profiler.cancel_frame();
+                return self.fail(event_loop, error);
+            }
         };
-        active.context.profiler.finish_frame();
+        if presented {
+            active.context.profiler.finish_frame();
+        } else {
+            active.context.profiler.cancel_frame();
+        }
         active.render_deferred = !presented;
         if !presented {
             active.kernel.request_frame();
@@ -249,6 +281,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             width,
             height,
             mut context,
+            stages,
             input,
         } = match self.state.take() {
             Some(State::Pending(pending)) => *pending,
@@ -289,6 +322,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             app,
             executor,
             context,
+            stages,
             kernel,
             window,
             ui_scale: 1.0,

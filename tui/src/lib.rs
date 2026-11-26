@@ -45,7 +45,6 @@ use blit::{
     FrameInfo, Kernel, PhysicalPoint, PhysicalSize,
     input::{Input, Key, KeyInput, Modifiers, MouseButton, ScrollPhase},
 };
-use blit_widget::performance::Stage;
 use terminal::{Size, Terminal};
 
 const MAX_EVENTS_PER_FRAME: usize = 32;
@@ -150,6 +149,7 @@ where
         context.as_mut().renderer.resize(self.config);
         let info = self.frame_info();
         // the prefilled Input::None runs one pass when no events were collected
+        let stages = context.as_mut().stages;
         context.as_mut().profiler.begin_frame(now);
         for input in &mut inputs[..input_count.max(1)] {
             let input = std::mem::take(input);
@@ -158,9 +158,9 @@ where
                     render(ui);
                 }
             });
-            context.as_mut().profiler.finish_stage(Stage::Build);
+            context.as_mut().profiler.mark(stages.build, || self.started.elapsed());
             self.kernel.layout(context);
-            context.as_mut().profiler.finish_stage(Stage::Layout);
+            context.as_mut().profiler.mark(stages.layout, || self.started.elapsed());
         }
         if context.as_mut().should_quit {
             context.as_mut().profiler.cancel_frame();
@@ -170,8 +170,13 @@ where
         context.as_mut().renderer.begin_frame();
         self.kernel.paint(context);
         context.as_mut().renderer.end_frame();
-        context.as_mut().profiler.finish_frame();
+        context.as_mut().profiler.mark(stages.paint, || self.started.elapsed());
         self.present(context)?;
+        context
+            .as_mut()
+            .profiler
+            .mark(stages.present, || self.started.elapsed());
+        context.as_mut().profiler.finish_frame();
         // establish the earliest time for the following frame
         self.next_frame = now + self.frame_interval;
         Ok(true)

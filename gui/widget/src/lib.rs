@@ -1,4 +1,3 @@
-pub mod performance;
 pub mod text_input;
 
 pub use blit_widget::{interact, popover};

@@ -16,9 +16,10 @@ mod event_loop;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 
-use std::{error::Error, fmt, sync::Arc};
+use std::{error::Error, fmt, sync::Arc, time::Instant};
 
 use blit_gui::image::{ImageData, ImageHandle};
+use blit_profile::FrameProfiler;
 use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy as WinitEventLoopProxy, window::Window};
 
 pub struct Config<G> {
@@ -43,13 +44,16 @@ pub trait GraphicsBackend: blit_gui::Context + 'static {
 
     fn set_scale(&mut self, scale: f32);
 
+    /// registers backend specific stages with the frame profiler
+    fn register_profiler(&mut self, _profiler: &mut FrameProfiler) {}
+
     /// clears pending inputs before a new frame
     fn reset_frame(&mut self);
 
     /// returns whether a frame was presented
     ///
     /// request a redraw before returning false to retry without new input
-    fn render(&mut self) -> Result<bool, GraphicsError>;
+    fn render(&mut self, profiler: &mut FrameProfiler, started_at: Instant) -> Result<bool, GraphicsError>;
 }
 
 /// sends application input to the desktop event loop

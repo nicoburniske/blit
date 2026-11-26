@@ -1,7 +1,6 @@
 pub mod bar_chart;
 pub mod block;
 pub mod gauge;
-pub mod performance;
 pub mod shadow;
 pub mod sparkline;
 pub mod text_input;

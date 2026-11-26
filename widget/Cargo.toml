@@ -5,11 +5,6 @@ edition = "2024"
 license.workspace = true
 publish = false
 
-[features]
-default = ["std"]
-# the frame profiler, timed by the system clock
-std = []
-
 [dependencies]
 blit.workspace = true
 libm.workspace = true

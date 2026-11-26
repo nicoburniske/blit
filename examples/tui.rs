@@ -15,7 +15,6 @@ use blit_tui::{
         bar_chart::{Bar, BarChart},
         block::{Block, Border, BorderSides, BorderStyle, Title},
         gauge::Gauge,
-        performance::{Performance, PerformanceState},
         popover::{Popover, PopoverClose, PopoverState},
         resize::{Resize, ResizeEdge, ResizeGrip, ResizeState},
         scroll::{Scroll, ScrollList, ScrollListState, ScrollState},
@@ -45,7 +44,7 @@ struct Demo {
     drag: DragPage,
     settings: PopoverState,
     modal: Modal,
-    performance: PerformanceState,
+    performance: PopoverState,
     show_performance: bool,
 }
 
@@ -62,7 +61,7 @@ impl Default for Demo {
             drag: DragPage::default(),
             settings: PopoverState::new(),
             modal: Modal::default(),
-            performance: PerformanceState::default(),
+            performance: PopoverState::new(),
             show_performance: true,
         }
     }
@@ -152,7 +151,9 @@ impl Demo {
         };
         root.context_mut().profiler.set_enabled(self.show_performance);
         if self.show_performance {
-            root.child()
+            let border = Border::new(colors::ACCENT).style(BorderStyle::Rounded);
+            let mut overlay = root
+                .child()
                 .place(
                     blit::Id::ROOT,
                     absolute::place()
@@ -161,16 +162,124 @@ impl Demo {
                         .x(-1)
                         .y(-1),
                 )
-                .layout(())
-                .child()
-                .build(
-                    Performance::new(&mut self.performance)
-                        .background(colors::SURFACE_HIGH)
-                        .graph_background(colors::TRACK)
+                .layout(());
+            Popover::new(&mut self.performance)
+                .target_anchor(Anchor::TopRight)
+                .child_anchor(Anchor::BottomRight)
+                .close(PopoverClose::Manual)
+                .begin(overlay.child())
+                .trigger(|ui, press, open| {
+                    let fps = ui.context().profiler.fps();
+                    let latest = ui.context().profiler.total().latest;
+                    let mut badge = ui.layout(flex::row().gap(1).align(Align::Center)).pad(1);
+                    badge.insert(
+                        Block::new()
+                            .background(if press.hovered || open {
+                                colors::TRACK
+                            } else {
+                                colors::SURFACE_HIGH
+                            })
+                            .border(border),
+                    );
+                    badge
+                        .child()
+                        .item(flex::item().width(1).height(1))
+                        .insert(Block::new().background(colors::ACCENT));
+                    let scratch = badge.scratch();
+                    let fps = fps.map(|fps| scratch.fmt(format_args!("{fps:03.0}")));
+                    let total = latest.map(|total| scratch.fmt(format_args!("{:6.2}", total.as_secs_f64() * 1000.0)));
+                    badge.child().insert(
+                        Text::new(format_args!(
+                            "FPS {} | {} ms",
+                            fps.as_deref().unwrap_or("---"),
+                            total.as_deref().unwrap_or("    --"),
+                        ))
                         .color(colors::TEXT)
-                        .muted_color(colors::TEXT)
-                        .accent(colors::ACCENT),
-                );
+                        .attributes(TextAttributes::BOLD),
+                    );
+                })
+                .content(|ui| {
+                    let right = TextOptions::new().horizontal_align(HorizontalAlign::Right);
+
+                    let mut bars = ui.scratch().alloc(40);
+                    bars.extend(
+                        ui.context()
+                            .profiler
+                            .graph(None, 40)
+                            .map(|duration| duration.as_secs_f32() * 1000.0),
+                    );
+                    let scale = bars.iter().copied().fold(0.001_f32, f32::max);
+
+                    let mut panel = ui.layout(flex::column()).pad(1);
+                    panel.insert(Block::new().background(colors::SURFACE_HIGH).border(border));
+
+                    {
+                        let mut table = panel.child().layout(grid::new(3).column_gap(2));
+                        table.child().insert(Text::new("stage").color(colors::TEXT));
+                        table
+                            .child()
+                            .insert(Text::new("average (ms)").color(colors::TEXT).options(right));
+                        table
+                            .child()
+                            .insert(Text::new("p99 (ms)").color(colors::TEXT).options(right));
+                        for index in 0..=table.context().profiler.stages().len() {
+                            let (name, stats) = match index {
+                                0 => ("total", table.context().profiler.total()),
+                                i => {
+                                    let stage = table.context().profiler.stages()[i - 1];
+                                    (stage.name, stage.stats)
+                                }
+                            };
+                            table.child().insert(Text::new(name).color(colors::TEXT));
+                            for value in [stats.average, stats.p99] {
+                                let text =
+                                    value.map(|d| table.scratch().fmt(format_args!("{:.3}", d.as_secs_f64() * 1000.0)));
+                                table.child().insert(
+                                    Text::new(text.as_deref().unwrap_or("--"))
+                                        .color(colors::TEXT)
+                                        .options(right),
+                                );
+                            }
+                        }
+                    }
+
+                    let mut chart = panel.child().layout(flex::row().gap(1));
+                    {
+                        let mut axis = chart
+                            .child()
+                            .item(flex::item().height(6))
+                            .layout(flex::column().align(Align::End).justify(Justify::SpaceBetween));
+                        for value in [scale, scale / 2.0, 0.0] {
+                            axis.child()
+                                .insert(Text::new(format_args!("{value:.3} ms")).color(colors::TEXT));
+                        }
+                    }
+
+                    let mut graph = chart
+                        .child()
+                        .item(flex::item().width(40).height(6))
+                        .layout(flex::row().align(Align::End));
+                    graph.insert(Block::new().background(colors::TRACK));
+                    for &millis in &*bars {
+                        let eighths = (48.0 * millis / scale).round().clamp(0.0, 48.0) as usize;
+                        let full = eighths / 8;
+                        let partial = eighths % 8;
+                        let mut bar = graph
+                            .child()
+                            .item(flex::item().width(1).height(full as i32 + i32::from(partial != 0)))
+                            .layout(flex::column());
+                        if partial != 0 {
+                            bar.child().item(flex::item().width(1).height(1)).insert(
+                                Text::new(["", "▁", "▂", "▃", "▄", "▅", "▆", "▇"][partial]).color(colors::ACCENT),
+                            );
+                        }
+                        if full != 0 {
+                            bar.child()
+                                .item(flex::item().width(1).height(full as i32))
+                                .insert(Block::new().background(colors::ACCENT));
+                        }
+                    }
+                });
         }
     }
 }

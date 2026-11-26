@@ -3,7 +3,7 @@ use std::{any::TypeId, ops::Range, ptr::NonNull};
 use blit::{FrameStore, LogicalRect, PhysicalRect};
 use blit_gui::display_list::{Compare, DisplayList};
 
-use crate::{Batch, Effects, Renderer};
+use crate::{Batch, Effects, Renderer, timestamp::ActivePass};
 
 /// prepares GPU resources and encodes ordered drawing commands
 pub trait Render: Sized + 'static {
@@ -163,6 +163,7 @@ pub struct RenderContext<'a> {
     pub(super) encoder: wgpu::CommandEncoder,
     pub(super) view: &'a wgpu::TextureView,
     pub(super) binding: &'a wgpu::BindGroup,
+    pub(super) timestamps: Option<ActivePass>,
 }
 
 impl RenderContext<'_> {
@@ -171,6 +172,7 @@ impl RenderContext<'_> {
     /// the static lifetime is wgpu encoder tracking and does not extend borrowed user data
     pub fn pass(&mut self) -> &mut wgpu::RenderPass<'static> {
         let pass = self.pass.get_or_insert_with(|| {
+            let timestamp_writes = self.timestamps.as_mut().and_then(ActivePass::next);
             self.encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("blit gpu output"),
@@ -183,6 +185,7 @@ impl RenderContext<'_> {
                             store: wgpu::StoreOp::Store,
                         },
                     })],
+                    timestamp_writes,
                     ..Default::default()
                 })
                 .forget_lifetime()

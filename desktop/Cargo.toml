@@ -16,6 +16,7 @@ blit-cpu = { path = "../gui/cpu", optional = true }
 blit-gpu = { path = "../gui/gpu", optional = true }
 blit-gui.workspace = true
 blit-executor.workspace = true
+blit-profile.workspace = true
 blit-widget.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]

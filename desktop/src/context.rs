@@ -4,7 +4,7 @@ use blit_gui::{
     style::BorderRadius,
     text::system::TextSystem,
 };
-use blit_widget::performance::FrameProfiler;
+use blit_profile::FrameProfiler;
 
 use crate::{GraphicsBackend, GraphicsError};
 
@@ -61,11 +61,5 @@ impl<G: GraphicsBackend + Paint<T>, T> Paint<T> for DesktopContext<G> {
 impl<G: GraphicsBackend> blit_gui::Context for DesktopContext<G> {
     fn text(&mut self) -> &mut TextSystem {
         self.graphics.text()
-    }
-}
-
-impl<G> AsRef<FrameProfiler> for DesktopContext<G> {
-    fn as_ref(&self) -> &FrameProfiler {
-        &self.profiler
     }
 }

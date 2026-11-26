@@ -8,6 +8,7 @@ mod rectangle;
 pub mod render;
 mod shadow;
 mod text;
+mod timestamp;
 
 use std::hash::Hasher;
 
@@ -19,6 +20,7 @@ use blit_gui::{
     style::BorderRadius,
     text::system::TextSystem,
 };
+use blit_profile::{FrameId, FrameProfiler, StageId};
 use blit_util::arena::Arena;
 use bytemuck::Zeroable;
 use pipeline::{
@@ -77,6 +79,7 @@ pub struct Renderer {
     renderers: Vec<render::ErasedRenderer>,
     calls: Vec<render::Call>,
     effects: Option<Effects>,
+    timestamps: Option<timestamp::Timestamps>,
 }
 
 impl blit::Context for Renderer {
@@ -321,6 +324,7 @@ impl Renderer {
             texture_origin: [0, 0],
         });
         let empty_image = images.get(empty).unwrap().handle.clone();
+        let timestamps = timestamp::Timestamps::new(&device);
 
         Self {
             format,
@@ -366,6 +370,7 @@ impl Renderer {
             renderers: Vec::new(),
             calls: Vec::new(),
             effects: None,
+            timestamps,
         }
     }
 
@@ -493,6 +498,18 @@ impl Renderer {
 
     /// renders one frame into `target`
     pub fn render(&mut self, target: &wgpu::Texture) {
+        self.render_frame(target, None);
+    }
+
+    /// renders one frame into `target` and records GPU pass durations when supported
+    pub fn render_profiled(&mut self, target: &wgpu::Texture, profiler: &mut FrameProfiler, stage: StageId) {
+        if let Some(timestamps) = &mut self.timestamps {
+            timestamps.poll(&self.device, &self.queue, profiler, stage);
+        }
+        self.render_frame(target, profiler.active_frame());
+    }
+
+    fn render_frame(&mut self, target: &wgpu::Texture, frame: Option<FrameId>) {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             assert_eq!(
                 target.format(),
@@ -640,6 +657,8 @@ impl Renderer {
             let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("blit gpu frame"),
             });
+            let mut active_timestamps = frame.and_then(|frame| self.timestamps.as_ref()?.acquire(frame));
+            let timestamp_writes = active_timestamps.as_mut().and_then(timestamp::ActivePass::next);
             let pass = encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("blit gpu frame"),
@@ -652,6 +671,7 @@ impl Renderer {
                             store: wgpu::StoreOp::Store,
                         },
                     })],
+                    timestamp_writes,
                     ..Default::default()
                 })
                 .forget_lifetime();
@@ -663,6 +683,7 @@ impl Renderer {
                 encoder,
                 view,
                 binding: &self.bind_group,
+                timestamps: active_timestamps,
             };
             for batches in self
                 .batches
@@ -731,7 +752,9 @@ impl Renderer {
                 }
             }
             if let Some(effect) = effect {
-                let mut pass = context.encoder().begin_render_pass(&wgpu::RenderPassDescriptor {
+                context.pass = None;
+                let timestamp_writes = context.timestamps.as_mut().and_then(timestamp::ActivePass::next);
+                let mut pass = context.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("blit gpu present"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &output,
@@ -742,6 +765,7 @@ impl Renderer {
                             store: wgpu::StoreOp::Store,
                         },
                     })],
+                    timestamp_writes,
                     ..Default::default()
                 });
                 pass.set_pipeline(&effect.pipeline);
@@ -749,7 +773,14 @@ impl Renderer {
                 pass.draw(0..4, 0..1);
             }
             context.pass = None;
+            let timing = context.timestamps.take();
+            if let (Some(timing), Some(timestamps)) = (&timing, &self.timestamps) {
+                timestamps.resolve(&mut context.encoder, timing);
+            }
             self.queue.submit([context.encoder.finish()]);
+            if let (Some(timing), Some(timestamps)) = (timing, &mut self.timestamps) {
+                timestamps.submit(timing);
+            }
             self.glyphs.end_frame(&mut self.text);
             self.list = display_list;
         }));

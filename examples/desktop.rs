@@ -19,7 +19,6 @@ use blit_gui::{
 use blit_gui_widget::{
     interact,
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, wrap},
-    performance::{Performance, PerformanceState},
     popover::{Popover, PopoverClose, PopoverState},
     resize::{Resize, ResizeEdge, ResizeGrip, ResizeState},
     scroll::{Scroll, ScrollList, ScrollListState, ScrollState},
@@ -93,7 +92,7 @@ struct App {
     drag: DragPage,
     graphics: graphics::View,
     settings: PopoverState,
-    performance: PerformanceState,
+    performance: PopoverState,
     show_performance: bool,
 }
 
@@ -109,7 +108,7 @@ impl Default for App {
             drag: DragPage::default(),
             graphics: graphics::View::default(),
             settings: PopoverState::new(),
-            performance: PerformanceState::default(),
+            performance: PopoverState::new(),
             show_performance: true,
         }
     }
@@ -205,7 +204,11 @@ impl Application for App {
         };
         root.context_mut().profiler.set_enabled(self.show_performance);
         if self.show_performance {
-            root.child()
+            let border = Border::solid(1.0, colors::BORDER);
+            let radius = BorderRadius::all(2.0);
+            let text_style = TextStyle::new().size(14.0);
+            let mut overlay = root
+                .child()
                 .place(
                     blit::Id::ROOT,
                     absolute::place()
@@ -214,18 +217,117 @@ impl Application for App {
                         .x(-sz::LG)
                         .y(-sz::LG),
                 )
-                .layout(())
-                .child()
-                .build(
-                    Performance::new(&mut self.performance)
-                        .background(colors::SURFACE_HIGH)
-                        .graph_background(colors::CANVAS)
-                        .color(colors::TEXT)
-                        .muted_color(colors::TEXT_DIM)
-                        .accent(colors::ACCENT)
-                        .border(Border::solid(1.0, colors::BORDER))
-                        .radius(BorderRadius::all(2.0)),
-                );
+                .layout(());
+            Popover::new(&mut self.performance)
+                .target_anchor(Anchor::TopRight)
+                .child_anchor(Anchor::BottomRight)
+                .y(-8.0)
+                .close(PopoverClose::Manual)
+                .begin(overlay.child())
+                .trigger(|ui, press, open| {
+                    let fps = ui.context().profiler.fps();
+                    let latest = ui.context().profiler.total().latest;
+                    let mut badge = ui
+                        .layout(flex::row().gap(8.0).align(Align::Center))
+                        .pad(Sides::xy(12.0, 8.0));
+                    badge.insert(
+                        Rectangle::new()
+                            .background(if press.hovered || open {
+                                colors::CANVAS
+                            } else {
+                                colors::SURFACE_HIGH
+                            })
+                            .border(border)
+                            .radius(radius),
+                    );
+                    badge.child().item(flex::item().width(8.0).height(8.0)).insert(
+                        Rectangle::new()
+                            .background(colors::ACCENT)
+                            .radius(BorderRadius::all(4.0)),
+                    );
+                    let scratch = badge.scratch();
+                    let fps = fps.map(|fps| scratch.fmt(format_args!("{fps:03.0}")));
+                    let total = latest.map(|total| scratch.fmt(format_args!("{:6.2}", total.as_secs_f64() * 1000.0)));
+                    badge.child().insert(
+                        Text::new(format_args!(
+                            "FPS {} | {} ms",
+                            fps.as_deref().unwrap_or("---"),
+                            total.as_deref().unwrap_or("    --"),
+                        ))
+                        .style(text_style.color(colors::TEXT)),
+                    );
+                })
+                .content(|ui| {
+                    let dim = text_style.color(colors::TEXT_DIM);
+                    let bright = text_style.color(colors::TEXT);
+                    let right = TextOptions::new().horizontal_align(HorizontalAlign::Right);
+
+                    let mut bars = ui.scratch().alloc(300);
+                    bars.extend(
+                        ui.context()
+                            .profiler
+                            .graph(None, 300)
+                            .map(|duration| duration.as_secs_f32() * 1000.0),
+                    );
+                    let scale = bars.iter().copied().fold(33.4_f32, f32::max);
+
+                    let mut panel = ui.layout(flex::column().gap(8.0)).pad(Sides::all(12.0));
+                    panel.insert(
+                        Rectangle::new()
+                            .background(colors::SURFACE_HIGH)
+                            .border(border)
+                            .radius(radius),
+                    );
+
+                    {
+                        let mut table = panel.child().layout(grid::new(3).column_gap(18.0).row_gap(4.0));
+                        table.child().insert(Text::new("stage").style(dim));
+                        table
+                            .child()
+                            .insert(Text::new("average (ms)").style(bright).options(right));
+                        table.child().insert(Text::new("p99 (ms)").style(bright).options(right));
+                        for index in 0..=table.context().profiler.stages().len() {
+                            let (name, stats) = match index {
+                                0 => ("total", table.context().profiler.total()),
+                                i => {
+                                    let stage = table.context().profiler.stages()[i - 1];
+                                    (stage.name, stage.stats)
+                                }
+                            };
+                            table.child().insert(Text::new(name).style(dim));
+                            for value in [stats.average, stats.p99] {
+                                let text =
+                                    value.map(|d| table.scratch().fmt(format_args!("{:.2}", d.as_secs_f64() * 1000.0)));
+                                table
+                                    .child()
+                                    .insert(Text::new(text.as_deref().unwrap_or("--")).style(bright).options(right));
+                            }
+                        }
+                    }
+
+                    let mut chart = panel.child().layout(flex::row().gap(8.0));
+                    {
+                        let mut axis = chart
+                            .child()
+                            .item(flex::item().height(100.0))
+                            .layout(flex::column().align(Align::End).justify(Justify::SpaceBetween));
+                        for value in [scale, scale / 2.0, 0.0] {
+                            axis.child().insert(Text::new(format_args!("{value:.1} ms")).style(dim));
+                        }
+                    }
+
+                    let mut graph = chart
+                        .child()
+                        .item(flex::item().width(300.0).height(100.0))
+                        .layout(flex::row().align(Align::End));
+                    graph.insert(Rectangle::new().background(colors::CANVAS));
+                    for &millis in &*bars {
+                        graph
+                            .child()
+                            .item(flex::item().width(Sizing::grow()).height(100.0 * millis / scale))
+                            .insert(Rectangle::new().background(colors::ACCENT));
+                    }
+                });
         }
     }
 }

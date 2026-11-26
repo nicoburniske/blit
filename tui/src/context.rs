@@ -1,5 +1,5 @@
 use blit::{Corners, Paint, PhysicalRect};
-use blit_widget::performance::FrameProfiler;
+use blit_profile::{FrameProfiler, StageId};
 
 use crate::{RendererConfig, TuiRenderer, image::Image, text::FrameText};
 
@@ -8,6 +8,15 @@ pub struct TuiContext {
     pub profiler: FrameProfiler,
     pub renderer: TuiRenderer,
     pub should_quit: bool,
+    pub(crate) stages: Stages,
+}
+
+#[derive(Clone, Copy)]
+pub struct Stages {
+    pub build: StageId,
+    pub layout: StageId,
+    pub paint: StageId,
+    pub present: StageId,
 }
 
 impl Default for TuiContext {
@@ -39,18 +48,20 @@ impl AsMut<TuiContext> for TuiContext {
     }
 }
 
-impl AsRef<FrameProfiler> for TuiContext {
-    fn as_ref(&self) -> &FrameProfiler {
-        &self.profiler
-    }
-}
-
 impl TuiContext {
     pub fn new(renderer: TuiRenderer) -> Self {
+        let mut profiler = FrameProfiler::default();
+        let stages = Stages {
+            build: profiler.register("build"),
+            layout: profiler.register("layout"),
+            paint: profiler.register("paint"),
+            present: profiler.register("present"),
+        };
         Self {
-            profiler: FrameProfiler::default(),
+            profiler,
             renderer,
             should_quit: false,
+            stages,
         }
     }
 }

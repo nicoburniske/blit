@@ -1,4 +1,4 @@
-use std::{num::NonZeroU32, ptr::NonNull, sync::Arc};
+use std::{num::NonZeroU32, ptr::NonNull, sync::Arc, time::Instant};
 
 use blit::{LogicalRect, Paint};
 use blit_cpu::{PixelBuffer, Renderer, Scanline, Xrgb8888};
@@ -8,6 +8,7 @@ use blit_gui::{
     style::BorderRadius,
     text::system::TextSystem,
 };
+use blit_profile::{FrameProfiler, StageId};
 use softbuffer::{Context, Surface};
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -16,12 +17,17 @@ use crate::{GraphicsBackend, GraphicsError};
 pub struct Backend {
     active: Option<Active>,
     renderer: Renderer<DesktopBuffer, Scanline>,
+    stages: Stages,
 }
 
 impl Backend {
     pub fn new(text: TextSystem, config: Config) -> Self {
         let renderer = Renderer::new(DesktopBuffer::new(1, 1), text, config).strategy(Scanline::default());
-        Self { active: None, renderer }
+        Self {
+            active: None,
+            renderer,
+            stages: Stages::default(),
+        }
     }
 
     pub fn register<R: 'static>(mut self, renderer: R) -> Self {
@@ -102,22 +108,38 @@ impl GraphicsBackend for Backend {
         self.renderer.set_scale(scale);
     }
 
+    fn register_profiler(&mut self, profiler: &mut FrameProfiler) {
+        self.stages = Stages {
+            raster: profiler.register("raster"),
+            present: profiler.register("present"),
+        };
+    }
+
     fn reset_frame(&mut self) {
         self.renderer.reset_frame();
     }
 
-    fn render(&mut self) -> Result<bool, GraphicsError> {
+    fn render(&mut self, profiler: &mut FrameProfiler, started_at: Instant) -> Result<bool, GraphicsError> {
         let Some(active) = &mut self.active else {
             return Ok(false);
         };
         let mut buffer = active.surface.buffer_mut()?;
         let age = buffer.age();
+        profiler.mark(self.stages.present, || started_at.elapsed());
         self.renderer.buffer_mut().set(&mut buffer);
         self.renderer.render(age);
+        profiler.mark(self.stages.raster, || started_at.elapsed());
         active.window.pre_present_notify();
         buffer.present()?;
+        profiler.mark(self.stages.present, || started_at.elapsed());
         Ok(true)
     }
+}
+
+#[derive(Clone, Copy, Default)]
+struct Stages {
+    raster: StageId,
+    present: StageId,
 }
 
 struct Active {
