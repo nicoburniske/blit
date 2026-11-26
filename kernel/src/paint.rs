@@ -94,7 +94,7 @@ pub fn resolve_order<C: Context>(kernel: &mut Kernel<C>, bump: &BumpArena) {
         return;
     }
 
-    let mut scratch = bump.storage.slice(count);
+    let mut scratch = bump.storage.alloc(count);
     scratch.resize(count, PaintLinks::default());
     let links = &mut scratch[..count];
     // zero marks the end of a child list since the root has no parent
@@ -174,7 +174,7 @@ pub fn resolve_clips<C: Context>(kernel: &mut Kernel<C>) {
 
 pub fn paint<C: Context>(kernel: &Kernel<C>, bump: &BumpArena, context: &mut C) {
     // the clips applied to the context, at most every clip deep
-    let mut active = bump.storage.slice(kernel.interaction.clips.len());
+    let mut active = bump.storage.alloc(kernel.interaction.clips.len());
     if kernel.paint_order.is_empty() {
         for node in 0..kernel.nodes.len() {
             paint_node(kernel, bump, context, &mut active, node);

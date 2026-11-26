@@ -134,7 +134,7 @@ fn scratch_and_default_items() {
 fn scratch_rejects_size_overflow() {
     let (mut kernel, mut context) = kernel(Size::uniform(4.0));
     render(&mut kernel, &mut context, |ui: Ui<'_>| {
-        ui.scratch().slice::<u64>(usize::MAX);
+        ui.scratch().alloc::<u64>(usize::MAX);
     });
 }
 

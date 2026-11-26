@@ -18,8 +18,8 @@ impl View {
             ];
             // the knot is the largest path at 242 verbs and 241 points
             let mut builder = PathBuilder {
-                verbs: cx.scratch().slice(242),
-                points: cx.scratch().slice(241),
+                verbs: cx.scratch().alloc(242),
+                points: cx.scratch().alloc(241),
             };
             let context = cx.context_mut();
             let turn = phase * TAU;

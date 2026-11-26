@@ -84,7 +84,7 @@ fn escape(kernel: &mut Kernel<()>) {
         FrameInfo::new(Size::uniform(1.0)),
         Duration::ZERO,
         input::Input::None,
-        |ui: Ui<'_, ()>| ui.scratch().slice::<u8>(1),
+        |ui: Ui<'_, ()>| ui.scratch().alloc::<u8>(1),
     );
 }
 ```

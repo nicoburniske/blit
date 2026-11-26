@@ -29,7 +29,7 @@ impl View {
                 vector.map(|value| value / length)
             };
             let circle = std::array::from_fn::<_, 10, _>(|side| (side as f32 / 10.0 * TAU).sin_cos());
-            let mut points = cx.scratch().slice(80 * 10);
+            let mut points = cx.scratch().alloc(80 * 10);
             for segment in 0..80 {
                 let t = segment as f32 / 80.0 * TAU;
                 let (sine, cosine) = (t * 2.0).sin_cos();
@@ -64,7 +64,7 @@ impl View {
                 let d = (segment + 1) % 80 * 10 + (side + 1) % 10;
                 if index.is_multiple_of(2) { [a, c, b] } else { [b, c, d] }
             };
-            let mut order = cx.scratch().slice(80 * 10 * 2);
+            let mut order = cx.scratch().alloc(80 * 10 * 2);
             for index in 0..80 * 10 * 2 {
                 let [a, b, c] = triangle(index).map(|index| points[index].0);
                 let facing = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);

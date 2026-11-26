@@ -298,7 +298,7 @@ impl Layout<TestContext> for Temporary {
     fn layout(&self, cx: &mut LayoutCx<'_, TestContext>, bounds: Constraints<f32>) -> Size<f32> {
         cx.context_mut().prepared += 1;
         let marker = cx.context().prepared;
-        let mut scratch = cx.scratch().slice(1);
+        let mut scratch = cx.scratch().alloc(1);
         scratch.push(marker);
         let size = ().layout(cx, bounds);
         assert_eq!(scratch[0], marker);

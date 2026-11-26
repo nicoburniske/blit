@@ -1,13 +1,14 @@
 use alloc::vec::Vec;
 use core::{
     cell::Cell,
+    fmt::{self, Write as _},
     mem::{MaybeUninit, align_of, size_of},
     ops::{Deref, DerefMut},
 };
 
 use crate::internal::bump::Bump;
 
-/// reusable storage for temporary slices
+/// reusable storage for temporary slices and formatted text
 #[derive(Default)]
 pub struct ScratchBuffer {
     pub(crate) bump: Bump,
@@ -18,7 +19,7 @@ pub struct ScratchBuffer {
 
 impl ScratchBuffer {
     /// reserves a fixed capacity without initializing elements
-    pub fn slice<T: Copy>(&self, capacity: usize) -> Scratch<'_, T> {
+    pub fn alloc<T: Copy>(&self, capacity: usize) -> Scratch<'_, T> {
         const {
             assert!(
                 align_of::<T>() <= Bump::ALIGNMENT,
@@ -57,6 +58,45 @@ impl ScratchBuffer {
             start,
             end,
         }
+    }
+
+    /// formats arguments into temporary scratch storage
+    pub fn fmt(&self, arguments: fmt::Arguments<'_>) -> ScratchStr<'_> {
+        struct Writer<'a, 'b>(&'b mut Scratch<'a, u8>);
+
+        impl fmt::Write for Writer<'_, '_> {
+            fn write_str(&mut self, text: &str) -> fmt::Result {
+                let bytes = text.as_bytes();
+                let new_len = self.0.len + bytes.len();
+                if new_len > self.0.capacity() {
+                    match &mut self.0.inner {
+                        ScratchInner::Owned(values) => values.resize(new_len, MaybeUninit::uninit()),
+                        ScratchInner::Ref(slice) => {
+                            let mut owned = Vec::with_capacity(new_len);
+                            owned.extend_from_slice(&slice[..self.0.len]);
+                            owned.resize(new_len, MaybeUninit::uninit());
+                            self.0.inner = ScratchInner::Owned(owned);
+                            if self.0.buffer.used.get() == self.0.end {
+                                self.0.buffer.used.set(self.0.start);
+                            }
+                        }
+                    }
+                }
+                self.0.inner.as_mut_slice()[self.0.len..new_len].write_copy_of_slice(bytes);
+                self.0.len = new_len;
+                Ok(())
+            }
+        }
+
+        let start = self.used.get().max(self.bump.used());
+        let mut scratch = self.alloc::<u8>(self.bump.capacity().saturating_sub(start));
+        let _ = Writer(&mut scratch).write_fmt(arguments);
+        scratch.end = scratch.start + scratch.len;
+        if matches!(scratch.inner, ScratchInner::Ref(_)) {
+            self.used.set(scratch.end);
+        }
+        self.peak.set(self.peak.get().max(scratch.end));
+        ScratchStr(scratch)
     }
 
     /// retains enough storage for the previous peak once no guards are borrowed
@@ -138,6 +178,24 @@ impl<T: Copy> Drop for Scratch<'_, T> {
         } else if self.buffer.used.get() == self.end {
             self.buffer.used.set(self.start);
         }
+    }
+}
+
+/// temporary formatted text backed by a [`ScratchBuffer`]
+pub struct ScratchStr<'a>(Scratch<'a, u8>);
+
+impl Deref for ScratchStr<'_> {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        // safety: fmt only writes valid utf-8 slices into the backing scratch buffer
+        unsafe { core::str::from_utf8_unchecked(&self.0) }
+    }
+}
+
+impl AsRef<str> for ScratchStr<'_> {
+    fn as_ref(&self) -> &str {
+        self
     }
 }
 

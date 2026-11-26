@@ -392,7 +392,7 @@ pub fn resolve<C: Context>(
         let properties = animated.intersection(MotionProps::SIZE);
         if !properties.is_empty() {
             let sizes = sizes.get_or_insert_with(|| {
-                let mut sizes = bump.storage.slice(end);
+                let mut sizes = bump.storage.alloc(end);
                 sizes.resize(end, MotionProps::NONE);
                 sizes
             });

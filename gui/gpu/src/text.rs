@@ -408,7 +408,7 @@ mod tests {
         atlas.begin_frame();
 
         use blit_gui::text::{
-            FontId, TextOptions, TextRequest, TextSource, TextStyle,
+            FontId, TextOptions, TextRequest, TextStyle,
             system::{TextConfig, TextSystem},
         };
         let mut text = TextSystem::new(
@@ -421,7 +421,7 @@ mod tests {
             blit_text_parley::Backend::without_system_fonts(),
         )
         .unwrap();
-        let run = text.text_run(TextSource::Borrowed("a "), TextStyle::new());
+        let run = text.text_run("a ", TextStyle::new());
         let area = blit::LogicalRect::new(0.0, 0.0, 100.0, 100.0);
         let mut request = TextRequest {
             text: run,
@@ -441,7 +441,7 @@ mod tests {
                 .key
         });
         text.finish_frame();
-        request.text = text.text_run(TextSource::Borrowed("another"), TextStyle::new());
+        request.text = text.text_run("another", TextStyle::new());
         let mut resolved = text.paint_layout(area, &request);
         let font = resolved.layout.runs[0].font;
         assert_eq!(

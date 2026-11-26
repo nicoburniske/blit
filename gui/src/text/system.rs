@@ -1,6 +1,5 @@
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 use core::{
-    fmt::Write as _,
     hash::{BuildHasher, Hash, Hasher},
     mem::size_of,
 };
@@ -16,7 +15,7 @@ use blit_util::{
 };
 
 use super::{
-    FontId, HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextOverflow, TextRun, TextSource, TextStyle,
+    FontId, HorizontalAlign, Span, TextLayoutRequest, TextOptions, TextOverflow, TextRun, TextStyle,
     TextWrap, VerticalAlign,
 };
 use crate::text::TextRequest;
@@ -26,7 +25,6 @@ pub struct TextSystem {
     fonts: Box<[ConfiguredFont]>,
     sources: DeferredCache<SourceKey, CachedSource, SourceScale>,
     layouts: DeferredCache<LayoutKey, CachedLayout, LayoutScale>,
-    formatted_text: String,
     next_source: u32,
 }
 
@@ -54,23 +52,13 @@ impl TextSystem {
             fonts: fonts.into_boxed_slice(),
             sources: DeferredCache::new(SourceScale, config.text_cache_capacity),
             layouts: DeferredCache::new(LayoutScale, config.layout_cache_capacity),
-            formatted_text: String::new(),
             next_source: 1,
         })
     }
 
     /// registers geometry using the font attributes in style
-    pub fn text_run<'a>(&mut self, source: impl Into<TextSource<'a>>, style: TextStyle) -> TextRun {
-        let arguments = match source.into() {
-            TextSource::Borrowed(text) => return self.rich_text(text, &[], style),
-            TextSource::Formatted(arguments) => arguments,
-        };
-        let mut text = core::mem::take(&mut self.formatted_text);
-        text.clear();
-        let _ = text.write_fmt(arguments);
-        let run = self.rich_text(&text, &[], style);
-        self.formatted_text = text;
-        run
+    pub fn text_run(&mut self, text: &str, style: TextStyle) -> TextRun {
+        self.rich_text(text, &[], style)
     }
 
     /// registers geometry using span ranges and font attributes

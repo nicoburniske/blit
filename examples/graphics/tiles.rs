@@ -15,7 +15,7 @@ impl View {
         ui.paint(move |cx, area| {
             let turn = phase * TAU;
             let tile = area.width.min(area.height) * 0.047;
-            let mut order = cx.scratch().slice(81);
+            let mut order = cx.scratch().alloc(81);
             order.extend(0..81);
             order.sort_unstable_by_key(|index| index / 9 + index % 9);
             let context = cx.context_mut();

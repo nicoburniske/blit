@@ -77,7 +77,7 @@ pub use self::{
     interact::{Contact, ContactId, ContactSource, Contacts, Interact, InteractCx, KeyboardEvent, Phase, ScrollEvent},
     layout::{Axis, Children, Layout, LayoutCx, Place, PlaceCx},
     paint::PaintCx,
-    scratch::{Scratch, ScratchBuffer},
+    scratch::{Scratch, ScratchBuffer, ScratchStr},
     timer::Timer,
     ui::{Ui, state},
 };

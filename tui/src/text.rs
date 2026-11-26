@@ -40,10 +40,12 @@ where
         let run = if let Some(spans) = self.spans {
             ui.context_mut().as_mut().renderer.rich_text(spans)
         } else {
-            let renderer = &mut ui.context_mut().as_mut().renderer;
             match self.text {
-                TextSource::Borrowed(text) => renderer.text_run(text),
-                TextSource::Formatted(arguments) => renderer.text_run_fmt(arguments),
+                TextSource::Borrowed(text) => ui.context_mut().as_mut().renderer.text_run(text),
+                TextSource::Formatted(arguments) => {
+                    let text = ui.scratch().fmt(arguments);
+                    ui.context_mut().as_mut().renderer.text_run(&text)
+                }
             }
         };
         ui.insert(

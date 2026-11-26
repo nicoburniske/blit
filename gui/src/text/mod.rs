@@ -36,7 +36,13 @@ where
     type Response = ();
 
     fn build(self, mut ui: blit::Ui<'_, C, state::Insert>) {
-        let run = ui.context_mut().text().text_run(self.text, self.style);
+        let run = match self.text {
+            TextSource::Borrowed(text) => ui.context_mut().text().text_run(text, self.style),
+            TextSource::Formatted(arguments) => {
+                let text = ui.scratch().fmt(arguments);
+                ui.context_mut().text().text_run(&text, self.style)
+            }
+        };
         let colors = ui.store_mut().slice_from(&[self.style.color]);
         ui.insert(
             FrameText::new(run, colors)

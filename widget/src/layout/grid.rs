@@ -60,9 +60,9 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
             spanning |= item.row_span != 1 || item.column_span != 1;
             count += 1;
         }
-        let mut positions = cx.scratch().slice(if spanning { count } else { 0 });
+        let mut positions = cx.scratch().alloc(if spanning { count } else { 0 });
         let row_count = if spanning {
-            let mut column_rows = cx.scratch().slice(columns);
+            let mut column_rows = cx.scratch().alloc(columns);
             column_rows.resize(columns, 0usize);
             let mut cursor = (0usize, 0usize);
             let mut rows = 0usize;
