@@ -6,7 +6,7 @@ pub use self::{
 mod area;
 mod list;
 
-use std::time::Duration;
+use core::time::Duration;
 
 use blit::{
     Animation, AnimationOptions, Axis, Constraints, Id, Layout, LayoutCx, NodeId, Point, Scalar, Scope, Size, Ui,
@@ -429,7 +429,7 @@ fn content_motion<C: Context, S: Local>(
         }
         if motion.activated {
             if matches!(ui.input(), blit::input::Input::Touch { .. }) {
-                let distance = motion.delta.x.hypot(motion.delta.y);
+                let distance = libm::hypotf(motion.delta.x, motion.delta.y);
                 if distance > 0.0 {
                     direct_delta *= (1.0 - C::SLOP.to_f32() / distance).max(0.0);
                 }
@@ -465,7 +465,7 @@ fn content_motion<C: Context, S: Local>(
 
     if !state.tracking && state.velocity != 0.0 {
         let elapsed = if moving { 0.0 } else { elapsed };
-        let decay = (-inertia_friction * elapsed).exp();
+        let decay = libm::expf(-inertia_friction * elapsed);
         let delta = state.velocity * (1.0 - decay) / inertia_friction;
         state.velocity *= decay;
         direct_delta += delta;

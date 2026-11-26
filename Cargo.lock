@@ -262,6 +262,7 @@ version = "0.1.0"
 dependencies = [
  "blit",
  "divan",
+ "libm",
  "unicode-segmentation",
 ]
 

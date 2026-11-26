@@ -189,7 +189,7 @@ impl<C: Context<Scalar = T>, T: Scalar> blit::Layout<C> for Layout<T> {
 }
 
 fn next_run<T: Scalar, I: Iterator>(
-    widths: &mut std::iter::Peekable<I>,
+    widths: &mut core::iter::Peekable<I>,
     mut size: impl FnMut(&I::Item) -> T,
     available: T,
     gap: T,

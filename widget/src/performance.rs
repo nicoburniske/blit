@@ -2,6 +2,7 @@ use std::{
     cmp::Reverse,
     collections::{BinaryHeap, VecDeque},
     fmt::Write as _,
+    string::String,
     time::{Duration, Instant},
 };
 

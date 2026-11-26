@@ -1,5 +1,16 @@
+//! built-in widgets for interaction, layout, popovers, resizing, scrolling, splits and text input
+//!
+//! `no_std` with `alloc`; the frame profiler in [`performance`] needs the `std` feature for its clock
+
+#![no_std]
+
+extern crate alloc;
+#[cfg(any(feature = "std", test))]
+extern crate std;
+
 pub mod interact;
 pub mod layout;
+#[cfg(feature = "std")]
 pub mod performance;
 pub mod popover;
 pub mod resize;
