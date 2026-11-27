@@ -83,6 +83,7 @@ pub struct Prepared {
     pub background: PreparedFill,
     border: PreparedFill,
     pub border_width: i32,
+    border_composite: bool,
 }
 
 impl Prepared {
@@ -124,12 +125,15 @@ impl Prepared {
             return None;
         }
         let radii = Radii::new(rectangle.radius, scale, geometry.width, geometry.height);
+        let border_composite =
+            border_width > 0 && !matches!(background, PreparedFill::Solid(_)) && !border.is_opaque(gradients);
         Some(Self {
             geometry,
             radii,
             background,
             border,
             border_width,
+            border_composite,
             inner: PhysicalRect {
                 x: geometry.x.saturating_add(border_width),
                 y: geometry.y.saturating_add(border_width),
@@ -213,7 +217,7 @@ impl Prepared {
             return;
         }
         let draw_border = |x: i32, pixels: &mut [P]| {
-            if matches!(self.background, PreparedFill::Solid(_)) {
+            if !self.border_composite {
                 self.border.draw_span(gradients, x, line, coverage, pixels);
             } else {
                 for (index, pixel) in pixels.iter_mut().enumerate() {
@@ -273,7 +277,7 @@ impl Prepared {
             for x in (left..full_start).chain(full_end..right) {
                 let background = self.background.sample(gradients, x, line);
                 let mut border = self.border.sample(gradients, x, line);
-                if !matches!(self.background, PreparedFill::Solid(_)) {
+                if self.border_composite {
                     border = border.over(background);
                 }
                 let outside = outer.coverage(x) as u32;

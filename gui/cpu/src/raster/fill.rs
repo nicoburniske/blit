@@ -196,6 +196,14 @@ impl PreparedFill {
     }
 
     #[inline]
+    pub fn is_opaque(&self, gradients: &Gradients) -> bool {
+        match *self {
+            Self::Solid(color) => color.alpha == 255,
+            Self::Gradient(index) | Self::ConicGradient(index) => gradients.entries[index as usize].opaque,
+        }
+    }
+
+    #[inline]
     pub fn sample(&self, gradients: &Gradients, x: i32, y: i32) -> PremultipliedRgbaColor {
         match *self {
             Self::Solid(color) => color,

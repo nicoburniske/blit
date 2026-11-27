@@ -79,6 +79,25 @@ impl ClipStack {
         let mut id = id;
         while id != 0 {
             let node = &self.nodes[id as usize - 1];
+            // rectangular nodes already store the intersection of every ancestor
+            if node.rectangular {
+                let end = node.bounds.y.saturating_add(node.bounds.height);
+                if node.bounds.width <= 0 || node.bounds.height <= 0 || y >= end {
+                    line.range = 0..0;
+                } else if y < node.bounds.y {
+                    line.until = line.until.min(node.bounds.y);
+                    line.range = 0..0;
+                } else {
+                    let right = node.bounds.x.saturating_add(node.bounds.width);
+                    line.until = line.until.min(end);
+                    line.range = line.range.start.max(node.bounds.x)..line.range.end.min(right);
+                    line.opaque = line.opaque.start.max(node.bounds.x)..line.opaque.end.min(right);
+                    if id != line.id {
+                        line.parents = line.parents.start.max(node.bounds.x)..line.parents.end.min(right);
+                    }
+                }
+                break;
+            }
             line.until = line.until.min(RoundedLine::zone_until(node.area, node.radii, y));
             let Some(rounded) = RoundedLine::new(node.area, node.radii, y) else {
                 line.range = 0..0;
