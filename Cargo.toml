@@ -8,8 +8,7 @@ members = [
     "gui/widget",
     "gui/cpu",
     "gui/gpu",
-    "gui/text",
-    "gui/text/parley",
+    "gui/text-parley",
     "kernel",
     "profile",
     "tui",
@@ -33,8 +32,7 @@ blit-gui-widget = { path = "gui/widget" }
 blit-gpu = { path = "gui/gpu" }
 blit-profile = { path = "profile" }
 blit-widget = { path = "widget" }
-blit-text = { path = "gui/text" }
-blit-text-parley = { path = "gui/text/parley" }
+blit-text-parley = { path = "gui/text-parley" }
 blit-util = { path = "util" }
 hashbrown = "0.17.1"
 libm = "0.2.16"

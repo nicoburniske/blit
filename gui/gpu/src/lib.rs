@@ -18,7 +18,7 @@ use blit_gui::{
     display_list::{Compare, DisplayList},
     image::{ImageData, ImageFormat, ImageHandle},
     style::BorderRadius,
-    text::system::TextSystem,
+    text::{PositionedGlyph, TextSystem},
 };
 use blit_profile::{FrameId, FrameProfiler, StageId};
 use blit_util::arena::Arena;
@@ -69,9 +69,10 @@ pub struct Renderer {
     images: Arena<StoredImage>,
     empty_image: ImageHandle,
     glyphs: text::GlyphAtlas,
+    resolved_glyphs: Vec<PositionedGlyph>,
     empty_texture: wgpu::BindGroup,
     upload: Vec<u8>,
-    text: TextSystem,
+    text: Box<dyn TextSystem>,
     list: DisplayList,
     scale: f32,
     paint_clip: u32,
@@ -110,8 +111,8 @@ impl blit::HasFrameStore for Renderer {
 }
 
 impl blit_gui::Context for Renderer {
-    fn text(&mut self) -> &mut TextSystem {
-        &mut self.text
+    fn text(&mut self) -> &mut dyn TextSystem {
+        &mut *self.text
     }
 }
 
@@ -123,7 +124,7 @@ impl Renderer {
         device: wgpu::Device,
         queue: wgpu::Queue,
         format: wgpu::TextureFormat,
-        text: TextSystem,
+        text: Box<dyn TextSystem>,
         config: RendererConfig,
     ) -> Self {
         assert!(!format.is_srgb(), "GPU rendering requires a linear target");
@@ -360,6 +361,7 @@ impl Renderer {
             images,
             empty_image,
             glyphs,
+            resolved_glyphs: Vec::new(),
             empty_texture,
             upload: Vec::new(),
             text,
@@ -781,7 +783,7 @@ impl Renderer {
             if let (Some(timing), Some(timestamps)) = (timing, &mut self.timestamps) {
                 timestamps.submit(timing);
             }
-            self.glyphs.end_frame(&mut self.text);
+            self.glyphs.end_frame();
             self.list = display_list;
         }));
         for renderer in &self.renderers {

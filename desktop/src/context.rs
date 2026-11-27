@@ -2,7 +2,7 @@ use blit::{LogicalRect, Paint};
 use blit_gui::{
     image::{ImageData, ImageHandle},
     style::BorderRadius,
-    text::system::TextSystem,
+    text::TextSystem,
 };
 use blit_profile::FrameProfiler;
 
@@ -59,7 +59,7 @@ impl<G: GraphicsBackend + Paint<T>, T> Paint<T> for DesktopContext<G> {
 }
 
 impl<G: GraphicsBackend> blit_gui::Context for DesktopContext<G> {
-    fn text(&mut self) -> &mut TextSystem {
+    fn text(&mut self) -> &mut dyn TextSystem {
         self.graphics.text()
     }
 }

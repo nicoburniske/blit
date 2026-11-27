@@ -5,13 +5,16 @@ edition = "2024"
 license.workspace = true
 publish = false
 
+[features]
+default = ["system"]
+system = ["parley/system"]
+
 [dependencies]
 blit.workspace = true
-blit-text.workspace = true
-parley = { version = "0.12", default-features = false, features = ["std", "system"] }
+blit-gui.workspace = true
+blit-util.workspace = true
+parley = { version = "0.12", default-features = false, features = ["std"] }
 swash = { version = "0.2", default-features = false, features = ["render", "scale", "std"] }
-# loads fontconfig at runtime instead of linking it
-fontique = { version = "0.12", default-features = false, features = ["fontconfig-dlopen"] }
 
 [lints]
 workspace = true

@@ -9,7 +9,6 @@ use blit_gui::{
     damage::{DamageTracker, command::CommandDiff, tile::TileDamage},
     rectangle::Rectangle,
     style::BorderRadius,
-    text::system::{TextConfig, TextSystem},
 };
 
 #[test]
@@ -134,7 +133,15 @@ where
 fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B> {
     Renderer::new(
         buffer,
-        TextSystem::new(TextConfig::default(), blit_text_parley::Backend::without_system_fonts()).unwrap(),
+        Box::new(blit_text_parley::Backend::new(blit_text_parley::parley::FontContext {
+            collection: blit_text_parley::parley::fontique::Collection::new(
+                blit_text_parley::parley::fontique::CollectionOptions {
+                    shared: false,
+                    system_fonts: false,
+                },
+            ),
+            source_cache: Default::default(),
+        })),
         config,
     )
 }

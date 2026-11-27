@@ -1,11 +1,7 @@
 use std::collections::HashMap;
 
 use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
-use blit_gui::text::{
-    FrameText,
-    system::{GlyphImageId, ResolvedTextLayout, TextSystem},
-};
-use blit_text::{GlyphImage, GlyphMetrics};
+use blit_gui::text::{FrameText, GlyphFormat, GlyphImage, GlyphKey, GlyphMetrics, TextSystem};
 
 use crate::{
     DRAW_TEXT, DrawContext, GlyphInstance, Pipeline, Renderer,
@@ -30,56 +26,54 @@ fn draw(value: &FrameText, cx: &mut DrawContext<'_>) {
     let Some(visible_area) = area.intersection(bounds) else {
         return;
     };
-    let mut resolved = renderer.text.paint_layout(cx.area, &request);
-    let layout = resolved.layout;
-    for run in &layout.runs {
-        let offset = resolved.line_offset(run.line as usize);
-        let color = value.span_color(cx.list, run.span);
-        if color.alpha == 0 {
+    renderer.resolved_glyphs.clear();
+    renderer
+        .text
+        .resolve(cx.area, &request, scale, &mut renderer.resolved_glyphs);
+    let mut current_span = None::<u32>;
+    let mut color = 0u32;
+    let mut alpha = 0u8;
+    for &prepared in &renderer.resolved_glyphs {
+        if current_span != Some(prepared.span) {
+            current_span = Some(prepared.span);
+            let span_color = value.span_color(cx.list, prepared.span as usize);
+            alpha = span_color.alpha;
+            color = u32::from_le_bytes([span_color.red, span_color.green, span_color.blue, span_color.alpha]);
+        }
+        if alpha == 0 {
             continue;
         }
-        let color = u32::from_le_bytes([color.red, color.green, color.blue, color.alpha]);
-        for glyph in &layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
-            let prepared = resolved.prepare_glyph(blit_text::GlyphRequest {
-                font: run.font,
-                glyph: glyph.id,
-                scale,
-                origin: blit::Point::new(
-                    (cx.area.x + glyph.position.x + offset.x - request.offset_x) * scale,
-                    (cx.area.y + glyph.position.y + offset.y) * scale,
-                ),
-            });
-            let cached = renderer
+        let cached =
+            renderer
                 .glyphs
-                .glyph(&renderer.device, &renderer.queue, &mut resolved, prepared.key);
-            if cached.metrics.width == 0 || cached.metrics.height == 0 {
-                continue;
-            }
-            let width = i32::from(cached.metrics.width);
-            let height = i32::from(cached.metrics.height);
-            let x = prepared.origin.x.saturating_add(i32::from(cached.metrics.left));
-            let y = prepared.origin.y.saturating_add(i32::from(cached.metrics.top));
-            let shape = PhysicalRect { x, y, width, height };
-            let Some(draw) = shape.intersection(visible_area) else {
-                continue;
-            };
-            let index = renderer.glyph_instances.len() as u32;
-            renderer.glyph_instances.push(GlyphInstance {
-                draw: physical_rect(draw),
-                atlas: [
-                    cached.atlas[0] + u32::try_from(draw.x - shape.x).unwrap(),
-                    cached.atlas[1] + u32::try_from(draw.y - shape.y).unwrap(),
-                ],
-                color,
-                clip: clip | if cached.color { 1 << 31 } else { 0 },
-            });
-            push_draw(
-                &mut renderer.draws,
-                &mut renderer.batches,
-                Pipeline::Content(Some(cached.page)),
-                DRAW_TEXT | index,
-            );
+                .glyph(&renderer.device, &renderer.queue, &mut *renderer.text, prepared.key);
+        if cached.metrics.width == 0 || cached.metrics.height == 0 {
+            continue;
         }
+        let width = i32::from(cached.metrics.width);
+        let height = i32::from(cached.metrics.height);
+        let x = prepared.origin.x.saturating_add(i32::from(cached.metrics.left));
+        let y = prepared.origin.y.saturating_add(i32::from(cached.metrics.top));
+        let shape = PhysicalRect { x, y, width, height };
+        let Some(draw) = shape.intersection(visible_area) else {
+            continue;
+        };
+        let index = renderer.glyph_instances.len() as u32;
+        renderer.glyph_instances.push(GlyphInstance {
+            draw: physical_rect(draw),
+            atlas: [
+                cached.atlas[0] + u32::try_from(draw.x - shape.x).unwrap(),
+                cached.atlas[1] + u32::try_from(draw.y - shape.y).unwrap(),
+            ],
+            color,
+            clip: clip | if cached.color { 1 << 31 } else { 0 },
+        });
+        push_draw(
+            &mut renderer.draws,
+            &mut renderer.batches,
+            Pipeline::Content(Some(cached.page)),
+            DRAW_TEXT | index,
+        );
     }
 }
 
@@ -89,8 +83,8 @@ const CACHE_BYTES: u64 = 8 * 1024 * 1024;
 pub struct GlyphAtlas {
     layout: wgpu::BindGroupLayout,
     pages: Vec<Option<Page>>,
-    glyphs: HashMap<GlyphImageId, CachedGlyph>,
-    victims: Vec<(u64, GlyphImageId)>,
+    glyphs: HashMap<GlyphKey, CachedGlyph>,
+    victims: Vec<(u64, GlyphKey)>,
     frame: u64,
     bytes: u64,
     max_size: u32,
@@ -136,7 +130,7 @@ impl GlyphAtlas {
         self.frame += 1;
     }
 
-    pub fn end_frame(&mut self, text: &mut TextSystem) {
+    pub fn end_frame(&mut self) {
         while self.bytes > CACHE_BYTES {
             let Some((index, _)) = self
                 .pages
@@ -153,15 +147,9 @@ impl GlyphAtlas {
             let page = self.pages[index].take().unwrap();
             self.bytes -= u64::from(page.size[0]) * u64::from(page.size[1]) * if page.color { 4 } else { 1 };
         }
-        self.glyphs.retain(|id, cached| {
-            let keep = match cached.allocation {
-                Some(_) => self.pages[cached.glyph.page].is_some(),
-                None => cached.last_used == self.frame,
-            };
-            if !keep {
-                text.remove_glyph(*id);
-            }
-            keep
+        self.glyphs.retain(|_, cached| match cached.allocation {
+            Some(_) => self.pages[cached.glyph.page].is_some(),
+            None => cached.last_used == self.frame,
         });
         self.drop_empty_pages();
     }
@@ -170,8 +158,8 @@ impl GlyphAtlas {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        text: &mut ResolvedTextLayout<'_>,
-        key: GlyphImageId,
+        text: &mut dyn TextSystem,
+        key: GlyphKey,
     ) -> Glyph {
         if let Some(cached) = self.glyphs.get_mut(&key) {
             cached.last_used = self.frame;
@@ -181,17 +169,13 @@ impl GlyphAtlas {
             return cached.glyph;
         }
 
-        let Ok(GlyphImage { mut metrics, pixels }) = text.rasterize_glyph(key) else {
-            text.remove_glyph(key);
-            return Glyph {
-                metrics: GlyphMetrics::default(),
-                atlas: [0, 0],
-                page: 0,
-                color: false,
-            };
-        };
-        let color = pixels.is_color();
-        let channels = if color { 4 } else { 1 };
+        let GlyphImage {
+            mut metrics,
+            format,
+            pixels,
+        } = text.rasterize(key);
+        let color = format == GlyphFormat::Rgba8;
+        let channels = format.bytes_per_pixel() as u32;
         if u32::from(metrics.width) > self.max_size || u32::from(metrics.height) > self.max_size {
             metrics.width = 0;
             metrics.height = 0;
@@ -248,7 +232,6 @@ impl GlyphAtlas {
                 let key = self.victims[index].1;
                 index += 1;
                 let cached = self.glyphs.remove(&key).unwrap();
-                text.remove_glyph(key);
                 let allocation = cached.allocation.unwrap();
                 self.pages[cached.glyph.page]
                     .as_mut()
@@ -323,7 +306,7 @@ impl GlyphAtlas {
                 },
                 aspect: wgpu::TextureAspect::All,
             },
-            pixels.data(),
+            &pixels,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(width * channels),
@@ -407,54 +390,36 @@ mod tests {
         let mut atlas = GlyphAtlas::new(&device, layout.clone());
         atlas.begin_frame();
 
-        use blit_gui::text::{
-            FontId, TextOptions, TextRequest, TextStyle,
-            system::{TextConfig, TextSystem},
+        use blit_gui::text::{FontId, TextRequest, TextStyle};
+        use blit_text_parley::parley::{
+            FontContext, FontFamilyName,
+            fontique::{Blob, Collection, CollectionOptions, SourceCache},
         };
-        let mut text = TextSystem::new(
-            TextConfig::new().font(
-                FontId::default(),
-                [blit_text::Family::embedded([blit_text::FontData::Static(
-                    include_bytes!(env!("BLIT_TEST_FONT")),
-                )])],
-            ),
-            blit_text_parley::Backend::without_system_fonts(),
-        )
-        .unwrap();
+        let mut fonts = FontContext {
+            collection: Collection::new(CollectionOptions {
+                shared: false,
+                system_fonts: false,
+            }),
+            source_cache: SourceCache::default(),
+        };
+        let registered = fonts.collection.register_fonts(
+            Blob::new(std::sync::Arc::new(include_bytes!(env!("BLIT_TEST_FONT")).as_slice())),
+            None,
+        );
+        let name = fonts.collection.family_name(registered[0].0).unwrap().to_owned();
+        let mut text =
+            blit_text_parley::Backend::new(fonts).font(FontId::default(), [FontFamilyName::Named(name.into())]);
         let run = text.text_run("a ", TextStyle::new());
         let area = blit::LogicalRect::new(0.0, 0.0, 100.0, 100.0);
-        let mut request = TextRequest {
-            text: run,
-            offset_x: 0.0,
-            options: TextOptions::new(),
-        };
-        let mut resolved = text.paint_layout(area, &request);
-        let font = resolved.layout.runs[0].font;
-        let keys = [1, 2].map(|glyph| {
-            resolved
-                .prepare_glyph(blit_text::GlyphRequest {
-                    font,
-                    glyph,
-                    scale: 1.0,
-                    origin: blit::Point::default(),
-                })
-                .key
-        });
+        let mut request = TextRequest::new(run);
+        let mut resolved = Vec::new();
+        text.resolve(area, &request, 1.0, &mut resolved);
+        let keys = [resolved[0].key, resolved[1].key];
         text.finish_frame();
-        request.text = text.text_run("another", TextStyle::new());
-        let mut resolved = text.paint_layout(area, &request);
-        let font = resolved.layout.runs[0].font;
-        assert_eq!(
-            keys[0],
-            resolved
-                .prepare_glyph(blit_text::GlyphRequest {
-                    font,
-                    glyph: 1,
-                    scale: 1.0,
-                    origin: blit::Point::default(),
-                })
-                .key
-        );
+        request.text = text.text_run("a other", TextStyle::new());
+        resolved.clear();
+        text.resolve(area, &request, 1.0, &mut resolved);
+        assert_eq!(keys[0], resolved[0].key);
 
         let size = [PAGE_SIZE * 4; 2];
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -523,7 +488,7 @@ mod tests {
         );
 
         for retained in [true, false] {
-            atlas.end_frame(&mut text);
+            atlas.end_frame();
             assert_eq!(atlas.pages.len(), usize::from(retained));
             assert_eq!(atlas.glyphs.len(), if retained { 2 } else { 0 });
             assert_eq!(
@@ -534,18 +499,6 @@ mod tests {
                     0
                 }
             );
-            let mut resolved = text.paint_layout(area, &request);
-            for (glyph, previous) in [1, 2].into_iter().zip(keys) {
-                let id = resolved
-                    .prepare_glyph(blit_text::GlyphRequest {
-                        font,
-                        glyph,
-                        scale: 1.0,
-                        origin: blit::Point::default(),
-                    })
-                    .key;
-                assert_eq!(id == previous, retained);
-            }
             atlas.begin_frame();
         }
     }

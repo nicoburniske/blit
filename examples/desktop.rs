@@ -11,11 +11,11 @@ use blit_gui::{
     rectangle::Rectangle,
     style::{Border, BorderRadius, GradientStop, LinearGradient},
     text::{
-        FontId, HorizontalAlign, RichText, Span, SpanStyle, Text, TextOptions, TextOverflow, TextStyle, TextWrap,
-        VerticalAlign,
-        system::{FontStack, TextConfig, TextSystem},
+        FontId, FontStyle, HorizontalAlign, RichText, Span, SpanStyle, Text, TextOptions, TextOverflow, TextStyle,
+        TextWrap, VerticalAlign,
     },
 };
+use blit_text_parley::parley::{FontFamilyName, fontique::Blob};
 use blit_gui_widget::{
     interact,
     layout::{Align, Justify, Sizing, absolute, absolute::Anchor, flex, grid, wrap},
@@ -25,32 +25,29 @@ use blit_gui_widget::{
     split::{Split, SplitDivider, SplitState},
     text_input::{TextInput, TextInputState},
 };
-use blit_text::{Family, FontData, FontStyle};
 
 // the canvas is named in the root scope
 
 fn main() {
-    let fonts = std::fs::read_dir(std::path::Path::new(env!("BLIT_TEST_FONT")).with_file_name(""))
-        .unwrap()
-        .filter_map(|entry| std::fs::read(entry.ok()?.path()).ok())
-        .map(|data| FontData::Shared(data.into()))
-        .collect::<Vec<_>>();
-    let text = TextSystem::new(
-        TextConfig {
-            fonts: vec![FontStack {
-                id: FontId::default(),
-                families: vec![
-                    Family::embedded(fonts),
-                    Family::named("Noto Color Emoji"),
-                    Family::named("Apple Color Emoji"),
-                ],
-            }],
-            text_cache_capacity: 1024 * 1024,
-            layout_cache_capacity: 2 * 1024 * 1024,
-        },
-        blit_text_parley::Backend::new(),
-    )
-    .unwrap();
+    let mut text = blit_text_parley::Backend::default();
+    let mut families = Vec::new();
+    for entry in std::fs::read_dir(std::path::Path::new(env!("BLIT_TEST_FONT")).with_file_name("")).unwrap() {
+        let Ok(data) = std::fs::read(entry.unwrap().path()) else {
+            continue;
+        };
+        for (id, _) in text
+            .fonts
+            .collection
+            .register_fonts(Blob::new(std::sync::Arc::new(data)), None)
+        {
+            if let Some(name) = text.fonts.collection.family_name(id) {
+                families.push(FontFamilyName::Named(name.to_owned().into()));
+            }
+        }
+    }
+    families.push(FontFamilyName::named("Noto Color Emoji"));
+    families.push(FontFamilyName::named("Apple Color Emoji"));
+    let text = text.font(FontId::default(), families);
     #[cfg(not(feature = "gpu"))]
     let graphics = cpu::Backend::new(text, cpu::Config::default());
     #[cfg(feature = "gpu")]

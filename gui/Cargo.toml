@@ -7,8 +7,6 @@ publish = false
 
 [dependencies]
 blit.workspace = true
-blit-util.workspace = true
-blit-text.workspace = true
 hashbrown.workspace = true
 libm.workspace = true
 

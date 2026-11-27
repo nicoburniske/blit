@@ -134,7 +134,6 @@ version = "0.1.0"
 dependencies = [
  "blit",
  "blit-gui",
- "blit-text",
  "blit-text-parley",
  "blit-util",
  "fearless_simd",
@@ -152,7 +151,6 @@ dependencies = [
  "blit-gpu",
  "blit-gui",
  "blit-gui-widget",
- "blit-text",
  "blit-text-parley",
  "blit-tui",
  "blit-widget",
@@ -191,7 +189,6 @@ dependencies = [
  "blit",
  "blit-gui",
  "blit-profile",
- "blit-text",
  "blit-text-parley",
  "blit-util",
  "bytemuck",
@@ -204,8 +201,6 @@ name = "blit-gui"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-text",
- "blit-util",
  "hashbrown 0.17.1",
  "libm",
 ]
@@ -224,19 +219,12 @@ name = "blit-profile"
 version = "0.1.0"
 
 [[package]]
-name = "blit-text"
-version = "0.1.0"
-dependencies = [
- "blit",
-]
-
-[[package]]
 name = "blit-text-parley"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-text",
- "fontique",
+ "blit-gui",
+ "blit-util",
  "parley",
  "swash",
 ]

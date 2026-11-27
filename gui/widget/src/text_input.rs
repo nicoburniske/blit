@@ -1,5 +1,5 @@
 use blit::{
-    Axis, KeyboardEvent, LogicalRect, Paint, Sides, Widget,
+    Axis, KeyboardEvent, LogicalPoint, LogicalRect, Paint, Sides, Widget,
     input::{Input, MouseButton, TouchPhase},
 };
 use blit_widget::interact::{self, keyboard::Handler};
@@ -10,7 +10,7 @@ use blit_gui::{
     Context,
     color::Color,
     rectangle::{self, Rectangle},
-    text::{self, FrameText, TextLayoutRequest, TextOptions, TextRequest, TextStyle, TextWrap},
+    text::{self, FrameText, TextOptions, TextRequest, TextStyle},
 };
 
 blit::builder! {
@@ -105,11 +105,9 @@ where
         };
         if let Some(area) = ui.area() {
             let area = area.inset(padding);
-            let request = TextRequest {
-                text,
-                offset_x: state.offset_x,
-                options,
-            };
+            let request = TextRequest::new(text)
+                .offset(LogicalPoint::new(state.offset_x, 0.0))
+                .options(options);
             if let Some((position, extend)) = pointer {
                 let offset = ui.context_mut().text().offset_at_position(area, &request, position);
                 state.move_to(value, offset, extend);
@@ -132,12 +130,7 @@ where
         };
         let state = *state;
         ui.measure(move |cx, constraints| {
-            let size = cx.text().measure(&TextLayoutRequest {
-                text: display,
-                wrap: TextWrap::None,
-                max_width: None,
-                max_lines: Some(1),
-            });
+            let size = cx.text().measure(display, None, options);
             constraints.constrain(size + padding.size())
         });
         ui.paint(move |cx, area| {
@@ -146,11 +139,8 @@ where
             if background != Color::TRANSPARENT {
                 Rectangle::new().background(background).paint(area, context);
             }
-            let request = TextRequest {
-                text,
-                offset_x: state.offset_x,
-                options,
-            };
+            let offset = LogicalPoint::new(state.offset_x, 0.0);
+            let request = TextRequest::new(text).offset(offset).options(options);
             let start_offset = state.cursor.min(state.anchor);
             let end_offset = state.cursor.max(state.anchor);
             if start_offset != end_offset {
@@ -173,9 +163,7 @@ where
                 Rectangle::new().background(cursor_background).paint(cursor, context);
             }
             let colors = context.store_mut().slice_from(&[color]);
-            let text = FrameText::new(display, colors)
-                .offset_x(state.offset_x)
-                .options(options);
+            let text = FrameText::new(display, colors).offset(offset).options(options);
             context.paint(area, &text);
         });
         response

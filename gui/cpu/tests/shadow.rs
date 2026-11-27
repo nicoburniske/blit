@@ -6,7 +6,6 @@ use blit_gui::{
     rectangle::Rectangle,
     shadow::Shadow,
     style::BorderRadius,
-    text::system::{TextConfig, TextSystem},
 };
 
 #[test]
@@ -45,7 +44,15 @@ fn shadows_match_reference_pixels_and_incremental_damage() {
             ] {
                 let mut renderer = Renderer::new(
                     VecBuffer::<Xrgb8888>::new(128, 96),
-                    TextSystem::new(TextConfig::default(), blit_text_parley::Backend::without_system_fonts()).unwrap(),
+                    Box::new(blit_text_parley::Backend::new(blit_text_parley::parley::FontContext {
+                        collection: blit_text_parley::parley::fontique::Collection::new(
+                            blit_text_parley::parley::fontique::CollectionOptions {
+                                shared: false,
+                                system_fonts: false,
+                            },
+                        ),
+                        source_cache: Default::default(),
+                    })),
                     RendererConfig::default(),
                 )
                 .register(shadow::Renderer::new(capacity))

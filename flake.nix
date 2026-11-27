@@ -28,6 +28,9 @@
               ])
               pkgs.mononoki
               fenix.packages.${system}.rust-analyzer
+            ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+              pkgs.pkg-config
+              pkgs.fontconfig
             ];
             BLIT_TEST_FONT = "${pkgs.mononoki}/share/fonts/opentype/mononoki-Regular.otf";
           } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {

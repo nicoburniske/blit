@@ -10,14 +10,15 @@ fn pipeline_is_valid() {
         device.clone(),
         queue,
         wgpu::TextureFormat::Rgba8Unorm,
-        TextSystem::new(
-            blit_gui::text::system::TextConfig {
-                fonts: Vec::new(),
-                ..Default::default()
-            },
-            blit_text_parley::Backend::without_system_fonts(),
-        )
-        .unwrap(),
+        Box::new(blit_text_parley::Backend::new(blit_text_parley::parley::FontContext {
+            collection: blit_text_parley::parley::fontique::Collection::new(
+                blit_text_parley::parley::fontique::CollectionOptions {
+                    shared: false,
+                    system_fonts: false,
+                },
+            ),
+            source_cache: Default::default(),
+        })),
         RendererConfig::default(),
     );
     struct State<const BITS: u8> {

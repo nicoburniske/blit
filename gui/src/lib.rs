@@ -15,8 +15,8 @@ pub mod shadow;
 pub mod style;
 pub mod text;
 
-use crate::text::system::TextSystem;
+use crate::text::TextSystem;
 
 pub trait Context: blit::Context<Scalar = f32> + blit::HasFrameStore {
-    fn text(&mut self) -> &mut TextSystem;
+    fn text(&mut self) -> &mut dyn TextSystem;
 }

@@ -6,7 +6,7 @@ pub use blit_cpu::{RendererConfig as Config, render};
 use blit_gui::{
     image::{ImageData, ImageHandle},
     style::BorderRadius,
-    text::system::TextSystem,
+    text::TextSystem,
 };
 use blit_profile::{FrameProfiler, StageId};
 use softbuffer::{Context, Rect, Surface};
@@ -22,8 +22,8 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn new(text: TextSystem, config: Config) -> Self {
-        let renderer = Renderer::new(DesktopBuffer::new(1, 1), text, config).strategy(Scanline::default());
+    pub fn new(text: impl TextSystem, config: Config) -> Self {
+        let renderer = Renderer::new(DesktopBuffer::new(1, 1), Box::new(text), config).strategy(Scanline::default());
         Self {
             active: None,
             renderer,
@@ -70,7 +70,7 @@ where
 }
 
 impl blit_gui::Context for Backend {
-    fn text(&mut self) -> &mut TextSystem {
+    fn text(&mut self) -> &mut dyn TextSystem {
         self.renderer.text()
     }
 }

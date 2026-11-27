@@ -12,12 +12,12 @@ use blit_gui::{
     rectangle::Rectangle,
     shadow::Shadow,
     style::{Border, BorderRadius, ConicGradient, GradientStop, LinearGradient},
-    text::{
-        FontId, FrameText, TextStyle,
-        system::{FontStack, TextConfig, TextSystem},
-    },
+    text::{FontId, FrameText, TextStyle},
 };
-use blit_text::FontData;
+use blit_text_parley::parley::{
+    FontContext, FontFamilyName,
+    fontique::{Blob, Collection, CollectionOptions, SourceCache},
+};
 
 #[test]
 fn renders_primitives_and_rebuilds_frames() {
@@ -54,25 +54,26 @@ fn renders_primitives_and_rebuilds_frames() {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
-    let text = TextSystem::new(
-        TextConfig {
-            fonts: vec![FontStack {
-                id: FontId::default(),
-                families: vec![blit_text::Family::embedded([FontData::Static(include_bytes!(env!(
-                    "BLIT_TEST_FONT"
-                )))])],
-            }],
-            text_cache_capacity: 1024,
-            layout_cache_capacity: 1024,
-        },
-        blit_text_parley::Backend::without_system_fonts(),
-    )
-    .unwrap();
+    let mut fonts = FontContext {
+        collection: Collection::new(CollectionOptions {
+            shared: false,
+            system_fonts: false,
+        }),
+        source_cache: SourceCache::default(),
+    };
+    let registered = fonts.collection.register_fonts(
+        Blob::new(std::sync::Arc::new(include_bytes!(env!("BLIT_TEST_FONT")).as_slice())),
+        None,
+    );
+    let name = fonts.collection.family_name(registered[0].0).unwrap().to_owned();
+    let text = blit_text_parley::Backend::new(fonts)
+        .cache_capacity(64)
+        .font(FontId::default(), [FontFamilyName::Named(name.into())]);
     let mut renderer = Renderer::new(
         device.clone(),
         queue.clone(),
         wgpu::TextureFormat::Rgba8Unorm,
-        text,
+        Box::new(text),
         RendererConfig::default(),
     );
     let bounds = LogicalRect::new(0.0, 0.0, 64.0, 64.0);
@@ -382,7 +383,7 @@ fn profiles_gpu_pass_timestamps() {
         backends,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
-    let Ok(adapter) = blit_executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
         eprintln!("skipping native GPU test because no adapter is available");
         return;
     };
@@ -390,7 +391,7 @@ fn profiles_gpu_pass_timestamps() {
         eprintln!("skipping GPU timestamp test because adapter lacks TIMESTAMP_QUERY");
         return;
     }
-    let (device, queue) = blit_executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         required_features: wgpu::Features::TIMESTAMP_QUERY,
         ..Default::default()
     }))
@@ -409,7 +410,7 @@ fn profiles_gpu_pass_timestamps() {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
     });
-    let text = TextSystem::new(TextConfig::default(), blit_text_parley::Backend::new()).unwrap();
+    let text = Box::new(blit_text_parley::Backend::default());
     let mut renderer = Renderer::new(
         device.clone(),
         queue,

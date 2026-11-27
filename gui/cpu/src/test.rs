@@ -1,10 +1,10 @@
-use alloc::{string::String, vec, vec::Vec};
+use alloc::{vec, vec::Vec};
 use core::{
     hash::{Hash, Hasher},
     ops::Range,
 };
 
-use blit::{Context as _, HasFrameStore, LogicalPoint, LogicalRect, Paint, PhysicalRect, Scale2};
+use blit::{Context as _, HasFrameStore, LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_gui::{
     clear::Clear,
     color::Color,
@@ -15,15 +15,11 @@ use blit_gui::{
     rectangle::Rectangle,
     shadow::Shadow,
     style::{Border, BorderRadius, ConicGradient, Fill, GradientStop, LinearGradient},
-    text::{
-        FontId, FrameText, HorizontalAlign, Span, SpanStyle, TextLayoutRequest, TextOptions, TextRequest, TextStyle,
-        TextWrap, VerticalAlign,
-        system::{FontStack, TextConfig, TextSystem},
-    },
+    text::{FontId, FrameText, Span, TextStyle, TextSystem},
 };
-use blit_text::{
-    Caret, Family, FontData, FontError, FontStackId, GlyphImage, GlyphRequest, LayoutLine, LayoutRequest,
-    PreparedGlyph, TextLayout, TextLayoutEngine,
+use blit_text_parley::parley::{
+    FontContext, FontFamilyName,
+    fontique::{Blob, Collection, CollectionOptions, SourceCache},
 };
 
 use super::*;
@@ -939,21 +935,20 @@ fn new_renderer<B: PixelBuffer>(buffer: B, config: RendererConfig) -> Renderer<B
     Renderer::new(buffer, text_system(), config)
 }
 
-fn text_system() -> TextSystem {
-    TextSystem::new(
-        TextConfig {
-            fonts: vec![FontStack {
-                id: FontId::default(),
-                families: vec![Family::embedded([FontData::Static(include_bytes!(env!(
-                    "BLIT_TEST_FONT"
-                )))])],
-            }],
-            text_cache_capacity: 1024 * 1024,
-            layout_cache_capacity: 1024 * 1024,
-        },
-        blit_text_parley::Backend::without_system_fonts(),
-    )
-    .unwrap()
+fn text_system() -> Box<dyn TextSystem> {
+    let mut fonts = FontContext {
+        collection: Collection::new(CollectionOptions {
+            shared: false,
+            system_fonts: false,
+        }),
+        source_cache: SourceCache::default(),
+    };
+    let registered = fonts.collection.register_fonts(
+        Blob::new(alloc::sync::Arc::new(include_bytes!(env!("BLIT_TEST_FONT")).as_slice())),
+        None,
+    );
+    let name = alloc::string::String::from(fonts.collection.family_name(registered[0].0).unwrap());
+    Box::new(blit_text_parley::Backend::new(fonts).font(FontId::default(), [FontFamilyName::Named(name.into())]))
 }
 
 #[test]
@@ -1290,236 +1285,13 @@ fn text_placement_tracks_physical_clip_size() {
             let colors = renderer.store_mut().slice_from(&[Color::rgb(255, 0, 0), Color::WHITE]);
             renderer.paint(
                 LogicalRect::new(x, y, 8.0, 8.0),
-                &FrameText::new(text, colors).offset_x(12.0),
+                &FrameText::new(text, colors).offset(blit::LogicalPoint::new(12.0, 0.0)),
             );
             renderer.render(0);
         }
         assert_eq!(renderer.buffer().pixels(), fresh.buffer().pixels());
         assert!(fresh.buffer().pixels().iter().any(|pixel| pixel.raw() & 0xff00 != 0));
     }
-}
-
-#[test]
-fn text_cache_stages_are_independent() {
-    use alloc::rc::Rc;
-    use core::cell::Cell;
-
-    for (text_cache_capacity, layout_cache_capacity) in [(0, 0), (0, 1024), (1024, 0), (1024, 1024)] {
-        let source_evicted = text_cache_capacity == 0;
-        let counts = Rc::new(TextCounts::default());
-        let mut text = TextSystem::new(
-            TextConfig {
-                fonts: vec![FontStack {
-                    id: FontId::default(),
-                    families: Vec::new(),
-                }],
-                text_cache_capacity,
-                layout_cache_capacity,
-            },
-            CountingBackend(counts.clone()),
-        )
-        .unwrap();
-        let mut request = TextLayoutRequest {
-            text: text.text_run("cached", TextStyle::default()),
-            wrap: TextWrap::None,
-            max_width: None,
-            max_lines: None,
-        };
-
-        text.measure(&request);
-        let white = text.text_run("cached", TextStyle::new().color(Color::WHITE));
-        text.measure(&TextLayoutRequest { text: white, ..request });
-
-        let mut paint_area = LogicalRect::new(0.0, 0.0, 1.0, 1.0);
-        let mut paint = TextRequest {
-            text: request.text,
-            offset_x: 0.0,
-            options: TextOptions::default(),
-        };
-        text.cursor_rect(paint_area, &paint, 0, 0.0);
-        paint.offset_x = 10.0;
-        paint_area.width = 10.0;
-        paint_area.height = 10.0;
-        paint.options.horizontal_align = HorizontalAlign::Center;
-        paint.options.vertical_align = VerticalAlign::Bottom;
-        text.cursor_rect(paint_area, &paint, 0, 0.0);
-        assert_eq!(counts.shapes.get(), 1);
-        assert_eq!(counts.layouts.get(), 1);
-        assert_eq!(counts.carets.get(), 1);
-
-        text.finish_frame();
-        request.text = text.text_run("cached", TextStyle::default());
-        assert_eq!(request.text == paint.text, !source_evicted);
-        text.measure(&request);
-        let shapes = if source_evicted { 2 } else { 1 };
-        let layouts = if source_evicted || layout_cache_capacity == 0 {
-            2
-        } else {
-            1
-        };
-        assert_eq!(counts.shapes.get(), shapes);
-        assert_eq!(counts.layouts.get(), layouts);
-
-        for width in [10.0, 20.0] {
-            text.measure(&TextLayoutRequest {
-                wrap: TextWrap::Word,
-                max_width: Some(width),
-                ..request
-            });
-        }
-        assert_eq!(counts.shapes.get(), shapes);
-        assert_eq!(counts.layouts.get(), layouts + 2);
-
-        paint.text = request.text;
-        for capacity in [1024, 0] {
-            let mut glyphs = crate::glyph::GlyphCache::new(capacity);
-            let mut previous = None;
-            for _ in 0..2 {
-                let mut resolved = text.paint_layout(paint_area, &paint);
-                let id = resolved
-                    .prepare_glyph(GlyphRequest {
-                        font: 0,
-                        glyph: 0,
-                        scale: 1.0,
-                        origin: LogicalPoint::default(),
-                    })
-                    .key;
-                if let Some(previous) = previous {
-                    assert_eq!(id == previous, capacity != 0);
-                }
-                assert!(glyphs.glyph(&mut resolved, id).is_some());
-                previous = Some(id);
-                glyphs.finish_frame(&mut text);
-            }
-        }
-    }
-
-    #[derive(Default)]
-    struct TextCounts {
-        shapes: Cell<usize>,
-        layouts: Cell<usize>,
-        carets: Cell<usize>,
-    }
-
-    struct CountingBackend(Rc<TextCounts>);
-
-    impl TextLayoutEngine for CountingBackend {
-        type Shape = ();
-        type GlyphKey = ();
-
-        fn register_stack(&mut self, _families: &[Family]) -> Result<FontStackId, FontError> {
-            Ok(FontStackId(1))
-        }
-
-        fn prepare_glyph(&mut self, _shape: &(), _request: GlyphRequest) -> PreparedGlyph<()> {
-            PreparedGlyph {
-                key: (),
-                origin: blit::PhysicalPoint::default(),
-            }
-        }
-
-        fn rasterize_glyph(&mut self, _key: &()) -> Result<GlyphImage, FontError> {
-            Ok(GlyphImage::default())
-        }
-
-        fn shape(&mut self, _text: blit_text::Text<'_>) -> ((), usize) {
-            self.0.shapes.set(self.0.shapes.get() + 1);
-            ((), 0)
-        }
-
-        fn layout(&mut self, _shape: &mut (), _text: &str, _request: LayoutRequest) -> TextLayout {
-            self.0.layouts.set(self.0.layouts.get() + 1);
-            TextLayout {
-                lines: Box::new([LayoutLine {
-                    bounds: LogicalRect::default(),
-                    text: 0..0,
-                }]),
-                ..TextLayout::default()
-            }
-        }
-
-        fn carets(&mut self, _shape: &mut (), _text: &str, _request: LayoutRequest, _line: usize) -> Box<[Caret]> {
-            self.0.carets.set(self.0.carets.get() + 1);
-            Box::new([Caret {
-                byte_offset: 0,
-                position: LogicalPoint::default(),
-                height: 0.0,
-            }])
-        }
-    }
-}
-
-#[test]
-fn text_measurement_and_carets_follow_layout() {
-    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config())
-        .context
-        .text
-        .system;
-    let request = TextLayoutRequest {
-        text: gui.text_run("hello world", TextStyle::default()),
-        wrap: TextWrap::None,
-        max_width: None,
-        max_lines: None,
-    };
-    let unwrapped = gui.measure(&request);
-    let spans = [
-        Span::new(0..6).style(SpanStyle::new().size(16.0)),
-        Span::new(6..11).style(SpanStyle::new().size(32.0)),
-    ];
-    let mixed = gui.rich_text("hello world", &spans, TextStyle::default());
-    let mixed_size = gui.measure(&TextLayoutRequest { text: mixed, ..request });
-    assert!(mixed_size.height > unwrapped.height);
-    let larger_base = gui.rich_text("hello world", &spans, TextStyle::new().size(48.0));
-    assert_ne!(mixed, larger_base);
-    let larger_size = gui.measure(&TextLayoutRequest {
-        text: larger_base,
-        ..request
-    });
-    assert!((larger_size.height - 48.0 * 1.2).abs() < 0.001);
-
-    let wrapped_request = TextLayoutRequest {
-        wrap: TextWrap::Word,
-        max_width: Some(unwrapped.width / 2.0),
-        ..request
-    };
-    let wrapped = gui.measure(&wrapped_request);
-    assert!(wrapped.width < unwrapped.width);
-    assert!(wrapped.height > unwrapped.height);
-    assert_eq!(
-        gui.measure(&TextLayoutRequest {
-            max_lines: Some(1),
-            ..wrapped_request
-        })
-        .height,
-        unwrapped.height
-    );
-
-    let mut paint_area = LogicalRect::new(10.0, 20.0, 120.0, 48.0);
-    let mut paint = TextRequest {
-        text: request.text,
-        offset_x: 0.0,
-        options: TextOptions::default(),
-    };
-    let start = gui.cursor_rect(paint_area, &paint, 0, 0.5);
-    assert_eq!(start.width, 0.5);
-    assert_eq!(
-        gui.offset_at_position(paint_area, &paint, LogicalPoint::new(1000.0, 20.0)),
-        "hello world".len()
-    );
-    paint.offset_x = 4.0;
-    assert_eq!(gui.cursor_rect(paint_area, &paint, 0, 0.5).x, start.x - 4.0);
-    paint_area.width += 0.5;
-    paint_area.height += 0.25;
-    paint.options.horizontal_align = HorizontalAlign::Center;
-    paint.options.vertical_align = VerticalAlign::Bottom;
-    let placed = gui.cursor_rect(paint_area, &paint, 0, 0.5);
-    assert!((placed.x - (start.x - 4.0 + (paint_area.width - unwrapped.width) / 2.0)).abs() < 0.001);
-    assert!((placed.y - (start.y + paint_area.height - unwrapped.height)).abs() < 0.001);
-    let end = gui.cursor_rect(paint_area, &paint, "hello world".len(), 0.5);
-    assert_eq!(
-        gui.offset_at_position(paint_area, &paint, LogicalPoint::new(end.x, end.y)),
-        "hello world".len()
-    );
 }
 
 #[test]
@@ -2166,78 +1938,6 @@ fn dropped_image_remains_valid_until_frame_end() {
     renderer.paint(screen.to_logical(SCALE), &Clear);
     renderer.render(0);
     assert_eq!(renderer.buffer().pixels()[0].raw(), 0);
-}
-
-#[test]
-fn text_runs_are_keyed_by_content_and_style() {
-    let mut gui = new_renderer(VecBuffer::<Xrgb8888>::new(1, 1), renderer_config())
-        .context
-        .text
-        .system;
-    let style = TextStyle::default();
-    let text = gui.text_run("same", style);
-    let white = gui.text_run("same", style.color(Color::WHITE));
-    assert_eq!(
-        gui.rich_text(
-            "same",
-            &[Span::new(0..4).style(SpanStyle::new().color(Color::WHITE))],
-            style.color(Color::TRANSPARENT),
-        ),
-        white
-    );
-    assert_eq!(white, text);
-    assert_ne!(gui.text_run("changed", style), text);
-    assert_ne!(gui.text_run("same", TextStyle { weight: 500, ..style }), text);
-    use blit_text::{FontSettings, OpticalSize};
-    for settings in [
-        FontSettings {
-            features: &[(*b"liga", 0)],
-            ..FontSettings::default()
-        },
-        FontSettings {
-            variations: &[(*b"wght", 550.0)],
-            ..FontSettings::default()
-        },
-        FontSettings {
-            language: Some("tr"),
-            ..FontSettings::default()
-        },
-        FontSettings {
-            optical_size: OpticalSize::FontDefault,
-            ..FontSettings::default()
-        },
-    ] {
-        let configured = gui.text_run("same", style.settings(settings));
-        assert_ne!(configured, text);
-        assert_eq!(
-            gui.rich_text(
-                "same",
-                &[Span::new(0..4).style(SpanStyle::new().settings(settings))],
-                style.settings(settings)
-            ),
-            configured
-        );
-    }
-    let owned = {
-        let language = String::from("fr");
-        gui.text_run(
-            "same",
-            style.settings(FontSettings {
-                language: Some(&language),
-                ..FontSettings::default()
-            }),
-        )
-    };
-    assert_eq!(
-        gui.text_run(
-            "same",
-            style.settings(FontSettings {
-                language: Some("fr"),
-                ..FontSettings::default()
-            })
-        ),
-        owned
-    );
 }
 
 #[test]

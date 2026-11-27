@@ -9,7 +9,6 @@ publish = false
 blit.workspace = true
 blit-gui.workspace = true
 blit-profile.workspace = true
-blit-text.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
 blit-util.workspace = true
 wgpu = { workspace = true, features = ["std", "wgsl"] }

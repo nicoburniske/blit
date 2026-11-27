@@ -6,7 +6,6 @@ extern crate std;
 
 mod clear;
 mod damage;
-mod glyph;
 mod math;
 mod pixel;
 mod raster;
@@ -24,7 +23,7 @@ use blit_gui::{
     display_list::{self, Compare, DisplayList},
     image::{ImageData, ImageHandle},
     style::BorderRadius,
-    text::system::TextSystem,
+    text::TextSystem,
 };
 use blit_util::arena::Arena;
 
@@ -57,7 +56,7 @@ pub struct Renderer<B: PixelBuffer, S: RenderStrategy<B> = Direct, D: DamageTrac
 }
 
 impl<B: PixelBuffer> Renderer<B> {
-    pub fn new(buffer: B, text: TextSystem, config: RendererConfig) -> Self {
+    pub fn new(buffer: B, text: Box<dyn TextSystem>, config: RendererConfig) -> Self {
         Self {
             context: RenderState {
                 buffer,
@@ -434,8 +433,8 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> blit::HasFrameStore
 }
 
 impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Context for Renderer<B, S, D> {
-    fn text(&mut self) -> &mut TextSystem {
-        &mut self.context.text.system
+    fn text(&mut self) -> &mut dyn TextSystem {
+        &mut *self.context.text.system
     }
 }
 

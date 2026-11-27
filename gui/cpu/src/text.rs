@@ -1,17 +1,17 @@
-use alloc::vec::Vec;
-use core::{ops::Range, ptr::NonNull};
+use alloc::{boxed::Box, vec::Vec};
+use core::{mem::size_of, ops::Range, ptr::NonNull};
 
-use blit::{LogicalRect, Paint, PhysicalRect, Point, Scale2};
+use blit::{LogicalRect, Paint, PhysicalRect, Scale2};
 use blit_gui::{
     color::Color,
     damage::DamageTracker,
     display_list::DisplayList,
-    text::{FrameText, system::TextSystem},
+    text::{FrameText, GlyphFormat, GlyphImage, GlyphKey, PositionedGlyph, TextSystem},
 };
-use blit_text::GlyphRequest;
+use blit_util::cache::{DeferredCache, Scale};
 
 use crate::{
-    Pixel, PixelBuffer, PixelSpan, RenderStrategy, Renderer, RendererConfig, glyph::GlyphCache, render::DrawContext,
+    Pixel, PixelBuffer, PixelSpan, RenderStrategy, Renderer, RendererConfig, render::DrawContext,
     strategy::command::Payload,
 };
 
@@ -41,18 +41,20 @@ fn draw_text<P: Pixel>(_: &FrameText, cx: &mut DrawContext<'_, P>) {
 }
 
 pub struct TextRenderer {
-    pub system: TextSystem,
-    glyphs: GlyphCache,
+    pub system: Box<dyn TextSystem>,
+    glyphs: DeferredCache<GlyphKey, GlyphImage, GlyphScale>,
+    resolved: Vec<PositionedGlyph>,
     prepared: Vec<PreparedGlyph>,
     runs: Vec<PreparedRun>,
     coverage: Vec<u8>,
 }
 
 impl TextRenderer {
-    pub fn new(config: &RendererConfig, system: TextSystem) -> Self {
+    pub fn new(config: &RendererConfig, system: Box<dyn TextSystem>) -> Self {
         Self {
             system,
-            glyphs: GlyphCache::new(config.glyph_cache_capacity),
+            glyphs: DeferredCache::new(GlyphScale, config.glyph_cache_capacity),
+            resolved: Vec::new(),
             prepared: Vec::new(),
             runs: Vec::new(),
             coverage: Vec::new(),
@@ -68,72 +70,96 @@ impl TextRenderer {
     ) -> (PreparedText, PhysicalRect) {
         let request = text.request();
         let area = placement.to_physical(Scale2::uniform(scale_factor));
-        let mut resolved = self.system.paint_layout(placement, &request);
-        let layout = resolved.layout;
+        self.resolved.clear();
+        self.system
+            .resolve(placement, &request, scale_factor, &mut self.resolved);
         let glyph_start = self.prepared.len() as u32;
         let run_start = self.runs.len() as u32;
         let mut bounds = None::<PhysicalRect>;
-        for run in &layout.runs {
-            let color = text.span_color(list, run.span);
+        let mut current_span = None::<u32>;
+        let mut current_baseline = i32::MIN;
+        let mut color = Color::TRANSPARENT;
+        let mut start = self.prepared.len() as u32;
+        let mut top = i32::MAX;
+        let mut bottom = i32::MIN;
+        let mut disjoint = true;
+        let mut prev_end = i32::MIN;
+        for &prepared in &self.resolved {
+            if current_span != Some(prepared.span) || prepared.origin.y != current_baseline {
+                if start != self.prepared.len() as u32 {
+                    self.runs.push(PreparedRun {
+                        glyphs: start..self.prepared.len() as u32,
+                        top,
+                        bottom,
+                        color,
+                        disjoint,
+                    });
+                }
+                if current_span != Some(prepared.span) {
+                    current_span = Some(prepared.span);
+                    color = text.span_color(list, prepared.span as usize);
+                }
+                current_baseline = prepared.origin.y;
+                start = self.prepared.len() as u32;
+                top = i32::MAX;
+                bottom = i32::MIN;
+                disjoint = true;
+                prev_end = i32::MIN;
+            }
             if color.alpha == 0 {
                 continue;
             }
-            let start = self.prepared.len() as u32;
-            let offset = resolved.line_offset(run.line as usize);
-            let mut top = i32::MAX;
-            let mut bottom = i32::MIN;
-            let mut disjoint = true;
-            let mut prev_end = i32::MIN;
-            for glyph in &layout.glyphs[run.glyphs.start as usize..run.glyphs.end as usize] {
-                let prepared = resolved.prepare_glyph(GlyphRequest {
-                    font: run.font,
-                    glyph: glyph.id,
-                    scale: scale_factor,
-                    origin: Point::new(
-                        (placement.x + glyph.position.x + offset.x - request.offset_x) * scale_factor,
-                        (placement.y + glyph.position.y + offset.y) * scale_factor,
-                    ),
-                });
-                let Some(cached) = self.glyphs.glyph(&mut resolved, prepared.key) else {
-                    continue;
+            let (cached, _) = self.glyphs.get_or_insert(prepared.key, |key| {
+                let image = self.system.rasterize(key);
+                let required = usize::from(image.metrics.width)
+                    .saturating_mul(usize::from(image.metrics.height))
+                    .saturating_mul(image.format.bytes_per_pixel());
+                let image = if required <= image.pixels.len() {
+                    image
+                } else {
+                    GlyphImage::default()
                 };
-                let shape = PhysicalRect::new(
-                    prepared.origin.x.saturating_add(i32::from(cached.metrics.left)),
-                    prepared.origin.y.saturating_add(i32::from(cached.metrics.top)),
-                    i32::from(cached.metrics.width),
-                    i32::from(cached.metrics.height),
-                );
-                let Some(visible) = shape.intersection(area) else {
-                    continue;
-                };
-                bounds = Some(bounds.map_or(visible, |bounds| bounds.union(visible)));
-                let x = shape.x.saturating_sub(area.x);
-                let y = shape.y.saturating_sub(area.y);
-                top = top.min(y);
-                bottom = bottom.max(y.saturating_add(shape.height));
-                let color_glyph = cached.pixels.is_color();
-                if !color_glyph {
-                    disjoint &= x >= prev_end;
-                    prev_end = prev_end.max(x.saturating_add(shape.width));
-                }
-                self.prepared.push(PreparedGlyph {
-                    pixels: NonNull::new(cached.pixels.data().as_ptr().cast_mut()).unwrap(),
-                    color: color_glyph,
-                    x,
-                    y,
-                    width: cached.metrics.width.into(),
-                    height: cached.metrics.height.into(),
-                });
+                (key, image)
+            });
+            if cached.metrics.width == 0 || cached.metrics.height == 0 {
+                continue;
             }
-            if start != self.prepared.len() as u32 {
-                self.runs.push(PreparedRun {
-                    glyphs: start..self.prepared.len() as u32,
-                    top,
-                    bottom,
-                    color,
-                    disjoint,
-                });
+            let shape = PhysicalRect::new(
+                prepared.origin.x.saturating_add(i32::from(cached.metrics.left)),
+                prepared.origin.y.saturating_add(i32::from(cached.metrics.top)),
+                i32::from(cached.metrics.width),
+                i32::from(cached.metrics.height),
+            );
+            let Some(visible) = shape.intersection(area) else {
+                continue;
+            };
+            bounds = Some(bounds.map_or(visible, |bounds| bounds.union(visible)));
+            let x = shape.x.saturating_sub(area.x);
+            let y = shape.y.saturating_sub(area.y);
+            top = top.min(y);
+            bottom = bottom.max(y.saturating_add(shape.height));
+            let color_glyph = cached.format == GlyphFormat::Rgba8;
+            if !color_glyph {
+                disjoint &= x >= prev_end;
+                prev_end = prev_end.max(x.saturating_add(shape.width));
             }
+            self.prepared.push(PreparedGlyph {
+                pixels: NonNull::new(cached.pixels.as_ptr().cast_mut()).unwrap(),
+                x,
+                y,
+                width: cached.metrics.width,
+                height: cached.metrics.height,
+                color: color_glyph,
+            });
+        }
+        if start != self.prepared.len() as u32 {
+            self.runs.push(PreparedRun {
+                glyphs: start..self.prepared.len() as u32,
+                top,
+                bottom,
+                color,
+                disjoint,
+            });
         }
         let (color, disjoint) = self
             .runs
@@ -267,7 +293,7 @@ impl TextRenderer {
     pub fn finish_frame(&mut self) {
         self.prepared.clear();
         self.runs.clear();
-        self.glyphs.finish_frame(&mut self.system);
+        self.glyphs.trim_to_weight();
         self.system.finish_frame();
     }
 }
@@ -282,11 +308,11 @@ pub struct PreparedText {
 
 pub struct PreparedGlyph {
     pixels: NonNull<u8>,
-    color: bool,
     x: i32,
     y: i32,
-    width: u32,
-    height: u32,
+    width: u16,
+    height: u16,
+    color: bool,
 }
 
 struct PreparedRun {
@@ -297,6 +323,14 @@ struct PreparedRun {
     disjoint: bool,
 }
 
+struct GlyphScale;
+
+impl Scale<GlyphKey, GlyphImage> for GlyphScale {
+    fn weight(&self, _key: &GlyphKey, glyph: &GlyphImage) -> usize {
+        size_of::<GlyphImage>() + glyph.pixels.len()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,7 +338,15 @@ mod tests {
 
     #[test]
     fn mixed_glyphs_preserve_color_opacity_and_painter_order() {
-        let system = TextSystem::new(Default::default(), blit_text_parley::Backend::without_system_fonts()).unwrap();
+        let system = Box::new(blit_text_parley::Backend::new(blit_text_parley::parley::FontContext {
+            collection: blit_text_parley::parley::fontique::Collection::new(
+                blit_text_parley::parley::fontique::CollectionOptions {
+                    shared: false,
+                    system_fonts: false,
+                },
+            ),
+            source_cache: Default::default(),
+        }));
         let mut renderer = TextRenderer::new(&RendererConfig::default(), system);
         let mut alpha = [255u8];
         let mut rgba = [128u8, 0, 0, 128];

@@ -5,7 +5,7 @@ use blit_gpu::Renderer;
 use blit_gui::{
     image::{ImageData, ImageHandle},
     style::BorderRadius,
-    text::system::TextSystem,
+    text::TextSystem,
 };
 use blit_profile::{FrameProfiler, StageId};
 use wgpu::{CurrentSurfaceTexture, SurfaceConfiguration};
@@ -21,7 +21,7 @@ const BACKENDS: wgpu::Backends = wgpu::Backends::METAL;
 pub use blit_gpu::RendererConfig as Config;
 
 pub struct Backend {
-    pending: Option<(TextSystem, Config)>,
+    pending: Option<(Box<dyn TextSystem>, Config)>,
     instance: wgpu::Instance,
     gpu: Option<Gpu>,
     active: Option<Active>,
@@ -29,9 +29,9 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn new(text: TextSystem, config: Config) -> Self {
+    pub fn new(text: impl TextSystem, config: Config) -> Self {
         Self {
-            pending: Some((text, config)),
+            pending: Some((Box::new(text), config)),
             instance: wgpu::Instance::new(wgpu::InstanceDescriptor {
                 backends: BACKENDS,
                 ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -95,11 +95,11 @@ where
 }
 
 impl blit_gui::Context for Backend {
-    fn text(&mut self) -> &mut TextSystem {
+    fn text(&mut self) -> &mut dyn TextSystem {
         if let Some(gpu) = &mut self.gpu {
             gpu.renderer.text()
         } else {
-            &mut self.pending.as_mut().expect("GPU renderer config").0
+            &mut *self.pending.as_mut().expect("GPU renderer config").0
         }
     }
 }

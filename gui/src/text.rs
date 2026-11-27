@@ -1,11 +1,11 @@
+use alloc::{borrow::Cow, vec::Vec};
 use core::{
     fmt,
     hash::{Hash, Hasher},
     ops::Range,
 };
 
-use blit::{FrameSlice, Paint, Widget, state};
-use blit_text::{FontSettings, FontStyle};
+use blit::{FrameSlice, LogicalPoint, LogicalRect, LogicalSize, Paint, PhysicalPoint, Widget, state};
 
 use crate::{
     Context,
@@ -13,7 +13,97 @@ use crate::{
     display_list::{Compare, DisplayList},
 };
 
-pub mod system;
+//
+// text system
+//
+
+pub trait TextSystem: 'static {
+    /// registers geometry using the font attributes in style
+    /// returned text runs remain valid until finish_frame
+    fn text_run(&mut self, text: &str, style: TextStyle) -> TextRun {
+        self.rich_text(text, &[], style)
+    }
+
+    /// registers geometry using span ranges and font attributes
+    /// returned text runs remain valid until finish_frame
+    fn rich_text(&mut self, text: &str, spans: &[Span<'_>], style: TextStyle) -> TextRun;
+
+    fn measure(&mut self, text: TextRun, max_width: Option<f32>, options: TextOptions) -> LogicalSize;
+
+    fn offset_at_position(&mut self, area: LogicalRect, request: &TextRequest, position: LogicalPoint) -> usize;
+
+    fn cursor_rect(&mut self, area: LogicalRect, request: &TextRequest, byte_offset: usize, width: f32)
+    -> LogicalRect;
+
+    /// appends positioned glyphs for painting
+    /// returned glyph keys remain valid for rasterize until finish_frame
+    fn resolve(&mut self, area: LogicalRect, request: &TextRequest, scale: f32, glyphs: &mut Vec<PositionedGlyph>);
+
+    /// equal keys must produce identical pixels and bearings
+    fn rasterize(&mut self, key: GlyphKey) -> GlyphImage;
+
+    fn finish_frame(&mut self) {}
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PositionedGlyph {
+    pub key: GlyphKey,
+    pub origin: PhysicalPoint,
+    pub span: u32,
+}
+
+/// glyph identity for renderer pixel caches
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GlyphKey {
+    pub font: u64,
+    pub size: u32,
+    pub glyph: u16,
+    pub phase: u8,
+}
+
+impl Hash for GlyphKey {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let packed = (u64::from(self.size) << 24) | (u64::from(self.glyph) << 8) | u64::from(self.phase);
+        state.write_u128((u128::from(self.font) << 64) | u128::from(packed));
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct GlyphImage {
+    pub metrics: GlyphMetrics,
+    pub format: GlyphFormat,
+    pub pixels: Cow<'static, [u8]>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GlyphFormat {
+    /// tightly packed coverage tinted by the text color
+    #[default]
+    Alpha8,
+    /// tightly packed rgba with encoded srgb channels multiplied by alpha
+    /// keeps intrinsic colors and receives text alpha once
+    Rgba8,
+}
+
+impl GlyphFormat {
+    pub const fn bytes_per_pixel(self) -> usize {
+        match self {
+            Self::Alpha8 => 1,
+            Self::Rgba8 => 4,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GlyphMetrics {
+    pub width: u16,
+    pub height: u16,
+    /// pixel offset from the glyph origin including any horizontal subpixel phase
+    pub left: i16,
+    /// pixel offset from the baseline with positive values pointing down
+    pub top: i16,
+}
 
 //
 // widgets
@@ -24,7 +114,7 @@ blit::builder! {
     pub struct Text<'a> {
         new(#[into] text: TextSource<'a>),
         style: TextStyle<'a> = TextStyle::new(),
-        offset_x: f32 = 0.0,
+        offset: LogicalPoint = LogicalPoint::new(0.0, 0.0),
         options: TextOptions = TextOptions::new(),
     }
 }
@@ -46,7 +136,7 @@ where
         let colors = ui.store_mut().slice_from(&[self.style.color]);
         ui.insert(
             FrameText::new(run, colors)
-                .offset_x(self.offset_x)
+                .offset(self.offset)
                 .options(self.options),
         );
     }
@@ -58,7 +148,7 @@ blit::builder! {
     pub struct RichText<'a> {
         new(text: &'a str, spans: &'a [Span<'a>]),
         style: TextStyle<'a> = TextStyle::new(),
-        offset_x: f32 = 0.0,
+        offset: LogicalPoint = LogicalPoint::new(0.0, 0.0),
         options: TextOptions = TextOptions::new(),
     }
 }
@@ -85,7 +175,7 @@ where
         let colors = colors.finish();
         ui.insert(
             FrameText::new(run, colors)
-                .offset_x(self.offset_x)
+                .offset(self.offset)
                 .options(self.options),
         );
     }
@@ -101,7 +191,7 @@ blit::builder! {
     pub struct FrameText {
         // one color per span
         new(text: TextRun, colors: FrameSlice<Color>),
-        offset_x: f32 = 0.0,
+        offset: LogicalPoint = LogicalPoint::new(0.0, 0.0),
         options: TextOptions = TextOptions::new(),
     }
 }
@@ -114,17 +204,11 @@ where
 
     fn build(self, mut ui: blit::Ui<'_, C, state::Insert>) {
         let text = self.text;
-        let wrap = self.options.wrap;
-        let max_lines = self.options.max_lines;
+        let options = self.options;
         ui.measure(move |cx, constraints| {
-            let measured = cx.text().measure(&TextLayoutRequest {
-                text,
-                wrap,
-                max_width: (wrap != TextWrap::None && constraints.max.width.is_finite())
-                    .then_some(constraints.max.width),
-                max_lines,
-            });
-            constraints.constrain(measured)
+            let max_width = (options.wrap != TextWrap::None && constraints.max.width.is_finite())
+                .then_some(constraints.max.width);
+            constraints.constrain(cx.text().measure(text, max_width, options))
         });
         ui.paint(move |cx, area| cx.context_mut().paint(area, &self));
     }
@@ -134,11 +218,9 @@ impl FrameText {
     /// placement used for text system queries
     #[inline]
     pub fn request(&self) -> TextRequest {
-        TextRequest {
-            text: self.text,
-            offset_x: self.offset_x,
-            options: self.options,
-        }
+        TextRequest::new(self.text)
+            .offset(self.offset)
+            .options(self.options)
     }
 
     /// missing spans repeat the last color
@@ -165,12 +247,12 @@ impl Compare for FrameText {
 }
 
 //
-// text system
+// requests and runs
 //
 
 /// cached text geometry
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct TextRun(pub(crate) u64);
+pub struct TextRun(pub u64);
 
 /// text from borrowed strings or formatting arguments
 #[derive(Clone, Copy, Debug)]
@@ -200,23 +282,22 @@ impl<'a> From<fmt::Arguments<'a>> for TextSource<'a> {
     }
 }
 
-/// placed text for text system queries such as cursor and hit testing
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextRequest {
-    pub text: TextRun,
-    pub offset_x: f32,
-    pub options: TextOptions,
+blit::builder! {
+    /// placed text for text system queries such as cursor and hit testing
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct TextRequest {
+        new(text: TextRun),
+        offset: LogicalPoint = LogicalPoint::new(0.0, 0.0),
+        options: TextOptions = TextOptions::new(),
+    }
 }
 
 impl Hash for TextRequest {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        let float_bits = |value: f32| if value == 0.0 { 0 } else { value.to_bits() };
         self.text.hash(state);
-        (if self.offset_x == 0.0 {
-            0
-        } else {
-            self.offset_x.to_bits()
-        })
-        .hash(state);
+        float_bits(self.offset.x).hash(state);
+        float_bits(self.offset.y).hash(state);
         self.options.wrap.hash(state);
         self.options.overflow.hash(state);
         self.options.horizontal_align.hash(state);
@@ -225,17 +306,8 @@ impl Hash for TextRequest {
     }
 }
 
-/// unplaced text for measuring
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextLayoutRequest {
-    pub text: TextRun,
-    pub wrap: TextWrap,
-    pub max_width: Option<f32>,
-    pub max_lines: Option<u16>,
-}
-
 //
-// style
+// style and fonts
 //
 
 blit::builder! {
@@ -254,7 +326,7 @@ blit::builder! {
 
 blit::builder! {
     /// style overrides for a rich text span
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct SpanStyle<'a> {
         new(),
         #[into]
@@ -285,6 +357,34 @@ blit::builder! {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct FontId(pub u16);
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FontStyle {
+    #[default]
+    Normal,
+    Italic,
+    Oblique,
+}
+
+blit::builder! {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct FontSettings<'a> {
+        new(),
+        features: &'a [([u8; 4], u32)] = &[],
+        variations: &'a [([u8; 4], f32)] = &[],
+        #[into]
+        language: Option<&'a str> = None,
+        optical_size: OpticalSize = OpticalSize::Auto,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum OpticalSize {
+    #[default]
+    Auto,
+    FontDefault,
+    Fixed(f32),
+}
 
 //
 // options
