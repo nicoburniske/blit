@@ -9,7 +9,7 @@ use blit_gui::{
     text::system::TextSystem,
 };
 use blit_profile::{FrameProfiler, StageId};
-use softbuffer::{Context, Surface};
+use softbuffer::{Context, Rect, Surface};
 use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::{GraphicsBackend, GraphicsError};
@@ -17,6 +17,7 @@ use crate::{GraphicsBackend, GraphicsError};
 pub struct Backend {
     active: Option<Active>,
     renderer: Renderer<DesktopBuffer, Scanline>,
+    damage: Vec<Rect>,
     stages: Stages,
 }
 
@@ -26,6 +27,7 @@ impl Backend {
         Self {
             active: None,
             renderer,
+            damage: Vec::new(),
             stages: Stages::default(),
         }
     }
@@ -129,8 +131,17 @@ impl GraphicsBackend for Backend {
         self.renderer.buffer_mut().set(&mut buffer);
         self.renderer.render(age);
         profiler.mark(self.stages.raster, || started_at.elapsed());
+        self.damage.clear();
+        self.damage.extend(self.renderer.damage().filter_map(|rect| {
+            Some(Rect {
+                x: u32::try_from(rect.x).ok()?,
+                y: u32::try_from(rect.y).ok()?,
+                width: NonZeroU32::new(u32::try_from(rect.width).ok()?)?,
+                height: NonZeroU32::new(u32::try_from(rect.height).ok()?)?,
+            })
+        }));
         active.window.pre_present_notify();
-        buffer.present()?;
+        buffer.present_with_damage(&self.damage)?;
         profiler.mark(self.stages.present, || started_at.elapsed());
         Ok(true)
     }

@@ -324,6 +324,41 @@ impl<B: PixelBuffer, S: RenderStrategy<B>, D: DamageTracker> Renderer<B, S, D> {
         self.reset_frame();
     }
 
+    /// disjoint dirty regions written by the last render
+    pub fn damage(&mut self) -> impl Iterator<Item = PhysicalRect> + '_ {
+        let screen = self.screen();
+        let mut present = self.pass_damage.stages.last().map(damage::region::Region::rects);
+        let damage = &self.damage;
+        let ranges = &mut self.pass_damage.ranges;
+        let mut line = 0;
+        let mut end = 0;
+        let mut index = 0;
+        ranges.clear();
+        core::iter::from_fn(move || {
+            if let Some(rects) = &mut present {
+                return rects.next();
+            }
+            loop {
+                if index < ranges.len() {
+                    let range = &ranges[index];
+                    index += 1;
+                    return Some(PhysicalRect::new(
+                        range.start as i32,
+                        line,
+                        (range.end - range.start) as i32,
+                        end - line,
+                    ));
+                }
+                line = end;
+                if line >= screen.height {
+                    return None;
+                }
+                end = damage.line_ranges(line, screen, ranges);
+                index = 0;
+            }
+        })
+    }
+
     /// clears pending inputs before a new frame
     pub fn reset_frame(&mut self) {
         let context = &mut self.context;

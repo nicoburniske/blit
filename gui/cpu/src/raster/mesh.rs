@@ -40,9 +40,7 @@ fn draw_mesh<P: Pixel>(value: &mesh::FrameMesh, cx: &mut DrawContext<'_, P>) {
     let target = &mut *cx.commands;
     let index = target.mesh_count;
     if index == target.meshes.len() {
-        target
-            .meshes
-            .push(crate::raster::mesh::Prepared::new(cx.offset));
+        target.meshes.push(crate::raster::mesh::Prepared::new(cx.offset));
     } else {
         target.meshes[index].source = cx.offset;
     }

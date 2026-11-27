@@ -314,8 +314,8 @@ impl PreparedFill {
                     }
                     let length = pixels.len() as f64;
                     let boundary = |stop: &Stop| {
-                        (math::ceil((stop.position as f64 - position) * gradient.inverse) - x as f64)
-                            .clamp(0.0, length) as usize
+                        (math::ceil((stop.position as f64 - position) * gradient.inverse) - x as f64).clamp(0.0, length)
+                            as usize
                     };
                     let (first, end) = (boundary(&stops[0]), boundary(&stops[last]));
                     let edges = if gradient.x < 0.0 {
