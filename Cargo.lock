@@ -136,6 +136,8 @@ dependencies = [
  "blit-gui",
  "blit-text-parley",
  "blit-util",
+ "blit-widget",
+ "divan",
  "fearless_simd",
  "kurbo",
  "libm",
