@@ -122,7 +122,7 @@ impl GraphicsBackend for Backend {
         let surface_config = if let Some(gpu) = &self.gpu {
             gpu.surface_config(&surface, width, height)?
         } else {
-            let adapter = blit_executor::block_on(self.instance.request_adapter(&wgpu::RequestAdapterOptions {
+            let adapter = pollster::block_on(self.instance.request_adapter(&wgpu::RequestAdapterOptions {
                 compatible_surface: Some(&surface),
                 ..Default::default()
             }))?;
@@ -139,7 +139,7 @@ impl GraphicsBackend for Backend {
                     .find(|format| !format.is_srgb())
                     .ok_or_else(|| IoError::other("GPU surface has no non-sRGB format"))?;
             }
-            let (device, queue) = blit_executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                 required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
                 required_limits: wgpu::Limits::default().using_resolution(adapter.limits()),
                 ..Default::default()

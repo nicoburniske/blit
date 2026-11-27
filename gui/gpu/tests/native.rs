@@ -30,11 +30,11 @@ fn renders_primitives_and_rebuilds_frames() {
         backends,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
-    let Ok(adapter) = blit_executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
         eprintln!("skipping native GPU test because no adapter is available");
         return;
     };
-    let (device, queue) = blit_executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
 
     const WIDTH: u32 = 128;
     const HEIGHT: u32 = 128;

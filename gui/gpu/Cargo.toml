@@ -15,9 +15,11 @@ blit-util.workspace = true
 wgpu = { workspace = true, features = ["std", "wgsl"] }
 
 [dev-dependencies]
-blit-executor.workspace = true
 blit-text-parley.workspace = true
 wgpu = { workspace = true, features = ["noop", "wgsl"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dev-dependencies]
+pollster.workspace = true
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 wgpu = { workspace = true, features = ["vulkan"] }

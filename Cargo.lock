@@ -171,6 +171,7 @@ dependencies = [
  "blit-gui",
  "blit-profile",
  "blit-widget",
+ "pollster",
  "softbuffer",
  "wgpu",
  "winit",
@@ -188,13 +189,13 @@ name = "blit-gpu"
 version = "0.1.0"
 dependencies = [
  "blit",
- "blit-executor",
  "blit-gui",
  "blit-profile",
  "blit-text",
  "blit-text-parley",
  "blit-util",
  "bytemuck",
+ "pollster",
  "wgpu",
 ]
 
@@ -1669,6 +1670,12 @@ dependencies = [
  "rustix 1.1.4",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "pollster"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e9b9cf600136f5b976fbc5727d58c26e1ecab8ee23088d44ef1c7af793550ab"
 
 [[package]]
 name = "polycool"
