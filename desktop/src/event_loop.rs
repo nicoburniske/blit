@@ -317,6 +317,7 @@ impl<A: Application> ApplicationHandler<Event<A::Input>> for Runner<A> {
             let _ = wake.send_event(Event::TasksReady);
         });
         let root = executor.root();
+        context.window = Some(window.clone());
         let app = A::new(input, root, &mut context);
         let mut active = Box::new(Active {
             app,

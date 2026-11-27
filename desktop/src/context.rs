@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use blit::{LogicalRect, Paint};
 use blit_gui::{
     image::{ImageData, ImageHandle},
@@ -5,12 +7,14 @@ use blit_gui::{
     text::system::TextSystem,
 };
 use blit_profile::FrameProfiler;
+use winit::window::Window;
 
 use crate::{GraphicsBackend, GraphicsError};
 
 pub struct DesktopContext<G> {
     pub profiler: FrameProfiler,
     pub graphics: G,
+    pub(crate) window: Option<Arc<Window>>,
 }
 
 impl<G: GraphicsBackend> DesktopContext<G> {
@@ -18,7 +22,17 @@ impl<G: GraphicsBackend> DesktopContext<G> {
         Self {
             profiler: FrameProfiler::default(),
             graphics,
+            window: None,
         }
+    }
+
+    /// Sets the native window title and returns whether a window was available.
+    pub fn set_title(&self, title: &str) -> bool {
+        let Some(window) = &self.window else {
+            return false;
+        };
+        window.set_title(title);
+        true
     }
 
     pub fn create_image(&mut self, data: ImageData) -> Result<ImageHandle, GraphicsError> {
