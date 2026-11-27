@@ -584,14 +584,16 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         }
 
         let (chunks, tail) = pixels.as_chunks_mut::<8>();
-        let packed = Self::from_rgba(color);
-        dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
-            let source = packed.splat_u16(simd);
-            let alpha = u16x16::splat(simd, u16::from(color.alpha));
-            for pixels in chunks.iter_mut() {
-                blend_bytes(pixels, (source, source), (alpha, alpha));
-            }
-        });
+        if !chunks.is_empty() {
+            let packed = Self::from_rgba(color);
+            dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
+                let source = packed.splat_u16(simd);
+                let alpha = u16x16::splat(simd, u16::from(color.alpha));
+                for pixels in chunks.iter_mut() {
+                    blend_bytes(pixels, (source, source), (alpha, alpha));
+                }
+            });
+        }
         for pixel in tail {
             pixel.blend_translucent(color);
         }
@@ -604,32 +606,34 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         let len = pixels.len().min(alpha.len());
         let (pixel_chunks, pixel_tail) = pixels[..len].as_chunks_mut::<8>();
         let (alpha_chunks, alpha_tail) = alpha[..len].as_chunks::<8>();
-        let opaque = Self::from_rgb(color.red, color.green, color.blue);
-        dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
-            let color_lanes = opaque.splat_u16(simd);
-            for (pixels, alpha) in pixel_chunks.iter_mut().zip(alpha_chunks) {
-                let bits = u64::from_ne_bytes(*alpha);
-                if bits == 0 {
-                    continue;
+        if !pixel_chunks.is_empty() {
+            let opaque = Self::from_rgb(color.red, color.green, color.blue);
+            dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
+                let color_lanes = opaque.splat_u16(simd);
+                for (pixels, alpha) in pixel_chunks.iter_mut().zip(alpha_chunks) {
+                    let bits = u64::from_ne_bytes(*alpha);
+                    if bits == 0 {
+                        continue;
+                    }
+                    if color.alpha == 255 && bits == u64::MAX {
+                        *pixels = [opaque; 8];
+                        continue;
+                    }
+                    let mut lanes = [0u8; 16];
+                    lanes[..8].copy_from_slice(alpha);
+                    let mut a16 = simd.widen_u8x16(u8x16::simd_from(simd, lanes)).0;
+                    if color.alpha != 255 {
+                        a16 = divide_by_255_u16(a16 * u16::from(color.alpha));
+                    }
+                    let alpha = broadcast_alpha(a16);
+                    let source = (
+                        divide_by_255_u16x16(alpha.0 * color_lanes),
+                        divide_by_255_u16x16(alpha.1 * color_lanes),
+                    );
+                    blend_bytes(pixels, source, alpha);
                 }
-                if color.alpha == 255 && bits == u64::MAX {
-                    *pixels = [opaque; 8];
-                    continue;
-                }
-                let mut lanes = [0u8; 16];
-                lanes[..8].copy_from_slice(alpha);
-                let mut a16 = simd.widen_u8x16(u8x16::simd_from(simd, lanes)).0;
-                if color.alpha != 255 {
-                    a16 = divide_by_255_u16(a16 * u16::from(color.alpha));
-                }
-                let alpha = broadcast_alpha(a16);
-                let source = (
-                    divide_by_255_u16x16(alpha.0 * color_lanes),
-                    divide_by_255_u16x16(alpha.1 * color_lanes),
-                );
-                blend_bytes(pixels, source, alpha);
-            }
-        });
+            });
+        }
         for (pixel, alpha) in pixel_tail.iter_mut().zip(alpha_tail) {
             pixel.blend(PremultipliedRgbaColor::new(color, *alpha));
         }
@@ -642,27 +646,29 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         let len = pixels.len().min(source.len() / 4);
         let (pixel_chunks, pixel_tail) = pixels[..len].as_chunks_mut::<8>();
         let (source_chunks, source_tail) = source[..len * 4].as_chunks::<32>();
-        let opaque = Self::from_rgb(color.red, color.green, color.blue);
-        dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
-            let color_lanes = opaque.splat_u16(simd);
-            for (pixels, source) in pixel_chunks.iter_mut().zip(source_chunks) {
-                let raw: u32x8<_> = u8x32::simd_from(simd, *source).bitcast();
-                let (a_lo, a_hi) = simd.split_u32x8((raw >> RGBA_SHIFTS[3]) & 0xff);
-                let mut a16 = simd.narrow_u32x4(a_lo, a_hi);
-                if opacity != 255 {
-                    a16 = divide_by_255_u16(a16 * u16::from(opacity));
+        if !pixel_chunks.is_empty() {
+            let opaque = Self::from_rgb(color.red, color.green, color.blue);
+            dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
+                let color_lanes = opaque.splat_u16(simd);
+                for (pixels, source) in pixel_chunks.iter_mut().zip(source_chunks) {
+                    let raw: u32x8<_> = u8x32::simd_from(simd, *source).bitcast();
+                    let (a_lo, a_hi) = simd.split_u32x8((raw >> RGBA_SHIFTS[3]) & 0xff);
+                    let mut a16 = simd.narrow_u32x4(a_lo, a_hi);
+                    if opacity != 255 {
+                        a16 = divide_by_255_u16(a16 * u16::from(opacity));
+                    }
+                    if color.alpha != 255 {
+                        a16 = divide_by_255_u16(a16 * u16::from(color.alpha));
+                    }
+                    let alpha = broadcast_alpha(a16);
+                    let source = (
+                        divide_by_255_u16x16(alpha.0 * color_lanes),
+                        divide_by_255_u16x16(alpha.1 * color_lanes),
+                    );
+                    blend_bytes(pixels, source, alpha);
                 }
-                if color.alpha != 255 {
-                    a16 = divide_by_255_u16(a16 * u16::from(color.alpha));
-                }
-                let alpha = broadcast_alpha(a16);
-                let source = (
-                    divide_by_255_u16x16(alpha.0 * color_lanes),
-                    divide_by_255_u16x16(alpha.1 * color_lanes),
-                );
-                blend_bytes(pixels, source, alpha);
-            }
-        });
+            });
+        }
         blend_colorized_rgba_scalar(pixel_tail, color, source_tail, opacity);
     }
 
@@ -718,33 +724,35 @@ impl<const RED: u8, const GREEN: u8, const BLUE: u8, const ALPHA: u32> Pixel for
         let len = pixels.len().min(source.len());
         let (pixel_chunks, pixel_tail) = pixels[..len].as_chunks_mut::<8>();
         let (source_chunks, source_tail) = source[..len].as_chunks::<8>();
-        dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
-            for (pixels, source) in pixel_chunks.iter_mut().zip(source_chunks) {
-                // safety: PremultipliedRgbaColor is repr(C) of four u8 channels
-                let raw: u32x8<_> = u8x32::simd_from(
-                    simd,
-                    unsafe { *(source as *const [PremultipliedRgbaColor; 8] as *const [u8; 32]) },
-                )
-                .bitcast();
-                let alpha = (raw >> RGBA_SHIFTS[3]) & 0xff;
-                let (a_lo, a_hi) = simd.split_u32x8(alpha);
-                let mut a16 = simd.narrow_u32x4(a_lo, a_hi);
-                let mut packed = ((raw >> RGBA_SHIFTS[0]) & 0xff) << RED as u32
-                    | ((raw >> RGBA_SHIFTS[1]) & 0xff) << GREEN as u32
-                    | ((raw >> RGBA_SHIFTS[2]) & 0xff) << BLUE as u32;
-                if ALPHA != 0 {
-                    packed |= alpha << ALPHA.trailing_zeros();
+        if !pixel_chunks.is_empty() {
+            dispatch!(Level::try_detect().unwrap_or_else(Level::baseline), simd => {
+                for (pixels, source) in pixel_chunks.iter_mut().zip(source_chunks) {
+                    // safety: PremultipliedRgbaColor is repr(C) of four u8 channels
+                    let raw: u32x8<_> = u8x32::simd_from(
+                        simd,
+                        unsafe { *(source as *const [PremultipliedRgbaColor; 8] as *const [u8; 32]) },
+                    )
+                    .bitcast();
+                    let alpha = (raw >> RGBA_SHIFTS[3]) & 0xff;
+                    let (a_lo, a_hi) = simd.split_u32x8(alpha);
+                    let mut a16 = simd.narrow_u32x4(a_lo, a_hi);
+                    let mut packed = ((raw >> RGBA_SHIFTS[0]) & 0xff) << RED as u32
+                        | ((raw >> RGBA_SHIFTS[1]) & 0xff) << GREEN as u32
+                        | ((raw >> RGBA_SHIFTS[2]) & 0xff) << BLUE as u32;
+                    if ALPHA != 0 {
+                        packed |= alpha << ALPHA.trailing_zeros();
+                    }
+                    let (mut src_lo, mut src_hi) = simd.widen_u8x32(packed.bitcast());
+                    if opacity != 255 {
+                        let op = u16x16::splat(simd, u16::from(opacity));
+                        src_lo = divide_by_255_u16x16(src_lo * op);
+                        src_hi = divide_by_255_u16x16(src_hi * op);
+                        a16 = divide_by_255_u16(a16 * u16::from(opacity));
+                    }
+                    blend_bytes(pixels, (src_lo, src_hi), broadcast_alpha(a16));
                 }
-                let (mut src_lo, mut src_hi) = simd.widen_u8x32(packed.bitcast());
-                if opacity != 255 {
-                    let op = u16x16::splat(simd, u16::from(opacity));
-                    src_lo = divide_by_255_u16x16(src_lo * op);
-                    src_hi = divide_by_255_u16x16(src_hi * op);
-                    a16 = divide_by_255_u16(a16 * u16::from(opacity));
-                }
-                blend_bytes(pixels, (src_lo, src_hi), broadcast_alpha(a16));
-            }
-        });
+            });
+        }
         for (pixel, source) in pixel_tail.iter_mut().zip(source_tail) {
             pixel.blend(if opacity == 255 {
                 *source

@@ -82,8 +82,6 @@ impl TextRenderer {
         let mut start = self.prepared.len() as u32;
         let mut top = i32::MAX;
         let mut bottom = i32::MIN;
-        let mut disjoint = true;
-        let mut prev_end = i32::MIN;
         for &prepared in &self.resolved {
             if current_span != Some(prepared.span) || prepared.origin.y != current_baseline {
                 if start != self.prepared.len() as u32 {
@@ -92,7 +90,6 @@ impl TextRenderer {
                         top,
                         bottom,
                         color,
-                        disjoint,
                     });
                 }
                 if current_span != Some(prepared.span) {
@@ -103,8 +100,6 @@ impl TextRenderer {
                 start = self.prepared.len() as u32;
                 top = i32::MAX;
                 bottom = i32::MIN;
-                disjoint = true;
-                prev_end = i32::MIN;
             }
             if color.alpha == 0 {
                 continue;
@@ -138,18 +133,13 @@ impl TextRenderer {
             let y = shape.y.saturating_sub(area.y);
             top = top.min(y);
             bottom = bottom.max(y.saturating_add(shape.height));
-            let color_glyph = cached.format == GlyphFormat::Rgba8;
-            if !color_glyph {
-                disjoint &= x >= prev_end;
-                prev_end = prev_end.max(x.saturating_add(shape.width));
-            }
             self.prepared.push(PreparedGlyph {
                 pixels: NonNull::new(cached.pixels.as_ptr().cast_mut()).unwrap(),
                 x,
                 y,
                 width: cached.metrics.width,
                 height: cached.metrics.height,
-                color: color_glyph,
+                color: cached.format == GlyphFormat::Rgba8,
             });
         }
         if start != self.prepared.len() as u32 {
@@ -158,13 +148,12 @@ impl TextRenderer {
                 top,
                 bottom,
                 color,
-                disjoint,
             });
         }
-        let (color, disjoint) = self
+        let color = self
             .runs
             .get(run_start as usize)
-            .map_or((Color::TRANSPARENT, true), |run| (run.color, run.disjoint));
+            .map_or(Color::TRANSPARENT, |run| run.color);
         let runs = if self.runs.len() - run_start as usize > 1 {
             run_start..self.runs.len() as u32
         } else {
@@ -177,7 +166,6 @@ impl TextRenderer {
                 runs,
                 area,
                 color,
-                disjoint,
             },
             bounds.unwrap_or_default(),
         )
@@ -196,19 +184,16 @@ impl TextRenderer {
             ref runs,
             area,
             color,
-            disjoint,
         } = *command;
         let row_end = row.x.saturating_add(row.pixels.len() as i32);
         let clip_end = clip.x.saturating_add(clip.width);
-        let mut draw = |glyphs: Range<u32>, mut color: Color, disjoint: bool| {
+        let mut draw = |glyphs: Range<u32>, mut color: Color| {
             color.alpha = (color.alpha as u16 * clip_coverage as u16 / 255) as u8;
-            if !disjoint {
-                if self.coverage.len() < row.pixels.len() {
-                    self.coverage.resize(row.pixels.len(), 0);
-                }
-                let clear_start = (clip.x - row.x).max(0).min(row.pixels.len() as i32) as usize;
-                let clear_end = (clip_end - row.x).max(0).min(row.pixels.len() as i32) as usize;
-                self.coverage[clear_start..clear_end].fill(0);
+            if color.alpha == 0 {
+                return;
+            }
+            if self.coverage.len() < row.pixels.len() {
+                self.coverage.resize(row.pixels.len(), 0);
             }
             let mut touched_start = row.pixels.len();
             let mut touched_end = 0usize;
@@ -258,10 +243,6 @@ impl TextRenderer {
                 }
                 // safety: glyph pixels remain live until finish_frame
                 let alpha = unsafe { core::slice::from_raw_parts(glyph.pixels.as_ptr().add(source), len) };
-                if disjoint {
-                    P::blend_alpha_slice(&mut row.pixels[destination_start..destination_end], color, alpha);
-                    continue;
-                }
                 let overlap = touched_end.saturating_sub(destination_start).min(len);
                 let destination = &mut self.coverage[destination_start..destination_end];
                 for (destination, source) in destination[..overlap].iter_mut().zip(alpha) {
@@ -277,14 +258,15 @@ impl TextRenderer {
                     color,
                     &self.coverage[touched_start..touched_end],
                 );
+                self.coverage[touched_start..touched_end].fill(0);
             }
         };
         if runs.is_empty() {
-            draw(glyphs.clone(), color, disjoint);
+            draw(glyphs.clone(), color);
         } else {
             for run in &self.runs[runs.start as usize..runs.end as usize] {
                 if line >= area.y.saturating_add(run.top) && line < area.y.saturating_add(run.bottom) {
-                    draw(run.glyphs.clone(), run.color, run.disjoint);
+                    draw(run.glyphs.clone(), run.color);
                 }
             }
         }
@@ -303,7 +285,6 @@ pub struct PreparedText {
     pub runs: Range<u32>,
     pub area: PhysicalRect,
     pub color: Color,
-    pub disjoint: bool,
 }
 
 pub struct PreparedGlyph {
@@ -320,7 +301,6 @@ struct PreparedRun {
     top: i32,
     bottom: i32,
     color: Color,
-    disjoint: bool,
 }
 
 struct GlyphScale;
@@ -368,7 +348,6 @@ mod tests {
                 runs: 0..0,
                 area,
                 color: Color::rgba(0, 255, 0, 128),
-                disjoint: false,
             },
             128,
             0,
